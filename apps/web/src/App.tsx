@@ -177,6 +177,13 @@ export function App() {
         ),
       );
     }
+    if (event.type === 'assistant_metrics') {
+      setMessages(prev =>
+        prev.map(message =>
+          message.id === event.id ? {...message, performance: event.performance} : message,
+        ),
+      );
+    }
     if (event.type === 'tool') {
       setMessages(prev => {
         const copy = [...prev];
@@ -521,7 +528,10 @@ function RenderedMessage({message}: {message: ApiChatMessage}) {
       <ChatMessageBubble
         variant={message.role === 'assistant' ? 'ghost' : undefined}
         metadata={
-          <ChatMessageMetadata timestamp={<Timestamp value={message.createdAt} format="time" />} />
+          <ChatMessageMetadata
+            timestamp={<Timestamp value={message.createdAt} format="time" />}
+            footer={formatTokensPerSecond(message.performance?.tokensPerSecond)}
+          />
         }
       >
         {message.role === 'assistant' ? (
@@ -532,4 +542,11 @@ function RenderedMessage({message}: {message: ApiChatMessage}) {
       </ChatMessageBubble>
     </ChatMessage>
   );
+}
+
+function formatTokensPerSecond(value: number | undefined): string | undefined {
+  if (value == null || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return `${value.toFixed(value < 100 ? 1 : 0)} tok/s`;
 }

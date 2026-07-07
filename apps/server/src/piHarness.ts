@@ -10,6 +10,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 import {createAsyncQueue} from './asyncQueue';
+import {startLlamaThroughputMonitor} from './llamaThroughput';
 import {isQwenFamilyModel, llamaRuntimeModelId} from './modelCompat';
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
@@ -76,6 +77,15 @@ export class PiHarness {
     queue: ReturnType<typeof createAsyncQueue<ChatStreamEvent>>,
   ): Promise<void> {
     const session = await this.ensureSession(activeModel);
+    const state = await this.store.getState();
+    const monitor = startLlamaThroughputMonitor({
+      port: state.runtime.port,
+      modelId: llamaRuntimeModelId(activeModel),
+      onPerformance: performance => {
+        assistantMessage.performance = performance;
+        queue.push({type: 'assistant_metrics', id: assistantMessage.id, performance});
+      },
+    });
     const toolCalls: ToolCallEvent[] = [];
     let thinkingText = '';
     let providerError: string | null = null;
@@ -143,6 +153,7 @@ export class PiHarness {
       queue.push({type: 'done', message: assistantMessage});
       queue.end();
     } finally {
+      monitor.stop();
       unsubscribe();
     }
   }

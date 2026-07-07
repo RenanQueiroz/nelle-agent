@@ -42,6 +42,10 @@ The first product experience should be UI-driven:
 - Router requests are routed by the request `model` field for OpenAI-style POST
   endpoints. `--models-max` limits how many models can be loaded at once.
   Reference: https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md#routing-requests
+- llama.cpp exposes live slot monitoring through `/slots` and emits final
+  completion timing fields such as `timings.predicted_per_second` on streamed
+  OpenAI-compatible responses.
+  Reference: https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md
 - Hugging Face supports GGUF metadata and llama.cpp can consume GGUF models from
   the Hub. The Nelle model picker should be GGUF-first.
   References: https://huggingface.co/docs/hub/en/gguf and
@@ -416,6 +420,10 @@ Initial implementation:
   starting sessions with `thinkingLevel: "off"`. This makes Pi send
   `chat_template_kwargs.enable_thinking = false` to local llama.cpp servers and
   avoids hidden-only `reasoning_content` responses for normal chat.
+- Attach llama.cpp throughput metadata to assistant messages. Live chat uses the
+  router `/slots?model=...` decoded-token counters; direct llama.cpp fallback
+  streams replace that value with final `timings.predicted_per_second` when
+  available.
 - Keep direct Nelle file downloads as a secondary/simple path for explicit
   single-file GGUF use, but do not make it the primary HF model picker flow.
 
@@ -538,6 +546,8 @@ Exit criteria:
 
 - Pi SDK uses Nelle's local llama.cpp provider.
 - Web UI can create a session and stream assistant output.
+- Web UI displays llama.cpp generation throughput beside assistant message
+  timestamps when the server reports it.
 - Basic session history persists.
 - Host file and shell tools work in the user's account.
 - First-run UX clearly states that v1 tool execution is unsandboxed.

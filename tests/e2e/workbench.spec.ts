@@ -84,3 +84,96 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
     .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
     .toContain('hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL');
 });
+
+test('renders llama.cpp throughput in chat message metadata', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL',
+    presetName: 'unsloth-qwen',
+    source: 'huggingface',
+    repoId: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF',
+    quant: 'UD-Q4_K_XL',
+    hfRef: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    activeModelId: model.id,
+    lastError: null,
+  };
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/chat/stream', async route => {
+    const userMessage = {
+      id: 'user-1',
+      role: 'user',
+      content: 'hello',
+      createdAt: '2026-07-07T12:01:00.000Z',
+    };
+    const assistantMessage = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Hello from Nelle.',
+      createdAt: '2026-07-07T12:01:01.000Z',
+      performance: {
+        tokensPerSecond: 21.529452290733722,
+        source: 'llamacpp-timings',
+        generatedTokens: 6,
+      },
+    };
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: [
+        {type: 'user_message', message: userMessage},
+        {
+          type: 'assistant_start',
+          harness: 'llamacpp',
+          message: {...assistantMessage, content: '', performance: undefined},
+        },
+        {type: 'assistant_delta', id: assistantMessage.id, delta: assistantMessage.content},
+        {
+          type: 'assistant_metrics',
+          id: assistantMessage.id,
+          performance: assistantMessage.performance,
+        },
+        {type: 'done', message: assistantMessage},
+      ]
+        .map(event => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    });
+  });
+
+  await page.goto('/');
+  await page.getByLabel('Message input').fill('hello');
+  await page.getByLabel('Message input').press('Enter');
+
+  await expect(page.getByText('Hello from Nelle.')).toBeVisible();
+  await expect(page.getByText('21.5 tok/s')).toBeVisible();
+});

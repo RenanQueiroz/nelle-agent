@@ -32,6 +32,9 @@ Project-specific guidance for AI coding agents.
 - Nelle persists managed llama-server ownership in
   `.nelle/llama/llama-server.pid.json` so restarted servers can adopt and stop
   the prior router process.
+- Chat messages can carry `performance.tokensPerSecond`, populated from
+  llama.cpp `/slots` live counters or final stream `timings`; keep server and web
+  chat event types aligned.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components

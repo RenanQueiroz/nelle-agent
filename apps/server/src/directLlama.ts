@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import {createAsyncQueue} from './asyncQueue';
+import {performanceFromLlamaTimings, startLlamaThroughputMonitor} from './llamaThroughput';
 import {chatTemplateKwargsForModel, llamaRuntimeModelId} from './modelCompat';
 import type {AppStore} from './store';
 import type {ChatMessage, ChatStreamEvent} from './types';
@@ -38,12 +39,22 @@ export async function streamDirectLlama(
   queue.push({type: 'assistant_start', message: assistantMessage, harness: 'llamacpp'});
 
   void (async () => {
+    const modelId = llamaRuntimeModelId(activeModel);
+    const monitor = startLlamaThroughputMonitor({
+      port: state.runtime.port,
+      modelId,
+      onPerformance: performance => {
+        assistantMessage.performance = performance;
+        queue.push({type: 'assistant_metrics', id: assistantMessage.id, performance});
+      },
+    });
+
     try {
       const response = await fetch(`http://127.0.0.1:${state.runtime.port}/v1/chat/completions`, {
         method: 'POST',
         headers: {'content-type': 'application/json'},
         body: JSON.stringify({
-          model: llamaRuntimeModelId(activeModel),
+          model: modelId,
           messages: [
             {role: 'system', content: 'You are Nelle Agent, a local-first personal AI agent.'},
             ...state.chat.slice(-20).map(message => ({
@@ -82,11 +93,17 @@ export async function streamDirectLlama(
             }
             const parsed = JSON.parse(data) as {
               choices?: Array<{delta?: {content?: string}}>;
+              timings?: unknown;
             };
             const delta = parsed.choices?.[0]?.delta?.content ?? '';
             if (delta) {
               assistantMessage.content += delta;
               queue.push({type: 'assistant_delta', id: assistantMessage.id, delta});
+            }
+            const performance = performanceFromLlamaTimings(parsed.timings);
+            if (performance) {
+              assistantMessage.performance = performance;
+              queue.push({type: 'assistant_metrics', id: assistantMessage.id, performance});
             }
           }
         }
@@ -100,6 +117,8 @@ export async function streamDirectLlama(
         message: error instanceof Error ? error.message : String(error),
       });
       queue.end();
+    } finally {
+      monitor.stop();
     }
   })();
 

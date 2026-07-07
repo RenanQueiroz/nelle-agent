@@ -54,6 +54,7 @@ export type ChatMessage = {
   role: 'user' | 'assistant' | 'system';
   content: string;
   createdAt: string;
+  performance?: ChatPerformance;
   toolCalls?: Array<{
     name: string;
     target?: string;
@@ -62,10 +63,17 @@ export type ChatMessage = {
   }>;
 };
 
+export type ChatPerformance = {
+  tokensPerSecond: number;
+  source: 'llamacpp-slots' | 'llamacpp-timings';
+  generatedTokens?: number;
+};
+
 export type ChatStreamEvent =
   | {type: 'user_message'; message: ChatMessage}
   | {type: 'assistant_start'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
   | {type: 'assistant_delta'; id: string; delta: string}
+  | {type: 'assistant_metrics'; id: string; performance: ChatPerformance}
   | {type: 'tool'; call: NonNullable<ChatMessage['toolCalls']>[number]}
   | {type: 'warning'; message: string}
   | {type: 'done'; message: ChatMessage}

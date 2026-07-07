@@ -27,6 +27,8 @@ Implemented:
 - Pi SDK chat harness configured against the local OpenAI-compatible
   `llama-server` provider with v1 host file/shell tools enabled.
 - Direct llama.cpp chat-completions fallback if Pi initialization fails.
+- Chat message metadata shows llama.cpp generation throughput in tokens/sec
+  while generation is active and after final timings are available.
 - Playwright e2e test harness for the browser UI.
 
 Not implemented yet:
@@ -87,6 +89,13 @@ Set these environment variables when needed:
 4. Chat with Nelle through the browser UI.
 5. Use `Reset conversation` in the chat footer to clear chat history and reset
    the in-memory Pi session.
+
+Assistant message metadata shows the message time followed by llama.cpp
+throughput, for example `12:01 PM · 21.5 tok/s`. Live updates are estimated from
+the router `/slots?model=...` decoded-token counters. Direct llama.cpp fallback
+responses replace that estimate with the final
+`timings.predicted_per_second` value emitted by the streamed
+`/v1/chat/completions` response.
 
 For Hugging Face selections, Nelle stores the repo/quant reference and writes an
 `hf-repo` entry into `models.ini`, for example:
