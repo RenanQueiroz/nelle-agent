@@ -52,6 +52,7 @@ export async function streamDirectLlama(
             {role: 'user', content: prompt},
           ],
           stream: true,
+          max_tokens: 512,
         }),
       });
       if (!response.ok || !response.body) {

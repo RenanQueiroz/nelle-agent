@@ -174,7 +174,7 @@ export class PiHarness {
       reasoning: false,
       input: ['text'],
       contextWindow: model.params.contextSize,
-      maxTokens: Math.min(8192, Math.max(1024, Math.floor(model.params.contextSize / 2))),
+      maxTokens: Math.min(512, Math.max(128, Math.floor(model.params.contextSize / 8))),
       cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
     }));
 
