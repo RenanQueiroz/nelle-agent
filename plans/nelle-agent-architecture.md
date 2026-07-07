@@ -51,6 +51,13 @@ The first product experience should be UI-driven:
   Expo Go from SDK 53 onward, so the mobile app needs a development/release
   build for push testing.
   Reference: https://docs.expo.dev/versions/latest/sdk/notifications/
+- Astryx provides the UI component system, CLI, design tokens, themes, and
+  AI-agent context generation. The installed agent context says to run
+  `npx astryx build "<idea>"` before writing UI, inspect templates and component
+  docs, import Astryx reset/core CSS in the app entry, and avoid raw layout
+  primitives or magic styling values.
+  References: https://astryx.atmeta.com/docs/getting-started and
+  https://astryx.atmeta.com/docs/working-with-ai
 
 ## Settled Decisions
 
@@ -70,6 +77,7 @@ The first product experience should be UI-driven:
   `expo-notifications` and the Expo Push Service.
 - Text chat only. Voice/audio is out of v1 scope.
 - One model runs at a time. Multi-model concurrency is deferred.
+- The web UI uses Meta's Astryx components and design tokens.
 - This directory should be initialized as a real Git repo with origin
   `git@github.com:RenanQueiroz/nelle-server.git`.
 
@@ -80,7 +88,7 @@ Use a TypeScript-first stack:
 - Local app/server: Node.js + Fastify + WebSocket/SSE.
 - Launch surface: a small cross-platform CLI/server entrypoint that starts the
   local server and opens the setup/admin UI in the system browser.
-- Admin UI: React + Vite + TypeScript.
+- Admin UI: React + Vite + TypeScript + Astryx.
 - Agent harness: Pi SDK embedded in the Node server through a dedicated
   `PiBridge`.
 - Model runtime: official `llama.cpp` release binaries managed as sidecar
@@ -99,8 +107,39 @@ Why this default:
   most of the host's available memory.
 - React web plus React Native keeps UI patterns, generated API clients, and
   validation schemas aligned across desktop and mobile.
+- Astryx gives the browser UI an opinionated component system, design tokens,
+  page/block templates, and CLI-readable docs that AI agents can follow.
 - Future native wrappers or tray helpers can be added after the server and model
   management flows are stable.
+
+Frontend conventions:
+
+- Import Astryx CSS once in the web app entry:
+
+```ts
+import "@astryxdesign/core/reset.css";
+import "@astryxdesign/core/astryx.css";
+import "@astryxdesign/theme-neutral/theme.css";
+```
+
+- Wrap the React app in Astryx `Theme`, using the prebuilt neutral theme when
+  paired with `theme.css`:
+
+```tsx
+import { Theme } from "@astryxdesign/core";
+import { neutralTheme } from "@astryxdesign/theme-neutral/built";
+
+<Theme theme={neutralTheme}>
+  <App />
+</Theme>;
+```
+
+- Before building a new UI surface, run `npm run astryx -- build "<idea>"`,
+  then inspect the recommended template and component docs.
+- Prefer Astryx layout/components over raw HTML structure for app UI.
+- Use Astryx tokens for spacing, color, radius, and typography.
+- Do not introduce Tailwind, StyleX, or custom styling systems unless a concrete
+  Astryx limitation forces that decision.
 
 Keep a seam for an alternate Pi runtime:
 
@@ -125,6 +164,8 @@ packages/
   launcher/             Open-browser helper and host integration utilities
 plans/
   nelle-agent-architecture.md
+AGENTS.md               Astryx-generated Codex agent UI guidance
+.claude/CLAUDE.md       Astryx-generated Claude Code UI guidance
 ```
 
 This repo owns the local server, browser UI, launcher, and host runtime
