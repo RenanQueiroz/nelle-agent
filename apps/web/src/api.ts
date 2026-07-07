@@ -28,7 +28,7 @@ export type ConfiguredModel = {
   path?: string;
   params: {
     contextSize: number;
-    gpuLayers: number;
+    gpuLayers?: number;
     threads?: number;
     batchSize?: number;
   };

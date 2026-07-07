@@ -20,7 +20,7 @@ export type RuntimeStatus = {
 
 export type ModelParams = {
   contextSize: number;
-  gpuLayers: number;
+  gpuLayers?: number;
   threads?: number;
   batchSize?: number;
 };

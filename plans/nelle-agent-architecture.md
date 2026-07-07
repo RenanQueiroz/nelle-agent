@@ -351,7 +351,6 @@ version = 1
 
 [*]
 c = 8192
-n-gpu-layers = 999
 
 [qwen3-8b-q4km]
 model = /absolute/path/to/models/qwen3-8b-q4km.gguf
@@ -402,6 +401,8 @@ Initial implementation:
 - Canonicalize the generated preset section and OpenAI `model` id the same way
   llama.cpp does. For example, `UD-Q4_K_XL` is requested from Hugging Face as-is
   but exposed through the router as `Q4_K_XL`.
+- Do not write `n-gpu-layers` by default. Let llama.cpp use its own default
+  unless the user explicitly configures GPU offload parameters.
 - Also write `alias = <repo>:<quant>` for Hugging Face refs as metadata and for
   pre-load routing compatibility, but do not rely on aliases after the child
   model reports its canonical id.

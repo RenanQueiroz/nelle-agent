@@ -109,6 +109,8 @@ registered with Pi's `qwen-chat-template` compatibility so `thinkingLevel: off`
 sends
 `chat_template_kwargs.enable_thinking = false` and responses stream visible
 assistant text instead of hidden-only reasoning.
+Generated presets do not set `n-gpu-layers` by default; llama.cpp uses its own
+default unless GPU offload is explicitly configured.
 
 On Linux, install/update builds from latest upstream master and may require
 `git`, `cmake`, `make`, `gcc`, `g++`, OpenSSL headers, and optionally CUDA

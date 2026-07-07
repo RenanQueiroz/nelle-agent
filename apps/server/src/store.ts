@@ -19,7 +19,6 @@ const DEFAULT_STATE: AppState = {
 
 const DEFAULT_PARAMS: ModelParams = {
   contextSize: 8192,
-  gpuLayers: 999,
 };
 
 export class AppStore {

@@ -24,6 +24,8 @@ Project-specific guidance for AI coding agents.
 - Hugging Face GGUF `hf-repo` refs stay exact, but llama.cpp router sections and
   OpenAI `model` ids use llama.cpp-canonical quant tags. Qwen-family models use
   Pi's `qwen-chat-template` compatibility with thinking off for normal chat.
+- Generated llama.cpp presets omit `n-gpu-layers` by default. Only write GPU
+  offload flags when the user explicitly configures them.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components

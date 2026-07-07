@@ -163,7 +163,7 @@ export class LlamaCppManager {
       '',
       '[*]',
       `c = ${params.contextSize}`,
-      `n-gpu-layers = ${params.gpuLayers}`,
+      ...(params.gpuLayers != null ? [`n-gpu-layers = ${params.gpuLayers}`] : []),
       ...(params.threads ? [`threads = ${params.threads}`] : []),
       ...(params.batchSize ? [`b = ${params.batchSize}`] : []),
       '',
