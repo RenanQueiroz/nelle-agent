@@ -88,7 +88,7 @@ Use a TypeScript-first stack:
 - Local app/server: Node.js + Fastify + WebSocket/SSE.
 - Launch surface: a small cross-platform CLI/server entrypoint that starts the
   local server and opens the setup/admin UI in the system browser.
-- Admin UI: React + Vite + TypeScript + Astryx.
+- Admin UI: React + Vite + TypeScript + Astryx + React Compiler.
 - Agent harness: Pi SDK embedded in the Node server through a dedicated
   `PiBridge`.
 - Model runtime: official `llama.cpp` release binaries managed as sidecar
@@ -114,6 +114,8 @@ Why this default:
 
 Frontend conventions:
 
+- Build the web app with React Compiler through `@vitejs/plugin-react`'s
+  `reactCompilerPreset()` and `@rolldown/plugin-babel`.
 - Import Astryx CSS once in the web app entry:
 
 ```ts
@@ -320,6 +322,9 @@ llama-server \
 - Surface available updates in the UI.
 - Apply updates from the UI after stopping the running server.
 - Stop the whole process tree reliably on Windows, macOS, and Linux.
+- Persist the router pid under `.nelle/llama/`, adopt it after `nelle-server`
+  restarts, and refuse to spawn a second router when a healthy server already
+  responds on the configured port.
 
 Runtime install/update policy:
 
@@ -463,7 +468,8 @@ Store under OS app data directories:
 - `settings.sqlite`: app settings, configured models, downloads, devices,
   runtime state snapshots, migrations.
 - `models/`: downloaded GGUF files unless user selects another directory.
-- `llama/`: generated `models.ini`, llama.cpp binaries, llama logs.
+- `llama/`: generated `models.ini`, managed router pid file, llama.cpp
+  binaries, llama logs.
 - `pi/`: Nelle-owned Pi `agentDir`, model config, credentials if needed,
   sessions.
 - `logs/`: app, runtime, and diagnostic logs.

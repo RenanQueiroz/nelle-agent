@@ -10,6 +10,7 @@ export type AppPaths = {
   llamaBinDir: string;
   llamaSrcDir: string;
   llamaPresetPath: string;
+  llamaPidPath: string;
   llamaLogPath: string;
   piDir: string;
   piAuthPath: string;
@@ -33,6 +34,7 @@ export function createAppPaths(): AppPaths {
     llamaBinDir: path.join(llamaDir, 'bin'),
     llamaSrcDir: path.join(llamaDir, 'src'),
     llamaPresetPath: path.join(llamaDir, 'models.ini'),
+    llamaPidPath: path.join(llamaDir, 'llama-server.pid.json'),
     llamaLogPath: path.join(dataDir, 'logs', 'llama-server.log'),
     piDir,
     piAuthPath: path.join(piDir, 'auth.json'),

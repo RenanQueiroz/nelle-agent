@@ -9,7 +9,7 @@ Project-specific guidance for AI coding agents.
   `.claude/CLAUDE.md` whenever implementation behavior, setup commands,
   architecture, or workflow expectations change.
 - Use Node through nvm in this WSL checkout before running npm commands:
-  `source ~/.nvm/nvm.sh`.
+  `source ~/.nvm/nvm.sh && nvm use`.
 - Primary checks are `npm run format:check`, `npm run lint`, `npm run check`,
   `npm run build:web`, `npm run test:e2e`, and `npm test`.
 - Formatting and linting use Oxfmt and Oxlint. Run `npm run format` for
@@ -26,6 +26,12 @@ Project-specific guidance for AI coding agents.
   Pi's `qwen-chat-template` compatibility with thinking off for normal chat.
 - Generated llama.cpp presets omit `n-gpu-layers` by default. Only write GPU
   offload flags when the user explicitly configures them.
+- The web app uses React Compiler through `@vitejs/plugin-react`'s
+  `reactCompilerPreset()` and `@rolldown/plugin-babel` in
+  `apps/web/vite.config.ts`.
+- Nelle persists managed llama-server ownership in
+  `.nelle/llama/llama-server.pid.json` so restarted servers can adopt and stop
+  the prior router process.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components

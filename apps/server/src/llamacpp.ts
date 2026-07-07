@@ -22,8 +22,20 @@ type GithubRelease = {
   }>;
 };
 
+type ManagedProcessRecord = {
+  pid: number;
+  binaryPath: string;
+  args: string[];
+  host: string;
+  port: number;
+  presetPath: string;
+  startedAt: string;
+};
+
 export class LlamaCppManager {
   #process: ChildProcess | null = null;
+  #managedPid: number | null = null;
+  #startPromise: Promise<RuntimeStatus> | null = null;
   #lastError: string | null = null;
 
   constructor(
@@ -37,6 +49,10 @@ export class LlamaCppManager {
     const installed = binaryPath != null && fsSync.existsSync(binaryPath);
     const installedVersion = await this.getInstalledVersion();
     const latestVersion = checkLatest ? await this.getLatestVersion().catch(() => null) : null;
+    const managedPid = await this.getManagedPid();
+    const serverAlreadyReachable =
+      managedPid == null &&
+      (await this.isServerHealthy(state.runtime.host, state.runtime.port, 300));
 
     return {
       platform: process.platform,
@@ -54,8 +70,8 @@ export class LlamaCppManager {
       updateAvailable: Boolean(
         installedVersion && latestVersion && installedVersion !== latestVersion,
       ),
-      running: this.isRunning(),
-      pid: this.#process?.pid ?? null,
+      running: managedPid != null || serverAlreadyReachable,
+      pid: managedPid,
       host: state.runtime.host,
       port: state.runtime.port,
       activeModelId: state.activeModelId,
@@ -82,8 +98,19 @@ export class LlamaCppManager {
   }
 
   async start(): Promise<RuntimeStatus> {
+    if (this.#startPromise) {
+      return this.#startPromise;
+    }
+
+    this.#startPromise = this.startInternal().finally(() => {
+      this.#startPromise = null;
+    });
+    return this.#startPromise;
+  }
+
+  private async startInternal(): Promise<RuntimeStatus> {
     this.#lastError = null;
-    if (this.isRunning()) {
+    if (await this.getManagedPid()) {
       return this.getStatus();
     }
 
@@ -94,6 +121,13 @@ export class LlamaCppManager {
       );
     }
 
+    const state = await this.store.getState();
+    if (await this.isServerHealthy(state.runtime.host, state.runtime.port, 500)) {
+      this.#lastError =
+        'llama-server is already reachable on the configured port; Nelle did not start another process.';
+      return this.getStatus();
+    }
+
     const activeModel = await this.store.getActiveModel();
     if (!activeModel) {
       throw new Error('Select or download a model before starting llama.cpp.');
@@ -102,7 +136,13 @@ export class LlamaCppManager {
     await this.writePreset(activeModel);
     await fs.mkdir(path.dirname(this.paths.llamaLogPath), {recursive: true});
     const log = fsSync.openSync(this.paths.llamaLogPath, 'a');
-    const state = await this.store.getState();
+    let logClosed = false;
+    const closeLog = () => {
+      if (!logClosed) {
+        logClosed = true;
+        fsSync.closeSync(log);
+      }
+    };
     const args = [
       '--host',
       state.runtime.host,
@@ -120,15 +160,40 @@ export class LlamaCppManager {
     });
 
     this.#process = child;
+    const childPid = child.pid;
+    if (childPid) {
+      this.#managedPid = childPid;
+      await this.writePidFile({
+        pid: childPid,
+        binaryPath,
+        args,
+        host: state.runtime.host,
+        port: state.runtime.port,
+        presetPath: this.paths.llamaPresetPath,
+        startedAt: new Date().toISOString(),
+      });
+    }
     child.once('exit', code => {
       this.#lastError = code === 0 ? null : `llama-server exited with code ${code}`;
       this.#process = null;
-      fsSync.closeSync(log);
+      if (this.#managedPid === childPid) {
+        this.#managedPid = null;
+      }
+      if (childPid) {
+        void this.clearPidFile(childPid);
+      }
+      closeLog();
     });
     child.once('error', error => {
       this.#lastError = error.message;
       this.#process = null;
-      fsSync.closeSync(log);
+      if (this.#managedPid === childPid) {
+        this.#managedPid = null;
+      }
+      if (childPid) {
+        void this.clearPidFile(childPid);
+      }
+      closeLog();
     });
 
     await this.waitForHealth(state.runtime.host, state.runtime.port);
@@ -136,22 +201,24 @@ export class LlamaCppManager {
   }
 
   async stop(): Promise<RuntimeStatus> {
-    const child = this.#process;
-    if (!child?.pid) {
+    const pid = await this.getManagedPid();
+    if (!pid) {
       this.#process = null;
+      this.#managedPid = null;
+      await this.clearPidFile();
       return this.getStatus();
     }
 
-    if (process.platform === 'win32') {
-      await runCommand('taskkill', ['/pid', String(child.pid), '/t', '/f']).catch(() => undefined);
-    } else {
-      try {
-        process.kill(-child.pid, 'SIGTERM');
-      } catch {
-        child.kill('SIGTERM');
-      }
+    await terminateProcessTree(pid, 'SIGTERM');
+    await waitForProcessExit(pid, 5_000);
+    if (isProcessAlive(pid)) {
+      await terminateProcessTree(pid, 'SIGKILL');
+      await waitForProcessExit(pid, 2_000);
     }
+
     this.#process = null;
+    this.#managedPid = null;
+    await this.clearPidFile(pid);
     return this.getStatus();
   }
 
@@ -295,8 +362,126 @@ export class LlamaCppManager {
     return path.join(this.paths.llamaBinDir, binaryName('llama-server'));
   }
 
-  private isRunning(): boolean {
-    return this.#process != null && !this.#process.killed;
+  private async getManagedPid(): Promise<number | null> {
+    if (this.#process?.pid && isProcessAlive(this.#process.pid)) {
+      this.#managedPid = this.#process.pid;
+      return this.#process.pid;
+    }
+
+    if (this.#managedPid && isProcessAlive(this.#managedPid)) {
+      return this.#managedPid;
+    }
+
+    const record = await this.readPidFile();
+    if (record) {
+      if (await this.isManagedProcess(record)) {
+        this.#managedPid = record.pid;
+        return record.pid;
+      }
+      await this.clearPidFile(record.pid);
+    }
+
+    const discoveredPid = await this.findManagedPidByCommand();
+    if (discoveredPid != null) {
+      this.#managedPid = discoveredPid;
+      return discoveredPid;
+    }
+
+    this.#managedPid = null;
+    return null;
+  }
+
+  private async readPidFile(): Promise<ManagedProcessRecord | null> {
+    try {
+      return JSON.parse(await fs.readFile(this.paths.llamaPidPath, 'utf8')) as ManagedProcessRecord;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        await this.clearPidFile();
+      }
+      return null;
+    }
+  }
+
+  private async writePidFile(record: ManagedProcessRecord): Promise<void> {
+    await fs.mkdir(path.dirname(this.paths.llamaPidPath), {recursive: true});
+    await fs.writeFile(this.paths.llamaPidPath, `${JSON.stringify(record, null, 2)}\n`);
+  }
+
+  private async clearPidFile(pid?: number): Promise<void> {
+    if (pid != null) {
+      const record = await this.readPidFile().catch(() => null);
+      if (record && record.pid !== pid) {
+        return;
+      }
+    }
+    await fs.rm(this.paths.llamaPidPath, {force: true});
+  }
+
+  private async isManagedProcess(record: ManagedProcessRecord): Promise<boolean> {
+    if (!isProcessAlive(record.pid)) {
+      return false;
+    }
+
+    const commandLine = await getProcessCommandLine(record.pid);
+    if (!commandLine) {
+      return false;
+    }
+
+    return (
+      commandLine.includes(path.basename(record.binaryPath)) &&
+      commandLine.includes(record.presetPath)
+    );
+  }
+
+  private async findManagedPidByCommand(): Promise<number | null> {
+    if (process.platform === 'win32') {
+      return null;
+    }
+
+    const output = await runCommand('ps', ['-eo', 'pid=,args=']).catch(() => '');
+    const state = await this.store.getState();
+    const binaryPath = (await this.getBinaryPath()) ?? 'llama-server';
+    for (const line of output.split('\n')) {
+      const trimmed = line.trim();
+      const match = trimmed.match(/^(\d+)\s+(.+)$/);
+      if (!match) {
+        continue;
+      }
+      const pid = Number(match[1]);
+      const commandLine = match[2];
+      if (
+        Number.isInteger(pid) &&
+        commandLine.includes('llama-server') &&
+        commandLine.includes(this.paths.llamaPresetPath)
+      ) {
+        await this.writePidFile({
+          pid,
+          binaryPath,
+          args: commandLine.split(/\s+/).slice(1),
+          host: state.runtime.host,
+          port: state.runtime.port,
+          presetPath: this.paths.llamaPresetPath,
+          startedAt: new Date().toISOString(),
+        });
+        return pid;
+      }
+    }
+    return null;
+  }
+
+  private async isServerHealthy(host: string, port: number, timeoutMs: number): Promise<boolean> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`http://${host}:${port}/v1/models`, {
+        signal: controller.signal,
+      });
+      return response.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async getInstalledVersion(): Promise<string | null> {
@@ -356,13 +541,8 @@ export class LlamaCppManager {
     const deadline = Date.now() + 30_000;
     const url = `http://${host}:${port}/v1/models`;
     while (Date.now() < deadline) {
-      try {
-        const response = await fetch(url);
-        if (response.ok) {
-          return;
-        }
-      } catch {
-        // Keep waiting while the server boots.
+      if (await this.isServerHealthy(host, port, 750)) {
+        return;
       }
       await new Promise(resolve => setTimeout(resolve, 750));
     }
@@ -372,6 +552,73 @@ export class LlamaCppManager {
 
 function binaryName(base: string): string {
   return process.platform === 'win32' ? `${base}.exe` : base;
+}
+
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+async function terminateProcessTree(pid: number, signal: NodeJS.Signals): Promise<void> {
+  if (process.platform === 'win32') {
+    const args = ['/pid', String(pid), '/t'];
+    if (signal === 'SIGKILL') {
+      args.push('/f');
+    }
+    await runCommand('taskkill', args).catch(() => undefined);
+    return;
+  }
+
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // Process already exited.
+    }
+  }
+}
+
+async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) {
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+}
+
+async function getProcessCommandLine(pid: number): Promise<string | null> {
+  if (process.platform === 'linux') {
+    try {
+      const command = await fs.readFile(`/proc/${pid}/cmdline`, 'utf8');
+      const normalized = command.split(String.fromCharCode(0)).join(' ').trim();
+      if (normalized) {
+        return normalized;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  if (process.platform === 'win32') {
+    return runCommand('powershell.exe', [
+      '-NoProfile',
+      '-Command',
+      `(Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}").CommandLine`,
+    ]).catch(() => null);
+  }
+
+  return runCommand('ps', ['-p', String(pid), '-o', 'command=']).catch(() => null);
 }
 
 function pickReleaseAsset(

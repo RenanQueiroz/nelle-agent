@@ -11,12 +11,15 @@ the separate React Native mobile app (`nelle-client`) will consume later.
 Implemented:
 
 - Fastify API server with browser-opened app flow.
-- React/Vite UI using Meta Astryx components and generated Astryx agent guidance.
+- React/Vite UI using Meta Astryx components, React Compiler, and generated
+  Astryx agent guidance.
 - Managed `llama.cpp` runtime control:
   - Linux installs/updates by building latest `ggml-org/llama.cpp` master.
   - Windows/macOS install/update code downloads latest GitHub release assets.
   - Runtime start/stop uses router mode with `--models-preset` and
     `--models-max 1`.
+  - The router pid is persisted under `.nelle/llama/` so a restarted
+    `nelle-server` can adopt and stop the llama-server it previously started.
 - Hugging Face GGUF search and download.
 - Hugging Face quant selection that lets `llama-server` download/cache the
   model via `hf-repo`.
@@ -35,10 +38,11 @@ Not implemented yet:
 
 ## Setup
 
-Use Node 22.19 or newer. In this WSL environment, source nvm first:
+Use Node 22.18.x or 24.11+. In this WSL environment, source nvm first:
 
 ```bash
 source ~/.nvm/nvm.sh
+nvm use
 npm install
 ```
 
@@ -111,6 +115,11 @@ sends
 assistant text instead of hidden-only reasoning.
 Generated presets do not set `n-gpu-layers` by default; llama.cpp uses its own
 default unless GPU offload is explicitly configured.
+Nelle writes `.nelle/llama/llama-server.pid.json` when it starts the router.
+On restart, Nelle validates that pid against the managed `models.ini` command
+line before treating the runtime as controllable. If the configured port already
+has a healthy llama.cpp server but no managed pid, Nelle reports it as running
+and does not start another process.
 
 On Linux, install/update builds from latest upstream master and may require
 `git`, `cmake`, `make`, `gcc`, `g++`, OpenSSL headers, and optionally CUDA
