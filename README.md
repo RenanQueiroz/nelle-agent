@@ -38,11 +38,10 @@ Not implemented yet:
 
 ## Setup
 
-Use Node 22.18.x or 24.11+. In this WSL environment, source nvm first:
+Use Node 22.18+ on the 22.x line, or Node 24.11+:
 
 ```bash
-source ~/.nvm/nvm.sh
-nvm use
+node --version
 npm install
 ```
 

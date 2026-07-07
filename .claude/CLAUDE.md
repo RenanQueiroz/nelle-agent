@@ -8,8 +8,8 @@ Project-specific guidance for AI coding agents.
   `plans/nelle-agent-architecture.md`, and agent docs such as `AGENTS.md` /
   `.claude/CLAUDE.md` whenever implementation behavior, setup commands,
   architecture, or workflow expectations change.
-- Use Node through nvm in this WSL checkout before running npm commands:
-  `source ~/.nvm/nvm.sh && nvm use`.
+- Use a Node version matching `package.json` `engines` before running npm
+  commands.
 - Primary checks are `npm run format:check`, `npm run lint`, `npm run check`,
   `npm run build:web`, `npm run test:e2e`, and `npm test`.
 - Formatting and linting use Oxfmt and Oxlint. Run `npm run format` for
