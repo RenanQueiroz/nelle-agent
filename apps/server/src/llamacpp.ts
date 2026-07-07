@@ -422,7 +422,7 @@ async function collectFiles(root: string, predicate: (file: string) => boolean):
 
 function modelSourceLines(model: ConfiguredModel): string[] {
   if (model.hfRef) {
-    return [`hf-repo = ${model.hfRef}`];
+    return [`hf-repo = ${model.hfRef}`, `alias = ${model.hfRef}`];
   }
   if (model.path) {
     return [`model = ${model.path}`];

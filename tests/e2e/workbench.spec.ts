@@ -1,4 +1,10 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+
 import {expect, test} from '@playwright/test';
+
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   await page.route('**/api/huggingface/search**', async route => {
@@ -62,4 +68,16 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   await expect(page.getByText('unsloth/Qwen3.6-35B-A3B-MTP-GGUF')).toBeVisible();
   await expect(page.getByText('UD-Q4_K_XL')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Use'}).first()).toBeVisible();
+
+  await page.getByRole('button', {name: 'Use'}).first().click();
+
+  await expect(
+    page.getByRole('button', {
+      name: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL',
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect
+    .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
+    .toContain('alias = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL');
 });

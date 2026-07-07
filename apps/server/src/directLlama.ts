@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import {createAsyncQueue} from './asyncQueue';
+import {chatTemplateKwargsForModel} from './modelCompat';
 import type {AppStore} from './store';
 import type {ChatMessage, ChatStreamEvent} from './types';
 
@@ -53,6 +54,7 @@ export async function streamDirectLlama(
           ],
           stream: true,
           max_tokens: 512,
+          ...chatTemplateKwargsForModel(activeModel),
         }),
       });
       if (!response.ok || !response.body) {

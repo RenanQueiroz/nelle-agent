@@ -10,6 +10,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 import {createAsyncQueue} from './asyncQueue';
+import {isQwenFamilyModel} from './modelCompat';
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
 import type {ChatMessage, ChatStreamEvent, ConfiguredModel, ToolCallEvent} from './types';
@@ -76,11 +77,25 @@ export class PiHarness {
   ): Promise<void> {
     const session = await this.ensureSession(activeModel);
     const toolCalls: ToolCallEvent[] = [];
+    let thinkingText = '';
+    let providerError: string | null = null;
     const unsubscribe = session.subscribe((event: any) => {
-      if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
-        const delta = String(event.assistantMessageEvent.delta ?? '');
-        assistantMessage.content += delta;
-        queue.push({type: 'assistant_delta', id: assistantMessage.id, delta});
+      if (event.type === 'message_update') {
+        const assistantEvent = event.assistantMessageEvent;
+        if (assistantEvent?.type === 'text_delta') {
+          const delta = String(assistantEvent.delta ?? '');
+          assistantMessage.content += delta;
+          queue.push({type: 'assistant_delta', id: assistantMessage.id, delta});
+        }
+        if (assistantEvent?.type === 'thinking_delta') {
+          thinkingText += String(assistantEvent.delta ?? '');
+        }
+        if (assistantEvent?.type === 'error') {
+          providerError =
+            assistantEvent.error?.errorMessage ??
+            assistantEvent.errorMessage ??
+            'Pi provider error';
+        }
       }
 
       if (event.type === 'tool_execution_start') {
@@ -108,7 +123,21 @@ export class PiHarness {
       await session.prompt(prompt);
       assistantMessage.toolCalls = toolCalls;
       if (!assistantMessage.content.trim()) {
-        assistantMessage.content = 'The Pi harness completed without returning text.';
+        const fallback = thinkingText.trim();
+        if (fallback) {
+          queue.push({
+            type: 'warning',
+            message:
+              'The model returned reasoning content without final text; showing the reasoning output.',
+          });
+          assistantMessage.content = fallback;
+          queue.push({type: 'assistant_delta', id: assistantMessage.id, delta: fallback});
+        } else {
+          throw new Error(
+            providerError ??
+              'The Pi harness completed without assistant text. Check the llama.cpp model id and logs.',
+          );
+        }
       }
       await this.store.appendChatMessage(assistantMessage);
       queue.push({type: 'done', message: assistantMessage});
@@ -169,11 +198,14 @@ export class PiHarness {
     const models = state.models.map(model => ({
       id: model.presetName,
       name: model.name,
-      reasoning: false,
+      reasoning: isQwenFamilyModel(model),
       input: ['text'],
       contextWindow: model.params.contextSize,
       maxTokens: Math.min(512, Math.max(128, Math.floor(model.params.contextSize / 8))),
       cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
+      ...(isQwenFamilyModel(model)
+        ? {compat: {thinkingFormat: 'qwen-chat-template' as const}}
+        : {}),
     }));
 
     const config = {

@@ -360,6 +360,7 @@ stop-timeout = 10
 
 [unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL]
 hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
+alias = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 load-on-startup = false
 stop-timeout = 10
 ```
@@ -398,6 +399,13 @@ Initial implementation:
 - Preferred for normal setup: Nelle stores the selected repo/quant and writes
   `hf-repo = <repo>:<quant>` in the generated llama.cpp preset so llama.cpp owns
   download, cache, sharded-file handling, and companion `mmproj` downloads.
+- Also write `alias = <repo>:<quant>` for Hugging Face refs so the OpenAI
+  `model` field remains stable when llama.cpp canonicalizes quant tags.
+- Register Qwen-family models in Pi with model-level
+  `compat.thinkingFormat = "qwen-chat-template"` and `reasoning = true`, while
+  starting sessions with `thinkingLevel: "off"`. This makes Pi send
+  `chat_template_kwargs.enable_thinking = false` to local llama.cpp servers and
+  avoids hidden-only `reasoning_content` responses for normal chat.
 - Keep direct Nelle file downloads as a secondary/simple path for explicit
   single-file GGUF use, but do not make it the primary HF model picker flow.
 

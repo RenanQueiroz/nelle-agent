@@ -21,6 +21,9 @@ Project-specific guidance for AI coding agents.
 - The current POC stores app data under `.nelle/` by default. Do not commit
   generated app data, e2e app data, downloaded models, llama.cpp builds, test
   reports, or logs.
+- Hugging Face GGUF refs are kept as exact llama.cpp router aliases because
+  llama.cpp may canonicalize quant tags. Qwen-family models use Pi's
+  `qwen-chat-template` compatibility with thinking off for normal chat.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components
