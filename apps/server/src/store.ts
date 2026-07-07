@@ -119,6 +119,42 @@ export class AppStore {
     return model;
   }
 
+  async addHuggingFaceModel(input: {
+    repoId: string;
+    quant: string;
+    name?: string;
+    params?: Partial<ModelParams>;
+  }): Promise<ConfiguredModel> {
+    const state = await this.load();
+    const hfRef = `${input.repoId}:${input.quant}`;
+    const existing = state.models.find(model => model.hfRef === hfRef);
+    if (existing) {
+      state.activeModelId = existing.id;
+      await this.save();
+      return existing;
+    }
+
+    const id = crypto.randomUUID();
+    const model: ConfiguredModel = {
+      id,
+      name: input.name ?? hfRef,
+      presetName: uniquePresetName(
+        hfRef,
+        state.models.map(item => item.presetName),
+      ),
+      source: 'huggingface',
+      repoId: input.repoId,
+      quant: input.quant,
+      hfRef,
+      params: {...DEFAULT_PARAMS, ...input.params},
+      createdAt: new Date().toISOString(),
+    };
+    state.models.push(model);
+    state.activeModelId = model.id;
+    await this.save();
+    return model;
+  }
+
   async appendChatMessage(message: ChatMessage): Promise<void> {
     const state = await this.load();
     state.chat.push(message);

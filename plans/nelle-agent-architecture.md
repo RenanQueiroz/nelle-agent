@@ -175,9 +175,10 @@ protocol docs, but should remain a separate repo.
 ## Current POC Status
 
 The first POC implements the local Fastify server, React/Vite browser UI,
-Astryx chat surface, Hugging Face GGUF search/download, local GGUF registration,
-managed `llama.cpp` install/update/start/stop paths, generated router
-`models.ini`, Pi SDK chat streaming, a direct llama.cpp fallback for
+Astryx chat surface, Hugging Face GGUF search/download, Hugging Face quant
+selection through llama.cpp-managed `hf-repo` references, local GGUF
+registration, managed `llama.cpp` install/update/start/stop paths, generated
+router `models.ini`, Pi SDK chat streaming, a direct llama.cpp fallback for
 diagnostics, and Playwright e2e coverage for the browser workbench.
 
 Intentional POC limitations:
@@ -356,8 +357,8 @@ model = /absolute/path/to/models/qwen3-8b-q4km.gguf
 load-on-startup = true
 stop-timeout = 10
 
-[gemma-3-4b-q8]
-model = /absolute/path/to/models/gemma-3-4b-q8.gguf
+[unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL]
+hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 load-on-startup = false
 stop-timeout = 10
 ```
@@ -378,8 +379,11 @@ Open technical spikes:
 Responsibilities:
 
 - Search Hugging Face for GGUF-compatible models.
-- Filter broad Hub search results to repositories/files that expose `.gguf`
+- Filter broad Hub search results to repositories/files that expose model GGUF
   artifacts and enough metadata to run under `llama.cpp`.
+- Derive selectable quant options from the available GGUF files, including
+  multi-shard quant groups, and register the selected quant as a llama.cpp
+  `hf-repo` reference instead of forcing Nelle to download the files itself.
 - Show only useful model files by default, with quantization, size, license,
   architecture, downloads, and disk-space checks.
 - Support a "use local GGUF" path.
@@ -388,14 +392,13 @@ Responsibilities:
   directory.
 - Generate Nelle model records and llama preset sections after download.
 
-Initial implementation options:
+Initial implementation:
 
-- Preferred: Nelle downloads files itself using Hugging Face APIs/libraries so
-  progress, resume, storage paths, and gated-model errors are first-class UI
-  states.
-- Fallback/spike: use `llama-server -hf <repo>:<file>` or router `POST /models`
-  plus `/models/sse` to populate the llama.cpp cache for a faster proof of
-  concept.
+- Preferred for normal setup: Nelle stores the selected repo/quant and writes
+  `hf-repo = <repo>:<quant>` in the generated llama.cpp preset so llama.cpp owns
+  download, cache, sharded-file handling, and companion `mmproj` downloads.
+- Keep direct Nelle file downloads as a secondary/simple path for explicit
+  single-file GGUF use, but do not make it the primary HF model picker flow.
 
 Open product questions:
 

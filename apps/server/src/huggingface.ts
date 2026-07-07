@@ -4,7 +4,12 @@ import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 
 import type {AppPaths} from './paths';
-import type {ConfiguredModel, HuggingFaceFile, HuggingFaceModelResult} from './types';
+import type {
+  ConfiguredModel,
+  HuggingFaceFile,
+  HuggingFaceModelResult,
+  HuggingFaceQuant,
+} from './types';
 import {AppStore, slugify} from './store';
 
 type HfModelListItem = {
@@ -47,7 +52,7 @@ export class HuggingFaceService {
       list.slice(0, 8).map(item => this.getModelInfo(item.id, item)),
     );
 
-    return detailed.filter(result => result.files.length > 0);
+    return detailed.filter(result => result.quants.length > 0);
   }
 
   async downloadGguf(input: {
@@ -85,6 +90,19 @@ export class HuggingFaceService {
     });
   }
 
+  async useHuggingFaceGguf(input: {
+    repoId: string;
+    quant: string;
+    name?: string;
+  }): Promise<ConfiguredModel> {
+    validateHuggingFaceRef(input.repoId, input.quant);
+    return this.store.addHuggingFaceModel({
+      name: input.name ?? `${input.repoId}:${input.quant}`,
+      repoId: input.repoId,
+      quant: input.quant,
+    });
+  }
+
   private async getModelInfo(
     repoId: string,
     fallback: HfModelListItem,
@@ -98,24 +116,27 @@ export class HuggingFaceService {
         likes: fallback.likes,
         tags: fallback.tags ?? [],
         files: [],
+        quants: [],
       };
     }
 
     const info = (await response.json()) as HfModelInfo;
+    const files = extractGgufFiles(info);
     return {
       id: info.id,
       author: info.author,
       downloads: info.downloads,
       likes: info.likes,
       tags: info.tags ?? [],
-      files: extractGgufFiles(info),
+      files,
+      quants: extractGgufQuants(files),
     };
   }
 }
 
 function extractGgufFiles(info: HfModelInfo): HuggingFaceFile[] {
   return (info.siblings ?? [])
-    .filter(file => file.rfilename.toLowerCase().endsWith('.gguf'))
+    .filter(file => isModelGguf(file.rfilename))
     .map(file => ({
       filename: file.rfilename,
       size: file.size ?? null,
@@ -124,4 +145,74 @@ function extractGgufFiles(info: HfModelInfo): HuggingFaceFile[] {
       const bySize = (a.size ?? Number.MAX_SAFE_INTEGER) - (b.size ?? Number.MAX_SAFE_INTEGER);
       return bySize === 0 ? a.filename.localeCompare(b.filename) : bySize;
     });
+}
+
+function extractGgufQuants(files: HuggingFaceFile[]): HuggingFaceQuant[] {
+  const quants = new Map<string, HuggingFaceFile[]>();
+  for (const file of files) {
+    const quant = extractQuant(file.filename);
+    if (!quant) {
+      continue;
+    }
+    const existing = quants.get(quant) ?? [];
+    existing.push(file);
+    quants.set(quant, existing);
+  }
+
+  return [...quants.entries()]
+    .map(([quant, quantFiles]) => ({
+      quant,
+      files: quantFiles,
+      size: sumKnownSizes(quantFiles),
+    }))
+    .sort((a, b) => {
+      const bySize = (a.size ?? Number.MAX_SAFE_INTEGER) - (b.size ?? Number.MAX_SAFE_INTEGER);
+      return bySize === 0 ? a.quant.localeCompare(b.quant) : bySize;
+    });
+}
+
+function extractQuant(filename: string): string | null {
+  const stem = path.posix
+    .basename(filename)
+    .replace(/\.gguf$/i, '')
+    .replace(/-\d{5}-of-\d{5}$/i, '');
+  const parts = stem.split('-');
+  for (let index = 0; index < parts.length; index += 1) {
+    const candidate = parts.slice(index).join('-');
+    if (isQuant(candidate)) {
+      return candidate.toUpperCase();
+    }
+  }
+  return null;
+}
+
+function isQuant(value: string): boolean {
+  return /^(?:UD-)?(?:IQ[1-4](?:_[A-Z0-9]+)+|Q[2-8](?:_[A-Z0-9]+)*|BF16|F16|F32|FP16|MXFP4(?:_MOE)?|TQ[12](?:_[A-Z0-9]+)+)$/i.test(
+    value,
+  );
+}
+
+function isModelGguf(filename: string): boolean {
+  const base = path.posix.basename(filename).toLowerCase();
+  return base.endsWith('.gguf') && !base.startsWith('mmproj-');
+}
+
+function sumKnownSizes(files: HuggingFaceFile[]): number | null {
+  let total = 0;
+  for (const file of files) {
+    if (file.size == null) {
+      return null;
+    }
+    total += file.size;
+  }
+  return total;
+}
+
+function validateHuggingFaceRef(repoId: string, quant: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(repoId)) {
+    throw new Error(`Invalid Hugging Face repo id: ${repoId}`);
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(quant)) {
+    throw new Error(`Invalid Hugging Face quant: ${quant}`);
+  }
 }

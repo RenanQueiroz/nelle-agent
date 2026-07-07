@@ -25,6 +25,12 @@ const downloadModelSchema = z.object({
   name: z.string().optional(),
 });
 
+const useHuggingFaceModelSchema = z.object({
+  repoId: z.string().min(1),
+  quant: z.string().min(1),
+  name: z.string().optional(),
+});
+
 const chatSchema = z.object({
   message: z.string().min(1),
 });
@@ -98,6 +104,13 @@ export async function createServer(paths: AppPaths) {
   app.post('/api/huggingface/download', async request => {
     const body = downloadModelSchema.parse(request.body);
     const model = await hf.downloadGguf(body);
+    await llama.writePreset(model);
+    return {model};
+  });
+
+  app.post('/api/huggingface/use', async request => {
+    const body = useHuggingFaceModelSchema.parse(request.body);
+    const model = await hf.useHuggingFaceGguf(body);
     await llama.writePreset(model);
     return {model};
   });

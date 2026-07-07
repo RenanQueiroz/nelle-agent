@@ -22,8 +22,10 @@ export type ConfiguredModel = {
   presetName: string;
   source: 'huggingface' | 'local';
   repoId?: string;
+  quant?: string;
+  hfRef?: string;
   filename?: string;
-  path: string;
+  path?: string;
   params: {
     contextSize: number;
     gpuLayers: number;
@@ -40,6 +42,11 @@ export type HuggingFaceModelResult = {
   likes?: number;
   tags: string[];
   files: Array<{filename: string; size: number | null}>;
+  quants: Array<{
+    quant: string;
+    size: number | null;
+    files: Array<{filename: string; size: number | null}>;
+  }>;
 };
 
 export type ChatMessage = {
@@ -106,6 +113,15 @@ export async function downloadModel(input: {
   name?: string;
 }): Promise<ConfiguredModel> {
   const response = await apiPost<{model: ConfiguredModel}>('/api/huggingface/download', input);
+  return response.model;
+}
+
+export async function useHuggingFaceModel(input: {
+  repoId: string;
+  quant: string;
+  name?: string;
+}): Promise<ConfiguredModel> {
+  const response = await apiPost<{model: ConfiguredModel}>('/api/huggingface/use', input);
   return response.model;
 }
 

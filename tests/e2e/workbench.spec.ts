@@ -6,15 +6,41 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
       json: {
         results: [
           {
-            id: 'test/tiny-GGUF',
-            author: 'test',
-            downloads: 42,
-            likes: 7,
+            id: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF',
+            author: 'unsloth',
+            downloads: 42_000,
+            likes: 700,
             tags: ['gguf', 'conversational'],
             files: [
               {
-                filename: 'tiny.Q4_K_M.gguf',
-                size: 123_456,
+                filename: 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf',
+                size: 22_000_000_000,
+              },
+              {
+                filename: 'Qwen3.6-35B-A3B-UD-Q5_K_M.gguf',
+                size: 27_000_000_000,
+              },
+            ],
+            quants: [
+              {
+                quant: 'UD-Q4_K_XL',
+                size: 22_000_000_000,
+                files: [
+                  {
+                    filename: 'Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf',
+                    size: 22_000_000_000,
+                  },
+                ],
+              },
+              {
+                quant: 'UD-Q5_K_M',
+                size: 27_000_000_000,
+                files: [
+                  {
+                    filename: 'Qwen3.6-35B-A3B-UD-Q5_K_M.gguf',
+                    size: 27_000_000_000,
+                  },
+                ],
               },
             ],
           },
@@ -29,10 +55,10 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   await expect(page.getByRole('heading', {name: 'llama.cpp'})).toBeVisible();
   await expect(page.getByText('Not installed')).toBeVisible();
 
-  await page.getByLabel('Search query').fill('tiny gguf');
+  await page.getByLabel('Search query').fill('qwen gguf');
   await page.getByRole('button', {name: 'Search GGUF models'}).click();
 
-  await expect(page.getByText('test/tiny-GGUF')).toBeVisible();
-  await expect(page.getByText('tiny.Q4_K_M.gguf')).toBeVisible();
-  await expect(page.getByRole('button', {name: 'Download'})).toBeVisible();
+  await expect(page.getByText('unsloth/Qwen3.6-35B-A3B-MTP-GGUF')).toBeVisible();
+  await expect(page.getByText('UD-Q4_K_XL')).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Use'}).first()).toBeVisible();
 });

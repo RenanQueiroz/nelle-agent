@@ -40,7 +40,6 @@ import {
 import {
   activateModel,
   addLocalModel,
-  downloadModel,
   getRuntime,
   getState,
   installRuntime,
@@ -48,6 +47,7 @@ import {
   startRuntime,
   stopRuntime,
   streamChat,
+  useHuggingFaceModel,
   type ChatMessage as ApiChatMessage,
   type ChatStreamEvent,
   type ConfiguredModel,
@@ -319,7 +319,7 @@ export function App() {
                             {model.name}
                           </Text>
                           <Text type="supporting" color="secondary" className="nelle-code">
-                            {model.presetName}
+                            {model.hfRef ?? model.path ?? model.presetName}
                           </Text>
                         </VStack>
                       </ClickableCard>
@@ -438,28 +438,31 @@ export function App() {
                             {result.downloads?.toLocaleString() ?? '0'} downloads
                           </Text>
                         </VStack>
-                        {result.files.slice(0, 4).map(file => (
-                          <HStack key={file.filename} gap={2} vAlign="center">
+                        {result.quants.map(quant => (
+                          <HStack key={quant.quant} gap={2} vAlign="center">
                             <StackItem size="fill" className="nelle-tight">
                               <VStack gap={0}>
                                 <Text type="supporting" className="nelle-code">
-                                  {file.filename}
+                                  {quant.quant}
                                 </Text>
                                 <Text type="supporting" color="secondary">
-                                  {formatBytes(file.size)}
+                                  {formatBytes(quant.size)}
+                                  {quant.files.length > 1
+                                    ? ` across ${quant.files.length} files`
+                                    : ''}
                                 </Text>
                               </VStack>
                             </StackItem>
                             <Button
-                              label="Download"
+                              label="Use"
                               size="sm"
                               variant="secondary"
-                              isLoading={busyAction === `${result.id}/${file.filename}`}
+                              isLoading={busyAction === `use:${result.id}:${quant.quant}`}
                               onClick={() =>
-                                runAction(`${result.id}/${file.filename}`, async () => {
-                                  await downloadModel({
+                                runAction(`use:${result.id}:${quant.quant}`, async () => {
+                                  await useHuggingFaceModel({
                                     repoId: result.id,
-                                    filename: file.filename,
+                                    quant: quant.quant,
                                   });
                                   await refreshState();
                                 })

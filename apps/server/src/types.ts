@@ -31,8 +31,10 @@ export type ConfiguredModel = {
   presetName: string;
   source: 'huggingface' | 'local';
   repoId?: string;
+  quant?: string;
+  hfRef?: string;
   filename?: string;
-  path: string;
+  path?: string;
   params: ModelParams;
   createdAt: string;
 };
@@ -42,6 +44,12 @@ export type HuggingFaceFile = {
   size: number | null;
 };
 
+export type HuggingFaceQuant = {
+  quant: string;
+  size: number | null;
+  files: HuggingFaceFile[];
+};
+
 export type HuggingFaceModelResult = {
   id: string;
   author?: string;
@@ -49,6 +57,7 @@ export type HuggingFaceModelResult = {
   likes?: number;
   tags: string[];
   files: HuggingFaceFile[];
+  quants: HuggingFaceQuant[];
 };
 
 export type ChatRole = 'user' | 'assistant' | 'system';

@@ -167,7 +167,7 @@ export class LlamaCppManager {
       ...(params.batchSize ? [`b = ${params.batchSize}`] : []),
       '',
       `[${activeModel.presetName}]`,
-      `model = ${activeModel.path}`,
+      ...modelSourceLines(activeModel),
       'load-on-startup = true',
       'stop-timeout = 10',
       '',
@@ -418,4 +418,14 @@ async function collectFiles(root: string, predicate: (file: string) => boolean):
     }),
   );
   return found;
+}
+
+function modelSourceLines(model: ConfiguredModel): string[] {
+  if (model.hfRef) {
+    return [`hf-repo = ${model.hfRef}`];
+  }
+  if (model.path) {
+    return [`model = ${model.path}`];
+  }
+  throw new Error(`Model ${model.name} has no local path or Hugging Face reference.`);
 }

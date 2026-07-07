@@ -18,6 +18,8 @@ Implemented:
   - Runtime start/stop uses router mode with `--models-preset` and
     `--models-max 1`.
 - Hugging Face GGUF search and download.
+- Hugging Face quant selection that lets `llama-server` download/cache the
+  model via `hf-repo`.
 - Local GGUF path registration.
 - Pi SDK chat harness configured against the local OpenAI-compatible
   `llama-server` provider with v1 host file/shell tools enabled.
@@ -75,11 +77,27 @@ Set these environment variables when needed:
 
 ## llama.cpp Flow
 
-1. Add a local GGUF path or search/download a GGUF model from Hugging Face.
+1. Add a local GGUF path or search Hugging Face and choose a GGUF quant.
 2. Click `Install` to install/update `llama.cpp`.
 3. Click `Start` to launch `llama-server` with the generated
    `.nelle/llama/models.ini`.
 4. Chat with Nelle through the browser UI.
+
+For Hugging Face selections, Nelle stores the repo/quant reference and writes an
+`hf-repo` entry into `models.ini`, for example:
+
+```ini
+[unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL]
+hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
+```
+
+That is equivalent to launching `llama-server` with:
+
+```bash
+llama-server -hf unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
+```
+
+The model file download and cache are handled by `llama.cpp`.
 
 On Linux, install/update builds from latest upstream master and may require
 `git`, `cmake`, `make`, `gcc`, `g++`, OpenSSL headers, and optionally CUDA
