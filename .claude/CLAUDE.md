@@ -10,9 +10,15 @@ Project-specific guidance for AI coding agents.
   architecture, or workflow expectations change.
 - Use Node through nvm in this WSL checkout before running npm commands:
   `source ~/.nvm/nvm.sh`.
-- Primary checks are `npm run check`, `npm run build:web`, and `npm test`.
+- Primary checks are `npm run check`, `npm run build:web`,
+  `npm run test:e2e`, and `npm test`.
+- Run Playwright e2e tests for UI behavior changes when possible. The e2e
+  server uses `.nelle-e2e/` and starts on `127.0.0.1:8799`.
+- Claude Code should use the existing Playwright plugin, not a separate local
+  Playwright MCP entry.
 - The current POC stores app data under `.nelle/` by default. Do not commit
-  generated app data, downloaded models, llama.cpp builds, or logs.
+  generated app data, e2e app data, downloaded models, llama.cpp builds, test
+  reports, or logs.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components

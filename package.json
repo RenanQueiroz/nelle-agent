@@ -10,9 +10,15 @@
     "dev:server": "tsx watch apps/server/src/index.ts",
     "dev:web": "vite --config apps/web/vite.config.ts",
     "start": "tsx apps/server/src/index.ts --open",
+    "serve": "tsx apps/server/src/index.ts",
+    "serve:e2e": "tsx scripts/serve-e2e.ts",
     "check": "tsc --noEmit",
     "build:web": "vite build --config apps/web/vite.config.ts",
     "build": "npm run check && npm run build:web",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report",
     "test": "npm run build"
   },
   "repository": {
@@ -39,6 +45,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

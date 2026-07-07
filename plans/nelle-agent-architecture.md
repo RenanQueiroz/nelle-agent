@@ -177,8 +177,8 @@ protocol docs, but should remain a separate repo.
 The first POC implements the local Fastify server, React/Vite browser UI,
 Astryx chat surface, Hugging Face GGUF search/download, local GGUF registration,
 managed `llama.cpp` install/update/start/stop paths, generated router
-`models.ini`, Pi SDK chat streaming, and a direct llama.cpp fallback for
-diagnostics.
+`models.ini`, Pi SDK chat streaming, a direct llama.cpp fallback for
+diagnostics, and Playwright e2e coverage for the browser workbench.
 
 Intentional POC limitations:
 
@@ -189,6 +189,27 @@ Intentional POC limitations:
 - Host tools are enabled through Pi and remain unsandboxed.
 - The UI is adapted from Astryx `ai-chat` and `ai-chat-landing` templates, but
   the raw generated template files are not kept in `src`.
+
+## Testing And MCP Tooling
+
+Playwright is the primary UI automation path for Nelle Server. The repo includes
+`playwright.config.ts`, an isolated e2e server script, and tests under
+`tests/e2e`. The e2e server runs on `127.0.0.1:8799`, resets `.nelle-e2e/`, and
+builds the web UI before serving it through Fastify.
+
+Current commands:
+
+```bash
+npm run test:e2e
+npm run test:e2e:headed
+npm run test:e2e:ui
+npm run test:e2e:report
+```
+
+Codex has a local Playwright MCP server configured through
+`~/.codex/config.toml` so future Codex sessions can inspect and drive the UI.
+Claude Code should use the existing Playwright plugin instead of an additional
+local MCP server.
 
 ## Main Components
 

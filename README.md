@@ -22,6 +22,7 @@ Implemented:
 - Pi SDK chat harness configured against the local OpenAI-compatible
   `llama-server` provider with v1 host file/shell tools enabled.
 - Direct llama.cpp chat-completions fallback if Pi initialization fails.
+- Playwright e2e test harness for the browser UI.
 
 Not implemented yet:
 
@@ -89,8 +90,30 @@ tooling. It is intentionally user-triggered because it can take several minutes.
 ```bash
 npm run check
 npm run build:web
+npm run test:e2e
 npm test
 ```
+
+`npm run test:e2e` starts an isolated server on `127.0.0.1:8799`, stores test
+data in `.nelle-e2e/`, and runs Chromium Playwright tests from `tests/e2e`.
+Install the browser once with:
+
+```bash
+npx playwright install chromium
+```
+
+Useful Playwright commands:
+
+```bash
+npm run test:e2e:headed
+npm run test:e2e:ui
+npm run test:e2e:report
+```
+
+Codex is configured locally with the Playwright MCP server in
+`~/.codex/config.toml`. Restart the Codex session after config changes so the
+tool is available. Claude Code should use the existing Playwright plugin rather
+than a separate local MCP entry.
 
 Useful smoke probes after starting the server:
 

@@ -5,9 +5,12 @@ node_modules/
 dist/
 build/
 coverage/
+playwright-report/
+test-results/
 
 # Local app/runtime data
 .nelle/
+.nelle-e2e/
 data/
 logs/
 llamacpp/
@@ -24,4 +27,3 @@ models/
 Thumbs.db
 .idea/
 .vscode/
-
