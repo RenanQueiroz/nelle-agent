@@ -88,10 +88,23 @@ tooling. It is intentionally user-triggered because it can take several minutes.
 ## Checks
 
 ```bash
+npm run format:check
+npm run lint
 npm run check
 npm run build:web
 npm run test:e2e
 npm test
+```
+
+Formatting and linting use Oxfmt and Oxlint with repo-local config files:
+`.oxfmtrc.json` and `.oxlintrc.json`. `npm test` runs format check, lint,
+TypeScript, and the web build. Playwright e2e remains a separate explicit check.
+
+Useful Oxc commands:
+
+```bash
+npm run format
+npm run lint:fix
 ```
 
 `npm run test:e2e` starts an isolated server on `127.0.0.1:8799`, stores test

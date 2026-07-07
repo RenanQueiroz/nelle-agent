@@ -10,8 +10,10 @@ Project-specific guidance for AI coding agents.
   architecture, or workflow expectations change.
 - Use Node through nvm in this WSL checkout before running npm commands:
   `source ~/.nvm/nvm.sh`.
-- Primary checks are `npm run check`, `npm run build:web`,
-  `npm run test:e2e`, and `npm test`.
+- Primary checks are `npm run format:check`, `npm run lint`, `npm run check`,
+  `npm run build:web`, `npm run test:e2e`, and `npm test`.
+- Formatting and linting use Oxfmt and Oxlint. Run `npm run format` for
+  formatter writes and `npm run lint:fix` for safe lint fixes.
 - Run Playwright e2e tests for UI behavior changes when possible. The e2e
   server uses `.nelle-e2e/` and starts on `127.0.0.1:8799`.
 - Claude Code should use the existing Playwright plugin, not a separate local

@@ -117,17 +117,17 @@ Frontend conventions:
 - Import Astryx CSS once in the web app entry:
 
 ```ts
-import "@astryxdesign/core/reset.css";
-import "@astryxdesign/core/astryx.css";
-import "@astryxdesign/theme-neutral/theme.css";
+import '@astryxdesign/core/reset.css';
+import '@astryxdesign/core/astryx.css';
+import '@astryxdesign/theme-neutral/theme.css';
 ```
 
 - Wrap the React app in Astryx `Theme`, using the prebuilt neutral theme when
   paired with `theme.css`:
 
 ```tsx
-import { Theme } from "@astryxdesign/core";
-import { neutralTheme } from "@astryxdesign/theme-neutral/built";
+import {Theme} from '@astryxdesign/core';
+import {neutralTheme} from '@astryxdesign/theme-neutral/built';
 
 <Theme theme={neutralTheme}>
   <App />
@@ -200,11 +200,19 @@ builds the web UI before serving it through Fastify.
 Current commands:
 
 ```bash
+npm run format:check
+npm run lint
+npm run format
+npm run lint:fix
 npm run test:e2e
 npm run test:e2e:headed
 npm run test:e2e:ui
 npm run test:e2e:report
 ```
+
+Oxfmt and Oxlint are configured with `.oxfmtrc.json` and `.oxlintrc.json`.
+`npm test` runs format check, lint, TypeScript, and the web build. Playwright
+e2e remains separate because it starts a browser-backed server.
 
 Codex has a local Playwright MCP server configured through
 `~/.codex/config.toml` so future Codex sessions can inspect and drive the UI.
@@ -559,4 +567,4 @@ Exit criteria:
 9. How much of Pi's session tree/branching UI should Nelle expose initially?
 10. What is the minimum acceptable packaged app size?
 11. Are we comfortable with GPL/other model license surfaces being shown as UI
-   warnings rather than enforced policy?
+    warnings rather than enforced policy?

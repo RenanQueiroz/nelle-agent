@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "perf": "warn",
+    "suspicious": "warn"
+  },
+  "env": {
+    "browser": true,
+    "node": true
+  },
+  "ignorePatterns": [
+    ".nelle/**",
+    ".nelle-e2e/**",
+    "build/**",
+    "coverage/**",
+    "dist/**",
+    "node_modules/**",
+    "playwright-report/**",
+    "test-results/**"
+  ],
+  "plugins": ["import", "jsx-a11y", "node", "promise", "react"],
+  "rules": {
+    "import/no-unassigned-import": "off",
+    "no-await-in-loop": "off",
+    "no-unmodified-loop-condition": "off",
+    "no-unused-vars": "error",
+    "react/react-in-jsx-scope": "off"
+  }
+}

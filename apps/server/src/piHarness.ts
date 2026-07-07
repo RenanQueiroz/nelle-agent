@@ -12,12 +12,7 @@ import {
 import {createAsyncQueue} from './asyncQueue';
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
-import type {
-  ChatMessage,
-  ChatStreamEvent,
-  ConfiguredModel,
-  ToolCallEvent,
-} from './types';
+import type {ChatMessage, ChatStreamEvent, ConfiguredModel, ToolCallEvent} from './types';
 
 const PROVIDER_ID = 'nelle-llamacpp';
 const TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
@@ -76,10 +71,7 @@ export class PiHarness {
     const session = await this.ensureSession(activeModel);
     const toolCalls: ToolCallEvent[] = [];
     const unsubscribe = session.subscribe((event: any) => {
-      if (
-        event.type === 'message_update' &&
-        event.assistantMessageEvent?.type === 'text_delta'
-      ) {
+      if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
         const delta = String(event.assistantMessageEvent.delta ?? '');
         assistantMessage.content += delta;
         queue.push({type: 'assistant_delta', id: assistantMessage.id, delta});

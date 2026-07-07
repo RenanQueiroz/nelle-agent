@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "arrowParens": "avoid",
+  "bracketSpacing": false,
+  "ignorePatterns": [
+    ".nelle/**",
+    ".nelle-e2e/**",
+    ".claude/CLAUDE.md",
+    "AGENTS.md",
+    "build/**",
+    "coverage/**",
+    "dist/**",
+    "node_modules/**",
+    "playwright-report/**",
+    "test-results/**"
+  ],
+  "printWidth": 100,
+  "semi": true,
+  "singleQuote": true,
+  "sortImports": false,
+  "sortPackageJson": false,
+  "tabWidth": 2,
+  "trailingComma": "all",
+  "useTabs": false
+}

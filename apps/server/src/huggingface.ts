@@ -4,11 +4,7 @@ import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 
 import type {AppPaths} from './paths';
-import type {
-  ConfiguredModel,
-  HuggingFaceFile,
-  HuggingFaceModelResult,
-} from './types';
+import type {ConfiguredModel, HuggingFaceFile, HuggingFaceModelResult} from './types';
 import {AppStore, slugify} from './store';
 
 type HfModelListItem = {
@@ -93,9 +89,7 @@ export class HuggingFaceService {
     repoId: string,
     fallback: HfModelListItem,
   ): Promise<HuggingFaceModelResult> {
-    const response = await fetch(
-      `https://huggingface.co/api/models/${repoId}`,
-    );
+    const response = await fetch(`https://huggingface.co/api/models/${repoId}`);
     if (!response.ok) {
       return {
         id: repoId,
@@ -127,9 +121,7 @@ function extractGgufFiles(info: HfModelInfo): HuggingFaceFile[] {
       size: file.size ?? null,
     }))
     .sort((a, b) => {
-      const bySize =
-        (a.size ?? Number.MAX_SAFE_INTEGER) -
-        (b.size ?? Number.MAX_SAFE_INTEGER);
+      const bySize = (a.size ?? Number.MAX_SAFE_INTEGER) - (b.size ?? Number.MAX_SAFE_INTEGER);
       return bySize === 0 ? a.filename.localeCompare(b.filename) : bySize;
     });
 }

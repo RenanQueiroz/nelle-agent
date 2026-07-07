@@ -36,4 +36,3 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   await expect(page.getByText('tiny.Q4_K_M.gguf')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Download'})).toBeVisible();
 });
-

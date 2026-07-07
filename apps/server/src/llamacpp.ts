@@ -42,11 +42,17 @@ export class LlamaCppManager {
       arch: process.arch,
       dataDir: this.paths.dataDir,
       binaryPath,
-      installMode: process.env.LLAMA_SERVER_PATH ? 'external' : process.platform === 'linux' ? 'source-master' : 'github-release',
+      installMode: process.env.LLAMA_SERVER_PATH
+        ? 'external'
+        : process.platform === 'linux'
+          ? 'source-master'
+          : 'github-release',
       installed,
       installedVersion,
       latestVersion,
-      updateAvailable: Boolean(installedVersion && latestVersion && installedVersion !== latestVersion),
+      updateAvailable: Boolean(
+        installedVersion && latestVersion && installedVersion !== latestVersion,
+      ),
       running: this.isRunning(),
       pid: this.#process?.pid ?? null,
       host: state.runtime.host,
@@ -82,7 +88,9 @@ export class LlamaCppManager {
 
     const binaryPath = await this.getBinaryPath();
     if (!binaryPath || !fsSync.existsSync(binaryPath)) {
-      throw new Error('llama-server is not installed. Install or configure LLAMA_SERVER_PATH first.');
+      throw new Error(
+        'llama-server is not installed. Install or configure LLAMA_SERVER_PATH first.',
+      );
     }
 
     const activeModel = await this.store.getActiveModel();
@@ -311,7 +319,9 @@ export class LlamaCppManager {
       return null;
     }
     if (process.platform === 'linux') {
-      return runCommand('git', ['ls-remote', LLAMA_REPO_URL, 'HEAD']).then(line => line.split(/\s+/)[0] ?? null);
+      return runCommand('git', ['ls-remote', LLAMA_REPO_URL, 'HEAD']).then(
+        line => line.split(/\s+/)[0] ?? null,
+      );
     }
     return this.getLatestRelease().then(release => release.tag_name);
   }
@@ -334,7 +344,9 @@ export class LlamaCppManager {
     const names = await collectFiles(buildDir, file => /\.(so|dylib)(\..*)?$/.test(file));
     await Promise.all(
       names.map(file =>
-        fs.copyFile(file, path.join(this.paths.llamaBinDir, path.basename(file))).catch(() => undefined),
+        fs
+          .copyFile(file, path.join(this.paths.llamaBinDir, path.basename(file)))
+          .catch(() => undefined),
       ),
     );
   }
@@ -392,10 +404,7 @@ async function findFile(root: string, filename: string): Promise<string | null> 
   return files[0] ?? null;
 }
 
-async function collectFiles(
-  root: string,
-  predicate: (file: string) => boolean,
-): Promise<string[]> {
+async function collectFiles(root: string, predicate: (file: string) => boolean): Promise<string[]> {
   const found: string[] = [];
   const entries = await fs.readdir(root, {withFileTypes: true});
   await Promise.all(

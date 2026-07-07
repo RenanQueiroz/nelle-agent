@@ -17,4 +17,3 @@ createRoot(document.getElementById('root') as HTMLElement).render(
     </Theme>
   </React.StrictMode>,
 );
-

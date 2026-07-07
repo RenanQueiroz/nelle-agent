@@ -93,9 +93,7 @@ export async function stopRuntime(): Promise<RuntimeStatus> {
   return apiPost('/api/runtime/stop');
 }
 
-export async function searchHuggingFace(
-  query: string,
-): Promise<HuggingFaceModelResult[]> {
+export async function searchHuggingFace(query: string): Promise<HuggingFaceModelResult[]> {
   const response = await apiGet<{results: HuggingFaceModelResult[]}>(
     `/api/huggingface/search?q=${encodeURIComponent(query)}`,
   );
@@ -107,10 +105,7 @@ export async function downloadModel(input: {
   filename: string;
   name?: string;
 }): Promise<ConfiguredModel> {
-  const response = await apiPost<{model: ConfiguredModel}>(
-    '/api/huggingface/download',
-    input,
-  );
+  const response = await apiPost<{model: ConfiguredModel}>('/api/huggingface/download', input);
   return response.model;
 }
 
@@ -123,9 +118,7 @@ export async function addLocalModel(input: {
 }
 
 export async function activateModel(id: string): Promise<ConfiguredModel> {
-  const response = await apiPost<{model: ConfiguredModel}>(
-    `/api/models/${id}/activate`,
-  );
+  const response = await apiPost<{model: ConfiguredModel}>(`/api/models/${id}/activate`);
   return response.model;
 }
 
@@ -158,9 +151,7 @@ export async function streamChat(
     const chunks = buffer.split('\n\n');
     buffer = chunks.pop() ?? '';
     for (const chunk of chunks) {
-      const line = chunk
-        .split('\n')
-        .find(item => item.startsWith('data:'));
+      const line = chunk.split('\n').find(item => item.startsWith('data:'));
       if (!line) {
         continue;
       }
@@ -195,4 +186,3 @@ async function parseJson<T>(response: Response): Promise<T> {
   }
   return text ? (JSON.parse(text) as T) : (undefined as T);
 }
-

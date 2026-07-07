@@ -24,11 +24,7 @@ export async function runCommand(
       if (code === 0) {
         resolve(stdout.trim());
       } else {
-        reject(
-          new Error(
-            `${command} ${args.join(' ')} failed with ${code}: ${stderr.trim()}`,
-          ),
-        );
+        reject(new Error(`${command} ${args.join(' ')} failed with ${code}: ${stderr.trim()}`));
       }
     });
   });

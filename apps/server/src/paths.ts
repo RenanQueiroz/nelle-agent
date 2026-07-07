@@ -19,9 +19,7 @@ export type AppPaths = {
 };
 
 export function createAppPaths(): AppPaths {
-  const repoRoot = path.resolve(
-    fileURLToPath(new URL('../../../', import.meta.url)),
-  );
+  const repoRoot = path.resolve(fileURLToPath(new URL('../../../', import.meta.url)));
   const dataDir = path.resolve(process.env.NELLE_DATA_DIR ?? path.join(repoRoot, '.nelle'));
   const llamaDir = path.join(dataDir, 'llama');
   const piDir = path.join(dataDir, 'pi');
@@ -43,4 +41,3 @@ export function createAppPaths(): AppPaths {
     webDistDir: path.join(repoRoot, 'dist', 'web'),
   };
 }
-

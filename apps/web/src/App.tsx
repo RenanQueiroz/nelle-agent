@@ -1,13 +1,7 @@
 import {useEffect, useMemo, useState} from 'react';
 
 import {AppShell} from '@astryxdesign/core/AppShell';
-import {
-  HStack,
-  VStack,
-  StackItem,
-  Layout,
-  LayoutContent,
-} from '@astryxdesign/core/Layout';
+import {HStack, VStack, StackItem, Layout, LayoutContent} from '@astryxdesign/core/Layout';
 import {Text, Heading} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {Banner} from '@astryxdesign/core/Banner';
@@ -41,13 +35,11 @@ import {
   PlayIcon,
   PlusIcon,
   StopIcon,
-  WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline';
 
 import {
   activateModel,
   addLocalModel,
-  clearChat,
   downloadModel,
   getRuntime,
   getState,
@@ -88,7 +80,10 @@ export function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [notice, setNotice] = useState<{type: 'info' | 'warning' | 'error' | 'success'; text: string} | null>(null);
+  const [notice, setNotice] = useState<{
+    type: 'info' | 'warning' | 'error' | 'success';
+    text: string;
+  } | null>(null);
 
   const activeModel = useMemo(
     () => models.find(model => model.id === activeModelId) ?? null,
@@ -167,9 +162,7 @@ export function App() {
     if (event.type === 'assistant_delta') {
       setMessages(prev =>
         prev.map(message =>
-          message.id === event.id
-            ? {...message, content: message.content + event.delta}
-            : message,
+          message.id === event.id ? {...message, content: message.content + event.delta} : message,
         ),
       );
     }
@@ -319,7 +312,8 @@ export function App() {
                             setActiveModelId(updated.id);
                             await refreshState();
                           })
-                        }>
+                        }
+                      >
                         <VStack gap={0.5}>
                           <Text type="label" weight="semibold">
                             {model.name}
@@ -374,7 +368,9 @@ export function App() {
                       }
                       isDisabled={!activeModel || !runtime?.running || isStreaming}
                       isStopShown={isStreaming}
-                      onStop={() => setNotice({type: 'info', text: 'Stop is not wired in this POC yet.'})}
+                      onStop={() =>
+                        setNotice({type: 'info', text: 'Stop is not wired in this POC yet.'})
+                      }
                       input={<ChatComposerInput />}
                       footerActions={
                         <DropdownMenu
@@ -394,15 +390,15 @@ export function App() {
                           }))}
                         />
                       }
-                      sendActions={
-                        <Icon icon={PaperAirplaneIcon} size="sm" color="secondary" />
-                      }
+                      sendActions={<Icon icon={PaperAirplaneIcon} size="sm" color="secondary" />}
                     />
-                  }>
+                  }
+                >
                   <ChatMessageList>
                     {messages.length === 0 && (
                       <ChatSystemMessage>
-                        Install llama.cpp, add a GGUF model, start the server, then ask Nelle to work on this PC.
+                        Install llama.cpp, add a GGUF model, start the server, then ask Nelle to
+                        work on this PC.
                       </ChatSystemMessage>
                     )}
                     {messages.map(message => (
@@ -492,19 +488,17 @@ function RenderedMessage({message}: {message: ApiChatMessage}) {
   return (
     <ChatMessage
       sender={message.role === 'assistant' ? 'assistant' : 'user'}
-      avatar={
-        message.role === 'assistant' ? <Avatar name="Nelle" size="small" /> : undefined
-      }>
+      avatar={message.role === 'assistant' ? <Avatar name="Nelle" size="small" /> : undefined}
+    >
       {message.toolCalls && message.toolCalls.length > 0 && (
         <ChatToolCalls calls={message.toolCalls} />
       )}
       <ChatMessageBubble
         variant={message.role === 'assistant' ? 'ghost' : undefined}
         metadata={
-          <ChatMessageMetadata
-            timestamp={<Timestamp value={message.createdAt} format="time" />}
-          />
-        }>
+          <ChatMessageMetadata timestamp={<Timestamp value={message.createdAt} format="time" />} />
+        }
+      >
         {message.role === 'assistant' ? (
           <Markdown density="compact">{message.content || '...'}</Markdown>
         ) : (

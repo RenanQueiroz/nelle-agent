@@ -2,12 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-import type {
-  AppState,
-  ChatMessage,
-  ConfiguredModel,
-  ModelParams,
-} from './types';
+import type {AppState, ChatMessage, ConfiguredModel, ModelParams} from './types';
 import type {AppPaths} from './paths';
 
 const DEFAULT_STATE: AppState = {
@@ -139,12 +134,14 @@ export class AppStore {
 }
 
 export function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/\.gguf$/i, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64) || 'model';
+  return (
+    value
+      .toLowerCase()
+      .replace(/\.gguf$/i, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 64) || 'model'
+  );
 }
 
 function uniquePresetName(base: string, existing: string[]): string {
