@@ -7,6 +7,7 @@ import {spawn, type ChildProcess} from 'node:child_process';
 import type {AppPaths} from './paths';
 import type {ConfiguredModel, RuntimeStatus} from './types';
 import {AppStore} from './store';
+import {llamaRuntimeModelId} from './modelCompat';
 import {commandExists, runCommand} from './process';
 
 const LLAMA_REPO = 'ggml-org/llama.cpp';
@@ -166,7 +167,7 @@ export class LlamaCppManager {
       ...(params.threads ? [`threads = ${params.threads}`] : []),
       ...(params.batchSize ? [`b = ${params.batchSize}`] : []),
       '',
-      `[${activeModel.presetName}]`,
+      `[${llamaRuntimeModelId(activeModel)}]`,
       ...modelSourceLines(activeModel),
       'load-on-startup = true',
       'stop-timeout = 10',

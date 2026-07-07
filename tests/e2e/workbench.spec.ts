@@ -79,5 +79,8 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   ).toBeVisible();
   await expect
     .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
-    .toContain('alias = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL');
+    .toContain('[unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL]');
+  await expect
+    .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
+    .toContain('hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL');
 });

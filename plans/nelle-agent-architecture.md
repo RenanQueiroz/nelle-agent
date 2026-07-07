@@ -358,7 +358,7 @@ model = /absolute/path/to/models/qwen3-8b-q4km.gguf
 load-on-startup = true
 stop-timeout = 10
 
-[unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL]
+[unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL]
 hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 alias = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 load-on-startup = false
@@ -399,8 +399,12 @@ Initial implementation:
 - Preferred for normal setup: Nelle stores the selected repo/quant and writes
   `hf-repo = <repo>:<quant>` in the generated llama.cpp preset so llama.cpp owns
   download, cache, sharded-file handling, and companion `mmproj` downloads.
-- Also write `alias = <repo>:<quant>` for Hugging Face refs so the OpenAI
-  `model` field remains stable when llama.cpp canonicalizes quant tags.
+- Canonicalize the generated preset section and OpenAI `model` id the same way
+  llama.cpp does. For example, `UD-Q4_K_XL` is requested from Hugging Face as-is
+  but exposed through the router as `Q4_K_XL`.
+- Also write `alias = <repo>:<quant>` for Hugging Face refs as metadata and for
+  pre-load routing compatibility, but do not rely on aliases after the child
+  model reports its canonical id.
 - Register Qwen-family models in Pi with model-level
   `compat.thinkingFormat = "qwen-chat-template"` and `reasoning = true`, while
   starting sessions with `thinkingLevel: "off"`. This makes Pi send

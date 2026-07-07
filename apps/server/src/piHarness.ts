@@ -10,7 +10,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 import {createAsyncQueue} from './asyncQueue';
-import {isQwenFamilyModel} from './modelCompat';
+import {isQwenFamilyModel, llamaRuntimeModelId} from './modelCompat';
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
 import type {ChatMessage, ChatStreamEvent, ConfiguredModel, ToolCallEvent} from './types';
@@ -158,9 +158,10 @@ export class PiHarness {
     const authStorage = AuthStorage.create(this.paths.piAuthPath);
     authStorage.setRuntimeApiKey(PROVIDER_ID, 'nelle-local');
     const modelRegistry = ModelRegistry.create(authStorage, this.paths.piModelsPath);
-    const model = modelRegistry.find(PROVIDER_ID, activeModel.presetName);
+    const modelId = llamaRuntimeModelId(activeModel);
+    const model = modelRegistry.find(PROVIDER_ID, modelId);
     if (!model) {
-      throw new Error(`Pi could not resolve model ${PROVIDER_ID}/${activeModel.presetName}.`);
+      throw new Error(`Pi could not resolve model ${PROVIDER_ID}/${modelId}.`);
     }
 
     const resourceLoader = new DefaultResourceLoader({
@@ -196,7 +197,7 @@ export class PiHarness {
     await fs.mkdir(this.paths.piDir, {recursive: true});
     const state = await this.store.getState();
     const models = state.models.map(model => ({
-      id: model.presetName,
+      id: llamaRuntimeModelId(model),
       name: model.name,
       reasoning: isQwenFamilyModel(model),
       input: ['text'],
@@ -224,7 +225,7 @@ export class PiHarness {
           models,
         },
       },
-      activeModel: activeModel.presetName,
+      activeModel: llamaRuntimeModelId(activeModel),
     };
 
     await fs.writeFile(this.paths.piModelsPath, `${JSON.stringify(config, null, 2)}\n`);

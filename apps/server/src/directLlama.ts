@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
 import {createAsyncQueue} from './asyncQueue';
-import {chatTemplateKwargsForModel} from './modelCompat';
+import {chatTemplateKwargsForModel, llamaRuntimeModelId} from './modelCompat';
 import type {AppStore} from './store';
 import type {ChatMessage, ChatStreamEvent} from './types';
 
@@ -43,7 +43,7 @@ export async function streamDirectLlama(
         method: 'POST',
         headers: {'content-type': 'application/json'},
         body: JSON.stringify({
-          model: activeModel.presetName,
+          model: llamaRuntimeModelId(activeModel),
           messages: [
             {role: 'system', content: 'You are Nelle Agent, a local-first personal AI agent.'},
             ...state.chat.slice(-20).map(message => ({

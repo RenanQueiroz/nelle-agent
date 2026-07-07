@@ -89,23 +89,24 @@ For Hugging Face selections, Nelle stores the repo/quant reference and writes an
 `hf-repo` entry into `models.ini`, for example:
 
 ```ini
-[unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL]
+[unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL]
 hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 alias = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 ```
 
-That is equivalent to launching `llama-server` with:
+The `hf-repo` line uses the same model selection as launching `llama-server`
+with:
 
 ```bash
-llama-server -hf unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL \
-  --alias unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
+llama-server -hf unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 ```
 
 The model file download and cache are handled by `llama.cpp`.
-Nelle also writes the exact Hugging Face ref as a router alias because
-`llama.cpp` may canonicalize some quant tags, while the UI and Pi registry keep
-using the originally selected ref. Qwen-family models are registered with Pi's
-`qwen-chat-template` compatibility so `thinkingLevel: off` sends
+Nelle keeps the exact Hugging Face ref for `hf-repo`, but canonicalizes the
+router section and OpenAI `model` id the same way llama.cpp does. For example,
+`UD-Q4_K_XL` is exposed by llama.cpp as `Q4_K_XL`. Qwen-family models are
+registered with Pi's `qwen-chat-template` compatibility so `thinkingLevel: off`
+sends
 `chat_template_kwargs.enable_thinking = false` and responses stream visible
 assistant text instead of hidden-only reasoning.
 
