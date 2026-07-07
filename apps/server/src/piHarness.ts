@@ -26,6 +26,12 @@ export class PiHarness {
     private readonly store: AppStore,
   ) {}
 
+  resetSession(): void {
+    this.#session?.dispose?.();
+    this.#session = null;
+    this.#sessionModelId = null;
+  }
+
   async streamPrompt(prompt: string): Promise<AsyncIterable<ChatStreamEvent>> {
     const activeModel = await this.store.getActiveModel();
     if (!activeModel) {

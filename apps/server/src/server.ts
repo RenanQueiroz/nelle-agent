@@ -121,6 +121,7 @@ export async function createServer(paths: AppPaths) {
   });
 
   app.delete('/api/chat/messages', async () => {
+    pi.resetSession();
     await store.clearChat();
     return {ok: true};
   });

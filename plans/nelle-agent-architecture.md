@@ -179,7 +179,8 @@ Astryx chat surface, Hugging Face GGUF search/download, Hugging Face quant
 selection through llama.cpp-managed `hf-repo` references, local GGUF
 registration, managed `llama.cpp` install/update/start/stop paths, generated
 router `models.ini`, Pi SDK chat streaming, a direct llama.cpp fallback for
-diagnostics, and Playwright e2e coverage for the browser workbench.
+diagnostics, browser-triggered conversation reset, and Playwright e2e coverage
+for the browser workbench.
 
 Intentional POC limitations:
 

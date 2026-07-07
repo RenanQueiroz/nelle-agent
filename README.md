@@ -82,6 +82,8 @@ Set these environment variables when needed:
 3. Click `Start` to launch `llama-server` with the generated
    `.nelle/llama/models.ini`.
 4. Chat with Nelle through the browser UI.
+5. Use `Reset conversation` in the chat footer to clear chat history and reset
+   the in-memory Pi session.
 
 For Hugging Face selections, Nelle stores the repo/quant reference and writes an
 `hf-repo` entry into `models.ini`, for example:

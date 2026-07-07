@@ -35,11 +35,13 @@ import {
   PlayIcon,
   PlusIcon,
   StopIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline';
 
 import {
   activateModel,
   addLocalModel,
+  clearChat,
   getRuntime,
   getState,
   installRuntime,
@@ -150,6 +152,15 @@ export function App() {
     } finally {
       setIsStreaming(false);
     }
+  }
+
+  async function handleResetConversation() {
+    await runAction('reset-chat', async () => {
+      await clearChat();
+      setMessages([]);
+      await refreshState();
+      setNotice({type: 'success', text: 'Conversation reset.'});
+    });
   }
 
   function applyChatEvent(event: ChatStreamEvent) {
@@ -373,22 +384,33 @@ export function App() {
                       }
                       input={<ChatComposerInput />}
                       footerActions={
-                        <DropdownMenu
-                          button={{
-                            label: activeModel?.name ?? 'No model',
-                            variant: 'ghost',
-                            size: 'sm',
-                            children: activeModel?.name ?? 'No model',
-                          }}
-                          items={models.map(model => ({
-                            label: model.name,
-                            onClick: () =>
-                              runAction('activate', async () => {
-                                await activateModel(model.id);
-                                await refreshState();
-                              }),
-                          }))}
-                        />
+                        <HStack gap={1} vAlign="center" wrap="wrap">
+                          <DropdownMenu
+                            button={{
+                              label: activeModel?.name ?? 'No model',
+                              variant: 'ghost',
+                              size: 'sm',
+                              children: activeModel?.name ?? 'No model',
+                            }}
+                            items={models.map(model => ({
+                              label: model.name,
+                              onClick: () =>
+                                runAction('activate', async () => {
+                                  await activateModel(model.id);
+                                  await refreshState();
+                                }),
+                            }))}
+                          />
+                          <Button
+                            label="Reset conversation"
+                            size="sm"
+                            variant="ghost"
+                            icon={<Icon icon={TrashIcon} size="sm" />}
+                            isDisabled={messages.length === 0 || isStreaming}
+                            isLoading={busyAction === 'reset-chat'}
+                            onClick={handleResetConversation}
+                          />
+                        </HStack>
                       }
                       sendActions={<Icon icon={PaperAirplaneIcon} size="sm" color="secondary" />}
                     />
