@@ -8,6 +8,11 @@ Project-specific guidance for AI coding agents.
   `plans/nelle-agent-architecture.md`, and agent docs such as `AGENTS.md` /
   `.claude/CLAUDE.md` whenever implementation behavior, setup commands,
   architecture, or workflow expectations change.
+- Use Node through nvm in this WSL checkout before running npm commands:
+  `source ~/.nvm/nvm.sh`.
+- Primary checks are `npm run check`, `npm run build:web`, and `npm test`.
+- The current POC stores app data under `.nelle/` by default. Do not commit
+  generated app data, downloaded models, llama.cpp builds, or logs.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components

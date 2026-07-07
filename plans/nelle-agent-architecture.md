@@ -1,6 +1,6 @@
 # Nelle Agent Architecture Plan
 
-Last updated: 2026-07-06
+Last updated: 2026-07-07
 
 ## Working Goal
 
@@ -171,6 +171,24 @@ AGENTS.md               Astryx-generated Codex agent UI guidance
 This repo owns the local server, browser UI, launcher, and host runtime
 management. `nelle-client` should consume a generated API client and shared
 protocol docs, but should remain a separate repo.
+
+## Current POC Status
+
+The first POC implements the local Fastify server, React/Vite browser UI,
+Astryx chat surface, Hugging Face GGUF search/download, local GGUF registration,
+managed `llama.cpp` install/update/start/stop paths, generated router
+`models.ini`, Pi SDK chat streaming, and a direct llama.cpp fallback for
+diagnostics.
+
+Intentional POC limitations:
+
+- State is stored in `.nelle/state.json`; SQLite is still the planned durable
+  app database.
+- Long-running build/download progress is not streamed yet.
+- Mobile LAN pairing and Expo push are still future milestones.
+- Host tools are enabled through Pi and remain unsandboxed.
+- The UI is adapted from Astryx `ai-chat` and `ai-chat-landing` templates, but
+  the raw generated template files are not kept in `src`.
 
 ## Main Components
 

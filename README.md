@@ -1,12 +1,107 @@
 # Nelle Server
 
-Local-first server for Nelle Agent.
+Local-first server POC for Nelle Agent.
 
-Nelle Server will manage a local `llama.cpp` runtime, run the Pi agent harness,
-serve a browser-based setup/admin/chat UI, and expose the API consumed by the
-separate React Native mobile app (`nelle-client`).
+Nelle Server manages a local `llama.cpp` runtime, runs the Pi agent harness,
+serves a browser-based Astryx/React setup and chat UI, and exposes the API that
+the separate React Native mobile app (`nelle-client`) will consume later.
+
+## Current POC
+
+Implemented:
+
+- Fastify API server with browser-opened app flow.
+- React/Vite UI using Meta Astryx components and generated Astryx agent guidance.
+- Managed `llama.cpp` runtime control:
+  - Linux installs/updates by building latest `ggml-org/llama.cpp` master.
+  - Windows/macOS install/update code downloads latest GitHub release assets.
+  - Runtime start/stop uses router mode with `--models-preset` and
+    `--models-max 1`.
+- Hugging Face GGUF search and download.
+- Local GGUF path registration.
+- Pi SDK chat harness configured against the local OpenAI-compatible
+  `llama-server` provider with v1 host file/shell tools enabled.
+- Direct llama.cpp chat-completions fallback if Pi initialization fails.
+
+Not implemented yet:
+
+- Mobile LAN pairing and Expo push.
+- Sandboxing for host tools.
+- SQLite persistence. The POC uses `.nelle/state.json`.
+- Progress streaming for long downloads/builds.
+
+## Setup
+
+Use Node 22.19 or newer. In this WSL environment, source nvm first:
+
+```bash
+source ~/.nvm/nvm.sh
+npm install
+```
+
+## Run
+
+Development mode starts the API server and Vite web server:
+
+```bash
+npm run dev
+```
+
+The API server listens on `127.0.0.1:8787`. The Vite UI listens on
+`127.0.0.1:5173` and proxies `/api` to the server.
+
+Run the server alone:
+
+```bash
+npm run dev:server
+```
+
+Run a built/static UI through the server:
+
+```bash
+npm run build
+npm start
+```
+
+Set these environment variables when needed:
+
+- `NELLE_DATA_DIR`: override the default `.nelle/` app data directory.
+- `NELLE_PORT`: change the local API port.
+- `NELLE_HOST`: change the bind host.
+- `LLAMA_SERVER_PATH`: use an existing `llama-server` binary instead of the
+  managed install.
+- `NELLE_PI_DISABLED=1`: bypass Pi and use direct llama.cpp chat completions.
+
+## llama.cpp Flow
+
+1. Add a local GGUF path or search/download a GGUF model from Hugging Face.
+2. Click `Install` to install/update `llama.cpp`.
+3. Click `Start` to launch `llama-server` with the generated
+   `.nelle/llama/models.ini`.
+4. Chat with Nelle through the browser UI.
+
+On Linux, install/update builds from latest upstream master and may require
+`git`, `cmake`, `make`, `gcc`, `g++`, OpenSSL headers, and optionally CUDA
+tooling. It is intentionally user-triggered because it can take several minutes.
+
+## Checks
+
+```bash
+npm run check
+npm run build:web
+npm test
+```
+
+Useful smoke probes after starting the server:
+
+```bash
+curl -fsS http://127.0.0.1:8787/api/health
+curl -fsS http://127.0.0.1:8787/api/state
+curl -fsS 'http://127.0.0.1:8787/api/huggingface/search?q=tiny%20gguf'
+```
+
+## Architecture
 
 Current planning source of truth:
 
 - [Architecture plan](plans/nelle-agent-architecture.md)
-

@@ -1,0 +1,62 @@
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+.nelle-workbench {
+  height: 100dvh;
+}
+
+.nelle-side-panel {
+  width: 360px;
+  min-width: 320px;
+  max-width: 380px;
+  border-inline-end: 1px solid var(--color-border-subtle);
+  background: var(--color-background-surface);
+}
+
+.nelle-chat-column {
+  min-width: 0;
+}
+
+.nelle-search-panel {
+  width: 420px;
+  min-width: 360px;
+  max-width: 460px;
+  border-inline-start: 1px solid var(--color-border-subtle);
+  background: var(--color-background-surface);
+}
+
+.nelle-scroll {
+  overflow: auto;
+}
+
+.nelle-panel-content {
+  padding: var(--spacing-4);
+}
+
+.nelle-tight {
+  min-width: 0;
+}
+
+.nelle-code {
+  font-family: var(--font-family-mono);
+  word-break: break-all;
+}
+
+@media (max-width: 1180px) {
+  .nelle-search-panel {
+    display: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .nelle-side-panel {
+    display: none;
+  }
+}
