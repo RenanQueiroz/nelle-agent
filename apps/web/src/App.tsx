@@ -30,11 +30,11 @@ import {
   ArrowDownTrayIcon,
   ChatBubbleLeftRightIcon,
   CpuChipIcon,
+  EllipsisHorizontalIcon,
   MagnifyingGlassIcon,
   PlusIcon,
   PlayIcon,
   StopIcon,
-  TrashIcon,
 } from '@heroicons/react/24/outline';
 
 import {
@@ -42,6 +42,7 @@ import {
   activateModel,
   clearConversation,
   createConversation,
+  deleteConversation,
   getConversation,
   getConversations,
   getLlamaModels,
@@ -52,10 +53,12 @@ import {
   loadLlamaModel,
   reloadLlamaModels,
   searchHuggingFace,
+  setConversationPinned,
   startRuntime,
   stopRuntime,
   streamConversationChat,
   unloadLlamaModel,
+  updateConversation,
   updateRuntimeSettings,
   useHuggingFaceModel,
   type ChatMessage as ApiChatMessage,
@@ -126,6 +129,7 @@ export function App() {
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [activeConversationId, setActiveConversationId] = useState('poc-default');
   const [messages, setMessages] = useState<ApiChatMessage[]>([]);
+  const [conversationSearch, setConversationSearch] = useState('');
   const [searchQuery, setSearchQuery] = useState('qwen gguf');
   const [searchResults, setSearchResults] = useState<HuggingFaceModelResult[]>([]);
   const [modelsMaxInput, setModelsMaxInput] = useState('1');
@@ -155,6 +159,13 @@ export function App() {
     }
     return entries;
   }, [models, routerModels]);
+  const visibleConversations = useMemo(() => {
+    const query = conversationSearch.trim().toLowerCase();
+    if (!query) {
+      return conversations;
+    }
+    return conversations.filter(conversation => conversation.title.toLowerCase().includes(query));
+  }, [conversationSearch, conversations]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -388,10 +399,12 @@ export function App() {
     }
   }
 
-  async function handleResetConversation() {
+  async function handleResetConversation(conversationId = activeConversationId) {
     await runAction('reset-chat', async () => {
-      await clearConversation(activeConversationId);
-      setMessages([]);
+      await clearConversation(conversationId);
+      if (conversationId === activeConversationId) {
+        setMessages([]);
+      }
       await refreshConversations(activeConversationId);
       setNotice({type: 'success', text: 'Conversation reset.'});
     });
@@ -409,6 +422,37 @@ export function App() {
   async function handleSelectConversation(conversationId: string) {
     setActiveConversationId(conversationId);
     await refreshConversations(conversationId);
+  }
+
+  async function handleRenameConversation(conversation: ConversationListItem) {
+    const title = window.prompt('Rename conversation', conversation.title)?.trim();
+    if (!title || title === conversation.title) {
+      return;
+    }
+    await runAction(`rename:${conversation.id}`, async () => {
+      await updateConversation(conversation.id, {title});
+      await refreshConversations(activeConversationId);
+    });
+  }
+
+  async function handleToggleConversationPin(conversation: ConversationListItem) {
+    await runAction(`pin:${conversation.id}`, async () => {
+      await setConversationPinned(conversation.id, !conversation.pinned);
+      await refreshConversations(activeConversationId);
+    });
+  }
+
+  async function handleDeleteConversation(conversation: ConversationListItem) {
+    if (!window.confirm(`Delete "${conversation.title}"?`)) {
+      return;
+    }
+    await runAction(`delete:${conversation.id}`, async () => {
+      await deleteConversation(conversation.id);
+      if (conversation.id === activeConversationId) {
+        setMessages([]);
+      }
+      await refreshConversations(activeConversationId);
+    });
   }
 
   async function handleStopGeneration() {
@@ -538,15 +582,53 @@ export function App() {
                         onClick={handleNewConversation}
                       />
                     </HStack>
+                    <TextInput
+                      label="Search conversations"
+                      value={conversationSearch}
+                      onChange={setConversationSearch}
+                      placeholder="Search chats"
+                    />
                     <VStack gap={1}>
-                      {conversations.map(conversation => (
-                        <Button
-                          key={conversation.id}
-                          label={conversation.title}
-                          size="sm"
-                          variant={conversation.id === activeConversationId ? 'primary' : 'ghost'}
-                          onClick={() => void handleSelectConversation(conversation.id)}
-                        />
+                      {visibleConversations.map(conversation => (
+                        <HStack key={conversation.id} gap={1} vAlign="center">
+                          <StackItem size="fill">
+                            <Button
+                              label={conversation.title}
+                              size="sm"
+                              variant={
+                                conversation.id === activeConversationId ? 'primary' : 'ghost'
+                              }
+                              onClick={() => void handleSelectConversation(conversation.id)}
+                            />
+                          </StackItem>
+                          {conversation.pinned && <Token label="pinned" color="blue" />}
+                          <DropdownMenu
+                            button={{
+                              label: `Actions for ${conversation.title}`,
+                              variant: 'ghost',
+                              size: 'sm',
+                              children: <Icon icon={EllipsisHorizontalIcon} size="sm" />,
+                            }}
+                            items={[
+                              {
+                                label: conversation.pinned ? 'Unpin' : 'Pin',
+                                onClick: () => void handleToggleConversationPin(conversation),
+                              },
+                              {
+                                label: 'Rename',
+                                onClick: () => void handleRenameConversation(conversation),
+                              },
+                              {
+                                label: 'Reset',
+                                onClick: () => void handleResetConversation(conversation.id),
+                              },
+                              {
+                                label: 'Delete',
+                                onClick: () => void handleDeleteConversation(conversation),
+                              },
+                            ]}
+                          />
+                        </HStack>
                       ))}
                     </VStack>
                   </VStack>
@@ -800,15 +882,6 @@ export function App() {
                                   await refreshState();
                                 }),
                             }))}
-                          />
-                          <Button
-                            label="Reset conversation"
-                            size="sm"
-                            variant="ghost"
-                            icon={<Icon icon={TrashIcon} size="sm" />}
-                            isDisabled={messages.length === 0 || isStreaming}
-                            isLoading={busyAction === 'reset-chat'}
-                            onClick={handleResetConversation}
                           />
                         </HStack>
                       }

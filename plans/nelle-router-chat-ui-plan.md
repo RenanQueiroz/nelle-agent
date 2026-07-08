@@ -148,9 +148,9 @@ Nelle currently differs from the target in these ways:
   Nelle-owned `/api/llama/*` router facade exists, and the POC model panel can
   show router status plus reload/load/unload actions. The final router-aware
   settings/model selector surface is not built yet.
-- The web UI has side panels for runtime/model setup plus a temporary
-  conversation list/new-chat selector rather than the final collapsible,
-  searchable, virtualized conversation sidebar plus settings.
+- The web UI has side panels for runtime/model setup plus a temporary searchable
+  conversation list with new-chat and row actions rather than the final
+  collapsible, virtualized conversation sidebar plus settings.
 - The server now exposes conversation snapshots and
   `/api/conversations/:id/chat/stream`. Each streamed conversation is bound to
   one Pi JSONL session file under `.nelle/pi/sessions`, and existing session
@@ -162,8 +162,10 @@ Nelle currently differs from the target in these ways:
   browser stream, and invokes Pi `AgentSession.abort()` for a cached
   conversation runtime. Explicit run ids, terminal run events, abort recovery
   states, and llama.cpp slot-level verification are still pending.
-- Reset conversation is a composer footer action rather than a conversation
-  action.
+- Done in the temporary list: reset/delete/pin/rename actions moved out of the
+  composer footer and into each conversation row's action menu. The final
+  sidebar menu styling, virtualization, and export/fork/duplicate actions are
+  still pending.
 - Model import/edit UX is split between app state and generated preset writes.
   The POC UI can call router model list/load/unload/reload APIs, but model
   editing has not moved into Settings yet.
@@ -1568,7 +1570,8 @@ Exit criteria:
   duplicate Pi's tree as independent Nelle truth.
 - Add collapsible sidebar with new chat, settings, search, virtualized list, and
   item overflow menus.
-- Move reset/delete behavior to sidebar actions.
+- Done in temporary list: move reset/delete behavior to conversation row
+  actions. Final sidebar styling remains pending.
 - Add conversation export/delete/pin/rename/duplicate.
 - Add message-level fork into a new conversation, backed by Pi fork.
 - Implement local `.nelle-chat.zip` export/import for conversation snapshots,

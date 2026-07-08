@@ -258,9 +258,9 @@ Intentional POC limitations:
 - Model/runtime setup state is still stored in `.nelle/state.json`; SQLite
   stores conversation rows and active-branch projections, but is not yet the
   primary database for all app state.
-- The web UI only has a small temporary conversation list/new-chat selector.
-  The full collapsible, searchable, virtualized sidebar and conversation menus
-  are still pending.
+- The web UI only has a small searchable conversation list with new-chat and row
+  actions. The full collapsible, virtualized sidebar and richer conversation
+  menus are still pending.
 - Stable run ids/terminal run events, fork/clone, branch variants, and
   export/import are still pending.
 - Long-running install/build progress is not streamed yet.

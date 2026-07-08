@@ -61,7 +61,8 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   await expect(page.getByRole('heading', {name: 'Nelle Agent'})).toBeVisible();
   await expect(page.getByRole('heading', {name: 'llama.cpp'})).toBeVisible();
   await expect(page.getByText('Not installed')).toBeVisible();
-  await expect(page.getByRole('button', {name: 'Reset conversation'})).toBeDisabled();
+  await expect(page.getByLabel('Search conversations')).toBeVisible();
+  await expect(page.getByRole('button', {name: 'New chat'})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Send'})).toHaveCount(1);
   await expect(page.getByLabel('Max loaded models')).toHaveValue('1');
   await expect(page.getByLabel('Sleep idle seconds')).toHaveValue('90');

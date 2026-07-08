@@ -293,6 +293,31 @@ export async function createConversation(input: {
   return response.conversation;
 }
 
+export async function updateConversation(
+  id: string,
+  input: {title?: string; defaultModelId?: string | null},
+): Promise<ConversationListItem> {
+  const response = await apiPatch<{conversation: ConversationListItem}>(
+    `/api/conversations/${encodeURIComponent(id)}`,
+    input,
+  );
+  return response.conversation;
+}
+
+export async function setConversationPinned(
+  id: string,
+  pinned: boolean,
+): Promise<ConversationListItem> {
+  const response = await apiPost<{conversation: ConversationListItem}>(
+    `/api/conversations/${encodeURIComponent(id)}/${pinned ? 'pin' : 'unpin'}`,
+  );
+  return response.conversation;
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+  await apiDelete(`/api/conversations/${encodeURIComponent(id)}`);
+}
+
 export async function getConversation(id: string): Promise<ConversationSnapshot> {
   const response = await apiGet<{snapshot: ConversationSnapshot}>(
     `/api/conversations/${encodeURIComponent(id)}`,

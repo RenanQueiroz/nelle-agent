@@ -58,8 +58,9 @@ Not implemented yet:
 
 - Mobile LAN pairing and Expo push.
 - Collapsible, virtualized conversation sidebar. The current workbench has a
-  small conversation list/new-chat selector, but the planned large-history list
-  uses TanStack Virtual with Astryx sidebar/list styling.
+  small searchable conversation list with new-chat and row actions, but the
+  planned large-history list uses TanStack Virtual with Astryx sidebar/list
+  styling.
 - Full router-aware model selector/settings UI. The current POC model panel
   shows router status and exposes reload/load/unload actions, but the final
   settings/sidebar design is not built yet.
@@ -138,13 +139,12 @@ Set these environment variables when needed:
 4. Click `Start` to launch `llama-server` with the generated
    `.nelle/llama/models.ini`.
 5. Chat with Nelle through the browser UI.
-6. Use `New chat` to create a separate Pi-backed conversation, or use
-   `Reset conversation` in the chat footer to clear the active conversation and
-   detach its Pi session file.
+6. Use `New chat` to create a separate Pi-backed conversation, or use a
+   conversation row's action menu to reset/delete/rename/pin that conversation.
 
 The chat composer uses Astryx's default up-arrow send/stop button. The footer is
-reserved for model selection and reset controls so the composer exposes only one
-send affordance.
+reserved for model selection so the composer exposes only one send affordance;
+conversation reset/delete/pin/rename live in the conversation row action menu.
 
 The planned composer overhaul will move chat warnings/errors into Astryx
 `ChatComposer` status, add a context-window progress bar with used/total token
