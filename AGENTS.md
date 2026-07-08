@@ -55,6 +55,10 @@ Project-specific guidance for AI coding agents.
 - Projection sync may rebuild the active SQLite view from Pi's current branch,
   but must not rewrite the Pi session file or drop inactive branches from the
   append-only JSONL history.
+- Conversation snapshot reads should refresh the active projection from the
+  bound Pi session file when possible. After a server restart, stale
+  `running`/`compacting`/`aborting` rows without an active in-memory run should
+  recover to `ready` rather than staying stuck.
 - API-created conversations should immediately create and bind a header-only Pi
   session JSONL file, before the first prompt.
 - On Pi-enabled startup, migrate a non-empty legacy `poc-default` chat from

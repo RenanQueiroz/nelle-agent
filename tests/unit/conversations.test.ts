@@ -1732,6 +1732,72 @@ test('Pi sync rebuilds the active projection without dropping inactive session b
   }
 });
 
+test('conversation snapshot route rebuilds active projection from Pi after restart', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  let conversationId = '';
+  let sessionId = '';
+  let userEntryId = '';
+  let assistantEntryId = '';
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Recover from Pi'});
+    conversationId = conversation.id;
+    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    userEntryId = sessionManager.appendMessage({
+      role: 'user',
+      content: 'Recover this prompt',
+    } as any);
+    assistantEntryId = sessionManager.appendMessage({
+      role: 'assistant',
+      content: 'Recovered answer.',
+    } as any);
+    const sessionPath = sessionManager.getSessionFile();
+    assert.ok(sessionPath);
+    sessionId = sessionManager.getSessionId();
+    repository.attachPiSession(conversation.id, {
+      piSessionPath: sessionPath,
+      piSessionId: sessionId,
+      activeLeafPiEntryId: assistantEntryId,
+    });
+    repository.setConversationStatus(conversation.id, 'running');
+    assert.deepEqual(repository.getConversationEntries(conversation.id), []);
+  } finally {
+    database.close();
+  }
+
+  const app = await createServer(paths);
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/conversations/${conversationId}`,
+    });
+    assert.equal(response.statusCode, 200);
+    const snapshot = response.json<{
+      snapshot: {
+        conversation: {status: string; piSessionId?: string; activeLeafPiEntryId?: string};
+        entries: Array<{piEntryId: string; textPreview?: string}>;
+        activePathEntryIds: string[];
+      };
+    }>().snapshot;
+
+    assert.equal(snapshot.conversation.status, 'ready');
+    assert.equal(snapshot.conversation.piSessionId, sessionId);
+    assert.equal(snapshot.conversation.activeLeafPiEntryId, assistantEntryId);
+    assert.deepEqual(snapshot.activePathEntryIds, [userEntryId, assistantEntryId]);
+    assert.deepEqual(
+      snapshot.entries.map(entry => [entry.piEntryId, entry.textPreview]),
+      [
+        [userEntryId, 'Recover this prompt'],
+        [assistantEntryId, 'Recovered answer.'],
+      ],
+    );
+  } finally {
+    await app.close();
+  }
+});
+
 test('conversation API exposes list, snapshot, create, patch, pin, and delete routes', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);

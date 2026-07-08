@@ -332,9 +332,11 @@ Runtime lifecycle:
   Nelle enforces one active run per conversation, while different conversations
   may stream concurrently. llama.cpp/router capacity still determines actual
   model execution.
-- After a Nelle server restart, rebuild the runtime pool lazily from SQLite
-  conversation rows and Pi session files. Resync projections by reading Pi
-  entries after `last_synced_pi_entry_id`.
+- Done for snapshot recovery: after a Nelle server restart, rebuild the runtime
+  pool lazily from SQLite conversation rows and Pi session files. Snapshot reads
+  reopen the bound Pi session file, rebuild the active projection from
+  `SessionManager.getBranch()`, overlay existing SQLite sidecar metadata, and
+  recover stale foreground statuses to `ready` when no in-memory run exists.
 - Done for detection/prevention: if a bound Pi session file is missing or
   corrupt, mark the conversation unavailable, return a `session_unavailable`
   snapshot error, and block chat, compaction, regeneration, fork, and duplicate
@@ -1581,8 +1583,8 @@ Future migration expectations:
   create/open/dispose runtimes by conversation id, map each conversation to one
   Pi session file, resubscribe after runtime replacement, and support multiple
   active conversation runtimes.
-- Add Pi session projection sync from `SessionManager` entries into SQLite,
-  using Pi entry ids and leaf id as durable cursors.
+- Done: add Pi session projection sync from `SessionManager` entries into
+  SQLite, using Pi entry ids and leaf id as durable cursors.
 - Add the Nelle SSE event envelope helper, transport policy helpers, Pi event
   mapper, and conversation/run state machine.
 - Done: add the abort API and Pi/proxy abort propagation before expanding the
@@ -1595,14 +1597,14 @@ Exit criteria:
 
 - Done: creating a conversation through the API creates a header-only Pi session
   file and stores its path/id in SQLite.
-- Done for unavailable-session protection: reopening a conversation after server
-  restart validates the same Pi session file; missing or malformed files become
-  `unavailable` instead of being replaced. Full projection resync from all Pi
-  entries remains covered by the existing active-branch projection path.
+- Done for unavailable-session protection and snapshot recovery: reopening a
+  conversation after server restart validates the same Pi session file; missing
+  or malformed files become `unavailable` instead of being replaced. Snapshot
+  reads rebuild the active timeline projection from the bound Pi session file.
 - Multiple conversation runtimes can exist, while each conversation allows only
   one active run.
 - Conversation streams emit typed envelopes with stable `runId`s.
-- Conversation snapshots can rebuild the active timeline from Pi plus SQLite
+- Done: conversation snapshots rebuild the active timeline from Pi plus SQLite
   sidecar metadata.
 - Done: invalid state transitions and same-conversation active-run conflicts are
   rejected with stable `NelleError` codes. Stream errors normalize known
@@ -1868,9 +1870,10 @@ Unit tests:
 - Pi event mapping into Nelle stream events, including unknown-event tolerance.
 - Done: conversation/run state machine transitions and `conversation_busy`
   stream errors.
-- Conversation snapshot building from Pi entries plus SQLite sidecar metadata.
-- Pi session projection sync from entry lists, leaf id changes, and missing
-  session-file handling.
+- Done: conversation snapshot building from Pi entries plus SQLite sidecar
+  metadata.
+- Done: Pi session projection sync from entry lists, leaf id changes, and
+  missing session-file handling.
 - Conversation title sanitization/fallback.
 - Message model metadata selection and alias snapshot fallback.
 - Fork/clone request validation, source entry eligibility, new conversation

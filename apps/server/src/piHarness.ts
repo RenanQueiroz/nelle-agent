@@ -190,6 +190,44 @@ export class PiHarness {
     });
   }
 
+  async getConversationSnapshot(conversationId: string): Promise<ConversationSnapshot | null> {
+    if (conversationId === POC_CONVERSATION_ID) {
+      this.conversations.syncPocConversationFromState(await this.store.getState());
+    }
+    const row = this.conversations.getConversation(conversationId);
+    if (!row) {
+      return null;
+    }
+    const checked = await this.conversations.markUnavailableIfPiSessionInvalid(conversationId);
+    if (checked?.status === 'unavailable' || row.status === 'unavailable') {
+      return this.conversations.getSnapshot(conversationId, await this.store.getState());
+    }
+    if (this.#activeRuns.has(conversationId)) {
+      return this.conversations.getSnapshot(conversationId, await this.store.getState());
+    }
+    const binding = this.conversations.getPiSessionBinding(conversationId);
+    if (binding?.piSessionPath) {
+      const sessionManager = SessionManager.open(
+        binding.piSessionPath,
+        this.paths.piSessionsDir,
+        this.paths.repoRoot,
+      );
+      const activeModel = await this.getProjectionModel();
+      this.syncPiConversation(
+        conversationId,
+        {
+          sessionFile: binding.piSessionPath,
+          sessionId: sessionManager.getSessionId(),
+          sessionManager,
+        },
+        activeModel,
+        undefined,
+        'ready',
+      );
+    }
+    return this.conversations.getSnapshot(conversationId, await this.store.getState());
+  }
+
   async abortConversation(conversationId: string): Promise<AbortConversationResult> {
     const run = this.#activeRuns.get(conversationId);
     if (run) {

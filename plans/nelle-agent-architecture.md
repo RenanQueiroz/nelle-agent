@@ -451,6 +451,9 @@ Responsibilities:
 - Rebuild SQLite projections from Pi's active branch without rewriting Pi
   session files; inactive Pi branches must remain in the append-only JSONL file
   for export and future branch-tree UI.
+- Conversation snapshot reads reopen the bound Pi session file and refresh the
+  active projection when no in-memory run is active. This lets restart recovery
+  rebuild the visible timeline from Pi plus preserved SQLite sidecar metadata.
 - Use Pi `AgentSession.abort()`, `compact()`, `abortCompaction()`, and
   `abortRetry()` for UI stop/compact behavior rather than reimplementing those
   mechanics.

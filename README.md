@@ -41,6 +41,9 @@ Implemented:
   before session validation. If a bound Pi session file is missing or malformed,
   Nelle marks the conversation unavailable and surfaces `session_unavailable`
   instead of creating a replacement session under the same conversation id.
+  Conversation snapshot reads reopen the bound Pi session file and rebuild the
+  active timeline projection when needed, so restart recovery does not depend on
+  stale SQLite projection rows.
 - Conversation-scoped chat streaming through
   `/api/conversations/:id/chat/stream`, with the legacy `/api/chat/stream`
   route kept as a default-conversation compatibility wrapper.
