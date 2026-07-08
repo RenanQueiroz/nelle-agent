@@ -72,6 +72,8 @@ Project-specific guidance for AI coding agents.
   groups browser-local favorites first, shows selected/row router
   status/progress from router SSE updates, and loads unloaded router models
   before activating them.
+- Settings rows for models with active runs must show an active-run token and
+  keep unload/save/remove disabled until a terminal run event arrives.
 - New Hugging Face imports should use the stable canonical section id as the
   model id; route clients must URL-encode model ids because they may contain
   `/` and `:`.

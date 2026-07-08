@@ -443,6 +443,98 @@ test('updates router model selector state from SSE events', async ({page}) => {
   await expect(page.getByText('35%')).toBeVisible();
 });
 
+test('locks model settings while a matching run is active', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'Model One',
+    presetName: 'model-one',
+    source: 'huggingface',
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    logPath: '/tmp/llama.log',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    modelsMax: 1,
+    sleepIdleSeconds: 90,
+    activeModelId: model.id,
+    lastError: null,
+  };
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: model.id,
+            routerModelId: model.id,
+            alias: model.name,
+            hfRepo: model.hfRef,
+            status: 'loaded',
+            aliases: [model.id],
+          },
+        ],
+      },
+    });
+  });
+  await mockConversationRoutes(page, {chat: []});
+  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: `data: ${JSON.stringify({
+        type: 'run.started',
+        runId: 'run-model-lock',
+        conversationId: 'poc-default',
+        kind: 'chat',
+        modelId: model.id,
+        status: 'running',
+        createdAt: '2026-07-07T12:01:00.000Z',
+      })}\n\n`,
+    });
+  });
+
+  await page.goto('/');
+  await page.getByLabel('Message input').fill('hold this model');
+  await page.getByLabel('Message input').press('Enter');
+
+  await page.getByRole('button', {name: 'Settings'}).click();
+  await page.getByRole('button', {name: 'Models'}).click();
+  await expect(page.getByText('active run')).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Unload'})).toBeDisabled();
+  await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+  await expect(page.getByRole('button', {name: 'Remove model'})).toBeDisabled();
+});
+
 test('renders llama.cpp prompt and generation throughput in chat message metadata', async ({
   page,
 }) => {

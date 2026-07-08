@@ -313,6 +313,18 @@ function routerModelMatchesUpdate(
   );
 }
 
+function removeRunModel(
+  activeRunModelsById: Record<string, string>,
+  runId: string,
+): Record<string, string> {
+  if (!(runId in activeRunModelsById)) {
+    return activeRunModelsById;
+  }
+  const next = {...activeRunModelsById};
+  delete next[runId];
+  return next;
+}
+
 export function App() {
   const showToast = useToast();
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
@@ -352,6 +364,7 @@ export function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
   const [activeRunIds, setActiveRunIds] = useState<Record<string, string>>({});
+  const [activeRunModelsById, setActiveRunModelsById] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const archiveInputRef = useRef<HTMLInputElement | null>(null);
   const streamAbortController = useRef<AbortController | null>(null);
@@ -434,6 +447,10 @@ export function App() {
     [activeModel, routerModelsByConfiguredId, runtime],
   );
   const activeModelIsFavorite = activeModelId != null && favoriteModelIdSet.has(activeModelId);
+  const activeRunModelIdSet = useMemo(
+    () => new Set(Object.values(activeRunModelsById)),
+    [activeRunModelsById],
+  );
   const composerModelDetailsById = useMemo(() => {
     const details = new Map<string, ComposerModelOptionDetail>();
     for (const model of models) {
@@ -1300,11 +1317,17 @@ export function App() {
   function applyChatEvent(event: ChatStreamEvent) {
     if (event.type === 'run.started') {
       setActiveRunIds(previous => ({...previous, [event.conversationId]: event.runId}));
+      const modelId = event.modelId;
+      if (modelId) {
+        setActiveRunModelsById(previous => ({...previous, [event.runId]: modelId}));
+      }
     }
     if (event.type === 'run.aborted') {
+      setActiveRunModelsById(previous => removeRunModel(previous, event.runId));
       setComposerWarning('Generation stopped.');
     }
     if (event.type === 'run.completed') {
+      setActiveRunModelsById(previous => removeRunModel(previous, event.runId));
       setActiveRunIds(previous => {
         if (previous[event.conversationId] !== event.runId) {
           return previous;
@@ -1689,6 +1712,7 @@ export function App() {
                   onSaveRuntimeSettings={handleSaveRuntimeSettings}
                   models={models}
                   activeModelId={activeModelId}
+                  activeRunModelIds={activeRunModelIdSet}
                   routerModelsByConfiguredId={routerModelsByConfiguredId}
                   busyAction={busyAction}
                   onActivateModel={model =>
@@ -1772,6 +1796,7 @@ function SettingsPanel({
   onSaveRuntimeSettings,
   models,
   activeModelId,
+  activeRunModelIds,
   routerModelsByConfiguredId,
   busyAction,
   onActivateModel,
@@ -1819,6 +1844,7 @@ function SettingsPanel({
   onSaveRuntimeSettings: () => void | Promise<void>;
   models: ConfiguredModel[];
   activeModelId: string | null;
+  activeRunModelIds: Set<string>;
   routerModelsByConfiguredId: Map<string, LlamaRouterModel>;
   busyAction: string | null;
   onActivateModel: (model: ConfiguredModel) => void | Promise<void>;
@@ -1898,6 +1924,7 @@ function SettingsPanel({
         <ModelSettingsSection
           models={models}
           activeModelId={activeModelId}
+          activeRunModelIds={activeRunModelIds}
           runtime={runtime}
           routerModelsByConfiguredId={routerModelsByConfiguredId}
           busyAction={busyAction}
@@ -2114,6 +2141,7 @@ function RuntimeSettingsSection({
 function ModelSettingsSection({
   models,
   activeModelId,
+  activeRunModelIds,
   runtime,
   routerModelsByConfiguredId,
   busyAction,
@@ -2137,6 +2165,7 @@ function ModelSettingsSection({
 }: {
   models: ConfiguredModel[];
   activeModelId: string | null;
+  activeRunModelIds: Set<string>;
   runtime: RuntimeStatus | null;
   routerModelsByConfiguredId: Map<string, LlamaRouterModel>;
   busyAction: string | null;
@@ -2186,6 +2215,7 @@ function ModelSettingsSection({
               key={model.id}
               model={model}
               activeModelId={activeModelId}
+              isRunLocked={activeRunModelIds.has(model.id)}
               runtime={runtime}
               routerModel={routerModelsByConfiguredId.get(model.id)}
               busyAction={busyAction}
@@ -2268,6 +2298,7 @@ function ModelSettingsSection({
 function ModelSettingsRow({
   model,
   activeModelId,
+  isRunLocked,
   runtime,
   routerModel,
   busyAction,
@@ -2284,6 +2315,7 @@ function ModelSettingsRow({
 }: {
   model: ConfiguredModel;
   activeModelId: string | null;
+  isRunLocked: boolean;
   runtime: RuntimeStatus | null;
   routerModel?: LlamaRouterModel;
   busyAction: string | null;
@@ -2309,6 +2341,7 @@ function ModelSettingsRow({
           <TextInput label="Alias" value={aliasDraft} onChange={onAliasChange} />
         </StackItem>
         <Token label={formatRouterStatus(routerStatus)} color={routerStatusColor(routerStatus)} />
+        {isRunLocked && <Token label="active run" color="yellow" />}
       </HStack>
       <Text type="supporting" color="secondary" className="nelle-code">
         {model.hfRef ?? model.presetName}
@@ -2339,7 +2372,7 @@ function ModelSettingsRow({
           label="Unload"
           size="sm"
           variant="ghost"
-          isDisabled={!runtime?.running || !isLoaded}
+          isDisabled={!runtime?.running || !isLoaded || isRunLocked}
           isLoading={busyAction === `unload:${model.id}`}
           onClick={() => onUnloadModel(model)}
         />
@@ -2347,6 +2380,7 @@ function ModelSettingsRow({
           label="Save"
           size="sm"
           variant="secondary"
+          isDisabled={isRunLocked}
           isLoading={busyAction === `model-save:${model.id}`}
           onClick={() => onSaveModel(model)}
         />
@@ -2365,6 +2399,7 @@ function ModelSettingsRow({
           size="sm"
           variant="ghost"
           icon={<Icon icon={TrashIcon} size="sm" />}
+          isDisabled={isRunLocked}
           isLoading={busyAction === `model-delete:${model.id}`}
           onClick={() => onDeleteModel(model)}
         />

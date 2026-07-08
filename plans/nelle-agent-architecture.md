@@ -268,7 +268,8 @@ in a right-side Settings panel with router model status plus
 reload/load/unload actions, while the compact composer model selector is
 searchable, groups browser-local favorites first, shows router status/progress
 and loaded-model metadata from the router SSE store, and loads unloaded router
-models before activation.
+models before activation. Settings rows for models with active runs are locked
+against unload/save/remove until the run completes or aborts.
 
 Intentional POC limitations:
 
@@ -280,8 +281,7 @@ Intentional POC limitations:
   and running indicators. User-message fork and conversation duplicate create
   new Pi session files, and local `.nelle-chat.zip` export/import creates new
   conversations. Settings is implemented as a right-side panel; final SideNav
-  styling, explicit active-run edit locks, and full branch tree exploration are
-  still pending.
+  styling and full branch tree exploration are still pending.
 - Chat/regenerate streams now emit SSE envelopes with stable run ids and
   terminal run events. Full branch tree exploration, compact/title run streams,
   and richer abort recovery states are still pending.

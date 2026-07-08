@@ -51,6 +51,8 @@ Implemented:
   favorites first, shows router status/progress and loaded-model metadata, and
   subscribes to router SSE updates while loading an unloaded router model before
   activating it for the next chat turn.
+- Settings marks models used by active runs and disables unload/save/remove for
+  those rows until the run emits a terminal event.
 - Pi SDK chat harness configured against the local OpenAI-compatible
   Nelle llama.cpp proxy with v1 host file/shell tools enabled.
 - Direct llama.cpp chat-completions fallback if Pi initialization fails.

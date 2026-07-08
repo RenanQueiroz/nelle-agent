@@ -1597,7 +1597,8 @@ Exit criteria:
   context/modality metadata in selector rows.
 - Done for Settings writes: alias/param edits, HF imports, duplicate/remove, and
   global param saves write `models.ini` and reload router models when running.
-  Remaining: explicit active-run edit locks.
+  Done: Settings rows for models with active runs show an active-run token and
+  disable unload/save/remove until a terminal run event arrives.
 
 Exit criteria:
 
@@ -1608,8 +1609,7 @@ Exit criteria:
 - Done: loaded model props expose context size and image-support capability in
   the composer and selector-row UI.
 - Done: Settings edits/removals reload the running router and keep active runs
-  captured by request-time model ids. Pending: disable destructive edits while a
-  matching active run is in progress.
+  captured by request-time model ids.
 
 ### Phase 3: Conversations And Sidebar
 
