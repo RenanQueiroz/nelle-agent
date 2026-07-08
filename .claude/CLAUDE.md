@@ -22,6 +22,8 @@ Project-specific guidance for AI coding agents.
 - The current POC stores app data under `.nelle/` by default. Do not commit
   generated app data, e2e app data, downloaded models, llama.cpp builds, test
   reports, or logs.
+- `.nelle/settings.sqlite` is generated app data. It stores the SQLite schema
+  foundation and current POC conversation projections; do not commit it.
 - Hugging Face GGUF `hf-repo` refs stay exact, but llama.cpp router sections and
   OpenAI `model` ids use llama.cpp-canonical quant tags. Qwen-family models use
   Pi's `qwen-chat-template` compatibility with thinking off for normal chat.

@@ -29,6 +29,9 @@ Implemented:
 - Stable llama.cpp/OpenAI model ids for new Hugging Face imports, plus a
   lossless `models.ini` writer that preserves comments and unknown keys while
   updating Nelle-managed fields.
+- SQLite schema/migration foundation in `.nelle/settings.sqlite`, plus
+  conversation list/snapshot APIs that mirror the current POC chat into a
+  default conversation.
 - Pi SDK chat harness configured against the local OpenAI-compatible
   Nelle llama.cpp proxy with v1 host file/shell tools enabled.
 - Direct llama.cpp chat-completions fallback if Pi initialization fails.
@@ -43,9 +46,10 @@ Not implemented yet:
 - Mobile LAN pairing and Expo push.
 - Collapsible conversation sidebar and persistence. The planned large-history
   list uses TanStack Virtual with Astryx sidebar/list styling.
-- Pi-backed conversation storage. The planned architecture maps each Nelle
-  conversation to one Pi session file and uses SQLite for indexes, projections,
-  and Nelle-only metadata.
+- Full Pi-backed conversation storage. The current SQLite foundation mirrors
+  the POC chat into a default conversation; the planned architecture maps each
+  Nelle conversation to one Pi session file and uses SQLite for indexes,
+  projections, and Nelle-only metadata.
 - Fork/duplicate conversation actions backed by Pi's runtime fork/clone
   behavior, creating new Nelle conversations without mutating the source.
 - REST/SSE snapshot and stream contracts for chat runs. Planned stop behavior
@@ -60,7 +64,9 @@ Not implemented yet:
   Nelle UI controls instead of chat input.
 - Host-tool first-run acknowledgement, global disable switch, and durable tool
   audit storage. Sandboxing remains later.
-- SQLite persistence and migrations. The POC uses `.nelle/state.json`.
+- Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for
+  model/chat state while conversation projection data is mirrored into
+  `.nelle/settings.sqlite`.
 - Progress streaming for long installs/builds.
 
 ## Setup

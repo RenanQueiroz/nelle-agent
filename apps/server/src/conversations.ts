@@ -1,0 +1,528 @@
+import crypto from 'node:crypto';
+import type {DatabaseSync} from 'node:sqlite';
+
+import type {
+  AttachmentMetadata,
+  ConversationEntryProjection,
+  ConversationSnapshot,
+  ConversationStatus,
+  ModelListItem,
+} from '../../../packages/shared/src/conversations.ts';
+import {
+  assertConversationTransition,
+  conversationSnapshotSchema,
+} from '../../../packages/shared/src/conversations.ts';
+import type {AppDatabase} from './database';
+import type {AppState, ChatMessage, ConfiguredModel} from './types';
+
+const POC_CONVERSATION_ID = 'poc-default';
+
+type ConversationRow = {
+  id: string;
+  title: string;
+  title_source: ConversationSnapshot['conversation']['titleSource'];
+  pinned: number;
+  pi_session_path: string | null;
+  pi_session_id: string | null;
+  active_leaf_pi_entry_id: string | null;
+  last_synced_pi_entry_id: string | null;
+  default_model_id: string | null;
+  parent_conversation_id: string | null;
+  forked_from_pi_entry_id: string | null;
+  fork_kind: 'fork' | 'clone' | null;
+  status: ConversationStatus;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
+type EntryRow = {
+  conversation_id: string;
+  pi_entry_id: string;
+  parent_pi_entry_id: string | null;
+  entry_type: string;
+  role: ChatMessage['role'] | null;
+  text_preview: string | null;
+  created_at: string;
+  model_id: string | null;
+  model_runtime_id: string | null;
+  model_alias_snapshot: string | null;
+  performance_json: string | null;
+  tool_calls_json: string | null;
+  attachment_summary_json: string | null;
+  regenerates_pi_entry_id: string | null;
+  display_group_id: string | null;
+};
+
+type AttachmentRow = {
+  id: string;
+  conversation_id: string;
+  pi_entry_id: string | null;
+  kind: string;
+  name: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  storage_path: string | null;
+  created_at: string;
+};
+
+export type ConversationListItem = {
+  id: string;
+  title: string;
+  titleSource: ConversationSnapshot['conversation']['titleSource'];
+  pinned: boolean;
+  status: ConversationStatus;
+  updatedAt: string;
+  defaultModelId?: string;
+};
+
+export class ConversationRepository {
+  constructor(private readonly database: AppDatabase) {}
+
+  async init(): Promise<void> {
+    await this.database.open();
+  }
+
+  createConversation(
+    input: {
+      title?: string;
+      defaultModelId?: string | null;
+      titleSource?: ConversationSnapshot['conversation']['titleSource'];
+    } = {},
+  ): ConversationListItem {
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const row: ConversationRow = {
+      id,
+      title: input.title ?? 'New chat',
+      title_source: input.titleSource ?? 'fallback',
+      pinned: 0,
+      pi_session_path: null,
+      pi_session_id: null,
+      active_leaf_pi_entry_id: null,
+      last_synced_pi_entry_id: null,
+      default_model_id: input.defaultModelId ?? null,
+      parent_conversation_id: null,
+      forked_from_pi_entry_id: null,
+      fork_kind: null,
+      status: 'ready',
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
+    };
+    this.insertConversation(row);
+    this.upsertSearch(row.id, row.title);
+    return mapConversationListItem(row);
+  }
+
+  listConversations(input: {search?: string; limit?: number} = {}): ConversationListItem[] {
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
+    const search = input.search?.trim();
+    const db = this.database.connection;
+    const rows = search
+      ? this.searchConversations(db, search, limit)
+      : (db
+          .prepare(
+            `SELECT * FROM conversations
+             WHERE deleted_at IS NULL
+             ORDER BY pinned DESC, updated_at DESC
+             LIMIT ?`,
+          )
+          .all(limit) as ConversationRow[]);
+    return rows.map(mapConversationListItem);
+  }
+
+  getConversation(id: string): ConversationRow | null {
+    return (
+      (this.database.connection
+        .prepare('SELECT * FROM conversations WHERE id = ? AND deleted_at IS NULL')
+        .get(id) as ConversationRow | undefined) ?? null
+    );
+  }
+
+  getSnapshot(id: string, state: AppState): ConversationSnapshot | null {
+    const row = this.getConversation(id);
+    if (!row) {
+      return null;
+    }
+
+    const entries = this.getEntries(id);
+    const attachments = this.getAttachments(id);
+    const models = buildModelList(state.models);
+    const selectedModelId = state.activeModelId ?? undefined;
+    const defaultModelId = row.default_model_id ?? selectedModelId;
+    const unavailable = row.status === 'unavailable';
+
+    return conversationSnapshotSchema.parse({
+      conversation: {
+        id: row.id,
+        title: row.title,
+        titleSource: row.title_source,
+        pinned: Boolean(row.pinned),
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        piSessionId: row.pi_session_id ?? undefined,
+        activeLeafPiEntryId: row.active_leaf_pi_entry_id ?? undefined,
+        defaultModelId: defaultModelId ?? undefined,
+        parentConversationId: row.parent_conversation_id ?? undefined,
+        forkedFromPiEntryId: row.forked_from_pi_entry_id ?? undefined,
+        forkKind: row.fork_kind ?? undefined,
+      },
+      entries,
+      activePathEntryIds: entries.map(entry => entry.piEntryId),
+      attachments,
+      context: {},
+      models: {
+        selectedModelId,
+        defaultModelId: defaultModelId ?? undefined,
+        available: models,
+      },
+      capabilities: {
+        canSend: !unavailable && state.runtime != null,
+        canAbort: row.status === 'running' || row.status === 'compacting',
+        canCompact: row.status === 'ready',
+        canFork: entries.length > 0 && !unavailable,
+        canAttachImages: false,
+        canAttachText: true,
+      },
+      errors: unavailable
+        ? [
+            {
+              code: 'session_unavailable',
+              message: 'The conversation session is unavailable.',
+            },
+          ]
+        : [],
+    });
+  }
+
+  patchConversation(
+    id: string,
+    input: {
+      title?: string;
+      pinned?: boolean;
+      defaultModelId?: string | null;
+      status?: ConversationStatus;
+    },
+  ): ConversationListItem | null {
+    const row = this.getConversation(id);
+    if (!row) {
+      return null;
+    }
+    const nextStatus = input.status ?? row.status;
+    assertConversationTransition(row.status, nextStatus);
+    const next: ConversationRow = {
+      ...row,
+      title: input.title ?? row.title,
+      title_source: input.title == null ? row.title_source : 'user',
+      pinned: input.pinned == null ? row.pinned : input.pinned ? 1 : 0,
+      default_model_id:
+        input.defaultModelId === undefined ? row.default_model_id : input.defaultModelId,
+      status: nextStatus,
+      updated_at: new Date().toISOString(),
+    };
+    this.database.connection
+      .prepare(
+        `UPDATE conversations
+         SET title = ?, title_source = ?, pinned = ?, default_model_id = ?,
+             status = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        next.title,
+        next.title_source,
+        next.pinned,
+        next.default_model_id,
+        next.status,
+        next.updated_at,
+        id,
+      );
+    this.upsertSearch(id, next.title);
+    return mapConversationListItem(next);
+  }
+
+  hardDeleteConversation(id: string): boolean {
+    const result = this.database.connection
+      .prepare('DELETE FROM conversations WHERE id = ?')
+      .run(id);
+    if (hasConversationSearch(this.database.connection)) {
+      this.database.connection
+        .prepare('DELETE FROM conversation_search WHERE conversation_id = ?')
+        .run(id);
+    }
+    return result.changes > 0;
+  }
+
+  hardDeleteAllConversations(): void {
+    const db = this.database.connection;
+    db.exec('DELETE FROM conversations;');
+    if (hasConversationSearch(db)) {
+      db.exec('DELETE FROM conversation_search;');
+    }
+  }
+
+  syncPocConversationFromState(state: AppState): ConversationListItem {
+    const now = new Date().toISOString();
+    const title = state.chat[0]?.content.slice(0, 80) || 'POC chat';
+    const existing = this.getConversation(POC_CONVERSATION_ID);
+    const row: ConversationRow = {
+      id: POC_CONVERSATION_ID,
+      title: existing?.title ?? title,
+      title_source: existing?.title_source ?? 'fallback',
+      pinned: existing?.pinned ?? 0,
+      pi_session_path: existing?.pi_session_path ?? null,
+      pi_session_id: existing?.pi_session_id ?? null,
+      active_leaf_pi_entry_id: state.chat.at(-1)?.id ?? null,
+      last_synced_pi_entry_id: state.chat.at(-1)?.id ?? null,
+      default_model_id: existing?.default_model_id ?? state.activeModelId,
+      parent_conversation_id: existing?.parent_conversation_id ?? null,
+      forked_from_pi_entry_id: existing?.forked_from_pi_entry_id ?? null,
+      fork_kind: existing?.fork_kind ?? null,
+      status: existing?.status ?? 'ready',
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+      deleted_at: null,
+    };
+
+    if (existing) {
+      this.database.connection
+        .prepare(
+          `UPDATE conversations
+           SET title = ?, title_source = ?, pinned = ?, active_leaf_pi_entry_id = ?,
+               last_synced_pi_entry_id = ?, default_model_id = ?, status = ?,
+               updated_at = ?, deleted_at = NULL
+           WHERE id = ?`,
+        )
+        .run(
+          row.title,
+          row.title_source,
+          row.pinned,
+          row.active_leaf_pi_entry_id,
+          row.last_synced_pi_entry_id,
+          row.default_model_id,
+          row.status,
+          row.updated_at,
+          row.id,
+        );
+    } else {
+      this.insertConversation(row);
+    }
+
+    this.database.connection
+      .prepare('DELETE FROM conversation_entry_projection WHERE conversation_id = ?')
+      .run(POC_CONVERSATION_ID);
+    for (let index = 0; index < state.chat.length; index += 1) {
+      this.upsertEntry(POC_CONVERSATION_ID, state.chat[index]!, state.chat[index - 1]?.id);
+    }
+    this.upsertSearch(row.id, row.title);
+    return mapConversationListItem(row);
+  }
+
+  private insertConversation(row: ConversationRow): void {
+    this.database.connection
+      .prepare(
+        `INSERT INTO conversations (
+           id, title, title_source, pinned, pi_session_path, pi_session_id,
+           active_leaf_pi_entry_id, last_synced_pi_entry_id, default_model_id,
+           parent_conversation_id, forked_from_pi_entry_id, fork_kind, status,
+           created_at, updated_at, deleted_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row.id,
+        row.title,
+        row.title_source,
+        row.pinned,
+        row.pi_session_path,
+        row.pi_session_id,
+        row.active_leaf_pi_entry_id,
+        row.last_synced_pi_entry_id,
+        row.default_model_id,
+        row.parent_conversation_id,
+        row.forked_from_pi_entry_id,
+        row.fork_kind,
+        row.status,
+        row.created_at,
+        row.updated_at,
+        row.deleted_at,
+      );
+  }
+
+  private upsertEntry(
+    conversationId: string,
+    message: ChatMessage,
+    parentPiEntryId?: string,
+  ): void {
+    this.database.connection
+      .prepare(
+        `INSERT INTO conversation_entry_projection (
+           conversation_id, pi_entry_id, parent_pi_entry_id, entry_type, role,
+           text_preview, created_at, performance_json, tool_calls_json,
+           display_group_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(conversation_id, pi_entry_id) DO UPDATE SET
+           parent_pi_entry_id = excluded.parent_pi_entry_id,
+           entry_type = excluded.entry_type,
+           role = excluded.role,
+           text_preview = excluded.text_preview,
+           created_at = excluded.created_at,
+           performance_json = excluded.performance_json,
+           tool_calls_json = excluded.tool_calls_json,
+           display_group_id = excluded.display_group_id`,
+      )
+      .run(
+        conversationId,
+        message.id,
+        parentPiEntryId ?? null,
+        'message',
+        message.role,
+        message.content.slice(0, 500),
+        message.createdAt,
+        jsonOrNull(message.performance),
+        jsonOrNull(message.toolCalls),
+        message.id,
+      );
+  }
+
+  private getEntries(conversationId: string): ConversationEntryProjection[] {
+    const rows = this.database.connection
+      .prepare(
+        `SELECT * FROM conversation_entry_projection
+         WHERE conversation_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all(conversationId) as EntryRow[];
+
+    return rows.map(row => ({
+      conversationId: row.conversation_id,
+      piEntryId: row.pi_entry_id,
+      parentPiEntryId: row.parent_pi_entry_id ?? undefined,
+      entryType: row.entry_type,
+      role: row.role ?? undefined,
+      textPreview: row.text_preview ?? undefined,
+      createdAt: row.created_at,
+      modelId: row.model_id ?? undefined,
+      modelRuntimeId: row.model_runtime_id ?? undefined,
+      modelAliasSnapshot: row.model_alias_snapshot ?? undefined,
+      performance: parseJson(row.performance_json),
+      toolCalls: parseJson(row.tool_calls_json),
+      attachmentSummary: parseJson(row.attachment_summary_json),
+      regeneratesPiEntryId: row.regenerates_pi_entry_id ?? undefined,
+      displayGroupId: row.display_group_id ?? undefined,
+    }));
+  }
+
+  private getAttachments(conversationId: string): AttachmentMetadata[] {
+    const rows = this.database.connection
+      .prepare(
+        `SELECT id, conversation_id, pi_entry_id, kind, name, mime_type,
+                size_bytes, storage_path, created_at
+         FROM message_attachments
+         WHERE conversation_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all(conversationId) as AttachmentRow[];
+
+    return rows.map(row => ({
+      id: row.id,
+      conversationId: row.conversation_id,
+      piEntryId: row.pi_entry_id ?? undefined,
+      kind: row.kind,
+      name: row.name,
+      mimeType: row.mime_type ?? undefined,
+      sizeBytes: row.size_bytes ?? undefined,
+      storagePath: row.storage_path ?? undefined,
+      createdAt: row.created_at,
+    }));
+  }
+
+  private searchConversations(db: DatabaseSync, search: string, limit: number): ConversationRow[] {
+    if (hasConversationSearch(db)) {
+      try {
+        return db
+          .prepare(
+            `SELECT conversations.*
+             FROM conversation_search
+             JOIN conversations ON conversations.id = conversation_search.conversation_id
+             WHERE conversation_search MATCH ? AND conversations.deleted_at IS NULL
+             ORDER BY conversations.pinned DESC, conversations.updated_at DESC
+             LIMIT ?`,
+          )
+          .all(search, limit) as ConversationRow[];
+      } catch {
+        // FTS query syntax is stricter than ordinary user search input. Fall
+        // back to LIKE rather than failing the list endpoint.
+      }
+    }
+
+    return db
+      .prepare(
+        `SELECT * FROM conversations
+         WHERE deleted_at IS NULL AND title LIKE ? ESCAPE '\\'
+         ORDER BY pinned DESC, updated_at DESC
+         LIMIT ?`,
+      )
+      .all(`%${escapeLike(search)}%`, limit) as ConversationRow[];
+  }
+
+  private upsertSearch(conversationId: string, title: string): void {
+    const db = this.database.connection;
+    if (!hasConversationSearch(db)) {
+      return;
+    }
+    db.prepare('DELETE FROM conversation_search WHERE conversation_id = ?').run(conversationId);
+    db.prepare('INSERT INTO conversation_search(conversation_id, title) VALUES (?, ?)').run(
+      conversationId,
+      title,
+    );
+  }
+}
+
+function mapConversationListItem(row: ConversationRow): ConversationListItem {
+  return {
+    id: row.id,
+    title: row.title,
+    titleSource: row.title_source,
+    pinned: Boolean(row.pinned),
+    status: row.status,
+    updatedAt: row.updated_at,
+    defaultModelId: row.default_model_id ?? undefined,
+  };
+}
+
+function buildModelList(models: ConfiguredModel[]): ModelListItem[] {
+  return models.map(model => ({
+    id: model.id,
+    alias: model.name,
+  }));
+}
+
+function jsonOrNull(value: unknown): string | null {
+  if (value == null) {
+    return null;
+  }
+  return JSON.stringify(value);
+}
+
+function parseJson(value: string | null): unknown {
+  if (value == null) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function hasConversationSearch(db: DatabaseSync): boolean {
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'conversation_search'")
+    .get() as {name: string} | undefined;
+  return row != null;
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[%_]/g, character => `\\${character}`);
+}

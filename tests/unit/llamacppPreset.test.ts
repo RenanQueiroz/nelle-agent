@@ -76,6 +76,7 @@ async function createTempPaths(): Promise<AppPaths> {
     piDir,
     piAuthPath: path.join(piDir, 'auth.json'),
     piModelsPath: path.join(piDir, 'models.json'),
+    settingsDbPath: path.join(dataDir, 'settings.sqlite'),
     statePath: path.join(dataDir, 'state.json'),
     webDistDir: path.join(repoRoot, 'dist', 'web'),
   };

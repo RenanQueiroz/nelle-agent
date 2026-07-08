@@ -241,16 +241,18 @@ Companion implementation plans:
 The first POC implements the local Fastify server, React/Vite browser UI,
 Astryx chat surface, Hugging Face GGUF search, Hugging Face quant selection
 through llama.cpp-managed `hf-repo` references, managed `llama.cpp`
-install/update/start/stop paths, generated
-router `models.ini`, Pi SDK chat streaming, a direct llama.cpp fallback for
-diagnostics, browser-triggered conversation reset, and Playwright e2e coverage
-for the browser workbench. The runtime UI also exposes a llama-server log tail
-for startup and configuration diagnostics.
+install/update/start/stop paths, a lossless writer for router `models.ini`, Pi
+SDK chat streaming, a direct llama.cpp fallback for diagnostics,
+browser-triggered conversation reset, SQLite schema/migration foundations,
+conversation list/snapshot APIs, and Playwright e2e coverage for the browser
+workbench. The runtime UI also exposes a llama-server log tail for startup and
+configuration diagnostics.
 
 Intentional POC limitations:
 
-- State is stored in `.nelle/state.json`; SQLite is still the planned durable
-  app database.
+- Model/chat state is still stored in `.nelle/state.json`; SQLite currently
+  stores conversation schema foundations and a mirrored POC conversation, but is
+  not yet the primary app-state database.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are enabled through Pi and remain unsandboxed.

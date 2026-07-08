@@ -148,9 +148,12 @@ Nelle currently differs from the target in these ways:
   settings surface is not built yet.
 - The web UI has side panels for runtime/model setup rather than a durable
   conversation sidebar plus settings.
-- Chat storage is one global `chat` array, not multiple conversations.
-- Pi session lifecycle, stream event payloads, and abort semantics are not yet
-  implemented as explicit contracts.
+- Chat storage is still one global `chat` array for the POC UI. It is now
+  mirrored into a default SQLite conversation snapshot, but Pi-backed
+  conversation ownership is not complete yet.
+- Pi session lifecycle and abort semantics are not yet implemented as explicit
+  contracts. Shared Nelle event envelope and conversation snapshot contracts
+  now exist.
 - Reset conversation is a composer footer action rather than a conversation
   action.
 - Model import/edit UX is split between app state and generated preset writes.

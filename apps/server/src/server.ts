@@ -12,6 +12,8 @@ import {registerLlamaProxy} from './llamaProxy';
 import {PiHarness} from './piHarness';
 import {streamDirectLlama} from './directLlama';
 import {AppStore} from './store';
+import {AppDatabase} from './database';
+import {ConversationRepository} from './conversations';
 import type {AppPaths} from './paths';
 import type {ChatStreamEvent} from './types';
 
@@ -30,8 +32,31 @@ const chatSchema = z.object({
   message: z.string().min(1),
 });
 
+const listConversationsQuerySchema = z.object({
+  search: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+const createConversationSchema = z
+  .object({
+    title: z.string().min(1).max(200).optional(),
+    defaultModelId: z.string().nullable().optional(),
+  })
+  .optional();
+
+const patchConversationSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+  pinned: z.boolean().optional(),
+  defaultModelId: z.string().nullable().optional(),
+});
+
 export async function createServer(paths: AppPaths) {
   const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  const conversations = new ConversationRepository(database);
+  await conversations.init();
+  conversations.syncPocConversationFromState(await store.getState());
   const llama = new LlamaCppManager(paths, store);
   const hf = new HuggingFaceService(store);
   const pi = new PiHarness(paths, store);
@@ -44,6 +69,9 @@ export async function createServer(paths: AppPaths) {
 
   await app.register(cors, {
     origin: true,
+  });
+  app.addHook('onClose', async () => {
+    database.close();
   });
   registerLlamaProxy(app, store);
 
@@ -101,7 +129,108 @@ export async function createServer(paths: AppPaths) {
     const body = useHuggingFaceModelSchema.parse(request.body);
     const model = await hf.useHuggingFaceGguf(body);
     await llama.writePreset(model);
+    conversations.syncPocConversationFromState(await store.getState());
     return {model};
+  });
+
+  app.get('/api/conversations', async request => {
+    const query = listConversationsQuerySchema.parse(request.query);
+    conversations.syncPocConversationFromState(await store.getState());
+    return {conversations: conversations.listConversations(query)};
+  });
+
+  app.post('/api/conversations', async request => {
+    const body = createConversationSchema.parse(request.body) ?? {};
+    const conversation = conversations.createConversation(body);
+    return {
+      conversation,
+      snapshot: conversations.getSnapshot(conversation.id, await store.getState()),
+    };
+  });
+
+  app.delete('/api/conversations', async () => {
+    conversations.hardDeleteAllConversations();
+    await store.clearChat();
+    pi.resetSession();
+    return {ok: true};
+  });
+
+  app.get('/api/conversations/:id', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    conversations.syncPocConversationFromState(await store.getState());
+    const snapshot = conversations.getSnapshot(id, await store.getState());
+    if (!snapshot) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    return {snapshot};
+  });
+
+  app.patch('/api/conversations/:id', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    const body = patchConversationSchema.parse(request.body);
+    const conversation = conversations.patchConversation(id, body);
+    if (!conversation) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    return {
+      conversation,
+      snapshot: conversations.getSnapshot(id, await store.getState()),
+    };
+  });
+
+  app.post('/api/conversations/:id/pin', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    const conversation = conversations.patchConversation(id, {pinned: true});
+    if (!conversation) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    return {conversation};
+  });
+
+  app.post('/api/conversations/:id/unpin', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    const conversation = conversations.patchConversation(id, {pinned: false});
+    if (!conversation) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    return {conversation};
+  });
+
+  app.delete('/api/conversations/:id', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    if (!conversations.hardDeleteConversation(id)) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    if (id === 'poc-default') {
+      await store.clearChat();
+      pi.resetSession();
+    }
+    return {ok: true};
   });
 
   app.get('/api/chat/messages', async () => {
@@ -112,6 +241,7 @@ export async function createServer(paths: AppPaths) {
   app.delete('/api/chat/messages', async () => {
     pi.resetSession();
     await store.clearChat();
+    conversations.syncPocConversationFromState(await store.getState());
     return {ok: true};
   });
 
@@ -140,6 +270,7 @@ export async function createServer(paths: AppPaths) {
       for await (const event of stream) {
         reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
       }
+      conversations.syncPocConversationFromState(await store.getState());
     } catch (error) {
       reply.raw.write(
         `data: ${JSON.stringify({
