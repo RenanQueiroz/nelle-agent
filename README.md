@@ -79,6 +79,11 @@ Implemented:
   model override.
 - Tool calls stream as a single status row per Pi `toolCallId` and can be
   expanded in the chat UI to inspect captured input and output.
+- Host file/shell tools are disabled until the user acknowledges the
+  unsandboxed local-permissions warning in Settings. The same Settings tab can
+  disable tools globally, which resets cached Pi sessions so new runs use the
+  current tool registry. Tool executions persist to SQLite audit rows and export
+  as `tool-audit.jsonl` in `.nelle-chat.zip` archives.
 - Conversation duplicate and user-message fork actions create new Nelle
   conversations backed by new Pi session files via
   `SessionManager.createBranchedSession()`. Source conversations are left
@@ -115,10 +120,8 @@ Not implemented yet:
 - Complete REST/SSE run lifecycle coverage for compaction/title/background
   events, richer abort recovery states, and llama.cpp slot-level abort
   verification.
-- Durable tool audit storage and archive inclusion. Export currently writes an
-  empty `tool-audit.jsonl` placeholder until tool audit persistence lands.
-- Host-tool first-run acknowledgement, global disable switch, and durable tool
-  audit storage. Sandboxing remains later.
+- Host-tool sandboxing and per-tool permission prompts. The current v1 gate is
+  acknowledgement plus a global enable/disable switch.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for
   runtime settings, catalog backup, and default-conversation compatibility,
   while conversation projections live in `.nelle/settings.sqlite` and

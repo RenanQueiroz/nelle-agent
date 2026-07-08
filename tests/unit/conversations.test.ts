@@ -9,6 +9,7 @@ import {strFromU8, unzipSync} from 'fflate';
 
 import {ConversationRepository, POC_CONVERSATION_ID} from '../../apps/server/src/conversations.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
+import {HostToolRepository} from '../../apps/server/src/hostTools.ts';
 import {PiHarness} from '../../apps/server/src/piHarness.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {createServer} from '../../apps/server/src/server.ts';
@@ -523,7 +524,7 @@ test('Pi fork from a user entry creates a durable new session file', async () =>
       ],
     });
 
-    const harness = new PiHarness(paths, store, repository);
+    const harness = new PiHarness(paths, store, repository, new HostToolRepository(database));
     const forked = await harness.forkConversation({
       conversationId: source.id,
       entryId: userEntryId,
@@ -742,6 +743,24 @@ test('conversation export and import round trip Pi history and attachments', asy
       },
     ]);
     repository.bindAttachmentsToEntry(source.id, ['archive-attachment'], userEntryId);
+    const hostTools = new HostToolRepository(database);
+    hostTools.recordToolStart({
+      conversationId: source.id,
+      piToolCallId: 'tool-1',
+      toolName: 'bash',
+      args: {command: 'pwd'},
+      startedAt: new Date('2026-07-08T12:00:02.000Z'),
+    });
+    hostTools.recordToolEnd({
+      conversationId: source.id,
+      piToolCallId: 'tool-1',
+      toolName: 'bash',
+      args: {command: 'pwd'},
+      status: 'complete',
+      output: {stdout: '/home/renan/nelle-server'},
+      completedAt: new Date('2026-07-08T12:00:03.000Z'),
+      durationMs: 1000,
+    });
   } finally {
     database.close();
   }
@@ -759,6 +778,7 @@ test('conversation export and import round trip Pi history and attachments', asy
     assert.ok(archive['manifest.json']);
     assert.ok(archive['pi-session.jsonl']);
     assert.ok(archive['nelle-conversation.json']);
+    assert.ok(archive['tool-audit.jsonl']);
     const manifest = JSON.parse(strFromU8(archive['manifest.json']!)) as {
       conversation: {id: string; title: string};
       source: {platform: string};
@@ -766,6 +786,21 @@ test('conversation export and import round trip Pi history and attachments', asy
     assert.deepEqual(manifest.conversation, {id: sourceId, title: 'Archive source'});
     assert.equal(manifest.source.platform, process.platform);
     assert.equal(strFromU8(archive['attachments/cc/export.bin']!), 'archive attachment');
+    const auditLine = strFromU8(archive['tool-audit.jsonl']!).trim();
+    const audit = JSON.parse(auditLine) as {
+      conversationId: string;
+      piToolCallId: string;
+      toolName: string;
+      status: string;
+      input: {command: string};
+      output: {stdout: string};
+    };
+    assert.equal(audit.conversationId, sourceId);
+    assert.equal(audit.piToolCallId, 'tool-1');
+    assert.equal(audit.toolName, 'bash');
+    assert.equal(audit.status, 'complete');
+    assert.deepEqual(audit.input, {command: 'pwd'});
+    assert.deepEqual(audit.output, {stdout: '/home/renan/nelle-server'});
 
     const deleteResponse = await app.inject({
       method: 'DELETE',
@@ -880,7 +915,12 @@ test('Pi title generation stores sanitized first-turn title without adding histo
     const conversation = repository.createConversation({title: 'New chat'});
     const activeModel = createTestModel();
     const entries = createFirstTurnEntries();
-    const harness = new PiHarness(paths, store, repository) as unknown as TitleGenerationHarness;
+    const harness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+    ) as unknown as TitleGenerationHarness;
 
     const title = await harness.maybeGenerateConversationTitle(
       conversation.id,
@@ -916,7 +956,12 @@ test('Pi title generation falls back quietly when llama title request fails', as
   try {
     const repository = new ConversationRepository(database);
     const conversation = repository.createConversation({title: 'New chat'});
-    const harness = new PiHarness(paths, store, repository) as unknown as TitleGenerationHarness;
+    const harness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+    ) as unknown as TitleGenerationHarness;
 
     const title = await harness.maybeGenerateConversationTitle(
       conversation.id,
@@ -953,7 +998,12 @@ test('Pi title generation skips non-first-turn and user-named conversations', as
     const repository = new ConversationRepository(database);
     const userNamed = repository.createConversation({title: 'Pinned name', titleSource: 'user'});
     const fallback = repository.createConversation({title: 'New chat'});
-    const harness = new PiHarness(paths, store, repository) as unknown as TitleGenerationHarness;
+    const harness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+    ) as unknown as TitleGenerationHarness;
 
     const userNamedTitle = await harness.maybeGenerateConversationTitle(
       userNamed.id,
@@ -1145,7 +1195,12 @@ test('Pi sync preserves existing answer variants when regenerating again', async
         ],
       },
     };
-    const harness = new PiHarness(paths, store, repository) as unknown as {
+    const harness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+    ) as unknown as {
       syncPiConversation: (
         conversationId: string,
         session: unknown,
@@ -1259,6 +1314,57 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
     });
     assert.equal(deleteResponse.statusCode, 200);
     assert.equal(deleteResponse.json<{ok: boolean}>().ok, true);
+  } finally {
+    await app.close();
+  }
+});
+
+test('host tool settings require acknowledgement before enabling tools', async () => {
+  const paths = await createTempPaths();
+  const app = await createServer(paths);
+  try {
+    const stateResponse = await app.inject({method: 'GET', url: '/api/state'});
+    assert.equal(stateResponse.statusCode, 200);
+    const initialSettings = stateResponse.json<{
+      hostTools: {enabled: boolean; acknowledged: boolean};
+    }>().hostTools;
+    assert.equal(initialSettings.enabled, false);
+    assert.equal(initialSettings.acknowledged, false);
+
+    const rejectedResponse = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/host-tools',
+      payload: {enabled: true},
+    });
+    assert.equal(rejectedResponse.statusCode, 400);
+    assert.equal(
+      rejectedResponse.json<{error: {code: string}}>().error.code,
+      'host_tools_acknowledgement_required',
+    );
+
+    const enabledResponse = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/host-tools',
+      payload: {enabled: true, acknowledged: true},
+    });
+    assert.equal(enabledResponse.statusCode, 200);
+    const enabledSettings = enabledResponse.json<{
+      hostTools: {enabled: boolean; acknowledged: boolean};
+    }>().hostTools;
+    assert.equal(enabledSettings.enabled, true);
+    assert.equal(enabledSettings.acknowledged, true);
+
+    const disabledResponse = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/host-tools',
+      payload: {enabled: false},
+    });
+    assert.equal(disabledResponse.statusCode, 200);
+    const disabledSettings = disabledResponse.json<{
+      hostTools: {enabled: boolean; acknowledged: boolean};
+    }>().hostTools;
+    assert.equal(disabledSettings.enabled, false);
+    assert.equal(disabledSettings.acknowledged, true);
   } finally {
     await app.close();
   }

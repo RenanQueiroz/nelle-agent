@@ -285,6 +285,13 @@ export type AppStateResponse = {
     chat: ChatMessage[];
   };
   runtime: RuntimeStatus;
+  hostTools?: HostToolSettings;
+};
+
+export type HostToolSettings = {
+  enabled: boolean;
+  acknowledged: boolean;
+  updatedAt: string;
 };
 
 export async function getState(): Promise<AppStateResponse> {
@@ -320,6 +327,19 @@ export async function updateRuntimeSettings(input: {
     input,
   );
   return response.runtime;
+}
+
+export async function getHostToolSettings(): Promise<HostToolSettings> {
+  const response = await apiGet<{hostTools: HostToolSettings}>('/api/settings/host-tools');
+  return response.hostTools;
+}
+
+export async function updateHostToolSettings(input: {
+  enabled?: boolean;
+  acknowledged?: boolean;
+}): Promise<HostToolSettings> {
+  const response = await apiPatch<{hostTools: HostToolSettings}>('/api/settings/host-tools', input);
+  return response.hostTools;
 }
 
 export async function getLlamaRouterProps(): Promise<LlamaRouterProps> {

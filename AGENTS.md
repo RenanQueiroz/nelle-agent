@@ -113,9 +113,10 @@ Project-specific guidance for AI coding agents.
   controls and Astryx tooltips, not as a plain text throughput string.
 - Tool calls must be correlated by stable `id` / Pi `toolCallId`; stream updates
   should upsert existing calls and preserve expandable input/output detail.
-- Host file/shell tools are unsandboxed in v1. Require explicit first-run
-  acknowledgement, keep a global disable switch, and persist tool audit events
-  until sandboxing/per-tool permissions are designed.
+- Host file/shell tools are unsandboxed in v1 and disabled until the user
+  acknowledges the warning in Settings. Keep the global enable/disable switch,
+  reset cached Pi sessions after changes, and persist tool audit events until
+  sandboxing/per-tool permissions are designed.
 - Keep the workbench viewport-bounded. Do not reintroduce document-level
   scrolling; side panels and the chat history should scroll internally while
   the composer stays docked.
@@ -137,9 +138,8 @@ Project-specific guidance for AI coding agents.
   directories.
 - Conversation export/import uses local `.nelle-chat.zip` archives with
   manifest checksums, the Pi session JSONL, Nelle sidecar metadata, referenced
-  attachment files, and model snapshots. Imports always create a new
-  conversation; `tool-audit.jsonl` remains a placeholder until durable tool
-  audit persistence exists.
+  attachment files, model snapshots, and `tool-audit.jsonl` rows when host tools
+  were used. Imports always create a new conversation.
 - Show context-window usage through the Astryx `ChatComposer` header
   `ProgressBar` with tooltip token counts. Use composer top status for
   send-blocking errors and bottom status for non-blocking warnings.

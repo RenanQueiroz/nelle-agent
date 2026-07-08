@@ -21,6 +21,7 @@ import {chatTemplateKwargsForModel, isQwenFamilyModel, llamaRuntimeModelId} from
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
 import type {ConversationRepository, SyncConversationEntry} from './conversations';
+import type {HostToolRepository} from './hostTools';
 import type {
   AttachmentMetadata,
   ConversationEntryProjection,
@@ -81,6 +82,7 @@ export class PiHarness {
     private readonly paths: AppPaths,
     private readonly store: AppStore,
     private readonly conversations: ConversationRepository,
+    private readonly hostTools: HostToolRepository,
   ) {}
 
   resetSession(conversationId?: string): void {
@@ -397,6 +399,7 @@ export class PiHarness {
 
       if (event.type === 'tool_execution_start') {
         const id = getToolCallId(event);
+        const startedAt = Date.now();
         const call: ToolCallEvent = {
           id,
           name: String(event.toolName ?? 'tool'),
@@ -404,7 +407,14 @@ export class PiHarness {
           status: 'running',
           input: stringifyToolData(event.args),
         };
-        toolCallStarts.set(id, Date.now());
+        toolCallStarts.set(id, startedAt);
+        this.hostTools.recordToolStart({
+          conversationId,
+          piToolCallId: id,
+          toolName: call.name,
+          args: event.args,
+          startedAt: new Date(startedAt),
+        });
         toolCalls.push(call);
         queue.push({type: 'tool', call: {...call}});
       }
@@ -425,6 +435,8 @@ export class PiHarness {
       if (event.type === 'tool_execution_end') {
         const id = getToolCallId(event);
         const startedAt = toolCallStarts.get(id);
+        const completedAt = Date.now();
+        const durationMs = startedAt ? completedAt - startedAt : undefined;
         const call = upsertToolCall(toolCalls, {
           id,
           name: String(event.toolName ?? 'tool'),
@@ -432,8 +444,19 @@ export class PiHarness {
           status: event.isError ? 'error' : 'complete',
           input: stringifyToolData(event.args),
           output: stringifyToolData(event.result),
-          duration: startedAt ? formatDuration(Date.now() - startedAt) : undefined,
+          duration: durationMs == null ? undefined : formatDuration(durationMs),
           errorMessage: event.isError ? stringifyToolData(event.result) : undefined,
+        });
+        this.hostTools.recordToolEnd({
+          conversationId,
+          piToolCallId: id,
+          toolName: call.name,
+          args: event.args,
+          status: event.isError ? 'error' : 'complete',
+          output: event.isError ? undefined : event.result,
+          error: event.isError ? event.result : undefined,
+          completedAt: new Date(completedAt),
+          durationMs,
         });
         queue.push({type: 'tool', call: {...call}});
       }
@@ -562,14 +585,19 @@ export class PiHarness {
       throw new Error(`Pi could not resolve model ${PROVIDER_ID}/${modelId}.`);
     }
 
+    const toolsEnabled = this.hostTools.areToolsEnabled();
     const resourceLoader = new DefaultResourceLoader({
       cwd: this.paths.repoRoot,
       agentDir: this.paths.piDir,
       systemPromptOverride: () =>
         [
           'You are Nelle Agent, a local-first personal AI agent.',
-          'You may use host file and shell tools when needed.',
-          'This POC runs unsandboxed as the launching OS user, so be careful and explain destructive operations before running them.',
+          toolsEnabled
+            ? 'You may use host file and shell tools when needed.'
+            : 'Host file and shell tools are disabled in Nelle settings.',
+          toolsEnabled
+            ? 'This POC runs unsandboxed as the launching OS user, so be careful and explain destructive operations before running them.'
+            : 'Do not claim that you can inspect files or run shell commands unless host tools are enabled.',
         ].join('\n'),
     });
     await resourceLoader.reload();
@@ -585,7 +613,7 @@ export class PiHarness {
       cwd: this.paths.repoRoot,
       model,
       thinkingLevel: 'off',
-      tools: TOOL_ALLOWLIST,
+      tools: toolsEnabled ? TOOL_ALLOWLIST : [],
       authStorage,
       modelRegistry,
       resourceLoader,

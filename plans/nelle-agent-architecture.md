@@ -263,6 +263,8 @@ context-window usage in the composer header, text/PDF/image composer
 attachments with selected-model vision gating, attachment metadata persistence,
 content-addressed storage for sent image payloads, and startup orphan
 attachment sweeps under `.nelle/attachments/`,
+host-tool acknowledgement/global disable settings, SQLite tool audit rows, and
+tool-audit archive export,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for
 startup and configuration diagnostics. Runtime/model/global/chats controls live
@@ -290,8 +292,9 @@ Intentional POC limitations:
   and richer abort recovery states are still pending.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
-- Host tools are enabled through Pi and remain unsandboxed.
-- PDF-as-image mode and durable tool audit archive rows are still pending.
+- Host tools are gated through a Settings acknowledgement/global disable switch
+  and remain unsandboxed.
+- PDF-as-image mode is still pending.
   Direct hard delete removes the conversation's Pi session file and
   unreferenced attachment files, and server startup sweeps orphan attachment
   files absent from SQLite metadata.

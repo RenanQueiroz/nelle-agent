@@ -14,6 +14,7 @@ import {streamDirectLlama} from './directLlama';
 import {AppStore} from './store';
 import {AppDatabase} from './database';
 import {exportConversationArchive, importConversationArchive} from './conversationArchive';
+import {HostToolRepository} from './hostTools';
 import {
   ConversationRepository,
   POC_CONVERSATION_ID,
@@ -91,6 +92,11 @@ const patchConversationSchema = z.object({
   defaultModelId: z.string().nullable().optional(),
 });
 
+const hostToolSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  acknowledged: z.boolean().optional(),
+});
+
 export async function createServer(paths: AppPaths) {
   const store = new AppStore(paths);
   const database = new AppDatabase(paths);
@@ -98,13 +104,14 @@ export async function createServer(paths: AppPaths) {
   const conversations = new ConversationRepository(database);
   await conversations.init();
   conversations.syncPocConversationFromState(await store.getState());
+  const hostTools = new HostToolRepository(database);
   const attachmentSweep = await sweepOrphanAttachmentFiles(
     paths,
     conversations.getReferencedAttachmentStoragePaths(),
   );
   const llama = new LlamaCppManager(paths, store);
   const hf = new HuggingFaceService(store);
-  const pi = new PiHarness(paths, store, conversations);
+  const pi = new PiHarness(paths, store, conversations, hostTools);
 
   const app = Fastify({
     logger: {
@@ -140,7 +147,32 @@ export async function createServer(paths: AppPaths) {
   app.get('/api/state', async () => ({
     state: await store.getState(),
     runtime: await llama.getStatus(),
+    hostTools: hostTools.getSettings(),
   }));
+
+  app.get('/api/settings/host-tools', async () => ({
+    hostTools: hostTools.getSettings(),
+  }));
+
+  app.patch('/api/settings/host-tools', async (request, reply) => {
+    const body = hostToolSettingsSchema.parse(request.body);
+    let settings;
+    try {
+      settings = hostTools.updateSettings(body);
+    } catch (error) {
+      return reply.status(400).send({
+        error: {
+          code: 'host_tools_acknowledgement_required',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Host tools must be acknowledged before they can be enabled.',
+        },
+      });
+    }
+    pi.resetSession();
+    return {hostTools: settings};
+  });
 
   app.get('/api/runtime', async request => {
     const checkLatest = (request.query as {latest?: string}).latest === '1';
@@ -351,6 +383,7 @@ export async function createServer(paths: AppPaths) {
   app.delete('/api/conversations', async () => {
     const resources = conversations.getAllConversationDeleteResources();
     conversations.hardDeleteAllConversations();
+    hostTools.deleteAllAuditEvents();
     const cleanup = await deleteConversationResources(paths, resources);
     await store.clearChat();
     pi.resetSession();
@@ -487,6 +520,7 @@ export async function createServer(paths: AppPaths) {
       paths,
       store,
       conversations,
+      hostTools,
       conversationId: id,
     });
     if (!archive) {
@@ -517,6 +551,7 @@ export async function createServer(paths: AppPaths) {
     }
     pi.resetSession(id);
     conversations.clearConversationProjection(id);
+    hostTools.deleteAuditEventsForConversation(id);
     if (id === POC_CONVERSATION_ID) {
       await store.clearChat();
     }
@@ -649,6 +684,7 @@ export async function createServer(paths: AppPaths) {
   app.delete('/api/chat/messages', async () => {
     pi.resetSession(POC_CONVERSATION_ID);
     await store.clearChat();
+    hostTools.deleteAuditEventsForConversation(POC_CONVERSATION_ID);
     conversations.syncPocConversationFromState(await store.getState());
     return {ok: true};
   });

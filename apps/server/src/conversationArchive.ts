@@ -7,6 +7,7 @@ import {z} from 'zod';
 
 import type {AppPaths} from './paths';
 import type {AppStore} from './store';
+import type {HostToolRepository, ToolAuditEvent} from './hostTools';
 import type {
   ConversationRepository,
   ImportedAttachmentInput,
@@ -90,6 +91,7 @@ export async function exportConversationArchive(input: {
   paths: AppPaths;
   store: AppStore;
   conversations: ConversationRepository;
+  hostTools?: HostToolRepository;
   conversationId: string;
 }): Promise<ConversationArchiveExport | null> {
   const state = await input.store.getState();
@@ -110,7 +112,7 @@ export async function exportConversationArchive(input: {
     'pi-session.jsonl': strToU8(piSessionText),
     'nelle-conversation.json': jsonBytes(sidecar),
     'models-manifest.json': jsonBytes(snapshot.models),
-    'tool-audit.jsonl': strToU8(''),
+    'tool-audit.jsonl': strToU8(renderToolAuditJsonl(input.hostTools, input.conversationId)),
   };
 
   for (const attachment of attachments) {
@@ -147,6 +149,18 @@ export async function exportConversationArchive(input: {
     filename: `${slugifyArchiveName(snapshot.conversation.title)}.nelle-chat.zip`,
     bytes: zipSync(files),
   };
+}
+
+function renderToolAuditJsonl(
+  hostTools: HostToolRepository | undefined,
+  conversationId: string,
+): string {
+  const rows = hostTools?.listAuditEvents(conversationId) ?? [];
+  return rows.map(toolAuditJsonLine).join('');
+}
+
+function toolAuditJsonLine(event: ToolAuditEvent): string {
+  return `${JSON.stringify(event)}\n`;
 }
 
 export async function importConversationArchive(input: {

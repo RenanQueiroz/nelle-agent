@@ -361,6 +361,87 @@ test('loads an unloaded router model from the composer selector', async ({page})
   await expect(page.getByText('loaded', {exact: true}).last()).toBeVisible();
 });
 
+test('requires acknowledgement before enabling host tools', async ({page}) => {
+  let hostTools = {
+    enabled: false,
+    acknowledged: false,
+    updatedAt: '1970-01-01T00:00:00.000Z',
+  };
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: null,
+          models: [],
+          globalModelParams: {c: '8192'},
+          runtime: {host: '127.0.0.1', port: 8080, modelsMax: 1, sleepIdleSeconds: 90},
+          chat: [],
+        },
+        runtime: {
+          platform: 'linux',
+          arch: 'x64',
+          dataDir: '.nelle-e2e',
+          binaryPath: null,
+          logPath: '.nelle-e2e/logs/llama-server.log',
+          installMode: 'source-master',
+          installed: false,
+          installedVersion: null,
+          latestVersion: null,
+          updateAvailable: false,
+          running: false,
+          pid: null,
+          host: '127.0.0.1',
+          port: 8080,
+          modelsMax: 1,
+          sleepIdleSeconds: 90,
+          activeModelId: null,
+          lastError: null,
+        },
+        hostTools,
+      },
+    });
+  });
+  await page.route('**/api/settings/host-tools', async route => {
+    const request = route.request();
+    if (request.method() === 'PATCH') {
+      const body = request.postDataJSON() as {enabled?: boolean; acknowledged?: boolean};
+      if (body.enabled === true && body.acknowledged !== true && !hostTools.acknowledged) {
+        await route.fulfill({
+          status: 400,
+          json: {
+            error: {
+              code: 'host_tools_acknowledgement_required',
+              message: 'Host tools must be acknowledged before they can be enabled.',
+            },
+          },
+        });
+        return;
+      }
+      hostTools = {
+        enabled: body.enabled ?? hostTools.enabled,
+        acknowledged: body.acknowledged ?? hostTools.acknowledged,
+        updatedAt: '2026-07-08T12:00:00.000Z',
+      };
+    }
+    await route.fulfill({json: {hostTools}});
+  });
+  await mockConversationRoutes(page, {chat: []});
+
+  await page.goto('/');
+  await page.getByRole('button', {name: 'Settings'}).click();
+  await page.getByRole('button', {name: 'Tools'}).click();
+
+  await expect(page.getByRole('heading', {name: 'Host Tools'})).toBeVisible();
+  await expect(
+    page.getByText('Host file and shell tools run with the same OS permissions'),
+  ).toBeVisible();
+  await expect(page.getByLabel('Enable host file and shell tools')).toBeDisabled();
+
+  await page.getByRole('button', {name: 'Acknowledge and enable'}).click();
+  await expect(page.getByText('enabled', {exact: true})).toBeVisible();
+  await expect(page.getByLabel('Enable host file and shell tools')).toBeChecked();
+});
+
 test('updates router model selector state from SSE events', async ({page}) => {
   const model = {
     id: 'model-a',

@@ -33,6 +33,7 @@ import {
   type SelectorOptionType,
 } from '@astryxdesign/core/Selector';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
+import {Switch} from '@astryxdesign/core/Switch';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Token} from '@astryxdesign/core/Token';
 import {Tooltip} from '@astryxdesign/core/Tooltip';
@@ -61,6 +62,7 @@ import {
   PhotoIcon,
   PlusIcon,
   PlayIcon,
+  ShieldCheckIcon,
   SparklesIcon,
   StarIcon,
   StopIcon,
@@ -85,6 +87,7 @@ import {
   forkConversation,
   getConversation,
   getConversations,
+  getHostToolSettings,
   getLlamaModelProps,
   getLlamaModels,
   getRuntime,
@@ -105,6 +108,7 @@ import {
   updateConversation,
   updateConfiguredModel,
   updateGlobalModelParams,
+  updateHostToolSettings,
   updateRuntimeSettings,
   useHuggingFaceModel,
   type ChatMessage as ApiChatMessage,
@@ -118,6 +122,7 @@ import {
   type ConversationListItem,
   type ConversationSnapshot,
   type HuggingFaceModelResult,
+  type HostToolSettings,
   type LlamaModelProps,
   type LlamaRouterModel,
   type LlamaRouterModelUpdate,
@@ -145,7 +150,7 @@ type ComposerModelOptionDetail = {
   progressPercent: number | null;
 };
 
-type SettingsSection = 'runtime' | 'models' | 'global' | 'chats';
+type SettingsSection = 'runtime' | 'models' | 'global' | 'tools' | 'chats';
 
 type ParamRow = {
   id: string;
@@ -351,6 +356,7 @@ export function App() {
   const [sleepIdleInput, setSleepIdleInput] = useState('90');
   const [isLogVisible, setIsLogVisible] = useState(false);
   const [runtimeLogs, setRuntimeLogs] = useState('');
+  const [hostTools, setHostTools] = useState<HostToolSettings | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -513,6 +519,7 @@ export function App() {
       );
       setModels(response.state.models);
       setActiveModelId(response.state.activeModelId);
+      setHostTools(response.hostTools ?? (await getHostToolSettings()));
       syncSettingsDrafts(response.state.globalModelParams, response.state.models);
       try {
         const list = await getConversations();
@@ -672,6 +679,7 @@ export function App() {
     );
     setModels(response.state.models);
     setActiveModelId(response.state.activeModelId);
+    setHostTools(response.hostTools ?? (await getHostToolSettings()));
     syncSettingsDrafts(response.state.globalModelParams, response.state.models);
     await refreshConversations(activeConversationId, response.state.chat);
     if (response.runtime.running) {
@@ -793,6 +801,33 @@ export function App() {
         text: runtime?.running
           ? 'Model settings saved and router models reloaded.'
           : 'Model settings saved.',
+      });
+    });
+  }
+
+  async function handleHostToolsAcknowledgement() {
+    await runAction('host-tools', async () => {
+      const next = await updateHostToolSettings({enabled: true, acknowledged: true});
+      setHostTools(next);
+      setNotice({
+        type: 'success',
+        text: 'Host file and shell tools enabled for new agent runs.',
+      });
+    });
+  }
+
+  async function handleHostToolsToggle(enabled: boolean) {
+    await runAction('host-tools', async () => {
+      const next = await updateHostToolSettings({
+        enabled,
+        acknowledged: hostTools?.acknowledged ?? false,
+      });
+      setHostTools(next);
+      setNotice({
+        type: 'success',
+        text: enabled
+          ? 'Host file and shell tools enabled for new agent runs.'
+          : 'Host file and shell tools disabled.',
       });
     });
   }
@@ -1739,6 +1774,9 @@ export function App() {
                   globalParamRows={globalParamRows}
                   onGlobalParamRowsChange={setGlobalParamRows}
                   onSaveGlobalParams={handleSaveGlobalParams}
+                  hostTools={hostTools}
+                  onAcknowledgeHostTools={handleHostToolsAcknowledgement}
+                  onHostToolsToggle={handleHostToolsToggle}
                   searchQuery={searchQuery}
                   searchResults={searchResults}
                   isSearching={isSearching}
@@ -1813,6 +1851,9 @@ function SettingsPanel({
   globalParamRows,
   onGlobalParamRowsChange,
   onSaveGlobalParams,
+  hostTools,
+  onAcknowledgeHostTools,
+  onHostToolsToggle,
   searchQuery,
   searchResults,
   isSearching,
@@ -1861,6 +1902,9 @@ function SettingsPanel({
   globalParamRows: ParamRow[];
   onGlobalParamRowsChange: (rows: ParamRow[]) => void;
   onSaveGlobalParams: () => void | Promise<void>;
+  hostTools: HostToolSettings | null;
+  onAcknowledgeHostTools: () => void | Promise<void>;
+  onHostToolsToggle: (enabled: boolean) => void | Promise<void>;
   searchQuery: string;
   searchResults: HuggingFaceModelResult[];
   isSearching: boolean;
@@ -1889,7 +1933,7 @@ function SettingsPanel({
         />
       </HStack>
       <HStack gap={1} wrap="wrap">
-        {(['runtime', 'models', 'global', 'chats'] as SettingsSection[]).map(item => (
+        {(['runtime', 'models', 'global', 'tools', 'chats'] as SettingsSection[]).map(item => (
           <Button
             key={item}
             label={settingsSectionLabel(item)}
@@ -1961,6 +2005,14 @@ function SettingsPanel({
             />
           </VStack>
         </Card>
+      )}
+      {section === 'tools' && (
+        <HostToolsSettingsSection
+          hostTools={hostTools}
+          busyAction={busyAction}
+          onAcknowledgeHostTools={onAcknowledgeHostTools}
+          onHostToolsToggle={onHostToolsToggle}
+        />
       )}
       {section === 'chats' && (
         <Card padding={3}>
@@ -2133,6 +2185,63 @@ function RuntimeSettingsSection({
           isLoading={busyAction === 'runtime-settings'}
           onClick={onSaveRuntimeSettings}
         />
+      </VStack>
+    </Card>
+  );
+}
+
+function HostToolsSettingsSection({
+  hostTools,
+  busyAction,
+  onAcknowledgeHostTools,
+  onHostToolsToggle,
+}: {
+  hostTools: HostToolSettings | null;
+  busyAction: string | null;
+  onAcknowledgeHostTools: () => void | Promise<void>;
+  onHostToolsToggle: (enabled: boolean) => void | Promise<void>;
+}) {
+  const acknowledged = hostTools?.acknowledged === true;
+  const enabled = hostTools?.enabled === true;
+  return (
+    <Card padding={3}>
+      <VStack gap={3}>
+        <HStack gap={2} vAlign="center">
+          <Icon icon={ShieldCheckIcon} size="sm" color="secondary" />
+          <Heading level={3}>Host Tools</Heading>
+          <StackItem size="fill" />
+          <Token label={enabled ? 'enabled' : 'disabled'} color={enabled ? 'yellow' : 'blue'} />
+        </HStack>
+        {!acknowledged && (
+          <Banner
+            status="warning"
+            title="Host file and shell tools run with the same OS permissions as the user who launched Nelle."
+          />
+        )}
+        <Switch
+          label="Enable host file and shell tools"
+          description="Allows Pi to read files, edit files, search the project, and run shell commands from Nelle conversations."
+          value={enabled}
+          isDisabled={!acknowledged}
+          disabledMessage="Acknowledge the host tool warning first."
+          isLoading={busyAction === 'host-tools'}
+          changeAction={checked => onHostToolsToggle(checked)}
+        />
+        {!acknowledged && (
+          <Button
+            label="Acknowledge and enable"
+            size="sm"
+            variant="primary"
+            icon={<Icon icon={ShieldCheckIcon} size="sm" />}
+            isLoading={busyAction === 'host-tools'}
+            onClick={onAcknowledgeHostTools}
+          />
+        )}
+        {acknowledged && (
+          <Text type="supporting" color="secondary">
+            Tool calls are shown in chat and stored in the local audit log for each conversation.
+          </Text>
+        )}
       </VStack>
     </Card>
   );
@@ -2464,6 +2573,9 @@ function settingsSectionLabel(section: SettingsSection): string {
   }
   if (section === 'global') {
     return 'Global Params';
+  }
+  if (section === 'tools') {
+    return 'Tools';
   }
   return 'Chats';
 }

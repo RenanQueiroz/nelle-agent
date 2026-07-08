@@ -836,13 +836,16 @@ First-run and settings policy:
 
 - Show a first-run acknowledgement before enabling host file/shell tools. The
   text should state that tools run with the same OS permissions as the user who
-  launched Nelle.
+  launched Nelle. Done: Settings exposes this acknowledgement before enabling
+  host tools.
 - Default recommendation: enable host tools only after this acknowledgement.
   The product may still ship with tools available in v1, but the user should
-  make an explicit informed choice.
+  make an explicit informed choice. Done: host tools default to disabled until
+  acknowledged.
 - Add a Settings control to enable/disable host tools globally. Disabling tools
   updates the Pi model/tool registry for new runs and blocks tool execution for
-  active conversation runtimes when possible.
+  active conversation runtimes when possible. Done: setting changes reset cached
+  Pi sessions so new runs use the current tool registry.
 - Do not add per-tool approval prompts in the first implementation; that is a
   later sandbox/permissions phase. The first pass focuses on clear disclosure,
   visible execution rows, and auditability.
@@ -856,21 +859,27 @@ Runtime behavior:
 - Sensitive values should not be guessed or automatically redacted in v1, but
   rows should avoid adding extra secrets beyond what Pi/tool execution already
   emitted.
-- If host tools are disabled, Pi/tool calls should fail closed with a
-  `tools_disabled` error and a composer or message-level explanation.
+- If host tools are disabled, Pi sessions are created with an empty tool list
+  and the system prompt states that host tools are disabled. A future stricter
+  guard can add explicit `tools_disabled` stream errors if Pi ever emits a tool
+  event despite an empty registry.
 
 Audit storage:
 
 - Persist an append-only audit trail for host tool calls under Nelle-owned app
   data. Recommended first implementation: SQLite table `tool_audit_events` plus
-  optional JSONL export files under `.nelle/logs/tools/`.
+  optional JSONL export files under `.nelle/logs/tools/`. Done: tool starts and
+  completions are persisted in `tool_audit_events`.
 - Minimum fields: `id`, `conversation_id`, `pi_entry_id?`, `pi_tool_call_id`,
   `tool_name`, `status`, `input_json`, `output_json?`, `error_json?`,
   `started_at`, `completed_at?`, and `duration_ms?`.
 - Audit rows are Nelle sidecar metadata. They may be exported with a
   conversation, but Pi session files remain the message-history source of truth.
+  Done: `.nelle-chat.zip` includes `tool-audit.jsonl` rows for the exported
+  conversation.
 - Clearing all chats removes matching audit rows unless the user explicitly
-  exports diagnostics first.
+  exports diagnostics first. Done: conversation reset and clear-all paths remove
+  matching audit rows.
 
 ### Assistant Message Footer
 
@@ -1214,8 +1223,8 @@ Export/import format:
     known, router runtime ids, and context/modality metadata observed at export
     time.
   - `tool-audit.jsonl`: optional host-tool audit rows for the conversation.
-    Current implementation writes an empty placeholder until durable tool audit
-    persistence exists.
+    Current implementation writes persisted SQLite audit rows when host tools
+    were used.
 - Do not include secrets, pairing tokens, app-wide settings, managed
   llama.cpp binaries, model weights, cache directories, or logs by default.
 - Validate import archives before writing: reject absolute paths, `..`
@@ -1636,8 +1645,7 @@ Exit criteria:
   `SessionManager.createBranchedSession()`.
 - Done: implement local `.nelle-chat.zip` export/import for conversation
   snapshots, Pi session files, attachments, and model manifest snapshots.
-  `tool-audit.jsonl` is included as an empty placeholder until durable tool
-  audit persistence exists.
+  `tool-audit.jsonl` includes persisted audit rows when host tools were used.
 - Keep the visible branch UX scoped to active-path timelines, regenerate
   variants, fork, and duplicate. Do not build a full Pi tree explorer in v1.
 
@@ -1654,8 +1662,9 @@ Exit criteria:
   branch.
 - Done: exporting and importing a conversation round trips the Pi session file,
   Nelle sidecar metadata, attachments, and model manifest snapshots without
-  overwriting existing conversations. Tool audit archive rows are deferred until
-  durable tool audit persistence exists.
+  overwriting existing conversations. Tool audit rows are exported when present;
+  import keeps them as diagnostics rather than restoring them into the new
+  conversation.
 - Inactive Pi branches are preserved in session files and are not dropped by
   projection rebuilds.
 - Done: conversation delete removes SQLite rows, the Pi session file, and
@@ -1823,6 +1832,8 @@ Unit tests:
 - Migration runner backup creation, idempotent retry behavior, and failed
   migration repair state.
 - Tool audit event persistence and deletion/export behavior.
+- Host-tool Settings acknowledgement/default-disabled behavior and global
+  enable/disable reset behavior.
 - Slash-command parsing, Nelle allowlist/blocklist behavior, unsupported
   command guidance, and `/compact` instruction extraction.
 
@@ -2019,8 +2030,9 @@ Playwright tests:
 - UI stop/abort calls Pi `AgentSession.abort()` and propagates abort to the
   llama.cpp proxy request. Nelle does not auto-kill llama.cpp unless the user
   explicitly chooses a runtime stop/restart action.
-- Host file/shell tools require explicit first-run acknowledgement and remain
-  globally disableable until sandboxing/per-tool permissions are designed.
+- Host file/shell tools require explicit first-run acknowledgement, remain
+  globally disableable, and persist audit rows until sandboxing/per-tool
+  permissions are designed.
 - Conversation export/import uses local `.nelle-chat.zip` archives and imports
   always create new Nelle conversations.
 - Database migrations use `schema_migrations`, timestamped backups, and
