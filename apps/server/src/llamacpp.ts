@@ -20,6 +20,7 @@ import {
   listModelsIniSections,
   parseModelsIni,
   removeModelsIniKeys,
+  removeModelsIniSection,
   upsertModelsIniValues,
   writeModelsIniAtomic,
 } from '../../../packages/shared/src/modelsIni.ts';
@@ -334,11 +335,8 @@ export class LlamaCppManager {
     return this.getStatus();
   }
 
-  async writePreset(activeModel?: ConfiguredModel): Promise<void> {
+  async writePreset(_activeModel?: ConfiguredModel): Promise<void> {
     const state = await this.store.getState();
-    const selectedModel =
-      activeModel ?? state.models.find(model => model.id === state.activeModelId) ?? null;
-    const globalParams = selectedModel?.params ?? {contextSize: 8192};
     const existing = await fs.readFile(this.paths.llamaPresetPath, 'utf8').catch(error => {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         return '';
@@ -347,12 +345,7 @@ export class LlamaCppManager {
     });
     let document = parseModelsIni(existing);
     document = upsertModelsIniValues(document, null, {version: 1});
-    document = upsertModelsIniValues(document, '*', {
-      c: globalParams.contextSize,
-      ...(globalParams.gpuLayers != null ? {'n-gpu-layers': globalParams.gpuLayers} : {}),
-      ...(globalParams.threads ? {threads: globalParams.threads} : {}),
-      ...(globalParams.batchSize ? {b: globalParams.batchSize} : {}),
-    });
+    document = upsertModelsIniValues(document, '*', state.globalModelParams);
 
     for (const model of state.models) {
       document = upsertModelsIniValues(
@@ -363,6 +356,17 @@ export class LlamaCppManager {
       document = removeModelsIniKeys(document, llamaRuntimeModelId(model), ['load-on-startup']);
     }
 
+    await writeModelsIniAtomic(this.paths.llamaPresetPath, document);
+  }
+
+  async removeModelSection(modelId: string): Promise<void> {
+    const existing = await fs.readFile(this.paths.llamaPresetPath, 'utf8').catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return '';
+      }
+      throw error;
+    });
+    const document = removeModelsIniSection(parseModelsIni(existing), modelId);
     await writeModelsIniAtomic(this.paths.llamaPresetPath, document);
   }
 
@@ -1001,6 +1005,7 @@ function modelSourceValues(model: ConfiguredModel): Record<string, string> {
       'hf-repo': model.hfRef,
       alias: model.name || model.hfRef,
       'stop-timeout': '10',
+      ...(model.params.extra ?? {}),
     };
   }
   throw new Error(`Model ${model.name} has no Hugging Face reference.`);

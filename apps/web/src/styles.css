@@ -105,6 +105,12 @@ body {
   max-width: min(100%, calc(var(--spacing-10) * 14));
 }
 
+.nelle-model-settings-row,
+.nelle-model-result {
+  border-block-start: 1px solid var(--color-border-subtle);
+  padding-block-start: var(--spacing-3);
+}
+
 .nelle-search-panel {
   width: 420px;
   min-width: 360px;

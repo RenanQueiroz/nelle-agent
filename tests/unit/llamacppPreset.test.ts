@@ -43,6 +43,8 @@ test('writePreset uses lossless models.ini updates for managed keys', async () =
     quant: 'UD-Q4_K_XL',
     name: 'Qwen 35B Q4 XL',
   });
+  await store.updateGlobalModelParams({c: '16384', threads: '8'});
+  await store.updateModel(model.id, {params: {'ctx-size': '32768', 'ubatch-size': '256'}});
   const llama = new LlamaCppManager(paths, store);
   await llama.writePreset(model);
 
@@ -51,10 +53,32 @@ test('writePreset uses lossless models.ini updates for managed keys', async () =
 
   assert.match(written, /# keep this comment/);
   assert.match(written, /custom-flag = keep-me/);
+  assert.match(written, /\[\*\]\n(?:.*\n)*c = 16384/);
+  assert.match(written, /threads = 8/);
   assert.match(written, /hf-repo = unsloth\/Qwen3\.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL/);
   assert.match(written, /alias = Qwen 35B Q4 XL/);
+  assert.match(written, /ctx-size = 32768/);
+  assert.match(written, /ubatch-size = 256/);
   assert.doesNotMatch(written, /load-on-startup/);
   assert.match(backup, /load-on-startup = true/);
+});
+
+test('removeModelSection deletes removed model from models.ini', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  const llama = new LlamaCppManager(paths, store);
+  await llama.writePreset();
+  await store.removeModel(model.id);
+  await llama.removeModelSection(model.id);
+  await llama.writePreset();
+
+  const written = await fs.readFile(paths.llamaPresetPath, 'utf8');
+  assert.doesNotMatch(written, /\[repo\/model:Q4_K_M\]/);
 });
 
 async function createTempPaths(): Promise<AppPaths> {

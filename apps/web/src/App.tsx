@@ -47,6 +47,7 @@ import {
   Cog6ToothIcon,
   ClockIcon,
   CpuChipIcon,
+  DocumentDuplicateIcon,
   DocumentTextIcon,
   EllipsisHorizontalIcon,
   MagnifyingGlassIcon,
@@ -56,6 +57,8 @@ import {
   PlayIcon,
   SparklesIcon,
   StopIcon,
+  TrashIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 
 import {
@@ -67,6 +70,9 @@ import {
   compactConversation,
   createConversation,
   deleteConversation,
+  deleteAllConversations,
+  deleteConfiguredModel,
+  duplicateConfiguredModel,
   exportConversationArchive,
   forkConversation,
   getConversation,
@@ -88,6 +94,8 @@ import {
   streamRegenerateMessage,
   unloadLlamaModel,
   updateConversation,
+  updateConfiguredModel,
+  updateGlobalModelParams,
   updateRuntimeSettings,
   useHuggingFaceModel,
   type ChatMessage as ApiChatMessage,
@@ -115,6 +123,14 @@ const ATTACHMENT_LIMITS = {
 
 type DraftAttachment = ChatAttachmentInput & {
   warning?: string;
+};
+
+type SettingsSection = 'runtime' | 'models' | 'global' | 'chats';
+
+type ParamRow = {
+  id: string;
+  key: string;
+  value: string;
 };
 
 const formatBytes = (value: number | null) => {
@@ -225,6 +241,13 @@ export function App() {
   const [runtimeLogs, setRuntimeLogs] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('runtime');
+  const [globalParamRows, setGlobalParamRows] = useState<ParamRow[]>(() =>
+    paramsToRows({c: '8192'}),
+  );
+  const [modelParamRows, setModelParamRows] = useState<Record<string, ParamRow[]>>({});
+  const [modelAliasDrafts, setModelAliasDrafts] = useState<Record<string, string>>({});
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
@@ -320,6 +343,7 @@ export function App() {
       );
       setModels(response.state.models);
       setActiveModelId(response.state.activeModelId);
+      syncSettingsDrafts(response.state.globalModelParams, response.state.models);
       try {
         const list = await getConversations();
         if (isCancelled) {
@@ -384,6 +408,19 @@ export function App() {
     };
   }, [activeModel, runtime?.running]);
 
+  function syncSettingsDrafts(
+    globalParams: Record<string, string> | undefined,
+    nextModels: ConfiguredModel[],
+  ) {
+    setGlobalParamRows(paramsToRows(globalParams ?? {c: '8192'}));
+    setModelParamRows(
+      Object.fromEntries(
+        nextModels.map(model => [model.id, paramsToRows(model.params.extra ?? {})]),
+      ),
+    );
+    setModelAliasDrafts(Object.fromEntries(nextModels.map(model => [model.id, model.name])));
+  }
+
   async function refreshState() {
     const response = await getState();
     setRuntime(response.runtime);
@@ -393,6 +430,7 @@ export function App() {
     );
     setModels(response.state.models);
     setActiveModelId(response.state.activeModelId);
+    syncSettingsDrafts(response.state.globalModelParams, response.state.models);
     await refreshConversations(activeConversationId, response.state.chat);
     if (response.runtime.running) {
       await refreshRouterModels({silent: true});
@@ -485,6 +523,56 @@ export function App() {
           ? 'Runtime settings saved. Restart llama.cpp to apply them.'
           : 'Runtime settings saved.',
       });
+    });
+  }
+
+  async function handleSaveGlobalParams() {
+    await runAction('global-params', async () => {
+      await updateGlobalModelParams(rowsToParams(globalParamRows));
+      await refreshState();
+      setNotice({
+        type: 'success',
+        text: runtime?.running
+          ? 'Global params saved and router models reloaded.'
+          : 'Global params saved. Restart llama.cpp if it is already running elsewhere.',
+      });
+    });
+  }
+
+  async function handleSaveModelSettings(model: ConfiguredModel) {
+    await runAction(`model-save:${model.id}`, async () => {
+      await updateConfiguredModel(model.id, {
+        name: modelAliasDrafts[model.id] ?? model.name,
+        params: rowsToParams(modelParamRows[model.id] ?? []),
+      });
+      await refreshState();
+      setNotice({
+        type: 'success',
+        text: runtime?.running
+          ? 'Model settings saved and router models reloaded.'
+          : 'Model settings saved.',
+      });
+    });
+  }
+
+  async function handleDuplicateConfiguredModel(model: ConfiguredModel) {
+    await runAction(`model-duplicate:${model.id}`, async () => {
+      const copy = await duplicateConfiguredModel(model.id);
+      setActiveModelId(copy.id);
+      await refreshState();
+      setNotice({type: 'success', text: 'Model duplicated.'});
+    });
+  }
+
+  async function handleDeleteConfiguredModel(model: ConfiguredModel) {
+    const confirmed = window.confirm(`Remove ${model.name} from models.ini?`);
+    if (!confirmed) {
+      return;
+    }
+    await runAction(`model-delete:${model.id}`, async () => {
+      await deleteConfiguredModel(model.id);
+      await refreshState();
+      setNotice({type: 'success', text: 'Model removed.'});
     });
   }
 
@@ -769,6 +857,19 @@ export function App() {
     });
   }
 
+  async function handleClearAllConversations() {
+    if (!window.confirm('Delete all conversations and their local session files?')) {
+      return;
+    }
+    await runAction('clear-all-chats', async () => {
+      await deleteAllConversations();
+      setMessages([]);
+      setContextUsage({});
+      await refreshConversations('poc-default');
+      setNotice({type: 'success', text: 'All conversations cleared.'});
+    });
+  }
+
   async function handleExportConversation(conversation: ConversationListItem) {
     await runAction(`export:${conversation.id}`, async () => {
       const blob = await exportConversationArchive(conversation.id);
@@ -1028,6 +1129,10 @@ export function App() {
                 {isSidebarCollapsed ? (
                   <CollapsedSidebar
                     onExpand={() => setIsSidebarCollapsed(false)}
+                    onOpenSettings={() => {
+                      setIsSidebarCollapsed(false);
+                      setIsSettingsOpen(true);
+                    }}
                     onNewConversation={handleNewConversation}
                     isNewConversationBusy={busyAction === 'new-chat'}
                   />
@@ -1042,6 +1147,14 @@ export function App() {
                         </Text>
                       </VStack>
                       <StackItem size="fill" />
+                      <IconButton
+                        label="Settings"
+                        tooltip="Settings"
+                        size="sm"
+                        variant={isSettingsOpen ? 'secondary' : 'ghost'}
+                        icon={<Icon icon={Cog6ToothIcon} size="sm" />}
+                        onClick={() => setIsSettingsOpen(value => !value)}
+                      />
                       <IconButton
                         label="Collapse sidebar"
                         tooltip="Collapse sidebar"
@@ -1110,225 +1223,6 @@ export function App() {
                           onClone={handleCloneConversation}
                           onDelete={handleDeleteConversation}
                         />
-                      </VStack>
-                    </Card>
-                  </>
-                )}
-
-                {!isSidebarCollapsed && (
-                  <>
-                    <Card padding={3}>
-                      <VStack gap={3}>
-                        <HStack gap={2} vAlign="center">
-                          <Icon icon={CpuChipIcon} size="sm" color="secondary" />
-                          <Heading level={3}>llama.cpp</Heading>
-                        </HStack>
-                        <Token
-                          label={
-                            runtime?.running
-                              ? `Running on ${runtime.host}:${runtime.port}`
-                              : runtime?.installed
-                                ? 'Installed, stopped'
-                                : 'Not installed'
-                          }
-                          color={runtimeTone}
-                        />
-                        <Text type="supporting" color="secondary" className="nelle-code">
-                          {runtime?.binaryPath ?? 'No llama-server binary detected'}
-                        </Text>
-                        <Text type="supporting" color="secondary" className="nelle-code">
-                          {runtime?.logPath ?? 'llama-server log path unavailable'}
-                        </Text>
-                        <HStack gap={2} wrap="wrap">
-                          <Button
-                            label={runtime?.installed ? 'Update' : 'Install'}
-                            size="sm"
-                            variant="secondary"
-                            icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-                            isLoading={busyAction === 'install'}
-                            onClick={() =>
-                              runAction('install', async () => {
-                                setRuntime(await installRuntime());
-                              })
-                            }
-                          />
-                          <Button
-                            label="Start"
-                            size="sm"
-                            variant="primary"
-                            icon={<Icon icon={PlayIcon} size="sm" />}
-                            isDisabled={!runtime?.installed || runtime.running}
-                            isLoading={busyAction === 'start'}
-                            onClick={() =>
-                              runAction('start', async () => {
-                                setRuntime(await startRuntime());
-                                await refreshState();
-                              })
-                            }
-                          />
-                          <Button
-                            label="Stop"
-                            size="sm"
-                            variant="secondary"
-                            icon={<Icon icon={StopIcon} size="sm" />}
-                            isDisabled={!runtime?.running}
-                            isLoading={busyAction === 'stop'}
-                            onClick={() =>
-                              runAction('stop', async () => {
-                                setRuntime(await stopRuntime());
-                                setRouterModels([]);
-                              })
-                            }
-                          />
-                          <Button
-                            label="Refresh"
-                            size="sm"
-                            variant="ghost"
-                            icon={<Icon icon={ArrowPathIcon} size="sm" />}
-                            onClick={() =>
-                              runAction('refresh', async () => {
-                                await refreshState();
-                              })
-                            }
-                          />
-                          <Button
-                            label={isLogVisible ? 'Hide logs' : 'Show logs'}
-                            size="sm"
-                            variant="ghost"
-                            isLoading={busyAction === 'runtime-logs'}
-                            onClick={handleToggleLogs}
-                          />
-                          {isLogVisible && (
-                            <Button
-                              label="Refresh logs"
-                              size="sm"
-                              variant="ghost"
-                              isLoading={busyAction === 'runtime-logs'}
-                              onClick={handleRefreshLogs}
-                            />
-                          )}
-                        </HStack>
-                        {isLogVisible && (
-                          <CodeBlock
-                            code={runtimeLogs || 'No llama-server log output yet.'}
-                            language="text"
-                            width="100%"
-                            maxHeight="calc(var(--spacing-10) * 8)"
-                            isWrapped
-                          />
-                        )}
-                        <VStack gap={2}>
-                          <TextInput
-                            label="Max loaded models"
-                            value={modelsMaxInput}
-                            onChange={setModelsMaxInput}
-                            description="Default is 1. Requires a llama.cpp restart."
-                          />
-                          <TextInput
-                            label="Sleep idle seconds"
-                            value={sleepIdleInput}
-                            onChange={setSleepIdleInput}
-                            description="Default is 90. Requires a llama.cpp restart."
-                          />
-                        </VStack>
-                        <Button
-                          label="Save runtime settings"
-                          size="sm"
-                          variant="secondary"
-                          isLoading={busyAction === 'runtime-settings'}
-                          onClick={handleSaveRuntimeSettings}
-                        />
-                      </VStack>
-                    </Card>
-
-                    <Card padding={3}>
-                      <VStack gap={3}>
-                        <HStack gap={2} vAlign="center">
-                          <StackItem size="fill">
-                            <Heading level={3}>Configured models</Heading>
-                          </StackItem>
-                          <Button
-                            label="Reload router models"
-                            size="sm"
-                            variant="ghost"
-                            icon={<Icon icon={ArrowPathIcon} size="sm" />}
-                            isDisabled={!runtime?.running}
-                            isLoading={busyAction === 'router-reload'}
-                            onClick={handleReloadRouterModels}
-                          />
-                        </HStack>
-                        {models.length === 0 && (
-                          <Text type="supporting" color="secondary">
-                            Search Hugging Face and choose a GGUF quant to create the first model.
-                          </Text>
-                        )}
-                        {models.map(model => {
-                          const routerModel = routerModelsByConfiguredId.get(model.id);
-                          const routerStatus =
-                            routerModel?.status ?? (runtime?.running ? 'unlisted' : 'stopped');
-                          const isLoaded = routerStatus === 'loaded' || routerStatus === 'sleeping';
-                          const isLoading = routerStatus === 'loading';
-                          return (
-                            <Card key={model.id} padding={2}>
-                              <VStack gap={0.5}>
-                                <HStack gap={2} vAlign="center">
-                                  <StackItem size="fill">
-                                    <Text type="label" weight="semibold">
-                                      {model.name}
-                                    </Text>
-                                  </StackItem>
-                                  <Token
-                                    label={formatRouterStatus(routerStatus)}
-                                    color={routerStatusColor(routerStatus)}
-                                  />
-                                </HStack>
-                                <Text type="supporting" color="secondary" className="nelle-code">
-                                  {model.hfRef ?? model.presetName}
-                                </Text>
-                                {routerModel && (
-                                  <Text type="supporting" color="secondary" className="nelle-code">
-                                    router id: {routerModel.routerModelId ?? routerModel.sectionId}
-                                  </Text>
-                                )}
-                                <HStack gap={1} wrap="wrap">
-                                  <Button
-                                    label={
-                                      model.id === activeModelId
-                                        ? 'Selected'
-                                        : `Select ${model.name}`
-                                    }
-                                    size="sm"
-                                    variant={model.id === activeModelId ? 'primary' : 'secondary'}
-                                    isLoading={busyAction === 'activate'}
-                                    onClick={() =>
-                                      runAction('activate', async () => {
-                                        const updated = await activateModel(model.id);
-                                        setActiveModelId(updated.id);
-                                        await refreshState();
-                                      })
-                                    }
-                                  />
-                                  <Button
-                                    label="Load"
-                                    size="sm"
-                                    variant="secondary"
-                                    isDisabled={!runtime?.running || isLoaded || isLoading}
-                                    isLoading={busyAction === `load:${model.id}`}
-                                    onClick={() => handleLoadRouterModel(model)}
-                                  />
-                                  <Button
-                                    label="Unload"
-                                    size="sm"
-                                    variant="ghost"
-                                    isDisabled={!runtime?.running || !isLoaded}
-                                    isLoading={busyAction === `unload:${model.id}`}
-                                    onClick={() => handleUnloadRouterModel(model)}
-                                  />
-                                </HStack>
-                              </VStack>
-                            </Card>
-                          );
-                        })}
                       </VStack>
                     </Card>
                   </>
@@ -1445,73 +1339,89 @@ export function App() {
                 </ChatLayout>
               </StackItem>
 
-              <VStack gap={4} className="nelle-search-panel nelle-panel-content nelle-scroll">
-                <HStack gap={2} vAlign="center">
-                  <Icon icon={MagnifyingGlassIcon} size="sm" color="secondary" />
-                  <Heading level={3}>Hugging Face GGUF search</Heading>
-                </HStack>
-                <TextInput
-                  label="Search query"
-                  value={searchQuery}
-                  onChange={setSearchQuery}
-                  placeholder="qwen coder gguf"
+              {isSettingsOpen && (
+                <SettingsPanel
+                  section={settingsSection}
+                  onSectionChange={setSettingsSection}
+                  onClose={() => setIsSettingsOpen(false)}
+                  runtime={runtime}
+                  runtimeTone={runtimeTone}
+                  runtimeLogs={runtimeLogs}
+                  isLogVisible={isLogVisible}
+                  modelsMaxInput={modelsMaxInput}
+                  sleepIdleInput={sleepIdleInput}
+                  onModelsMaxInputChange={setModelsMaxInput}
+                  onSleepIdleInputChange={setSleepIdleInput}
+                  onInstall={() =>
+                    runAction('install', async () => {
+                      setRuntime(await installRuntime());
+                    })
+                  }
+                  onStart={() =>
+                    runAction('start', async () => {
+                      setRuntime(await startRuntime());
+                      await refreshState();
+                    })
+                  }
+                  onStop={() =>
+                    runAction('stop', async () => {
+                      setRuntime(await stopRuntime());
+                      setRouterModels([]);
+                    })
+                  }
+                  onRefresh={() =>
+                    runAction('refresh', async () => {
+                      await refreshState();
+                    })
+                  }
+                  onToggleLogs={handleToggleLogs}
+                  onRefreshLogs={handleRefreshLogs}
+                  onSaveRuntimeSettings={handleSaveRuntimeSettings}
+                  models={models}
+                  activeModelId={activeModelId}
+                  routerModelsByConfiguredId={routerModelsByConfiguredId}
+                  busyAction={busyAction}
+                  onActivateModel={model =>
+                    runAction('activate', async () => {
+                      const updated = await activateModel(model.id);
+                      setActiveModelId(updated.id);
+                      await refreshState();
+                    })
+                  }
+                  onLoadModel={handleLoadRouterModel}
+                  onUnloadModel={handleUnloadRouterModel}
+                  onReloadRouterModels={handleReloadRouterModels}
+                  modelAliasDrafts={modelAliasDrafts}
+                  modelParamRows={modelParamRows}
+                  onModelAliasChange={(modelId, value) =>
+                    setModelAliasDrafts(previous => ({...previous, [modelId]: value}))
+                  }
+                  onModelParamRowsChange={(modelId, rows) =>
+                    setModelParamRows(previous => ({...previous, [modelId]: rows}))
+                  }
+                  onSaveModel={handleSaveModelSettings}
+                  onDuplicateModel={handleDuplicateConfiguredModel}
+                  onDeleteModel={handleDeleteConfiguredModel}
+                  globalParamRows={globalParamRows}
+                  onGlobalParamRowsChange={setGlobalParamRows}
+                  onSaveGlobalParams={handleSaveGlobalParams}
+                  searchQuery={searchQuery}
+                  searchResults={searchResults}
+                  isSearching={isSearching}
+                  onSearchQueryChange={setSearchQuery}
+                  onSearch={handleSearch}
+                  onUseHuggingFaceModel={(repoId, quant) =>
+                    runAction(`use:${repoId}:${quant}`, async () => {
+                      await useHuggingFaceModel({repoId, quant});
+                      await refreshState();
+                    })
+                  }
+                  conversations={conversations}
+                  onImportConversation={() => archiveInputRef.current?.click()}
+                  isImporting={busyAction === 'import-chat'}
+                  onClearAllChats={() => void handleClearAllConversations()}
                 />
-                <Button
-                  label="Search GGUF models"
-                  variant="primary"
-                  icon={<Icon icon={MagnifyingGlassIcon} size="sm" />}
-                  isLoading={isSearching}
-                  onClick={handleSearch}
-                />
-                <VStack gap={3}>
-                  {searchResults.map(result => (
-                    <Card key={result.id} padding={3}>
-                      <VStack gap={2}>
-                        <VStack gap={0}>
-                          <Text type="label" weight="semibold">
-                            {result.id}
-                          </Text>
-                          <Text type="supporting" color="secondary">
-                            {result.downloads?.toLocaleString() ?? '0'} downloads
-                          </Text>
-                        </VStack>
-                        {result.quants.map(quant => (
-                          <HStack key={quant.quant} gap={2} vAlign="center">
-                            <StackItem size="fill" className="nelle-tight">
-                              <VStack gap={0}>
-                                <Text type="supporting" className="nelle-code">
-                                  {quant.quant}
-                                </Text>
-                                <Text type="supporting" color="secondary">
-                                  {formatBytes(quant.size)}
-                                  {quant.files.length > 1
-                                    ? ` across ${quant.files.length} files`
-                                    : ''}
-                                </Text>
-                              </VStack>
-                            </StackItem>
-                            <Button
-                              label="Use"
-                              size="sm"
-                              variant="secondary"
-                              isLoading={busyAction === `use:${result.id}:${quant.quant}`}
-                              onClick={() =>
-                                runAction(`use:${result.id}:${quant.quant}`, async () => {
-                                  await useHuggingFaceModel({
-                                    repoId: result.id,
-                                    quant: quant.quant,
-                                  });
-                                  await refreshState();
-                                })
-                              }
-                            />
-                          </HStack>
-                        ))}
-                      </VStack>
-                    </Card>
-                  ))}
-                </VStack>
-              </VStack>
+              )}
             </HStack>
           </LayoutContent>
         }
@@ -1530,6 +1440,688 @@ type CommandStatusRow = {
   createdAt: string;
   completedAt?: string;
 };
+
+function SettingsPanel({
+  section,
+  onSectionChange,
+  onClose,
+  runtime,
+  runtimeTone,
+  runtimeLogs,
+  isLogVisible,
+  modelsMaxInput,
+  sleepIdleInput,
+  onModelsMaxInputChange,
+  onSleepIdleInputChange,
+  onInstall,
+  onStart,
+  onStop,
+  onRefresh,
+  onToggleLogs,
+  onRefreshLogs,
+  onSaveRuntimeSettings,
+  models,
+  activeModelId,
+  routerModelsByConfiguredId,
+  busyAction,
+  onActivateModel,
+  onLoadModel,
+  onUnloadModel,
+  onReloadRouterModels,
+  modelAliasDrafts,
+  modelParamRows,
+  onModelAliasChange,
+  onModelParamRowsChange,
+  onSaveModel,
+  onDuplicateModel,
+  onDeleteModel,
+  globalParamRows,
+  onGlobalParamRowsChange,
+  onSaveGlobalParams,
+  searchQuery,
+  searchResults,
+  isSearching,
+  onSearchQueryChange,
+  onSearch,
+  onUseHuggingFaceModel,
+  conversations,
+  onImportConversation,
+  isImporting,
+  onClearAllChats,
+}: {
+  section: SettingsSection;
+  onSectionChange: (section: SettingsSection) => void;
+  onClose: () => void;
+  runtime: RuntimeStatus | null;
+  runtimeTone: 'green' | 'yellow' | 'blue';
+  runtimeLogs: string;
+  isLogVisible: boolean;
+  modelsMaxInput: string;
+  sleepIdleInput: string;
+  onModelsMaxInputChange: (value: string) => void;
+  onSleepIdleInputChange: (value: string) => void;
+  onInstall: () => void | Promise<void>;
+  onStart: () => void | Promise<void>;
+  onStop: () => void | Promise<void>;
+  onRefresh: () => void | Promise<void>;
+  onToggleLogs: () => void | Promise<void>;
+  onRefreshLogs: () => void | Promise<void>;
+  onSaveRuntimeSettings: () => void | Promise<void>;
+  models: ConfiguredModel[];
+  activeModelId: string | null;
+  routerModelsByConfiguredId: Map<string, LlamaRouterModel>;
+  busyAction: string | null;
+  onActivateModel: (model: ConfiguredModel) => void | Promise<void>;
+  onLoadModel: (model: ConfiguredModel) => void | Promise<void>;
+  onUnloadModel: (model: ConfiguredModel) => void | Promise<void>;
+  onReloadRouterModels: () => void | Promise<void>;
+  modelAliasDrafts: Record<string, string>;
+  modelParamRows: Record<string, ParamRow[]>;
+  onModelAliasChange: (modelId: string, value: string) => void;
+  onModelParamRowsChange: (modelId: string, rows: ParamRow[]) => void;
+  onSaveModel: (model: ConfiguredModel) => void | Promise<void>;
+  onDuplicateModel: (model: ConfiguredModel) => void | Promise<void>;
+  onDeleteModel: (model: ConfiguredModel) => void | Promise<void>;
+  globalParamRows: ParamRow[];
+  onGlobalParamRowsChange: (rows: ParamRow[]) => void;
+  onSaveGlobalParams: () => void | Promise<void>;
+  searchQuery: string;
+  searchResults: HuggingFaceModelResult[];
+  isSearching: boolean;
+  onSearchQueryChange: (value: string) => void;
+  onSearch: () => void | Promise<void>;
+  onUseHuggingFaceModel: (repoId: string, quant: string) => void | Promise<void>;
+  conversations: ConversationListItem[];
+  onImportConversation: () => void;
+  isImporting: boolean;
+  onClearAllChats: () => void | Promise<void>;
+}) {
+  return (
+    <VStack gap={4} className="nelle-search-panel nelle-panel-content nelle-scroll">
+      <HStack gap={2} vAlign="center">
+        <Icon icon={Cog6ToothIcon} size="sm" color="secondary" />
+        <StackItem size="fill">
+          <Heading level={3}>Settings</Heading>
+        </StackItem>
+        <IconButton
+          label="Close settings"
+          tooltip="Close settings"
+          size="sm"
+          variant="ghost"
+          icon={<Icon icon={XMarkIcon} size="sm" />}
+          onClick={onClose}
+        />
+      </HStack>
+      <HStack gap={1} wrap="wrap">
+        {(['runtime', 'models', 'global', 'chats'] as SettingsSection[]).map(item => (
+          <Button
+            key={item}
+            label={settingsSectionLabel(item)}
+            size="sm"
+            variant={section === item ? 'primary' : 'ghost'}
+            onClick={() => onSectionChange(item)}
+          />
+        ))}
+      </HStack>
+
+      {section === 'runtime' && (
+        <RuntimeSettingsSection
+          runtime={runtime}
+          runtimeTone={runtimeTone}
+          runtimeLogs={runtimeLogs}
+          isLogVisible={isLogVisible}
+          modelsMaxInput={modelsMaxInput}
+          sleepIdleInput={sleepIdleInput}
+          busyAction={busyAction}
+          onModelsMaxInputChange={onModelsMaxInputChange}
+          onSleepIdleInputChange={onSleepIdleInputChange}
+          onInstall={onInstall}
+          onStart={onStart}
+          onStop={onStop}
+          onRefresh={onRefresh}
+          onToggleLogs={onToggleLogs}
+          onRefreshLogs={onRefreshLogs}
+          onSaveRuntimeSettings={onSaveRuntimeSettings}
+        />
+      )}
+      {section === 'models' && (
+        <ModelSettingsSection
+          models={models}
+          activeModelId={activeModelId}
+          runtime={runtime}
+          routerModelsByConfiguredId={routerModelsByConfiguredId}
+          busyAction={busyAction}
+          modelAliasDrafts={modelAliasDrafts}
+          modelParamRows={modelParamRows}
+          searchQuery={searchQuery}
+          searchResults={searchResults}
+          isSearching={isSearching}
+          onActivateModel={onActivateModel}
+          onLoadModel={onLoadModel}
+          onUnloadModel={onUnloadModel}
+          onReloadRouterModels={onReloadRouterModels}
+          onModelAliasChange={onModelAliasChange}
+          onModelParamRowsChange={onModelParamRowsChange}
+          onSaveModel={onSaveModel}
+          onDuplicateModel={onDuplicateModel}
+          onDeleteModel={onDeleteModel}
+          onSearchQueryChange={onSearchQueryChange}
+          onSearch={onSearch}
+          onUseHuggingFaceModel={onUseHuggingFaceModel}
+        />
+      )}
+      {section === 'global' && (
+        <Card padding={3}>
+          <VStack gap={3}>
+            <Heading level={3}>Global llama.cpp Params</Heading>
+            <KeyValueEditor rows={globalParamRows} onChange={onGlobalParamRowsChange} />
+            <Button
+              label="Save global params"
+              size="sm"
+              variant="primary"
+              isLoading={busyAction === 'global-params'}
+              onClick={onSaveGlobalParams}
+            />
+          </VStack>
+        </Card>
+      )}
+      {section === 'chats' && (
+        <Card padding={3}>
+          <VStack gap={3}>
+            <Heading level={3}>Chats</Heading>
+            <Text type="supporting" color="secondary">
+              {conversations.length.toLocaleString()} conversations stored locally.
+            </Text>
+            <HStack gap={2} wrap="wrap">
+              <Button
+                label="Import archive"
+                size="sm"
+                variant="secondary"
+                icon={<Icon icon={ArrowUpTrayIcon} size="sm" />}
+                isLoading={isImporting}
+                onClick={onImportConversation}
+              />
+              <Button
+                label="Clear all chats"
+                size="sm"
+                variant="secondary"
+                icon={<Icon icon={TrashIcon} size="sm" />}
+                isLoading={busyAction === 'clear-all-chats'}
+                onClick={onClearAllChats}
+              />
+            </HStack>
+          </VStack>
+        </Card>
+      )}
+    </VStack>
+  );
+}
+
+function RuntimeSettingsSection({
+  runtime,
+  runtimeTone,
+  runtimeLogs,
+  isLogVisible,
+  modelsMaxInput,
+  sleepIdleInput,
+  busyAction,
+  onModelsMaxInputChange,
+  onSleepIdleInputChange,
+  onInstall,
+  onStart,
+  onStop,
+  onRefresh,
+  onToggleLogs,
+  onRefreshLogs,
+  onSaveRuntimeSettings,
+}: {
+  runtime: RuntimeStatus | null;
+  runtimeTone: 'green' | 'yellow' | 'blue';
+  runtimeLogs: string;
+  isLogVisible: boolean;
+  modelsMaxInput: string;
+  sleepIdleInput: string;
+  busyAction: string | null;
+  onModelsMaxInputChange: (value: string) => void;
+  onSleepIdleInputChange: (value: string) => void;
+  onInstall: () => void | Promise<void>;
+  onStart: () => void | Promise<void>;
+  onStop: () => void | Promise<void>;
+  onRefresh: () => void | Promise<void>;
+  onToggleLogs: () => void | Promise<void>;
+  onRefreshLogs: () => void | Promise<void>;
+  onSaveRuntimeSettings: () => void | Promise<void>;
+}) {
+  return (
+    <Card padding={3}>
+      <VStack gap={3}>
+        <HStack gap={2} vAlign="center">
+          <Icon icon={CpuChipIcon} size="sm" color="secondary" />
+          <Heading level={3}>llama.cpp</Heading>
+        </HStack>
+        <Token
+          label={
+            runtime?.running
+              ? `Running on ${runtime.host}:${runtime.port}`
+              : runtime?.installed
+                ? 'Installed, stopped'
+                : 'Not installed'
+          }
+          color={runtimeTone}
+        />
+        <Text type="supporting" color="secondary" className="nelle-code">
+          {runtime?.binaryPath ?? 'No llama-server binary detected'}
+        </Text>
+        <Text type="supporting" color="secondary" className="nelle-code">
+          {runtime?.logPath ?? 'llama-server log path unavailable'}
+        </Text>
+        <HStack gap={2} wrap="wrap">
+          <Button
+            label={runtime?.installed ? 'Update' : 'Install'}
+            size="sm"
+            variant="secondary"
+            icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+            isLoading={busyAction === 'install'}
+            onClick={onInstall}
+          />
+          <Button
+            label="Start"
+            size="sm"
+            variant="primary"
+            icon={<Icon icon={PlayIcon} size="sm" />}
+            isDisabled={!runtime?.installed || runtime.running}
+            isLoading={busyAction === 'start'}
+            onClick={onStart}
+          />
+          <Button
+            label="Stop"
+            size="sm"
+            variant="secondary"
+            icon={<Icon icon={StopIcon} size="sm" />}
+            isDisabled={!runtime?.running}
+            isLoading={busyAction === 'stop'}
+            onClick={onStop}
+          />
+          <Button
+            label="Refresh"
+            size="sm"
+            variant="ghost"
+            icon={<Icon icon={ArrowPathIcon} size="sm" />}
+            onClick={onRefresh}
+          />
+          <Button
+            label={isLogVisible ? 'Hide logs' : 'Show logs'}
+            size="sm"
+            variant="ghost"
+            isLoading={busyAction === 'runtime-logs'}
+            onClick={onToggleLogs}
+          />
+          {isLogVisible && (
+            <Button
+              label="Refresh logs"
+              size="sm"
+              variant="ghost"
+              isLoading={busyAction === 'runtime-logs'}
+              onClick={onRefreshLogs}
+            />
+          )}
+        </HStack>
+        {isLogVisible && (
+          <CodeBlock
+            code={runtimeLogs || 'No llama-server log output yet.'}
+            language="text"
+            width="100%"
+            maxHeight="calc(var(--spacing-10) * 8)"
+            isWrapped
+          />
+        )}
+        <VStack gap={2}>
+          <TextInput
+            label="Max loaded models"
+            value={modelsMaxInput}
+            onChange={onModelsMaxInputChange}
+            description="Default is 1. Requires a llama.cpp restart."
+          />
+          <TextInput
+            label="Sleep idle seconds"
+            value={sleepIdleInput}
+            onChange={onSleepIdleInputChange}
+            description="Default is 90. Requires a llama.cpp restart."
+          />
+        </VStack>
+        <Button
+          label="Save runtime settings"
+          size="sm"
+          variant="secondary"
+          isLoading={busyAction === 'runtime-settings'}
+          onClick={onSaveRuntimeSettings}
+        />
+      </VStack>
+    </Card>
+  );
+}
+
+function ModelSettingsSection({
+  models,
+  activeModelId,
+  runtime,
+  routerModelsByConfiguredId,
+  busyAction,
+  modelAliasDrafts,
+  modelParamRows,
+  searchQuery,
+  searchResults,
+  isSearching,
+  onActivateModel,
+  onLoadModel,
+  onUnloadModel,
+  onReloadRouterModels,
+  onModelAliasChange,
+  onModelParamRowsChange,
+  onSaveModel,
+  onDuplicateModel,
+  onDeleteModel,
+  onSearchQueryChange,
+  onSearch,
+  onUseHuggingFaceModel,
+}: {
+  models: ConfiguredModel[];
+  activeModelId: string | null;
+  runtime: RuntimeStatus | null;
+  routerModelsByConfiguredId: Map<string, LlamaRouterModel>;
+  busyAction: string | null;
+  modelAliasDrafts: Record<string, string>;
+  modelParamRows: Record<string, ParamRow[]>;
+  searchQuery: string;
+  searchResults: HuggingFaceModelResult[];
+  isSearching: boolean;
+  onActivateModel: (model: ConfiguredModel) => void | Promise<void>;
+  onLoadModel: (model: ConfiguredModel) => void | Promise<void>;
+  onUnloadModel: (model: ConfiguredModel) => void | Promise<void>;
+  onReloadRouterModels: () => void | Promise<void>;
+  onModelAliasChange: (modelId: string, value: string) => void;
+  onModelParamRowsChange: (modelId: string, rows: ParamRow[]) => void;
+  onSaveModel: (model: ConfiguredModel) => void | Promise<void>;
+  onDuplicateModel: (model: ConfiguredModel) => void | Promise<void>;
+  onDeleteModel: (model: ConfiguredModel) => void | Promise<void>;
+  onSearchQueryChange: (value: string) => void;
+  onSearch: () => void | Promise<void>;
+  onUseHuggingFaceModel: (repoId: string, quant: string) => void | Promise<void>;
+}) {
+  return (
+    <VStack gap={3}>
+      <Card padding={3}>
+        <VStack gap={3}>
+          <HStack gap={2} vAlign="center">
+            <StackItem size="fill">
+              <Heading level={3}>Configured Models</Heading>
+            </StackItem>
+            <Button
+              label="Reload"
+              size="sm"
+              variant="ghost"
+              icon={<Icon icon={ArrowPathIcon} size="sm" />}
+              isDisabled={!runtime?.running}
+              isLoading={busyAction === 'router-reload'}
+              onClick={onReloadRouterModels}
+            />
+          </HStack>
+          {models.length === 0 && (
+            <Text type="supporting" color="secondary">
+              Search Hugging Face and choose a GGUF quant to create the first model.
+            </Text>
+          )}
+          {models.map(model => (
+            <ModelSettingsRow
+              key={model.id}
+              model={model}
+              activeModelId={activeModelId}
+              runtime={runtime}
+              routerModel={routerModelsByConfiguredId.get(model.id)}
+              busyAction={busyAction}
+              aliasDraft={modelAliasDrafts[model.id] ?? model.name}
+              paramRows={modelParamRows[model.id] ?? []}
+              onActivateModel={onActivateModel}
+              onLoadModel={onLoadModel}
+              onUnloadModel={onUnloadModel}
+              onAliasChange={value => onModelAliasChange(model.id, value)}
+              onParamRowsChange={rows => onModelParamRowsChange(model.id, rows)}
+              onSaveModel={onSaveModel}
+              onDuplicateModel={onDuplicateModel}
+              onDeleteModel={onDeleteModel}
+            />
+          ))}
+        </VStack>
+      </Card>
+
+      <Card padding={3}>
+        <VStack gap={3}>
+          <HStack gap={2} vAlign="center">
+            <Icon icon={MagnifyingGlassIcon} size="sm" color="secondary" />
+            <Heading level={3}>Hugging Face GGUF Search</Heading>
+          </HStack>
+          <TextInput
+            label="Search query"
+            value={searchQuery}
+            onChange={onSearchQueryChange}
+            placeholder="qwen coder gguf"
+          />
+          <Button
+            label="Search GGUF models"
+            variant="primary"
+            icon={<Icon icon={MagnifyingGlassIcon} size="sm" />}
+            isLoading={isSearching}
+            onClick={onSearch}
+          />
+          <VStack gap={3}>
+            {searchResults.map(result => (
+              <VStack key={result.id} gap={2} className="nelle-model-result">
+                <VStack gap={0}>
+                  <Text type="label" weight="semibold">
+                    {result.id}
+                  </Text>
+                  <Text type="supporting" color="secondary">
+                    {result.downloads?.toLocaleString() ?? '0'} downloads
+                  </Text>
+                </VStack>
+                {result.quants.map(quant => (
+                  <HStack key={quant.quant} gap={2} vAlign="center">
+                    <StackItem size="fill" className="nelle-tight">
+                      <VStack gap={0}>
+                        <Text type="supporting" className="nelle-code">
+                          {quant.quant}
+                        </Text>
+                        <Text type="supporting" color="secondary">
+                          {formatBytes(quant.size)}
+                          {quant.files.length > 1 ? ` across ${quant.files.length} files` : ''}
+                        </Text>
+                      </VStack>
+                    </StackItem>
+                    <Button
+                      label="Use"
+                      size="sm"
+                      variant="secondary"
+                      isLoading={busyAction === `use:${result.id}:${quant.quant}`}
+                      onClick={() => onUseHuggingFaceModel(result.id, quant.quant)}
+                    />
+                  </HStack>
+                ))}
+              </VStack>
+            ))}
+          </VStack>
+        </VStack>
+      </Card>
+    </VStack>
+  );
+}
+
+function ModelSettingsRow({
+  model,
+  activeModelId,
+  runtime,
+  routerModel,
+  busyAction,
+  aliasDraft,
+  paramRows,
+  onActivateModel,
+  onLoadModel,
+  onUnloadModel,
+  onAliasChange,
+  onParamRowsChange,
+  onSaveModel,
+  onDuplicateModel,
+  onDeleteModel,
+}: {
+  model: ConfiguredModel;
+  activeModelId: string | null;
+  runtime: RuntimeStatus | null;
+  routerModel?: LlamaRouterModel;
+  busyAction: string | null;
+  aliasDraft: string;
+  paramRows: ParamRow[];
+  onActivateModel: (model: ConfiguredModel) => void | Promise<void>;
+  onLoadModel: (model: ConfiguredModel) => void | Promise<void>;
+  onUnloadModel: (model: ConfiguredModel) => void | Promise<void>;
+  onAliasChange: (value: string) => void;
+  onParamRowsChange: (rows: ParamRow[]) => void;
+  onSaveModel: (model: ConfiguredModel) => void | Promise<void>;
+  onDuplicateModel: (model: ConfiguredModel) => void | Promise<void>;
+  onDeleteModel: (model: ConfiguredModel) => void | Promise<void>;
+}) {
+  const routerStatus = routerModel?.status ?? (runtime?.running ? 'unlisted' : 'stopped');
+  const isLoaded = routerStatus === 'loaded' || routerStatus === 'sleeping';
+  const isLoading = routerStatus === 'loading';
+
+  return (
+    <VStack gap={2} className="nelle-model-settings-row">
+      <HStack gap={2} vAlign="center">
+        <StackItem size="fill">
+          <TextInput label="Alias" value={aliasDraft} onChange={onAliasChange} />
+        </StackItem>
+        <Token label={formatRouterStatus(routerStatus)} color={routerStatusColor(routerStatus)} />
+      </HStack>
+      <Text type="supporting" color="secondary" className="nelle-code">
+        {model.hfRef ?? model.presetName}
+      </Text>
+      {routerModel && (
+        <Text type="supporting" color="secondary" className="nelle-code">
+          router id: {routerModel.routerModelId ?? routerModel.sectionId}
+        </Text>
+      )}
+      <KeyValueEditor rows={paramRows} onChange={onParamRowsChange} />
+      <HStack gap={1} wrap="wrap">
+        <Button
+          label={model.id === activeModelId ? 'Selected' : 'Select'}
+          size="sm"
+          variant={model.id === activeModelId ? 'primary' : 'secondary'}
+          isLoading={busyAction === 'activate'}
+          onClick={() => onActivateModel(model)}
+        />
+        <Button
+          label="Load"
+          size="sm"
+          variant="secondary"
+          isDisabled={!runtime?.running || isLoaded || isLoading}
+          isLoading={busyAction === `load:${model.id}`}
+          onClick={() => onLoadModel(model)}
+        />
+        <Button
+          label="Unload"
+          size="sm"
+          variant="ghost"
+          isDisabled={!runtime?.running || !isLoaded}
+          isLoading={busyAction === `unload:${model.id}`}
+          onClick={() => onUnloadModel(model)}
+        />
+        <Button
+          label="Save"
+          size="sm"
+          variant="secondary"
+          isLoading={busyAction === `model-save:${model.id}`}
+          onClick={() => onSaveModel(model)}
+        />
+        <IconButton
+          label="Duplicate model"
+          tooltip="Duplicate model"
+          size="sm"
+          variant="ghost"
+          icon={<Icon icon={DocumentDuplicateIcon} size="sm" />}
+          isLoading={busyAction === `model-duplicate:${model.id}`}
+          onClick={() => onDuplicateModel(model)}
+        />
+        <IconButton
+          label="Remove model"
+          tooltip="Remove model"
+          size="sm"
+          variant="ghost"
+          icon={<Icon icon={TrashIcon} size="sm" />}
+          isLoading={busyAction === `model-delete:${model.id}`}
+          onClick={() => onDeleteModel(model)}
+        />
+      </HStack>
+    </VStack>
+  );
+}
+
+function KeyValueEditor({
+  rows,
+  onChange,
+}: {
+  rows: ParamRow[];
+  onChange: (rows: ParamRow[]) => void;
+}) {
+  const visibleRows = rows.length > 0 ? rows : [{id: createParamRowId(), key: '', value: ''}];
+  return (
+    <VStack gap={2}>
+      {visibleRows.map(row => (
+        <HStack key={row.id} gap={1} vAlign="end">
+          <StackItem size="fill">
+            <TextInput
+              label="Key"
+              value={row.key}
+              onChange={value => onChange(updateParamRows(visibleRows, row.id, {key: value}))}
+            />
+          </StackItem>
+          <StackItem size="fill">
+            <TextInput
+              label="Value"
+              value={row.value}
+              onChange={value => onChange(updateParamRows(visibleRows, row.id, {value}))}
+            />
+          </StackItem>
+          <IconButton
+            label="Remove parameter"
+            tooltip="Remove parameter"
+            size="sm"
+            variant="ghost"
+            icon={<Icon icon={TrashIcon} size="sm" />}
+            onClick={() => onChange(visibleRows.filter(item => item.id !== row.id))}
+          />
+        </HStack>
+      ))}
+      <Button
+        label="Add parameter"
+        size="sm"
+        variant="ghost"
+        icon={<Icon icon={PlusIcon} size="sm" />}
+        onClick={() => onChange([...visibleRows, {id: createParamRowId(), key: '', value: ''}])}
+      />
+    </VStack>
+  );
+}
+
+function settingsSectionLabel(section: SettingsSection): string {
+  if (section === 'runtime') {
+    return 'Runtime';
+  }
+  if (section === 'models') {
+    return 'Models';
+  }
+  if (section === 'global') {
+    return 'Global Params';
+  }
+  return 'Chats';
+}
 
 function ContextWindowUsage({context}: {context: ConversationContextUsage}) {
   const totalTokens = positiveTokenCount(context.totalTokens);
@@ -1741,10 +2333,12 @@ type ConversationListRow =
 
 function CollapsedSidebar({
   onExpand,
+  onOpenSettings,
   onNewConversation,
   isNewConversationBusy,
 }: {
   onExpand: () => void;
+  onOpenSettings: () => void;
   onNewConversation: () => void | Promise<void>;
   isNewConversationBusy: boolean;
 }) {
@@ -1769,11 +2363,11 @@ function CollapsedSidebar({
       />
       <IconButton
         label="Settings"
-        tooltip="Expand sidebar to edit settings"
+        tooltip="Settings"
         size="sm"
         variant="ghost"
         icon={<Icon icon={Cog6ToothIcon} size="sm" />}
-        onClick={onExpand}
+        onClick={onOpenSettings}
       />
     </VStack>
   );
@@ -2809,6 +3403,32 @@ function downloadBlob(blob: Blob, filename: string): void {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+function paramsToRows(params: Record<string, string>): ParamRow[] {
+  return Object.entries(params).map(([key, value]) => ({
+    id: createParamRowId(),
+    key,
+    value,
+  }));
+}
+
+function rowsToParams(rows: ParamRow[]): Record<string, string> {
+  return Object.fromEntries(
+    rows.map(row => [row.key.trim(), row.value.trim()] as const).filter(([key]) => key.length > 0),
+  );
+}
+
+function updateParamRows(
+  rows: ParamRow[],
+  id: string,
+  patch: Partial<Pick<ParamRow, 'key' | 'value'>>,
+): ParamRow[] {
+  return rows.map(row => (row.id === id ? {...row, ...patch} : row));
+}
+
+function createParamRowId(): string {
+  return `param-${Math.random().toString(36).slice(2)}`;
 }
 
 async function copyMessageText(value: string): Promise<void> {

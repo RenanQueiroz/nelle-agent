@@ -34,6 +34,17 @@ const runtimeSettingsSchema = z.object({
   sleepIdleSeconds: z.number().int().min(0).optional(),
 });
 
+const editableParamsSchema = z.record(z.string(), z.string());
+
+const updateGlobalModelParamsSchema = z.object({
+  params: editableParamsSchema,
+});
+
+const updateModelSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  params: editableParamsSchema.optional(),
+});
+
 const compactConversationSchema = z
   .object({
     instructions: z.string().max(2000).optional(),
@@ -213,7 +224,11 @@ export async function createServer(paths: AppPaths) {
 
   app.get('/api/models', async () => {
     const state = await store.getState();
-    return {models: state.models, activeModelId: state.activeModelId};
+    return {
+      models: state.models,
+      activeModelId: state.activeModelId,
+      globalModelParams: state.globalModelParams,
+    };
   });
 
   app.post('/api/models/:id/activate', async request => {
@@ -221,6 +236,77 @@ export async function createServer(paths: AppPaths) {
     const model = await store.setActiveModel(id);
     await llama.writePreset(model);
     return {model};
+  });
+
+  app.patch('/api/models/global-params', async (request, reply) => {
+    const body = updateGlobalModelParamsSchema.parse(request.body);
+    const validation = validateEditableParams(body.params);
+    if (validation) {
+      return reply.status(400).send({error: validation});
+    }
+    const globalModelParams = await store.updateGlobalModelParams(body.params);
+    await writePresetAndReloadRouter(llama);
+    return {globalModelParams};
+  });
+
+  app.patch('/api/models/:id', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    const body = updateModelSchema.parse(request.body);
+    if (body.params) {
+      const validation = validateEditableParams(body.params, new Set(['hf-repo', 'alias']));
+      if (validation) {
+        return reply.status(400).send({error: validation});
+      }
+    }
+    let model;
+    try {
+      model = await store.updateModel(id, body);
+    } catch (error) {
+      return reply.status(404).send({
+        error: {
+          code: 'model_not_found',
+          message: error instanceof Error ? error.message : `Unknown model: ${id}`,
+        },
+      });
+    }
+    await writePresetAndReloadRouter(llama);
+    conversations.syncPocConversationFromState(await store.getState());
+    return {model, state: await store.getState()};
+  });
+
+  app.post('/api/models/:id/duplicate', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    let model;
+    try {
+      model = await store.duplicateModel(id);
+    } catch (error) {
+      return reply.status(404).send({
+        error: {
+          code: 'model_not_found',
+          message: error instanceof Error ? error.message : `Unknown model: ${id}`,
+        },
+      });
+    }
+    await writePresetAndReloadRouter(llama);
+    conversations.syncPocConversationFromState(await store.getState());
+    return {model, state: await store.getState()};
+  });
+
+  app.delete('/api/models/:id', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    const removed = await store.removeModel(id);
+    if (!removed) {
+      return reply.status(404).send({
+        error: {
+          code: 'model_not_found',
+          message: `Unknown model: ${id}`,
+        },
+      });
+    }
+    await llama.removeModelSection(id);
+    await writePresetAndReloadRouter(llama);
+    conversations.syncPocConversationFromState(await store.getState());
+    return {ok: true, removedModelId: id, state: await store.getState()};
   });
 
   app.get('/api/huggingface/search', async request => {
@@ -231,7 +317,7 @@ export async function createServer(paths: AppPaths) {
   app.post('/api/huggingface/use', async request => {
     const body = useHuggingFaceModelSchema.parse(request.body);
     const model = await hf.useHuggingFaceGguf(body);
-    await llama.writePreset(model);
+    await writePresetAndReloadRouter(llama);
     conversations.syncPocConversationFromState(await store.getState());
     return {model};
   });
@@ -712,6 +798,50 @@ async function handleLlamaRoute<T>(
     return await action();
   } catch (error) {
     return sendLlamaError(reply, error);
+  }
+}
+
+function validateEditableParams(
+  params: Record<string, string>,
+  reservedKeys: Set<string> = new Set(),
+): {code: string; message: string} | null {
+  const seen = new Set<string>();
+  for (const [rawKey, rawValue] of Object.entries(params)) {
+    const key = rawKey.trim();
+    const normalized = key.toLowerCase();
+    if (!key) {
+      return {code: 'invalid_model_param', message: 'Parameter keys cannot be empty.'};
+    }
+    if (/[[\]=\r\n]/.test(key)) {
+      return {
+        code: 'invalid_model_param',
+        message: `Parameter key "${key}" cannot contain brackets, equals signs, or newlines.`,
+      };
+    }
+    if (reservedKeys.has(normalized)) {
+      return {
+        code: 'reserved_model_param',
+        message: `Set "${key}" through the dedicated model field instead of params.`,
+      };
+    }
+    if (seen.has(normalized)) {
+      return {code: 'duplicate_model_param', message: `Duplicate parameter key: ${key}`};
+    }
+    seen.add(normalized);
+    if (/[\r\n]/.test(rawValue)) {
+      return {
+        code: 'invalid_model_param',
+        message: `Parameter "${key}" cannot contain newline characters.`,
+      };
+    }
+  }
+  return null;
+}
+
+async function writePresetAndReloadRouter(llama: LlamaCppManager): Promise<void> {
+  await llama.writePreset();
+  if ((await llama.getStatus()).running) {
+    await llama.getRouterModels({reload: true});
   }
 }
 

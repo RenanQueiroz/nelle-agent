@@ -263,8 +263,9 @@ attachments with selected-model vision gating, attachment metadata persistence,
 and content-addressed storage for sent image payloads,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for
-startup and configuration diagnostics, and the POC model panel can show router
-model status plus reload/load/unload actions.
+startup and configuration diagnostics. Runtime/model/global/chats controls live
+in a right-side Settings panel with router model status plus
+reload/load/unload actions.
 
 Intentional POC limitations:
 
@@ -275,8 +276,8 @@ Intentional POC limitations:
   search, pin/rename/reset/duplicate/delete row actions, pinned/recent sections,
   and running indicators. User-message fork and conversation duplicate create
   new Pi session files, and local `.nelle-chat.zip` export/import creates new
-  conversations. Dedicated Settings and full branch tree exploration are still
-  pending.
+  conversations. Settings is implemented as a right-side panel; final SideNav
+  styling and full branch tree exploration are still pending.
 - Stable run ids/terminal run events and full branch tree exploration are still
   pending.
 - Long-running install/build progress is not streamed yet.

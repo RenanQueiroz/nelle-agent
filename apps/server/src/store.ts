@@ -10,6 +10,9 @@ const DEFAULT_STATE: AppState = {
   version: 1,
   activeModelId: null,
   models: [],
+  globalModelParams: {
+    c: '8192',
+  },
   runtime: {
     host: '127.0.0.1',
     port: 8080,
@@ -21,6 +24,7 @@ const DEFAULT_STATE: AppState = {
 
 const DEFAULT_PARAMS: ModelParams = {
   contextSize: 8192,
+  extra: {},
 };
 
 export class AppStore {
@@ -128,6 +132,85 @@ export class AppStore {
     return model;
   }
 
+  async updateGlobalModelParams(params: Record<string, string>): Promise<Record<string, string>> {
+    const state = await this.load();
+    state.globalModelParams = normalizeParamRecord(params, DEFAULT_STATE.globalModelParams);
+    const globalContextSize = contextSizeFromParams(
+      state.globalModelParams,
+      DEFAULT_PARAMS.contextSize,
+    );
+    state.models = state.models.map(model => ({
+      ...model,
+      params: normalizeModelParams(model.params, globalContextSize),
+    }));
+    await this.save();
+    return structuredClone(state.globalModelParams);
+  }
+
+  async updateModel(
+    id: string,
+    input: {
+      name?: string;
+      params?: Record<string, string>;
+    },
+  ): Promise<ConfiguredModel> {
+    const state = await this.load();
+    const index = state.models.findIndex(model => model.id === id);
+    if (index < 0) {
+      throw new Error(`Unknown model: ${id}`);
+    }
+    const globalContextSize = contextSizeFromParams(
+      state.globalModelParams,
+      DEFAULT_PARAMS.contextSize,
+    );
+    const previous = state.models[index]!;
+    const next: ConfiguredModel = {
+      ...previous,
+      name: input.name?.trim() || previous.name,
+      params:
+        input.params == null
+          ? previous.params
+          : normalizeModelParams({extra: input.params}, globalContextSize),
+    };
+    state.models[index] = next;
+    await this.save();
+    return structuredClone(next);
+  }
+
+  async duplicateModel(id: string): Promise<ConfiguredModel> {
+    const state = await this.load();
+    const source = state.models.find(model => model.id === id);
+    if (!source) {
+      throw new Error(`Unknown model: ${id}`);
+    }
+    const copyId = uniqueModelId(`${source.id}-copy`, state.models);
+    const copy: ConfiguredModel = {
+      ...structuredClone(source),
+      id: copyId,
+      presetName: copyId,
+      name: `${source.name} copy`,
+      createdAt: new Date().toISOString(),
+    };
+    state.models.push(copy);
+    state.activeModelId = copy.id;
+    await this.save();
+    return structuredClone(copy);
+  }
+
+  async removeModel(id: string): Promise<ConfiguredModel | null> {
+    const state = await this.load();
+    const index = state.models.findIndex(model => model.id === id);
+    if (index < 0) {
+      return null;
+    }
+    const [removed] = state.models.splice(index, 1);
+    if (state.activeModelId === id) {
+      state.activeModelId = state.models[index]?.id ?? state.models[index - 1]?.id ?? null;
+    }
+    await this.save();
+    return structuredClone(removed!);
+  }
+
   async updateRuntimeSettings(input: {
     modelsMax?: number;
     sleepIdleSeconds?: number;
@@ -153,10 +236,15 @@ export class AppStore {
 }
 
 function normalizeState(input: Partial<AppState>): AppState {
+  const globalModelParams = normalizeParamRecord(
+    input.globalModelParams,
+    DEFAULT_STATE.globalModelParams,
+  );
+  const globalContextSize = contextSizeFromParams(globalModelParams, DEFAULT_PARAMS.contextSize);
   const models = (input.models ?? []).filter(isHuggingFaceModel).map(model => ({
     ...model,
     source: 'huggingface' as const,
-    params: {...DEFAULT_PARAMS, ...(model.params ?? {})},
+    params: normalizeModelParams(model.params, globalContextSize),
     createdAt: model.createdAt ?? new Date().toISOString(),
   }));
   const activeModelId = models.some(model => model.id === input.activeModelId)
@@ -167,6 +255,7 @@ function normalizeState(input: Partial<AppState>): AppState {
     version: 1,
     activeModelId,
     models,
+    globalModelParams,
     runtime: normalizeRuntime(input.runtime),
     chat: Array.isArray(input.chat) ? input.chat : [],
   };
@@ -196,6 +285,55 @@ function positiveInteger(value: unknown, fallback: number): number {
 
 function nonNegativeInteger(value: unknown, fallback: number): number {
   return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : fallback;
+}
+
+function normalizeModelParams(
+  input: Partial<ModelParams> | undefined,
+  fallbackContextSize: number,
+): ModelParams {
+  const extra = normalizeParamRecord(input?.extra, {});
+  return {
+    contextSize: positiveInteger(
+      input?.contextSize,
+      contextSizeFromParams(extra, fallbackContextSize),
+    ),
+    ...(input?.gpuLayers != null ? {gpuLayers: input.gpuLayers} : {}),
+    ...(input?.threads != null ? {threads: input.threads} : {}),
+    ...(input?.batchSize != null ? {batchSize: input.batchSize} : {}),
+    extra,
+  };
+}
+
+function normalizeParamRecord(
+  input: unknown,
+  fallback: Record<string, string>,
+): Record<string, string> {
+  if (input == null || typeof input !== 'object' || Array.isArray(input)) {
+    return {...fallback};
+  }
+  const entries = Object.entries(input)
+    .map(([key, value]) => [key.trim(), String(value).trim()] as const)
+    .filter(([key]) => key.length > 0);
+  return entries.length > 0 ? Object.fromEntries(entries) : {...fallback};
+}
+
+function contextSizeFromParams(params: Record<string, string>, fallback: number): number {
+  const value = Number.parseInt(params.c ?? params['ctx-size'] ?? '', 10);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function uniqueModelId(base: string, models: ConfiguredModel[]): string {
+  const existing = new Set(models.map(model => model.id));
+  if (!existing.has(base)) {
+    return base;
+  }
+  for (let index = 2; index < 1000; index += 1) {
+    const candidate = `${base}-${index}`;
+    if (!existing.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${base}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 export function slugify(value: string): string {

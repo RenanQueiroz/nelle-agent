@@ -59,11 +59,13 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   await page.goto('/');
 
   await expect(page.getByRole('heading', {name: 'Nelle Agent'})).toBeVisible();
-  await expect(page.getByRole('heading', {name: 'llama.cpp'})).toBeVisible();
-  await expect(page.getByText('Not installed')).toBeVisible();
   await expect(page.getByLabel('Search conversations')).toBeVisible();
   await expect(page.getByRole('button', {name: 'New chat'})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Send'})).toHaveCount(1);
+
+  await page.getByRole('button', {name: 'Settings'}).click();
+  await expect(page.getByRole('heading', {name: 'llama.cpp'})).toBeVisible();
+  await expect(page.getByText('Not installed')).toBeVisible();
   await expect(page.getByLabel('Max loaded models')).toHaveValue('1');
   await expect(page.getByLabel('Sleep idle seconds')).toHaveValue('90');
 
@@ -71,6 +73,7 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   await expect(page.getByText('No llama-server log output yet.')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Hide logs'})).toBeVisible();
 
+  await page.getByRole('button', {name: 'Models'}).click();
   await page.getByLabel('Search query').fill('qwen gguf');
   await page.getByRole('button', {name: 'Search GGUF models'}).click();
 
@@ -89,6 +92,25 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   await expect
     .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
     .toContain('hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL');
+
+  await page.getByRole('button', {name: 'Global Params'}).click();
+  await page.getByLabel('Value').first().fill('12288');
+  await page.getByRole('button', {name: 'Save global params'}).click();
+  await expect
+    .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
+    .toContain('c = 12288');
+
+  await page.getByRole('button', {name: 'Models'}).click();
+  await page.getByLabel('Alias').fill('Qwen alias');
+  await page.getByLabel('Key').fill('ctx-size');
+  await page.getByLabel('Value').fill('32768');
+  await page.getByRole('button', {name: 'Save'}).click();
+  await expect
+    .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
+    .toContain('alias = Qwen alias');
+  await expect
+    .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
+    .toContain('ctx-size = 32768');
 });
 
 test('shows router model status and load/unload controls', async ({page}) => {
@@ -190,6 +212,8 @@ test('shows router model status and load/unload controls', async ({page}) => {
 
   await page.goto('/');
 
+  await page.getByRole('button', {name: 'Settings'}).click();
+  await page.getByRole('button', {name: 'Models'}).click();
   await expect(page.getByText('loaded', {exact: true})).toBeVisible();
   await expect(page.getByText(`router id: ${model.id}`)).toBeVisible();
   await expect(page.getByRole('button', {name: 'Load', exact: true})).toBeDisabled();
@@ -201,7 +225,7 @@ test('shows router model status and load/unload controls', async ({page}) => {
   await expect.poll(() => loadCalls).toBe(1);
   await expect(page.getByText('loaded', {exact: true})).toBeVisible();
 
-  await page.getByRole('button', {name: 'Reload router models'}).click();
+  await page.getByRole('button', {name: 'Reload'}).click();
   await expect.poll(() => reloadCalls).toBe(1);
 });
 
@@ -665,7 +689,7 @@ test('regenerates an assistant response from the footer model picker', async ({p
   await expect(page.getByText('Regenerated with Model B.')).toBeVisible();
   await expect(page.getByText('variant 1/2')).toBeVisible();
   await expect(page.getByText('variant 2/2')).toBeVisible();
-  await expect(page.getByText('Model B').first()).toBeVisible();
+  await expect(page.getByRole('button', {name: /Regenerate model: Model B/})).toBeVisible();
 });
 
 test('duplicates conversations and forks from a user message', async ({page}) => {

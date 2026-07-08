@@ -1,8 +1,6 @@
 import type {ConfiguredModel} from './types';
-import {canonicalizeHuggingFaceRef} from '../../../packages/shared/src/modelsIni.ts';
-
 export function llamaRuntimeModelId(model: ConfiguredModel): string {
-  return model.hfRef ? canonicalizeHuggingFaceRef(model.hfRef) : model.presetName;
+  return model.presetName || model.id;
 }
 
 export function isQwenFamilyModel(model: ConfiguredModel): boolean {

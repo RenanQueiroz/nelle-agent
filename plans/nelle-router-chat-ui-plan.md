@@ -143,18 +143,20 @@ Relevant Pi SDK/session behavior:
 
 Nelle currently differs from the target in these ways:
 
-- App state still owns `models[]` and `activeModelId`; `models.ini` is updated
-  through the lossless AST writer, but it is not yet the source of truth.
-- New Hugging Face imports use stable canonical section ids, but the full
-  Settings-based durable `models.ini` editor is not built yet.
+- App state still owns `models[]`, `activeModelId`, and free-form global/model
+  params; `models.ini` is updated through the lossless AST writer, but it is
+  not yet the source of truth.
+- New Hugging Face imports use stable canonical section ids, and Settings can
+  edit aliases plus free-form global/model `models.ini` params. Direct
+  full-file `models.ini` editing is not exposed.
 - Runtime settings for `modelsMax` and `sleepIdleSeconds` exist, the
-  Nelle-owned `/api/llama/*` router facade exists, and the POC model panel can
-  show router status plus reload/load/unload actions. The final router-aware
-  settings/model selector surface is not built yet.
-- The web UI has side panels for runtime/model setup plus a collapsible,
-  virtualized conversation sidebar with search, pinned/recent groups,
-  new-chat, running indicators, and row actions. The final Astryx SideNav
-  shell and dedicated Settings placement are still pending.
+  Nelle-owned `/api/llama/*` router facade exists, and Settings exposes router
+  status plus reload/load/unload actions. The composer dropdown is still a
+  compact model selector and does not yet show search/progress/favorites.
+- The web UI has a collapsible, virtualized conversation sidebar with search,
+  pinned/recent groups, new-chat, running indicators, and row actions.
+  Runtime/model/global/chats controls live in a right-side Settings panel.
+  Final Astryx SideNav styling is still pending.
 - The server now exposes conversation snapshots and
   `/api/conversations/:id/chat/stream`. Each streamed conversation is bound to
   one Pi JSONL session file under `.nelle/pi/sessions`, and existing session
@@ -170,9 +172,9 @@ Nelle currently differs from the target in these ways:
   composer footer and into each conversation row's action menu, and large lists
   use TanStack virtualization. Fork/duplicate actions are implemented. Final
   SideNav styling is still pending.
-- Model import/edit UX is split between app state and generated preset writes.
-  The POC UI can call router model list/load/unload/reload APIs, but model
-  editing has not moved into Settings yet.
+- Model import/edit UX lives in Settings, but the backing storage is still the
+  POC app state plus generated preset writes rather than parsing `models.ini`
+  as the canonical catalog on every read.
 - Done: the composer has an attachment drawer, file picker, paste/drop handling,
   SQLite metadata persistence, content-addressed image storage under
   `.nelle/attachments/`, and selected-model vision gating for images. Text files
@@ -1568,24 +1570,28 @@ Exit criteria:
 
 ### Phase 2: Model Selector And Settings
 
-- Build settings surface with Runtime, Models, Global Params, and Chats sections.
-- Move HF search/import and param editing into Settings.
-- Replace composer model dropdown with router-aware selector:
+- Done: build settings surface with Runtime, Models, Global Params, and Chats
+  sections.
+- Done: move HF search/import and param editing into Settings.
+- Pending: replace composer model dropdown with router-aware selector:
   alias display, search, status, load progress.
-- Add manual load/unload controls in Settings model rows.
+- Done: add manual load/unload controls in Settings model rows.
 - Fetch and cache loaded model props so model selectors can display modality and
   context-window metadata.
-- Implement router/model race policies for selection changes, router reloads,
-  loaded-model edits, and removed selected models.
+- Done for Settings writes: alias/param edits, HF imports, duplicate/remove, and
+  global param saves write `models.ini` and reload router models when running.
+  Remaining: richer composer selector progress/favorites and explicit active-run
+  edit locks.
 
 Exit criteria:
 
-- Users can edit global/model params without editing files.
-- Users can see loaded/loading/unloaded/failed states.
-- Model selector loads on selection and shows progress.
+- Done: users can edit global/model params without editing files.
+- Done: users can see loaded/loading/unloaded/failed states in Settings rows.
+- Pending: composer model selector loads on selection and shows progress.
 - Loaded models expose context size and image-support capability in the UI.
-- Editing or removing models while the router is running produces predictable
-  reload/status behavior and never mutates an active run's captured model.
+- Done: Settings edits/removals reload the running router and keep active runs
+  captured by request-time model ids. Pending: disable destructive edits while a
+  matching active run is in progress.
 
 ### Phase 3: Conversations And Sidebar
 
@@ -1599,7 +1605,7 @@ Exit criteria:
   search, pinned/recent section rows, TanStack-virtualized list, running status
   indicators, and item overflow menus.
 - Done in current row actions: pin/unpin, rename, reset, duplicate, and delete.
-  Dedicated Settings placement and final SideNav shell styling remain pending.
+  Final SideNav shell styling remains pending.
 - Done: add conversation delete/pin/rename/duplicate.
 - Done: add message-level fork into a new conversation, backed by Pi
   `SessionManager.createBranchedSession()`.

@@ -67,6 +67,7 @@ export type ConfiguredModel = {
     gpuLayers?: number;
     threads?: number;
     batchSize?: number;
+    extra?: Record<string, string>;
   };
   createdAt: string;
 };
@@ -230,6 +231,7 @@ export type AppStateResponse = {
   state: {
     activeModelId: string | null;
     models: ConfiguredModel[];
+    globalModelParams?: Record<string, string>;
     runtime?: {
       host: string;
       port: number;
@@ -318,6 +320,38 @@ export async function useHuggingFaceModel(input: {
   return response.model;
 }
 
+export async function updateGlobalModelParams(
+  params: Record<string, string>,
+): Promise<Record<string, string>> {
+  const response = await apiPatch<{globalModelParams: Record<string, string>}>(
+    '/api/models/global-params',
+    {params},
+  );
+  return response.globalModelParams;
+}
+
+export async function updateConfiguredModel(
+  id: string,
+  input: {name?: string; params?: Record<string, string>},
+): Promise<ConfiguredModel> {
+  const response = await apiPatch<{model: ConfiguredModel}>(
+    `/api/models/${encodeURIComponent(id)}`,
+    input,
+  );
+  return response.model;
+}
+
+export async function duplicateConfiguredModel(id: string): Promise<ConfiguredModel> {
+  const response = await apiPost<{model: ConfiguredModel}>(
+    `/api/models/${encodeURIComponent(id)}/duplicate`,
+  );
+  return response.model;
+}
+
+export async function deleteConfiguredModel(id: string): Promise<void> {
+  await apiDelete(`/api/models/${encodeURIComponent(id)}`);
+}
+
 export async function activateModel(id: string): Promise<ConfiguredModel> {
   const response = await apiPost<{model: ConfiguredModel}>(
     `/api/models/${encodeURIComponent(id)}/activate`,
@@ -361,6 +395,10 @@ export async function setConversationPinned(
 
 export async function deleteConversation(id: string): Promise<void> {
   await apiDelete(`/api/conversations/${encodeURIComponent(id)}`);
+}
+
+export async function deleteAllConversations(): Promise<void> {
+  await apiDelete('/api/conversations');
 }
 
 export async function exportConversationArchive(id: string): Promise<Blob> {

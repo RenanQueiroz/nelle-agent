@@ -39,6 +39,11 @@ Implemented:
 - Nelle-owned llama.cpp router facade endpoints under `/api/llama/*` for router
   props, model list/reload, model load/unload, per-model props, and model SSE
   events.
+- A right-side Settings panel with Runtime, Models, Global Params, and Chats
+  sections. Settings owns llama.cpp install/start/stop/logs, HF GGUF
+  search/import, model alias editing, free-form model/global `models.ini`
+  params, model duplicate/remove, load/unload/reload actions, archive import,
+  and clear-all chats.
 - Pi SDK chat harness configured against the local OpenAI-compatible
   Nelle llama.cpp proxy with v1 host file/shell tools enabled.
 - Direct llama.cpp chat-completions fallback if Pi initialization fails.
@@ -83,9 +88,6 @@ Implemented:
 Not implemented yet:
 
 - Mobile LAN pairing and Expo push.
-- Full router-aware model selector/settings UI. The current POC model panel
-  shows router status and exposes reload/load/unload actions, but the final
-  settings/sidebar design is not built yet.
 - Full Pi-backed conversation UI and lifecycle. The server now maps each Nelle
   conversation to one Pi session file and reopens that file on demand. The web
   UI has a collapsible virtualized conversation sidebar with search, pinned and
@@ -95,8 +97,7 @@ Not implemented yet:
   conversations from persisted Pi entries. The composer has an Astryx
   `/compact` typeahead, composer-local unsupported slash-command guidance,
   visible compaction status rows, and local `.nelle-chat.zip` export/import.
-  Richer abort recovery and the final Settings/sidebar actions are still
-  pending.
+  Richer abort recovery and final SideNav styling are still pending.
 - Complete REST/SSE run lifecycle contracts with stable run ids, terminal
   run events, and richer recovery states. Conversation snapshot, stream, and
   basic abort endpoints exist.

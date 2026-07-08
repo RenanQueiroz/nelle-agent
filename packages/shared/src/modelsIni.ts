@@ -149,6 +149,19 @@ export function removeModelsIniKeys(
   return next;
 }
 
+export function removeModelsIniSection(
+  document: ModelsIniDocument,
+  sectionName: string,
+): ModelsIniDocument {
+  const next = cloneModelsIniDocument(document);
+  const bounds = getSectionBounds(next.nodes, sectionName);
+  if (!bounds || bounds.header < 0) {
+    return next;
+  }
+  next.nodes.splice(bounds.header, bounds.end - bounds.header);
+  return next;
+}
+
 export function validateModelsIniDocument(document: ModelsIniDocument): ModelsIniIssue[] {
   const issues: ModelsIniIssue[] = [];
   const seenSections = new Set<string>();

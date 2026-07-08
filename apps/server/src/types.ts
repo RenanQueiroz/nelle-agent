@@ -66,6 +66,7 @@ export type ModelParams = {
   gpuLayers?: number;
   threads?: number;
   batchSize?: number;
+  extra?: Record<string, string>;
 };
 
 export type ConfiguredModel = {
@@ -165,6 +166,7 @@ export type AppState = {
   version: 1;
   activeModelId: string | null;
   models: ConfiguredModel[];
+  globalModelParams: Record<string, string>;
   runtime: {
     host: string;
     port: number;

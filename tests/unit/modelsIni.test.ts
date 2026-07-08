@@ -9,6 +9,7 @@ import {
   canonicalizeQuantTag,
   getModelsIniValue,
   parseModelsIni,
+  removeModelsIniSection,
   sectionIdForHuggingFaceRef,
   stringifyModelsIni,
   upsertModelsIniValues,
@@ -57,6 +58,26 @@ test('models.ini upsert updates managed keys while preserving unknown keys', () 
   assert.match(text, /custom-flag = keep-me/);
   assert.match(text, /alias = New Name/);
   assert.match(text, /hf-repo = repo\/model:UD-Q4_K_M/);
+});
+
+test('models.ini section removal deletes only the selected section', () => {
+  const source = [
+    'version = 1',
+    '',
+    '[repo/one:Q4_K_M]',
+    'hf-repo = repo/one:Q4_K_M',
+    '',
+    '[repo/two:Q5_K_M]',
+    'hf-repo = repo/two:Q5_K_M',
+    '',
+  ].join('\n');
+
+  const text = stringifyModelsIni(
+    removeModelsIniSection(parseModelsIni(source), 'repo/one:Q4_K_M'),
+  );
+
+  assert.doesNotMatch(text, /repo\/one/);
+  assert.match(text, /repo\/two:Q5_K_M/);
 });
 
 test('models.ini validation reports duplicate sections and duplicate editable keys', () => {

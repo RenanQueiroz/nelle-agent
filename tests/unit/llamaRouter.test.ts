@@ -119,6 +119,73 @@ test('llama router facade returns stable 502 errors for upstream failures', asyn
   }
 });
 
+test('model settings endpoints edit params, duplicate, and remove sections', async () => {
+  const router = await createMockRouter();
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset();
+  const app = await createServer(paths);
+
+  try {
+    const globalResponse = await app.inject({
+      method: 'PATCH',
+      url: '/api/models/global-params',
+      payload: {params: {c: '16384', threads: '6'}},
+    });
+    assert.equal(globalResponse.statusCode, 200);
+    assert.deepEqual(globalResponse.json().globalModelParams, {c: '16384', threads: '6'});
+
+    const invalidResponse = await app.inject({
+      method: 'PATCH',
+      url: `/api/models/${encodeURIComponent(model.id)}`,
+      payload: {params: {'hf-repo': 'other/model:Q4_K_M'}},
+    });
+    assert.equal(invalidResponse.statusCode, 400);
+    assert.equal(
+      invalidResponse.json<{error: {code: string}}>().error.code,
+      'reserved_model_param',
+    );
+
+    const editResponse = await app.inject({
+      method: 'PATCH',
+      url: `/api/models/${encodeURIComponent(model.id)}`,
+      payload: {name: 'Edited alias', params: {'ctx-size': '32768'}},
+    });
+    assert.equal(editResponse.statusCode, 200);
+    assert.equal(editResponse.json<{model: {name: string}}>().model.name, 'Edited alias');
+
+    const duplicateResponse = await app.inject({
+      method: 'POST',
+      url: `/api/models/${encodeURIComponent(model.id)}/duplicate`,
+    });
+    assert.equal(duplicateResponse.statusCode, 200);
+    const duplicateId = duplicateResponse.json<{model: {id: string}}>().model.id;
+    assert.match(duplicateId, /copy/);
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/api/models/${encodeURIComponent(model.id)}`,
+    });
+    assert.equal(deleteResponse.statusCode, 200);
+
+    const preset = await fs.readFile(paths.llamaPresetPath, 'utf8');
+    assert.match(preset, /\[\*\]/);
+    assert.match(preset, /c = 16384/);
+    assert.doesNotMatch(preset, /\[repo\/model:Q4_K_M\]/);
+    assert.match(preset, new RegExp(`\\[${escapeRegExp(duplicateId)}\\]`));
+    assert.ok(router.calls.some(call => call.url === '/models?reload=1'));
+  } finally {
+    await app.close();
+    await router.close();
+  }
+});
+
 async function createMockRouter(input: {failModels?: boolean} = {}): Promise<{
   port: number;
   calls: Array<{method: string; url: string; body: unknown}>;
@@ -231,4 +298,8 @@ async function createTempPaths(): Promise<AppPaths> {
     statePath: path.join(dataDir, 'state.json'),
     webDistDir: path.join(repoRoot, 'dist', 'web'),
   };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

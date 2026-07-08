@@ -60,6 +60,10 @@ Project-specific guidance for AI coding agents.
   comments, ordering, unknown keys, and untouched user edits. Keep exact
   `hf-repo` refs while deriving stable canonical section ids for router/OpenAI
   model ids.
+- Runtime/model/global/chats controls live in the right-side Settings panel.
+  Settings writes free-form string params into `models.ini` through server APIs,
+  reloads router models when llama-server is running, and keeps the persisted
+  stable section id as the llama.cpp/OpenAI model id.
 - New Hugging Face imports should use the stable canonical section id as the
   model id; route clients must URL-encode model ids because they may contain
   `/` and `:`.
