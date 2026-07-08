@@ -1227,6 +1227,68 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
   }
 });
 
+test('chat stream emits SSE envelopes with run lifecycle events', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  const originalFetch = globalThis.fetch;
+  const previousPiDisabled = process.env.NELLE_PI_DISABLED;
+  process.env.NELLE_PI_DISABLED = '1';
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    const href = String(url);
+    if (href.includes('/slots')) {
+      return new Response('[]', {status: 200, headers: {'content-type': 'application/json'}});
+    }
+    return new Response(
+      [
+        'data: {"choices":[{"delta":{"content":"Direct answer."}}]}',
+        '',
+        'data: {"timings":{"prompt_n":4,"prompt_ms":10,"prompt_per_second":400,"predicted_n":2,"predicted_ms":20,"predicted_per_second":100}}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'),
+      {status: 200, headers: {'content-type': 'text/event-stream'}},
+    );
+  }) as typeof fetch;
+
+  const app = await createServer(paths);
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/chat/stream',
+      payload: {message: 'hello'},
+    });
+    assert.equal(response.statusCode, 200);
+    assert.match(response.body, /event: run\.started/);
+    assert.match(response.body, /event: run\.completed/);
+    const envelopes = parseSseEnvelopes(response.body);
+    assert.ok(envelopes.every(envelope => envelope.id && envelope.createdAt));
+    assert.deepEqual(
+      envelopes
+        .map(envelope => envelope.data?.type)
+        .filter(type => type === 'run.started' || type === 'run.completed' || type === 'done'),
+      ['run.started', 'done', 'run.completed'],
+    );
+    const runStarted = envelopes.find(envelope => envelope.data?.type === 'run.started');
+    const runCompleted = envelopes.find(envelope => envelope.data?.type === 'run.completed');
+    assert.equal(runStarted?.runId, runCompleted?.runId);
+    assert.equal(runCompleted?.data?.status, 'completed');
+  } finally {
+    await app.close();
+    globalThis.fetch = originalFetch;
+    if (previousPiDisabled == null) {
+      delete process.env.NELLE_PI_DISABLED;
+    } else {
+      process.env.NELLE_PI_DISABLED = previousPiDisabled;
+    }
+  }
+});
+
 type TitleGenerationHarness = {
   maybeGenerateConversationTitle: (
     conversationId: string,
@@ -1240,6 +1302,24 @@ type TitleGenerationHarness = {
     }>,
   ) => Promise<string | null>;
 };
+
+function parseSseEnvelopes(body: string): Array<{
+  id: string;
+  type: string;
+  runId?: string;
+  createdAt: string;
+  data?: {type?: string; status?: string};
+}> {
+  return body
+    .split('\n\n')
+    .map(chunk => chunk.trim())
+    .filter(Boolean)
+    .map(chunk => {
+      const dataLine = chunk.split('\n').find(line => line.startsWith('data: '));
+      assert.ok(dataLine);
+      return JSON.parse(dataLine.slice(6));
+    });
+}
 
 function createTestModel(): ConfiguredModel {
   return {

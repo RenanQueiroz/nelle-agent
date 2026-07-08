@@ -1,4 +1,5 @@
 import type {AttachmentMetadata} from '../../../packages/shared/src/conversations.ts';
+import type {RunKind, TerminalRunStatus} from '../../../packages/shared/src/conversations.ts';
 import type {ChatAttachmentInput} from '../../../packages/shared/src/contracts.ts';
 
 export type {ChatAttachmentInput};
@@ -152,6 +153,30 @@ export type ToolCallEvent = {
 };
 
 export type ChatStreamEvent =
+  | {
+      type: 'run.started';
+      runId: string;
+      conversationId: string;
+      kind: RunKind;
+      modelId?: string;
+      status: 'pending' | 'running';
+      createdAt: string;
+    }
+  | {
+      type: 'run.aborted';
+      runId: string;
+      conversationId: string;
+      reason: 'user' | 'server' | 'runtime';
+      createdAt: string;
+    }
+  | {
+      type: 'run.completed';
+      runId: string;
+      conversationId: string;
+      status: TerminalRunStatus;
+      error?: {code: string; message: string; retryable?: boolean};
+      createdAt: string;
+    }
   | {type: 'user_message'; message: ChatMessage}
   | {type: 'assistant_start'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
   | {type: 'assistant_delta'; id: string; delta: string}

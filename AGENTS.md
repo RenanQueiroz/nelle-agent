@@ -56,6 +56,10 @@ Project-specific guidance for AI coding agents.
 - Browser v1 uses REST for commands/snapshots and SSE streams with typed Nelle
   event envelopes. UI stop/abort calls Pi `AgentSession.abort()` and must
   propagate cancellation through Nelle's llama.cpp proxy request.
+- Chat/regenerate streams are serialized as Nelle SSE envelopes. Preserve the
+  envelope reader's backward compatibility with older raw test events, and use
+  stable `runId` values plus `run.started` / `run.completed` events when adding
+  new stream behavior.
 - `models.ini` editing should use a lossless AST parser/writer that preserves
   comments, ordering, unknown keys, and untouched user edits. Keep exact
   `hf-repo` refs while deriving stable canonical section ids for router/OpenAI

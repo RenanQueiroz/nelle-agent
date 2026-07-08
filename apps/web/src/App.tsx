@@ -64,6 +64,7 @@ import {
 import {
   abortConversationCompaction,
   abortConversation,
+  abortConversationRun,
   activateModel,
   clearConversation,
   cloneConversation,
@@ -251,6 +252,7 @@ export function App() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
+  const [activeRunIds, setActiveRunIds] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const archiveInputRef = useRef<HTMLInputElement | null>(null);
   const streamAbortController = useRef<AbortController | null>(null);
@@ -915,9 +917,13 @@ export function App() {
   }
 
   async function handleStopGeneration() {
-    streamAbortController.current?.abort();
     await runAction('abort-chat', async () => {
-      await abortConversation(activeConversationId);
+      const runId = activeRunIds[activeConversationId];
+      if (runId) {
+        await abortConversationRun(activeConversationId, runId);
+      } else {
+        await abortConversation(activeConversationId);
+      }
       setIsStreaming(false);
       await refreshConversations(activeConversationId);
       setNotice({type: 'info', text: 'Generation stopped.'});
@@ -1030,6 +1036,25 @@ export function App() {
   }
 
   function applyChatEvent(event: ChatStreamEvent) {
+    if (event.type === 'run.started') {
+      setActiveRunIds(previous => ({...previous, [event.conversationId]: event.runId}));
+    }
+    if (event.type === 'run.aborted') {
+      setComposerWarning('Generation stopped.');
+    }
+    if (event.type === 'run.completed') {
+      setActiveRunIds(previous => {
+        if (previous[event.conversationId] !== event.runId) {
+          return previous;
+        }
+        const next = {...previous};
+        delete next[event.conversationId];
+        return next;
+      });
+      if (event.status === 'failed' && event.error?.message) {
+        setComposerError(event.error.message);
+      }
+    }
     if (event.type === 'user_message') {
       setMessages(prev => [...prev, event.message]);
     }

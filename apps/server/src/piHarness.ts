@@ -26,6 +26,8 @@ import type {
   ConversationEntryProjection,
   ConversationSnapshot,
   ConversationStatus,
+  RunKind,
+  TerminalRunStatus,
 } from '../../../packages/shared/src/conversations.ts';
 import type {ChatAttachmentInput} from '../../../packages/shared/src/contracts.ts';
 import type {
@@ -44,6 +46,14 @@ type ManagedSession = {
   conversationId: string;
   modelId: string;
   session: any;
+};
+
+type ActiveRun = {
+  runId: string;
+  conversationId: string;
+  kind: RunKind;
+  modelId?: string;
+  abortRequested: boolean;
 };
 
 type PreparedPromptAttachment = {
@@ -65,6 +75,7 @@ type PreparedPromptAttachments = {
 
 export class PiHarness {
   #sessions = new Map<string, ManagedSession>();
+  #activeRuns = new Map<string, ActiveRun>();
 
   constructor(
     private readonly paths: AppPaths,
@@ -76,21 +87,40 @@ export class PiHarness {
     if (conversationId) {
       this.#sessions.get(conversationId)?.session.dispose?.();
       this.#sessions.delete(conversationId);
+      this.#activeRuns.delete(conversationId);
       return;
     }
     for (const managed of this.#sessions.values()) {
       managed.session.dispose?.();
     }
     this.#sessions.clear();
+    this.#activeRuns.clear();
   }
 
   async abortConversation(conversationId: string): Promise<boolean> {
+    const run = this.#activeRuns.get(conversationId);
+    if (run) {
+      return this.abortConversationRun(conversationId, run.runId);
+    }
+    return false;
+  }
+
+  async abortConversationRun(conversationId: string, runId: string): Promise<boolean> {
+    const run = this.#activeRuns.get(conversationId);
+    if (!run || run.runId !== runId) {
+      return false;
+    }
+    run.abortRequested = true;
     const managed = this.#sessions.get(conversationId);
     if (!managed) {
       return false;
     }
-    await managed.session.abort?.();
-    this.conversations.setConversationStatus(conversationId, 'ready');
+    this.conversations.setConversationStatus(conversationId, 'aborting');
+    if (run.kind === 'compact') {
+      managed.session.abortCompaction?.();
+    } else {
+      await managed.session.abort?.();
+    }
     return true;
   }
 
@@ -149,6 +179,7 @@ export class PiHarness {
       attachments,
       activeModel,
     );
+    const run = this.beginRun(conversationId, 'chat', activeModel.id);
     this.conversations.setConversationStatus(conversationId, 'running');
 
     const queue = createAsyncQueue<ChatStreamEvent>();
@@ -173,10 +204,12 @@ export class PiHarness {
     if (conversationId === 'poc-default') {
       await this.store.appendChatMessage(userMessage);
     }
+    queue.push(createRunStartedEvent(run));
     queue.push({type: 'user_message', message: userMessage});
     queue.push({type: 'assistant_start', message: assistantMessage, harness: 'pi'});
 
     void this.runPiPrompt(activeModel, conversationId, prompt, assistantMessage, queue, {
+      run,
       promptAttachments,
     }).catch(error => {
       this.conversations.setConversationStatus(conversationId, 'ready');
@@ -225,6 +258,7 @@ export class PiHarness {
       activeModel,
     );
 
+    const run = this.beginRun(input.conversationId, 'regenerate', activeModel.id);
     this.conversations.setConversationStatus(input.conversationId, 'running');
     const queue = createAsyncQueue<ChatStreamEvent>();
     const userMessage: ChatMessage = {
@@ -247,10 +281,12 @@ export class PiHarness {
       toolCalls: [],
     };
 
+    queue.push(createRunStartedEvent(run));
     queue.push({type: 'user_message', message: userMessage});
     queue.push({type: 'assistant_start', message: assistantMessage, harness: 'pi'});
 
     void this.runPiPrompt(activeModel, input.conversationId, prompt, assistantMessage, queue, {
+      run,
       branchFromPiEntryId: source.branchFromPiEntryId,
       regeneratesPiEntryId: source.regeneratesPiEntryId,
       displayGroupId: source.displayGroupId,
@@ -301,13 +337,15 @@ export class PiHarness {
     assistantMessage: ChatMessage,
     queue: ReturnType<typeof createAsyncQueue<ChatStreamEvent>>,
     options: {
+      run: ActiveRun;
       branchFromPiEntryId?: string | null;
       regeneratesPiEntryId?: string;
       displayGroupId?: string;
       appendLegacyState?: boolean;
       promptAttachments?: PreparedPromptAttachments;
-    } = {},
+    },
   ): Promise<void> {
+    const run = options.run;
     const session = await this.ensureSession(conversationId, activeModel);
     if (options.branchFromPiEntryId !== undefined) {
       if (options.branchFromPiEntryId === null) {
@@ -457,12 +495,52 @@ export class PiHarness {
       if (title) {
         queue.push({type: 'conversation_title', conversationId, title});
       }
+      queue.push(createRunCompletedEvent(run, 'completed'));
       queue.end();
+    } catch (error) {
+      if (run.abortRequested) {
+        queue.push(createRunAbortedEvent(run, 'user'));
+        queue.push(createRunCompletedEvent(run, 'aborted'));
+        queue.end();
+        return;
+      }
+      queue.push(
+        createRunCompletedEvent(run, 'failed', {
+          code: 'pi_run_failed',
+          message: error instanceof Error ? error.message : String(error),
+          retryable: true,
+        }),
+      );
+      throw error;
     } finally {
       monitor.stop();
       capture.stop();
       unsubscribe();
+      this.finishRun(conversationId, run.runId);
       this.conversations.setConversationStatus(conversationId, 'ready');
+    }
+  }
+
+  private beginRun(conversationId: string, kind: RunKind, modelId?: string): ActiveRun {
+    const existing = this.#activeRuns.get(conversationId);
+    if (existing) {
+      throw new Error('conversation_busy');
+    }
+    const run: ActiveRun = {
+      runId: `run-${crypto.randomUUID()}`,
+      conversationId,
+      kind,
+      modelId,
+      abortRequested: false,
+    };
+    this.#activeRuns.set(conversationId, run);
+    return run;
+  }
+
+  private finishRun(conversationId: string, runId: string): void {
+    const existing = this.#activeRuns.get(conversationId);
+    if (existing?.runId === runId) {
+      this.#activeRuns.delete(conversationId);
     }
   }
 
@@ -1014,6 +1092,46 @@ function stringifyMaybe(value: unknown): string | undefined {
 
 function emptyPreparedAttachments(): PreparedPromptAttachments {
   return {items: [], metadata: [], uploadIds: []};
+}
+
+function createRunStartedEvent(run: ActiveRun): ChatStreamEvent {
+  return {
+    type: 'run.started',
+    runId: run.runId,
+    conversationId: run.conversationId,
+    kind: run.kind,
+    modelId: run.modelId,
+    status: 'running',
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function createRunAbortedEvent(
+  run: ActiveRun,
+  reason: 'user' | 'server' | 'runtime',
+): ChatStreamEvent {
+  return {
+    type: 'run.aborted',
+    runId: run.runId,
+    conversationId: run.conversationId,
+    reason,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function createRunCompletedEvent(
+  run: ActiveRun,
+  status: TerminalRunStatus,
+  error?: {code: string; message: string; retryable?: boolean},
+): ChatStreamEvent {
+  return {
+    type: 'run.completed',
+    runId: run.runId,
+    conversationId: run.conversationId,
+    status,
+    error,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 function buildPiPrompt(prompt: string, attachments: PreparedPromptAttachment[]): string {

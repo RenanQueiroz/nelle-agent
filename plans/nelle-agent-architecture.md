@@ -278,8 +278,9 @@ Intentional POC limitations:
   new Pi session files, and local `.nelle-chat.zip` export/import creates new
   conversations. Settings is implemented as a right-side panel; final SideNav
   styling and full branch tree exploration are still pending.
-- Stable run ids/terminal run events and full branch tree exploration are still
-  pending.
+- Chat/regenerate streams now emit SSE envelopes with stable run ids and
+  terminal run events. Full branch tree exploration, compact/title run streams,
+  and richer abort recovery states are still pending.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are enabled through Pi and remain unsandboxed.

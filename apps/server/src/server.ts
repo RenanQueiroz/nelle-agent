@@ -21,7 +21,11 @@ import {
 } from './conversations';
 import type {AppPaths} from './paths';
 import type {ChatAttachmentInput, ChatStreamEvent} from './types';
-import {chatRequestSchema} from '../../../packages/shared/src/contracts.ts';
+import {
+  chatRequestSchema,
+  createEventEnvelope,
+  serializeSseEnvelope,
+} from '../../../packages/shared/src/contracts.ts';
 
 const useHuggingFaceModelSchema = z.object({
   repoId: z.string().min(1),
@@ -530,6 +534,25 @@ export async function createServer(paths: AppPaths) {
     };
   });
 
+  app.post('/api/conversations/:id/runs/:runId/abort', async (request, reply) => {
+    const {id, runId} = request.params as {id: string; runId: string};
+    if (!conversations.getConversation(id)) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    const aborted = await pi.abortConversationRun(id, runId);
+    return {
+      ok: true,
+      aborted,
+      runId,
+      snapshot: conversations.getSnapshot(id, await store.getState()),
+    };
+  });
+
   app.post('/api/conversations/:id/compact', async (request, reply) => {
     const id = (request.params as {id: string}).id;
     if (!conversations.getConversation(id)) {
@@ -650,7 +673,7 @@ export async function createServer(paths: AppPaths) {
         message: body.message,
         attachments: body.attachments ?? [],
       });
-      await writeChatStream(reply.raw, streamResult.stream);
+      await writeChatStream(reply.raw, streamResult.stream, id);
       if (streamResult.syncLegacyState) {
         conversations.syncPocConversationFromState(await store.getState());
       }
@@ -688,7 +711,7 @@ export async function createServer(paths: AppPaths) {
         assistantMessageId: messageId,
         modelId: body.modelId,
       });
-      await writeChatStream(reply.raw, stream);
+      await writeChatStream(reply.raw, stream, id);
     } catch (error) {
       writeChatError(reply.raw, error);
     } finally {
@@ -714,7 +737,7 @@ export async function createServer(paths: AppPaths) {
         message: body.message,
         attachments: body.attachments ?? [],
       });
-      await writeChatStream(reply.raw, streamResult.stream);
+      await writeChatStream(reply.raw, streamResult.stream, POC_CONVERSATION_ID);
       if (streamResult.syncLegacyState) {
         conversations.syncPocConversationFromState(await store.getState());
       }
@@ -775,19 +798,49 @@ async function createChatStream(input: {
 async function writeChatStream(
   raw: {write: (chunk: string) => void},
   stream: AsyncIterable<ChatStreamEvent>,
+  conversationId: string,
 ): Promise<void> {
   for await (const event of stream) {
-    raw.write(`data: ${JSON.stringify(event)}\n\n`);
+    raw.write(
+      serializeSseEnvelope(
+        createEventEnvelope({
+          type: event.type,
+          conversationId: eventConversationId(event, conversationId),
+          runId: eventRunId(event),
+          data: event,
+        }),
+      ),
+    );
   }
 }
 
 function writeChatError(raw: {write: (chunk: string) => void}, error: unknown): void {
+  const event: ChatStreamEvent = {
+    type: 'error',
+    message: error instanceof Error ? error.message : String(error),
+  };
   raw.write(
-    `data: ${JSON.stringify({
-      type: 'error',
-      message: error instanceof Error ? error.message : String(error),
-    })}\n\n`,
+    serializeSseEnvelope(
+      createEventEnvelope({
+        type: event.type,
+        data: event,
+      }),
+    ),
   );
+}
+
+function eventConversationId(event: ChatStreamEvent, fallback: string): string {
+  if ('conversationId' in event && typeof event.conversationId === 'string') {
+    return event.conversationId;
+  }
+  return fallback;
+}
+
+function eventRunId(event: ChatStreamEvent): string | undefined {
+  if ('runId' in event && typeof event.runId === 'string') {
+    return event.runId;
+  }
+  return undefined;
 }
 
 async function handleLlamaRoute<T>(

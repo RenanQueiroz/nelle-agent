@@ -139,6 +139,30 @@ export type ChatPerformance = {
 };
 
 export type ChatStreamEvent =
+  | {
+      type: 'run.started';
+      runId: string;
+      conversationId: string;
+      kind: 'chat' | 'regenerate' | 'compact' | 'title';
+      modelId?: string;
+      status: 'pending' | 'running';
+      createdAt: string;
+    }
+  | {
+      type: 'run.aborted';
+      runId: string;
+      conversationId: string;
+      reason: 'user' | 'server' | 'runtime';
+      createdAt: string;
+    }
+  | {
+      type: 'run.completed';
+      runId: string;
+      conversationId: string;
+      status: 'completed' | 'aborted' | 'failed';
+      error?: {code: string; message: string; retryable?: boolean};
+      createdAt: string;
+    }
   | {type: 'user_message'; message: ChatMessage}
   | {type: 'assistant_start'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
   | {type: 'assistant_delta'; id: string; delta: string}
@@ -463,6 +487,15 @@ export async function abortConversation(id: string): Promise<{ok: boolean; abort
   return apiPost(`/api/conversations/${encodeURIComponent(id)}/abort`);
 }
 
+export async function abortConversationRun(
+  id: string,
+  runId: string,
+): Promise<{ok: boolean; aborted: boolean; runId: string}> {
+  return apiPost(
+    `/api/conversations/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/abort`,
+  );
+}
+
 export async function compactConversation(
   id: string,
   instructions?: string,
@@ -565,9 +598,23 @@ async function readEventStream(
       if (!line) {
         continue;
       }
-      onEvent(JSON.parse(line.slice(5).trim()) as ChatStreamEvent);
+      onEvent(normalizeStreamEvent(JSON.parse(line.slice(5).trim())));
     }
   }
+}
+
+function normalizeStreamEvent(value: unknown): ChatStreamEvent {
+  if (
+    value != null &&
+    typeof value === 'object' &&
+    'data' in value &&
+    value.data != null &&
+    typeof value.data === 'object' &&
+    'type' in value.data
+  ) {
+    return value.data as ChatStreamEvent;
+  }
+  return value as ChatStreamEvent;
 }
 
 export async function streamLegacyChat(

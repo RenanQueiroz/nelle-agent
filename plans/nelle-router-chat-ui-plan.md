@@ -164,10 +164,13 @@ Nelle currently differs from the target in these ways:
 - SQLite stores conversation rows and active-branch projections, but model and
   runtime setup state still live in `.nelle/state.json`, with the default
   `poc-default` chat kept for legacy compatibility.
-- Basic stop now calls `/api/conversations/:id/abort`, cancels the active
-  browser stream, and invokes Pi `AgentSession.abort()` for a cached
-  conversation runtime. Explicit run ids, terminal run events, abort recovery
-  states, and llama.cpp slot-level verification are still pending.
+- Basic stop now calls the run-specific abort endpoint when a stream has
+  received a run id, cancels the active browser stream, and invokes Pi
+  `AgentSession.abort()` for a cached conversation runtime. Chat/regenerate
+  streams now emit SSE envelopes with stable run ids and terminal
+  `run.completed` events. Richer abort recovery states, compact/title run
+  streaming, final message-event renaming, and llama.cpp slot-level verification
+  are still pending.
 - Done in the current sidebar: reset/delete/pin/rename actions moved out of the
   composer footer and into each conversation row's action menu, and large lists
   use TanStack virtualization. Fork/duplicate actions are implemented. Final
@@ -1259,6 +1262,14 @@ Conversation stream routes return SSE for browser/mobile simplicity. Event data
 is the JSON envelope above; SSE `event:` should mirror `type`, and SSE `id:`
 should mirror envelope `id`.
 
+Current implementation note: chat and regenerate routes now serialize Nelle SSE
+envelopes and include stable run ids plus `run.started`, `run.aborted`, and
+`run.completed` data events. The browser stream reader remains backward
+compatible with older raw event payloads, and message/tool/performance payloads
+still use the current legacy data names (`user_message`, `assistant_start`,
+`assistant_delta`, `assistant_metrics`, `tool`, `done`, `error`) until the final
+event-name migration lands.
+
 Durability rules:
 
 - The stream is a delivery mechanism, not the source of truth.
@@ -1377,8 +1388,9 @@ Conversation and run state machine:
 
 Abort behavior:
 
-- Add `POST /api/conversations/:id/runs/:runId/abort` for active chat,
-  regenerate, compaction, and title-generation runs.
+- Done for chat/regenerate: add `POST /api/conversations/:id/runs/:runId/abort`
+  and keep the older conversation abort endpoint as a fallback. Pending:
+  compaction and title-generation run ids.
 - The server validates that the run belongs to the conversation and is still
   active. Repeated abort requests are idempotent.
 - For chat/regenerate/title runs, call `AgentSession.abort()` on that

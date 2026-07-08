@@ -23,6 +23,8 @@ export async function streamDirectLlama(
   }
 
   const queue = createAsyncQueue<ChatStreamEvent>();
+  const runId = `run-${crypto.randomUUID()}`;
+  const runStartedAt = new Date().toISOString();
   const userMessage: ChatMessage = {
     id: crypto.randomUUID(),
     role: 'user',
@@ -40,6 +42,15 @@ export async function streamDirectLlama(
   };
 
   await store.appendChatMessage(userMessage);
+  queue.push({
+    type: 'run.started',
+    runId,
+    conversationId: 'poc-default',
+    kind: 'chat',
+    modelId: activeModel.id,
+    status: 'running',
+    createdAt: runStartedAt,
+  });
   queue.push({type: 'user_message', message: userMessage});
   queue.push({
     type: 'warning',
@@ -134,8 +145,27 @@ export async function streamDirectLlama(
       }
       await store.appendChatMessage(assistantMessage);
       queue.push({type: 'done', message: assistantMessage});
+      queue.push({
+        type: 'run.completed',
+        runId,
+        conversationId: 'poc-default',
+        status: 'completed',
+        createdAt: new Date().toISOString(),
+      });
       queue.end();
     } catch (error) {
+      queue.push({
+        type: 'run.completed',
+        runId,
+        conversationId: 'poc-default',
+        status: 'failed',
+        error: {
+          code: 'llama_direct_failed',
+          message: error instanceof Error ? error.message : String(error),
+          retryable: true,
+        },
+        createdAt: new Date().toISOString(),
+      });
       queue.push({
         type: 'error',
         message: error instanceof Error ? error.message : String(error),

@@ -36,6 +36,9 @@ Implemented:
 - Conversation-scoped chat streaming through
   `/api/conversations/:id/chat/stream`, with the legacy `/api/chat/stream`
   route kept as a default-conversation compatibility wrapper.
+- Chat streams are sent as Nelle SSE envelopes with monotonic event ids, stable
+  run ids, and `run.started` / `run.completed` terminal run events. The browser
+  client still accepts older raw stream events for tests and compatibility.
 - Nelle-owned llama.cpp router facade endpoints under `/api/llama/*` for router
   props, model list/reload, model load/unload, per-model props, and model SSE
   events.
@@ -98,9 +101,9 @@ Not implemented yet:
   `/compact` typeahead, composer-local unsupported slash-command guidance,
   visible compaction status rows, and local `.nelle-chat.zip` export/import.
   Richer abort recovery and final SideNav styling are still pending.
-- Complete REST/SSE run lifecycle contracts with stable run ids, terminal
-  run events, and richer recovery states. Conversation snapshot, stream, and
-  basic abort endpoints exist.
+- Complete REST/SSE run lifecycle coverage for compaction/title/background
+  events, richer abort recovery states, and llama.cpp slot-level abort
+  verification.
 - Durable tool audit storage and archive inclusion. Export currently writes an
   empty `tool-audit.jsonl` placeholder until tool audit persistence lands.
 - Broader orphan garbage-collection sweeps. Direct hard delete removes the
