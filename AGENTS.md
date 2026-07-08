@@ -40,6 +40,9 @@ Project-specific guidance for AI coding agents.
 - Keep the workbench viewport-bounded. Do not reintroduce document-level
   scrolling; side panels and the chat history should scroll internally while
   the composer stays docked.
+- Let Astryx `ChatComposer` render its default `ChatSendButton` unless you are
+  deliberately replacing it through `sendButton`; `sendActions` is only for
+  auxiliary controls and must not create a second send affordance.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components

@@ -61,6 +61,7 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   await expect(page.getByRole('heading', {name: 'llama.cpp'})).toBeVisible();
   await expect(page.getByText('Not installed')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Reset conversation'})).toBeDisabled();
+  await expect(page.getByRole('button', {name: 'Send'})).toHaveCount(1);
 
   await page.getByLabel('Search query').fill('qwen gguf');
   await page.getByRole('button', {name: 'Search GGUF models'}).click();

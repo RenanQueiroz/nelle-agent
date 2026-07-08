@@ -94,6 +94,10 @@ Set these environment variables when needed:
 5. Use `Reset conversation` in the chat footer to clear chat history and reset
    the in-memory Pi session.
 
+The chat composer uses Astryx's default up-arrow send/stop button. The footer is
+reserved for model selection and reset controls so the composer exposes only one
+send affordance.
+
 Assistant message metadata shows the message time followed by llama.cpp
 throughput, for example `12:01 PM · 21.5 tok/s`. Live updates are estimated from
 the router `/slots?model=...` decoded-token counters. Direct llama.cpp fallback

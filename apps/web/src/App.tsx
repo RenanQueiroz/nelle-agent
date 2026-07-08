@@ -32,7 +32,6 @@ import {
   ChatBubbleLeftRightIcon,
   CpuChipIcon,
   MagnifyingGlassIcon,
-  PaperAirplaneIcon,
   PlayIcon,
   PlusIcon,
   StopIcon,
@@ -436,7 +435,6 @@ export function App() {
                           />
                         </HStack>
                       }
-                      sendActions={<Icon icon={PaperAirplaneIcon} size="sm" color="secondary" />}
                     />
                   }
                 >

@@ -148,6 +148,9 @@ import {neutralTheme} from '@astryxdesign/theme-neutral/built';
   then inspect the recommended template and component docs.
 - Prefer Astryx layout/components over raw HTML structure for app UI.
 - Use Astryx tokens for spacing, color, radius, and typography.
+- Let Astryx `ChatComposer` render its default `ChatSendButton` unless the UI is
+  intentionally replacing it via `sendButton`; `sendActions` is for auxiliary
+  controls to the left of send and should not render another send affordance.
 - Do not introduce Tailwind, StyleX, or custom styling systems unless a concrete
   Astryx limitation forces that decision.
 
