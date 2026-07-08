@@ -1621,8 +1621,8 @@ Exit criteria:
 - Partially done: regeneration creates a Pi-native branch by replaying the
   original user content on a new branch and stores `regenerates_pi_entry_id` /
   `display_group_id` metadata. Visible grouped variant UI is still pending.
-- Copy writes the assistant text to the clipboard. Visible toast/status feedback
-  is still pending.
+- Done: copy writes the assistant text to the clipboard and surfaces visible
+  toast feedback for success or failure.
 - Done: timing metrics render as a toggleable Reading/Generation widget with
   icon controls and tooltips, without layout overflow on mobile or desktop
   widths.

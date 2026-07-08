@@ -25,6 +25,7 @@ import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Token} from '@astryxdesign/core/Token';
 import {Tooltip} from '@astryxdesign/core/Tooltip';
+import {useToast} from '@astryxdesign/core/Toast';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Icon} from '@astryxdesign/core/Icon';
 import {
@@ -133,6 +134,7 @@ function routerStatusColor(status: string): 'green' | 'yellow' | 'red' | 'blue' 
 }
 
 export function App() {
+  const showToast = useToast();
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [models, setModels] = useState<ConfiguredModel[]>([]);
   const [routerModels, setRouterModels] = useState<LlamaRouterModel[]>([]);
@@ -594,6 +596,26 @@ export function App() {
     }
   }
 
+  async function handleCopyMessage(message: ApiChatMessage) {
+    try {
+      await copyMessageText(message.content);
+      showToast({
+        body: 'Response copied.',
+        uniqueID: 'copy-response',
+        collisionBehavior: 'overwrite',
+        isAutoHide: true,
+        autoHideDuration: 3000,
+      });
+    } catch (error) {
+      showToast({
+        body: error instanceof Error ? error.message : 'Could not copy response.',
+        type: 'error',
+        uniqueID: 'copy-response',
+        collisionBehavior: 'overwrite',
+      });
+    }
+  }
+
   function applyChatEvent(event: ChatStreamEvent) {
     if (event.type === 'user_message') {
       setMessages(prev => [...prev, event.message]);
@@ -1033,6 +1055,7 @@ export function App() {
                         models={models}
                         isActionDisabled={isStreaming || isCompacting}
                         onRegenerate={handleRegenerateMessage}
+                        onCopy={handleCopyMessage}
                       />
                     ))}
                   </ChatMessageList>
@@ -1119,11 +1142,13 @@ function RenderedMessage({
   models,
   isActionDisabled,
   onRegenerate,
+  onCopy,
 }: {
   message: ApiChatMessage;
   models: ConfiguredModel[];
   isActionDisabled: boolean;
   onRegenerate: (message: ApiChatMessage, modelId?: string) => void | Promise<void>;
+  onCopy: (message: ApiChatMessage) => void | Promise<void>;
 }) {
   if (message.role === 'system') {
     return <ChatSystemMessage>{message.content}</ChatSystemMessage>;
@@ -1145,6 +1170,7 @@ function RenderedMessage({
               models,
               isActionDisabled,
               onRegenerate,
+              onCopy,
             })}
           />
         }
@@ -1164,8 +1190,9 @@ function renderMessageFooter(input: {
   models: ConfiguredModel[];
   isActionDisabled: boolean;
   onRegenerate: (message: ApiChatMessage, modelId?: string) => void | Promise<void>;
+  onCopy: (message: ApiChatMessage) => void | Promise<void>;
 }) {
-  const {message, models, isActionDisabled, onRegenerate} = input;
+  const {message, models, isActionDisabled, onRegenerate, onCopy} = input;
   const hasPerformance = hasChatPerformance(message.performance);
   const modelLabel =
     message.role === 'assistant'
@@ -1213,7 +1240,7 @@ function renderMessageFooter(input: {
             size="sm"
             variant="ghost"
             icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-            onClick={() => void copyMessageText(message.content)}
+            onClick={() => void onCopy(message)}
           />
         </>
       )}
@@ -1520,6 +1547,9 @@ async function copyMessageText(value: string): Promise<void> {
   textArea.style.opacity = '0';
   document.body.append(textArea);
   textArea.select();
-  document.execCommand('copy');
+  const didCopy = document.execCommand('copy');
   textArea.remove();
+  if (!didCopy) {
+    throw new Error('Could not copy response.');
+  }
 }

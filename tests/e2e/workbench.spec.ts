@@ -236,6 +236,16 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
     activeModelId: model.id,
     lastError: null,
   };
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          (window as Window & {copiedText?: string}).copiedText = value;
+        },
+      },
+    });
+  });
 
   await page.route('**/api/state', async route => {
     await route.fulfill({
@@ -312,7 +322,11 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
 
   await expect(page.getByText('Hello from Nelle.')).toBeVisible();
   await expect(page.getByText(model.name).first()).toBeVisible();
-  await expect(page.getByRole('button', {name: 'Copy response'})).toBeVisible();
+  await page.getByRole('button', {name: 'Copy response'}).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as Window & {copiedText?: string}).copiedText))
+    .toBe('Hello from Nelle.');
+  await expect(page.getByText('Response copied.')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Reading (prompt processing)'})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Generation (token output)'})).toBeVisible();
   await expect(page.getByText('44 tokens')).toBeVisible();
