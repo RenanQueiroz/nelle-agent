@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {randomUUID} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
 
 import type {AppPaths} from './paths';
@@ -9,6 +10,7 @@ type Migration = {
   name: string;
   checksum: string;
   sql: string;
+  isApplied?: (db: DatabaseSync) => boolean;
 };
 
 const MIGRATIONS: Migration[] = [
@@ -140,11 +142,13 @@ const MIGRATIONS: Migration[] = [
     sql: `
       ALTER TABLE conversations ADD COLUMN context_usage_json TEXT;
     `,
+    isApplied: db => tableHasColumn(db, 'conversations', 'context_usage_json'),
   },
 ];
 
 export class AppDatabase {
   #db: DatabaseSync | null = null;
+  #migrationBackupPath: string | null = null;
 
   constructor(private readonly paths: AppPaths) {}
 
@@ -154,10 +158,11 @@ export class AppDatabase {
     }
 
     await fs.mkdir(path.dirname(this.paths.settingsDbPath), {recursive: true});
+    const shouldBackupExistingDatabase = await fileHasContents(this.paths.settingsDbPath);
     this.#db = new DatabaseSync(this.paths.settingsDbPath);
     this.#db.exec('PRAGMA foreign_keys = ON;');
+    await this.runMigrations(shouldBackupExistingDatabase);
     this.#db.exec('PRAGMA journal_mode = WAL;');
-    this.runMigrations();
     this.tryCreateSearchTable();
     return this.#db;
   }
@@ -165,14 +170,19 @@ export class AppDatabase {
   close(): void {
     this.#db?.close();
     this.#db = null;
+    this.#migrationBackupPath = null;
   }
 
   get connection(): DatabaseSync {
     return this.requireDb();
   }
 
-  private runMigrations(): void {
+  private async runMigrations(shouldBackupExistingDatabase: boolean): Promise<void> {
     const db = this.requireDb();
+    const hasMigrationTable = tableExists(db, 'schema_migrations');
+    if (!hasMigrationTable) {
+      await this.ensureMigrationBackup(shouldBackupExistingDatabase);
+    }
     db.exec(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version INTEGER PRIMARY KEY,
@@ -190,6 +200,7 @@ export class AppDatabase {
       const existing = getMigration.get(migration.version) as {checksum: string} | undefined;
       if (existing) {
         if (existing.checksum !== migration.checksum) {
+          await this.ensureMigrationBackup(shouldBackupExistingDatabase);
           throw new Error(
             `Migration checksum mismatch for ${migration.version} ${migration.name}.`,
           );
@@ -197,9 +208,12 @@ export class AppDatabase {
         continue;
       }
 
+      await this.ensureMigrationBackup(shouldBackupExistingDatabase);
       db.exec('BEGIN');
       try {
-        db.exec(migration.sql);
+        if (!migration.isApplied?.(db)) {
+          db.exec(migration.sql);
+        }
         insertMigration.run(
           migration.version,
           migration.name,
@@ -212,6 +226,25 @@ export class AppDatabase {
         throw error;
       }
     }
+  }
+
+  private async ensureMigrationBackup(
+    shouldBackupExistingDatabase: boolean,
+  ): Promise<string | null> {
+    if (!shouldBackupExistingDatabase) {
+      return null;
+    }
+    if (this.#migrationBackupPath) {
+      return this.#migrationBackupPath;
+    }
+
+    const backupDir = path.join(this.paths.dataDir, 'backups');
+    await fs.mkdir(backupDir, {recursive: true});
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(backupDir, `settings.sqlite.${timestamp}.${randomUUID()}.bak`);
+    this.requireDb().exec(`VACUUM INTO ${sqlStringLiteral(backupPath)}`);
+    this.#migrationBackupPath = backupPath;
+    return backupPath;
   }
 
   private tryCreateSearchTable(): void {
@@ -233,4 +266,38 @@ export class AppDatabase {
     }
     return this.#db;
   }
+}
+
+async function fileHasContents(filePath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile() && stat.size > 0;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function tableExists(db: DatabaseSync, tableName: string): boolean {
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName) as {name: string} | undefined;
+  return row?.name === tableName;
+}
+
+function tableHasColumn(db: DatabaseSync, tableName: string, columnName: string): boolean {
+  return db
+    .prepare(`PRAGMA table_info(${sqlIdentifier(tableName)})`)
+    .all()
+    .some(column => (column as {name?: string}).name === columnName);
+}
+
+function sqlIdentifier(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function sqlStringLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }

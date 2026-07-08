@@ -167,7 +167,10 @@ Nelle currently differs from the target in these ways:
 - SQLite stores conversation rows and active-branch projections. Runtime setup
   state still lives in `.nelle/state.json`, while model catalog state is sourced
   from `models.ini` and mirrored into state for compatibility. The default
-  `poc-default` chat remains for legacy compatibility.
+  `poc-default` chat remains for legacy compatibility. Existing
+  `settings.sqlite` files are backed up with SQLite `VACUUM INTO` under
+  `.nelle/backups/` before schema migrations or migration-record repair paths
+  run.
 - Basic stop now calls the run-specific abort endpoint when a stream has
   received a run id, cancels the active browser stream, and invokes Pi
   `AgentSession.abort()` for a cached conversation runtime. Chat/regenerate
@@ -1560,8 +1563,11 @@ Future migration expectations:
 - Add SQLite migrations for conversations, entry projections, attachments,
   model cache, tool audit events, settings, schema migrations, and FTS title
   search.
-- Add the migration/backup runner and the POC `.nelle/state.json` migration
-  path.
+- Done for SQLite schema migrations: existing `settings.sqlite` files are
+  backed up under `.nelle/backups/` before missing migrations, checksum-mismatch
+  repair paths, or migration-record repairs run. The broader POC
+  `.nelle/state.json` to SQLite migration path remains limited to the current
+  default-conversation compatibility bridge.
 - Add `PiConversationRuntimePool`:
   create/open/dispose runtimes by conversation id, map each conversation to one
   Pi session file, resubscribe after runtime replacement, and support multiple
@@ -1591,8 +1597,11 @@ Exit criteria:
   proxy request, and emits `run.aborted`.
 - `models.ini` can be parsed and written without dropping comments, unknown
   keys, or ordering in untouched sections.
-- Migrations create backups before rewriting app data and fail into a repairable
-  state.
+- Done for SQLite schema migrations: existing `settings.sqlite` files are
+  backed up before schema migrations or migration-record repairs, and already
+  applied schema changes can be marked complete on retry. Broader
+  state/Pi/attachment migrations still need a future all-artifact backup runner
+  before rewriting those files.
 
 ### Phase 1: Router Metadata And `models.ini` Ownership
 

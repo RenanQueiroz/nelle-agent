@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import {DatabaseSync} from 'node:sqlite';
 
 import {SessionManager} from '@earendil-works/pi-coding-agent';
 import {strFromU8, unzipSync} from 'fflate';
@@ -50,6 +51,57 @@ test('SQLite migration creates conversation tables and migration records', async
     assert.equal(contextColumn, true);
   } finally {
     database.close();
+  }
+});
+
+test('SQLite migration backs up existing databases before repairing migration records', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  database.close();
+
+  const raw = new DatabaseSync(paths.settingsDbPath);
+  try {
+    raw.exec('DELETE FROM schema_migrations WHERE version = 2;');
+  } finally {
+    raw.close();
+  }
+
+  await fs.rm(path.join(paths.dataDir, 'backups'), {recursive: true, force: true});
+  const repaired = new AppDatabase(paths);
+  await repaired.open();
+  try {
+    const migrations = repaired.connection
+      .prepare('SELECT version FROM schema_migrations ORDER BY version ASC')
+      .all() as Array<{version: number}>;
+    assert.deepEqual(
+      migrations.map(migration => migration.version),
+      [1, 2],
+    );
+  } finally {
+    repaired.close();
+  }
+
+  const backupDir = path.join(paths.dataDir, 'backups');
+  const backupFiles = await fs.readdir(backupDir);
+  assert.equal(backupFiles.length, 1);
+  const backup = new DatabaseSync(path.join(backupDir, backupFiles[0]!));
+  try {
+    const backupMigrations = backup
+      .prepare('SELECT version FROM schema_migrations ORDER BY version ASC')
+      .all() as Array<{version: number}>;
+    const contextColumn = backup
+      .prepare("PRAGMA table_info('conversations')")
+      .all()
+      .some(column => (column as {name?: string}).name === 'context_usage_json');
+
+    assert.deepEqual(
+      backupMigrations.map(migration => migration.version),
+      [1],
+    );
+    assert.equal(contextColumn, true);
+  } finally {
+    backup.close();
   }
 });
 

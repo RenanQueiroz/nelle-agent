@@ -31,10 +31,12 @@ Implemented:
   unknown keys while updating Nelle-managed fields. New imports, alias edits,
   duplicates, removals, and free-form params write `models.ini` first; the POC
   `state.json` mirrors that catalog as a compatibility backup.
-- SQLite schema/migration foundation in `.nelle/settings.sqlite`, plus
-  conversation list/snapshot APIs. Each active conversation is bound to a
-  Nelle-owned Pi JSONL session file under `.nelle/pi/sessions`, and SQLite
-  stores the UI projection for the active Pi branch.
+- SQLite schema/migration foundation in `.nelle/settings.sqlite`, including
+  timestamped database backups under `.nelle/backups/` before applying schema
+  migrations or repairing missing migration records. Conversation list/snapshot
+  APIs bind each active conversation to a Nelle-owned Pi JSONL session file
+  under `.nelle/pi/sessions`, and SQLite stores the UI projection for the active
+  Pi branch.
 - Conversation-scoped chat streaming through
   `/api/conversations/:id/chat/stream`, with the legacy `/api/chat/stream`
   route kept as a default-conversation compatibility wrapper.
@@ -127,7 +129,9 @@ Not implemented yet:
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for
   runtime settings, catalog backup, and default-conversation compatibility,
   while conversation projections live in `.nelle/settings.sqlite` and
-  `models.ini` owns the model catalog.
+  `models.ini` owns the model catalog. Existing SQLite schema migration paths
+  back up `settings.sqlite`, but the broader state/Pi/attachment migration
+  runner is still future work.
 - Progress streaming for long installs/builds.
 
 ## Setup

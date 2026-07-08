@@ -25,6 +25,8 @@ Project-specific guidance for AI coding agents.
   reports, or logs.
 - `.nelle/settings.sqlite` is generated app data. It stores conversation rows,
   active-branch projections, and Nelle-only sidecar metadata; do not commit it.
+- `.nelle/backups/` contains generated SQLite migration backups; do not commit
+  it.
 - Hugging Face GGUF `hf-repo` refs stay exact, but llama.cpp router sections and
   OpenAI `model` ids use llama.cpp-canonical quant tags. Qwen-family models use
   Pi's `qwen-chat-template` compatibility with thinking off for normal chat.

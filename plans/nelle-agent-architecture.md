@@ -247,7 +247,8 @@ through llama.cpp-managed `hf-repo` references, managed `llama.cpp`
 install/update/start/stop paths, a lossless parser/writer for authoritative
 router `models.ini` model catalog state, Pi SDK chat streaming, a direct
 llama.cpp fallback for diagnostics,
-browser-triggered conversation reset, SQLite schema/migration foundations,
+browser-triggered conversation reset, SQLite schema/migration foundations with
+pre-migration `settings.sqlite` backups under `.nelle/backups/`,
 conversation list/snapshot APIs, conversation-scoped chat streaming, one
 Nelle-conversation-to-one-Pi-session-file binding under `.nelle/pi/sessions`,
 basic conversation abort via Pi `AgentSession.abort()`,
@@ -282,7 +283,10 @@ Intentional POC limitations:
 - Runtime setup state is still stored in `.nelle/state.json`; model catalog
   rows are sourced from `models.ini` and mirrored into state only as a
   compatibility backup. SQLite stores conversation rows and active-branch
-  projections, but is not yet the primary database for all app state.
+  projections, but is not yet the primary database for all app state. Existing
+  SQLite schema migrations create a `settings.sqlite` backup before applying
+  migrations or repairing missing migration records; broader state/Pi/attachment
+  migration backups remain part of the future migration path.
 - The web UI uses an Astryx `SideNav` shell with a collapsible, virtualized
   conversation sidebar, new-chat, search, pin/rename/reset/duplicate/delete row
   actions, pinned/recent sections, and spinner-backed running indicators.
