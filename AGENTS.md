@@ -54,6 +54,10 @@ Project-specific guidance for AI coding agents.
   metadata.
 - API-created conversations should immediately create and bind a header-only Pi
   session JSONL file, before the first prompt.
+- On Pi-enabled startup, migrate a non-empty legacy `poc-default` chat from
+  `.nelle/state.json` into a real Pi session before validating existing
+  bindings. Direct llama.cpp fallback may still force-refresh the legacy
+  projection for compatibility.
 - Validate existing Pi session bindings before opening a runtime. Missing or
   malformed session files must mark the conversation `unavailable` and surface
   `session_unavailable`; do not create a replacement session under the same

@@ -1623,10 +1623,15 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
       url: '/api/conversations/poc-default',
     });
     assert.equal(snapshotResponse.statusCode, 200);
-    assert.equal(
-      snapshotResponse.json<{snapshot: {entries: unknown[]}}>().snapshot.entries.length,
-      1,
-    );
+    const defaultSnapshot = snapshotResponse.json<{
+      snapshot: {conversation: {piSessionId?: string}; entries: unknown[]};
+    }>().snapshot;
+    assert.equal(defaultSnapshot.entries.length, 1);
+    assert.ok(defaultSnapshot.conversation.piSessionId);
+
+    let sessionHeaders = await readSessionHeaders(paths.piSessionsDir);
+    assert.equal(sessionHeaders.length, 1);
+    assert.equal(sessionHeaders[0]?.id, defaultSnapshot.conversation.piSessionId);
 
     const createResponse = await app.inject({
       method: 'POST',
@@ -1643,15 +1648,12 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
     assert.equal(created.snapshot.conversation.piSessionId, created.conversation.piSessionId);
     assert.deepEqual(created.snapshot.entries, []);
 
-    const sessionFiles = await fs.readdir(paths.piSessionsDir);
-    assert.equal(sessionFiles.length, 1);
-    const sessionHeader = JSON.parse(
-      (await fs.readFile(path.join(paths.piSessionsDir, sessionFiles[0]!), 'utf8')).split(
-        /\r?\n/,
-      )[0]!,
-    ) as {type: string; id: string};
-    assert.equal(sessionHeader.type, 'session');
-    assert.equal(sessionHeader.id, created.conversation.piSessionId);
+    sessionHeaders = await readSessionHeaders(paths.piSessionsDir);
+    assert.equal(sessionHeaders.length, 2);
+    assert.ok(
+      sessionHeaders.some(header => header.id === defaultSnapshot.conversation.piSessionId),
+    );
+    assert.ok(sessionHeaders.some(header => header.id === created.conversation.piSessionId));
 
     const patchResponse = await app.inject({
       method: 'PATCH',
@@ -1961,6 +1963,22 @@ function createFirstTurnEntries(): Array<{
       createdAt: '2026-07-08T12:01:00.000Z',
     },
   ];
+}
+
+async function readSessionHeaders(sessionDir: string): Promise<Array<{type: string; id: string}>> {
+  const files = await fs.readdir(sessionDir);
+  const headers: Array<{type: string; id: string}> = [];
+  for (const file of files) {
+    const sessionPath = path.join(sessionDir, file);
+    if (!(await fs.stat(sessionPath)).isFile()) {
+      continue;
+    }
+    const firstLine = (await fs.readFile(sessionPath, 'utf8')).split(/\r?\n/)[0];
+    const header = JSON.parse(firstLine ?? '{}') as {type: string; id: string};
+    assert.equal(header.type, 'session');
+    headers.push(header);
+  }
+  return headers;
 }
 
 async function createTempPaths(): Promise<AppPaths> {

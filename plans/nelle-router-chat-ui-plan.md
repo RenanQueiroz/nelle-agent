@@ -167,7 +167,9 @@ Nelle currently differs from the target in these ways:
 - SQLite stores conversation rows and active-branch projections. Runtime setup
   state still lives in `.nelle/state.json`, while model catalog state is sourced
   from `models.ini` and mirrored into state for compatibility. The default
-  `poc-default` chat remains for legacy compatibility. Existing
+  `poc-default` chat remains for direct-fallback compatibility, but normal
+  Pi-enabled startup migrates a non-empty legacy `state.json` default chat into
+  a real Pi session before validating session bindings. Existing
   `settings.sqlite` files are backed up with SQLite `VACUUM INTO` under
   `.nelle/backups/` before schema migrations or migration-record repair paths
   run.
@@ -1670,8 +1672,11 @@ Exit criteria:
 
 - Extend the existing SQLite conversation/index/projection storage and
   Pi-session binding into the final sidebar workflow.
-- Complete replacement of legacy default-chat compatibility with
-  conversation-scoped APIs throughout the UI and server.
+- Replace legacy default-chat compatibility with conversation-scoped APIs
+  throughout the UI and server. Done for the browser UI and normal Pi-enabled
+  startup: legacy `poc-default` state chat is migrated into a Pi session. The
+  legacy `/api/chat/stream` and direct-fallback state projection remain as
+  compatibility wrappers only.
 - Use Pi session entries and leaf ids for active path and branch state. Do not
   duplicate Pi's tree as independent Nelle truth.
 - Done in current pane: add collapsible conversation sidebar rail with new chat,

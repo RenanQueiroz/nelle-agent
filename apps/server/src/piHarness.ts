@@ -20,7 +20,11 @@ import {localLlamaProxyBaseUrl} from './llamaProxy';
 import {chatTemplateKwargsForModel, isQwenFamilyModel, llamaRuntimeModelId} from './modelCompat';
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
-import type {ConversationRepository, SyncConversationEntry} from './conversations';
+import {
+  POC_CONVERSATION_ID,
+  type ConversationRepository,
+  type SyncConversationEntry,
+} from './conversations';
 import type {HostToolRepository} from './hostTools';
 import type {
   AttachmentMetadata,
@@ -133,6 +137,56 @@ export class PiHarness {
       throw new Error('Created conversation snapshot was not available.');
     }
     return snapshot;
+  }
+
+  async migrateLegacyDefaultConversation(): Promise<void> {
+    if (process.env.NELLE_PI_DISABLED === '1') {
+      return;
+    }
+    const state = await this.store.getState();
+    const existing = this.conversations.syncPocConversationFromState(state);
+    if (state.chat.length === 0 || this.conversations.getPiSessionBinding(POC_CONVERSATION_ID)) {
+      return;
+    }
+
+    const sessionManager = SessionManager.create(this.paths.repoRoot, this.paths.piSessionsDir);
+    const sessionFile = sessionManager.getSessionFile();
+    if (!sessionFile) {
+      throw new Error('Pi did not allocate a session file for the default conversation.');
+    }
+    const entries: SyncConversationEntry[] = [];
+    let previousEntryId: string | null = null;
+    for (const message of state.chat) {
+      const piEntryId = sessionManager.appendMessage({
+        role: message.role,
+        content: message.content,
+      } as any);
+      entries.push({
+        piEntryId,
+        parentPiEntryId: previousEntryId,
+        entryType: 'message',
+        role: message.role,
+        text: message.content,
+        createdAt: message.createdAt,
+        modelId: message.modelId,
+        modelRuntimeId: message.modelRuntimeId,
+        modelAliasSnapshot: message.modelAliasSnapshot,
+        performance: message.performance,
+        toolCalls: message.toolCalls,
+        regeneratesPiEntryId: message.regeneratesPiEntryId,
+        displayGroupId: message.displayGroupId,
+      });
+      previousEntryId = piEntryId;
+    }
+    await ensureSessionFile(sessionFile, sessionManager);
+    this.conversations.replaceConversationProjection(POC_CONVERSATION_ID, {
+      piSessionPath: sessionFile,
+      piSessionId: sessionManager.getSessionId(),
+      activeLeafPiEntryId: sessionManager.getLeafId(),
+      lastSyncedPiEntryId: previousEntryId,
+      status: existing.status,
+      entries,
+    });
   }
 
   async abortConversation(conversationId: string): Promise<AbortConversationResult> {

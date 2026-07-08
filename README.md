@@ -36,9 +36,11 @@ Implemented:
   migrations or repairing missing migration records. Conversation list/snapshot
   APIs bind each new conversation to a header-only Nelle-owned Pi JSONL session
   file under `.nelle/pi/sessions`, and SQLite stores the UI projection for the
-  active Pi branch. If a bound Pi session file is missing or malformed, Nelle
-  marks the conversation unavailable and surfaces `session_unavailable` instead
-  of creating a replacement session under the same conversation id.
+  active Pi branch. On Pi-enabled startup, any non-empty legacy `poc-default`
+  chat still present in `.nelle/state.json` is migrated into a real Pi session
+  before session validation. If a bound Pi session file is missing or malformed,
+  Nelle marks the conversation unavailable and surfaces `session_unavailable`
+  instead of creating a replacement session under the same conversation id.
 - Conversation-scoped chat streaming through
   `/api/conversations/:id/chat/stream`, with the legacy `/api/chat/stream`
   route kept as a default-conversation compatibility wrapper.
@@ -129,11 +131,12 @@ Not implemented yet:
 - Host-tool sandboxing and per-tool permission prompts. The current v1 gate is
   acknowledgement plus a global enable/disable switch.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for
-  runtime settings, catalog backup, and default-conversation compatibility,
-  while conversation projections live in `.nelle/settings.sqlite` and
-  `models.ini` owns the model catalog. Existing SQLite schema migration paths
-  back up `settings.sqlite`, but the broader state/Pi/attachment migration
-  runner is still future work.
+  runtime settings, catalog backup, and direct-fallback default-conversation
+  compatibility, while Pi-enabled startup migrates a non-empty legacy
+  `poc-default` chat into a Pi session. Conversation projections live in
+  `.nelle/settings.sqlite` and `models.ini` owns the model catalog. Existing
+  SQLite schema migration paths back up `settings.sqlite`, but the broader
+  state/Pi/attachment migration runner is still future work.
 - Progress streaming for long installs/builds.
 
 ## Setup

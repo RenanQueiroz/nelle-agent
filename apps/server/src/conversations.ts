@@ -892,11 +892,14 @@ export class ConversationRepository {
     }
   }
 
-  syncPocConversationFromState(state: AppState): ConversationListItem {
+  syncPocConversationFromState(
+    state: AppState,
+    options: {forceLegacyProjection?: boolean} = {},
+  ): ConversationListItem {
     const now = new Date().toISOString();
     const title = state.chat[0]?.content.slice(0, 80) || 'POC chat';
     const existing = this.getConversation(POC_CONVERSATION_ID);
-    if (existing?.pi_session_id) {
+    if (existing?.pi_session_id && !options.forceLegacyProjection) {
       return mapConversationListItem(existing);
     }
     const row: ConversationRow = {

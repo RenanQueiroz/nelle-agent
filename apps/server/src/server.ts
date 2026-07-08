@@ -110,16 +110,17 @@ export async function createServer(paths: AppPaths) {
   await database.open();
   const conversations = new ConversationRepository(database);
   await conversations.init();
-  conversations.syncPocConversationFromState(await store.getState());
-  await conversations.markInvalidPiSessionsUnavailable();
   const hostTools = new HostToolRepository(database);
+  const llama = new LlamaCppManager(paths, store);
+  const hf = new HuggingFaceService(store);
+  const pi = new PiHarness(paths, store, conversations, hostTools, llama);
+  conversations.syncPocConversationFromState(await store.getState());
+  await pi.migrateLegacyDefaultConversation();
+  await conversations.markInvalidPiSessionsUnavailable();
   const attachmentSweep = await sweepOrphanAttachmentFiles(
     paths,
     conversations.getReferencedAttachmentStoragePaths(),
   );
-  const llama = new LlamaCppManager(paths, store);
-  const hf = new HuggingFaceService(store);
-  const pi = new PiHarness(paths, store, conversations, hostTools, llama);
 
   const app = Fastify({
     logger: {
@@ -764,7 +765,9 @@ export async function createServer(paths: AppPaths) {
       });
       await writeChatStream(reply.raw, streamResult.stream, id);
       if (streamResult.syncLegacyState) {
-        conversations.syncPocConversationFromState(await store.getState());
+        conversations.syncPocConversationFromState(await store.getState(), {
+          forceLegacyProjection: true,
+        });
       }
     } catch (error) {
       writeChatError(reply.raw, error);
@@ -828,7 +831,9 @@ export async function createServer(paths: AppPaths) {
       });
       await writeChatStream(reply.raw, streamResult.stream, POC_CONVERSATION_ID);
       if (streamResult.syncLegacyState) {
-        conversations.syncPocConversationFromState(await store.getState());
+        conversations.syncPocConversationFromState(await store.getState(), {
+          forceLegacyProjection: true,
+        });
       }
     } catch (error) {
       writeChatError(reply.raw, error);
