@@ -442,7 +442,12 @@ Initial implementation:
   counters only as best-effort fallback data.
 - Persist the model that generated each assistant message, including a display
   alias snapshot and llama.cpp runtime model id. Assistant footers should show
-  timestamp, model selector, throughput, copy, and regenerate controls.
+  timestamp, model selector, a toggleable Reading/Generation performance stats
+  widget, copy, and regenerate controls.
+- The stats widget should mirror llama.cpp's shape: Reading shows prompt tokens,
+  prompt processing time, and prompt processing speed; Generation shows
+  generated tokens, generation time, and generation speed. Use icon controls and
+  tooltips rather than long visible labels.
 - Regenerating an assistant answer should create a sibling branch from the same
   parent user message. Selecting a different model in the message footer should
   load that model if needed and regenerate with that model override in one
@@ -576,7 +581,8 @@ Exit criteria:
 - Pi SDK uses Nelle's local llama.cpp proxy provider.
 - Web UI can create a session and stream assistant output.
 - Web UI displays llama.cpp prompt-processing and generation throughput beside
-  assistant message timestamps when the server reports it.
+  assistant message timestamps when the server reports it, using a toggleable
+  Reading/Generation stats view with icon tooltips.
 - Web UI displays which model generated each assistant message and supports
   copy plus branch-based regenerate, including regenerate with a model override.
 - Web UI shows each tool call once, updates its status in place, and exposes

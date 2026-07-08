@@ -61,6 +61,9 @@ Relevant upstream UI patterns:
 - llama.cpp's assistant footer uses the router model selector as a per-message
   regenerate control. Choosing a different model loads it if needed and calls
   regenerate with a `modelOverride`.
+- llama.cpp displays performance metrics through a compact statistics widget
+  with icon-only view toggles for `Reading` and `Generation`, plus icon/value
+  metric badges with tooltips.
 - Regeneration is branch-based in llama.cpp: it creates a sibling assistant
   message from the same parent user message rather than overwriting the old
   answer.
@@ -314,13 +317,82 @@ Each assistant message footer should show:
 
 - Timestamp.
 - Model picker/dropdown displaying the model that generated that answer.
-- Prompt-processing and generation tokens/sec metrics when available.
+- Toggleable performance statistics when available.
 - Copy button.
 - Regenerate button.
 
 Use Astryx `ChatMessageMetadata.footer` as a React node instead of a formatted
 string. The footer should remain compact, wrap cleanly on narrow widths, and use
 icon buttons with accessible labels/tooltips for copy and regenerate.
+
+### Performance Statistics View
+
+Replace the current plain `prompt 32.30 tok/s · gen 21.53 tok/s` footer text
+with a compact statistics widget modeled after llama.cpp's
+`ChatMessageStatistics`.
+
+Views:
+
+- `Reading`: prompt processing.
+- `Generation`: token output.
+
+View toggles:
+
+- Use icon-only controls rather than visible text labels.
+- Use a book/read icon for `Reading (prompt processing)`.
+- Use a sparkle/output icon for `Generation (token output)`.
+- Each toggle must have an accessible label and Astryx `Tooltip` content.
+- During live streaming, default to `Reading` while prompt processing is active,
+  then switch to `Generation` once generated tokens arrive.
+- Disable the `Generation` toggle while a live message has no generated tokens
+  yet.
+
+Reading metrics:
+
+- Prompt tokens.
+- Prompt processing time.
+- Prompt processing speed.
+
+Generation metrics:
+
+- Generated tokens.
+- Generation time.
+- Generation speed.
+
+Metric display:
+
+- Use icon/value badges or compact inline items.
+- Prefer lucide icons through the existing React icon stack:
+  - token count: `WholeWord` or equivalent token/word icon
+  - time: `Clock`
+  - speed: `Gauge`
+- Wrap each metric item in Astryx `Tooltip` with the exact label, such as
+  `Prompt tokens`, `Prompt processing time`, `Prompt processing speed`,
+  `Generated tokens`, `Generation time`, and `Generation speed`.
+- Keep visible strings short, e.g. `1,024 tokens`, `1.24s`, `32.30 t/s`.
+- Metric items may be clickable later for copy-to-clipboard parity with
+  llama.cpp, but that is optional for the first Nelle pass.
+
+Data mapping:
+
+- `performance.prompt.tokens` -> prompt tokens.
+- `performance.prompt.milliseconds` -> prompt processing time.
+- `performance.prompt.tokensPerSecond` -> prompt processing speed.
+- `performance.generation.tokens` -> generated tokens.
+- `performance.generation.milliseconds` -> generation time.
+- `performance.generation.tokensPerSecond` -> generation speed.
+- Prefer exact streamed llama.cpp `prompt_progress` and final/streamed
+  `timings` values from Nelle's llama proxy. `/slots` data remains a fallback
+  and should not overwrite exact streamed timings.
+
+Astryx implementation direction:
+
+- Use `Tooltip` from `@astryxdesign/core/Tooltip` for hover/focus explanations.
+- Use stable, fixed-size icon buttons/badges so switching between Reading and
+  Generation does not shift the surrounding footer layout.
+- Keep the widget inside `ChatMessageMetadata.footer` alongside the message
+  model dropdown, copy, and regenerate controls.
+- Avoid raw color/spacing values; use Astryx tokens or component props.
 
 Model dropdown behavior:
 
@@ -504,7 +576,9 @@ Exit criteria:
 - Persist `model_id`, `model_runtime_id`, and `model_alias_snapshot` on
   assistant messages.
 - Replace the metadata footer string with a composed footer row containing
-  timestamp, model dropdown, throughput metrics, copy, and regenerate.
+  timestamp, model dropdown, performance statistics, copy, and regenerate.
+- Replace the old throughput text with a Reading/Generation statistics widget
+  that shows tokens, elapsed time, and speed for the active view.
 - Add model override regeneration through the router-aware selector.
 - Add clipboard copy behavior for assistant messages.
 
@@ -514,8 +588,8 @@ Exit criteria:
 - Selecting a different model from an assistant footer loads that model if
   needed and regenerates the answer in one action.
 - Copy writes the assistant text to the clipboard and gives visible feedback.
-- Timing metrics still render beside the timestamp/model without layout
-  overflow on mobile and desktop widths.
+- Timing metrics render as a toggleable Reading/Generation widget with icon
+  controls and tooltips, without layout overflow on mobile or desktop widths.
 
 ### Phase 4: Title Generation
 
@@ -540,6 +614,7 @@ Unit tests:
 - Message model metadata selection and alias snapshot fallback.
 - Regenerate request path construction, branch creation, and model override
   validation.
+- Performance statistics view selection, formatting, and live auto-switching.
 - Clipboard text formatting.
 
 Integration tests:
@@ -552,6 +627,8 @@ Integration tests:
 - Verify regenerate with a model override calls router load when needed and
   streams with the selected model.
 - Verify regenerate preserves the old assistant answer as a sibling branch.
+- Verify prompt/generation metric mapping from streamed `prompt_progress` and
+  `timings`.
 
 Playwright tests:
 
@@ -560,8 +637,11 @@ Playwright tests:
 - Sidebar creates, searches, pins, renames, exports, and deletes conversations.
 - Composer stays docked while message list scrolls.
 - Virtualized list remains responsive with thousands of conversations.
-- Assistant footer shows timestamp, model label/dropdown, tokens/sec, copy, and
-  regenerate.
+- Assistant footer shows timestamp, model label/dropdown, Reading/Generation
+  statistics, copy, and regenerate.
+- Statistics toggles switch between prompt tokens/time/speed and generated
+  tokens/time/speed.
+- Statistics icons expose hover/focus tooltip text for every metric.
 - Selecting a different footer model regenerates with that model and keeps the
   new model label on the regenerated answer.
 - Copy button writes assistant text to the clipboard.

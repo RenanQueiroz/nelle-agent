@@ -43,6 +43,9 @@ Project-specific guidance for AI coding agents.
 - Assistant messages should persist the generating model id/runtime id and an
   alias snapshot. Footer model changes should regenerate as a sibling branch
   with a model override, not silently overwrite the prior answer.
+- Assistant performance metadata should render as a toggleable Reading
+  (prompt processing) / Generation (token output) stats widget with icon
+  controls and Astryx tooltips, not as a plain text throughput string.
 - Tool calls must be correlated by stable `id` / Pi `toolCallId`; stream updates
   should upsert existing calls and preserve expandable input/output detail.
 - Keep the workbench viewport-bounded. Do not reintroduce document-level
