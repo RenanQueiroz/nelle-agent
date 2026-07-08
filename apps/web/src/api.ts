@@ -41,6 +41,26 @@ export type LlamaRouterModel = {
   raw?: unknown;
 };
 
+export type LlamaRouterModelUpdate = {
+  sectionId?: string;
+  routerModelId?: string;
+  alias?: string;
+  hfRepo?: string;
+  status?: string;
+  progress?: number;
+  aliases?: string[];
+  source?: string;
+  architecture?: string;
+  error?: string;
+  raw?: unknown;
+};
+
+export type LlamaRouterModelEvent = {
+  eventType: string;
+  model: LlamaRouterModelUpdate | null;
+  raw: unknown;
+};
+
 export type LlamaModelProps = {
   modelId: string;
   modalities: {
@@ -326,6 +346,144 @@ export async function loadLlamaModel(modelId: string): Promise<void> {
 
 export async function unloadLlamaModel(modelId: string): Promise<void> {
   await apiPost(`/api/llama/models/${encodeURIComponent(modelId)}/unload`);
+}
+
+export function subscribeLlamaModelEvents(
+  onEvent: (event: LlamaRouterModelEvent) => void,
+  onError?: () => void,
+): () => void {
+  const source = new EventSource('/api/llama/models/events');
+  const eventTypes = [
+    'message',
+    'model_status',
+    'model_loading',
+    'model_loaded',
+    'model_unloaded',
+    'model_error',
+    'download_progress',
+  ];
+  const handleEvent = (event: MessageEvent<string>) => {
+    onEvent(normalizeLlamaModelEvent(event.type, event.data));
+  };
+  for (const eventType of eventTypes) {
+    source.addEventListener(eventType, handleEvent);
+  }
+  source.onerror = () => {
+    onError?.();
+  };
+  return () => {
+    for (const eventType of eventTypes) {
+      source.removeEventListener(eventType, handleEvent);
+    }
+    source.close();
+  };
+}
+
+function normalizeLlamaModelEvent(eventType: string, rawData: string): LlamaRouterModelEvent {
+  const raw = parseEventData(rawData);
+  const modelPayload = objectProp(raw, 'model') ?? objectProp(raw, 'data') ?? raw;
+  const id =
+    stringProp(modelPayload, 'sectionId') ??
+    stringProp(modelPayload, 'section_id') ??
+    stringProp(modelPayload, 'routerModelId') ??
+    stringProp(modelPayload, 'router_model_id') ??
+    stringProp(modelPayload, 'id') ??
+    stringProp(modelPayload, 'model') ??
+    stringProp(modelPayload, 'name');
+  if (!id) {
+    return {eventType, model: null, raw};
+  }
+
+  const statusPayload = objectProp(modelPayload, 'status');
+  const status =
+    stringProp(statusPayload, 'value') ??
+    stringProp(modelPayload, 'status') ??
+    statusFromRouterEventType(eventType);
+  const progress =
+    numberProp(modelPayload, 'progress') ??
+    numberProp(statusPayload, 'progress') ??
+    numberProp(raw, 'progress') ??
+    numberProp(raw, 'pct');
+
+  return {
+    eventType,
+    raw,
+    model: {
+      sectionId: id,
+      routerModelId: id,
+      alias: stringProp(modelPayload, 'alias') ?? stringProp(modelPayload, 'name'),
+      hfRepo:
+        stringProp(modelPayload, 'hfRepo') ??
+        stringProp(modelPayload, 'hf_repo') ??
+        stringProp(modelPayload, 'source'),
+      status,
+      progress,
+      aliases: arrayStringProp(modelPayload, 'aliases'),
+      source: stringProp(modelPayload, 'source'),
+      architecture: stringProp(modelPayload, 'architecture'),
+      error: stringProp(modelPayload, 'error') ?? stringProp(raw, 'error'),
+      raw,
+    },
+  };
+}
+
+function statusFromRouterEventType(eventType: string): string | undefined {
+  if (eventType === 'model_loading' || eventType === 'download_progress') {
+    return 'loading';
+  }
+  if (eventType === 'model_loaded') {
+    return 'loaded';
+  }
+  if (eventType === 'model_unloaded') {
+    return 'unloaded';
+  }
+  if (eventType === 'model_error') {
+    return 'failed';
+  }
+  return undefined;
+}
+
+function parseEventData(value: string): unknown {
+  if (!value) {
+    return {};
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {message: value};
+  }
+}
+
+function objectProp(value: unknown, key: string): Record<string, unknown> | undefined {
+  if (value == null || typeof value !== 'object') {
+    return undefined;
+  }
+  const prop = (value as Record<string, unknown>)[key];
+  return prop != null && typeof prop === 'object' ? (prop as Record<string, unknown>) : undefined;
+}
+
+function stringProp(value: unknown, key: string): string | undefined {
+  if (value == null || typeof value !== 'object') {
+    return undefined;
+  }
+  const prop = (value as Record<string, unknown>)[key];
+  return typeof prop === 'string' ? prop : undefined;
+}
+
+function numberProp(value: unknown, key: string): number | undefined {
+  if (value == null || typeof value !== 'object') {
+    return undefined;
+  }
+  const prop = (value as Record<string, unknown>)[key];
+  return typeof prop === 'number' && Number.isFinite(prop) ? prop : undefined;
+}
+
+function arrayStringProp(value: unknown, key: string): string[] | undefined {
+  if (value == null || typeof value !== 'object') {
+    return undefined;
+  }
+  const prop = (value as Record<string, unknown>)[key];
+  return Array.isArray(prop) ? prop.filter(item => typeof item === 'string') : undefined;
 }
 
 export async function searchHuggingFace(query: string): Promise<HuggingFaceModelResult[]> {

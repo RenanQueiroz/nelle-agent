@@ -70,7 +70,8 @@ Project-specific guidance for AI coding agents.
   stable section id as the llama.cpp/OpenAI model id.
 - The composer model selector is compact but router-aware: it is searchable,
   groups browser-local favorites first, shows selected/row router
-  status/progress, and loads unloaded router models before activating them.
+  status/progress from router SSE updates, and loads unloaded router models
+  before activating them.
 - New Hugging Face imports should use the stable canonical section id as the
   model id; route clients must URL-encode model ids because they may contain
   `/` and `:`.

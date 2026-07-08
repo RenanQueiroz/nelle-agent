@@ -98,6 +98,7 @@ import {
   setConversationPinned,
   startRuntime,
   stopRuntime,
+  subscribeLlamaModelEvents,
   streamConversationChat,
   streamRegenerateMessage,
   unloadLlamaModel,
@@ -119,6 +120,7 @@ import {
   type HuggingFaceModelResult,
   type LlamaModelProps,
   type LlamaRouterModel,
+  type LlamaRouterModelUpdate,
   type RuntimeStatus,
 } from './api';
 
@@ -248,6 +250,67 @@ function routerStatusForModel(
 
 function isRunnableRouterStatus(status: string | null | undefined): boolean {
   return status === 'loaded' || status === 'sleeping';
+}
+
+function mergeRouterModelUpdate(
+  routerModels: LlamaRouterModel[],
+  update: LlamaRouterModelUpdate,
+): LlamaRouterModel[] {
+  const index = routerModels.findIndex(model => routerModelMatchesUpdate(model, update));
+  if (index < 0) {
+    if (!update.sectionId && !update.routerModelId) {
+      return routerModels;
+    }
+    return [
+      ...routerModels,
+      {
+        sectionId: update.sectionId ?? update.routerModelId ?? 'unknown',
+        routerModelId: update.routerModelId ?? update.sectionId,
+        alias: update.alias ?? update.sectionId ?? update.routerModelId ?? 'unknown',
+        hfRepo: update.hfRepo,
+        status: update.status ?? 'unknown',
+        progress: update.progress,
+        aliases: update.aliases ?? [],
+        source: update.source,
+        architecture: update.architecture,
+        raw: update.raw,
+      },
+    ];
+  }
+
+  const existing = routerModels[index]!;
+  const next: LlamaRouterModel = {
+    ...existing,
+    routerModelId: update.routerModelId ?? existing.routerModelId,
+    alias: update.alias ?? existing.alias,
+    hfRepo: update.hfRepo ?? existing.hfRepo,
+    status: update.status ?? existing.status,
+    progress: update.progress ?? existing.progress,
+    aliases: update.aliases ?? existing.aliases,
+    source: update.source ?? existing.source,
+    architecture: update.architecture ?? existing.architecture,
+    raw: update.raw ?? existing.raw,
+  };
+  return routerModels.map((model, modelIndex) => (modelIndex === index ? next : model));
+}
+
+function routerModelMatchesUpdate(
+  model: LlamaRouterModel,
+  update: LlamaRouterModelUpdate,
+): boolean {
+  const candidateIds = [
+    update.sectionId,
+    update.routerModelId,
+    update.hfRepo,
+    ...(update.aliases ?? []),
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+  return candidateIds.some(
+    candidate =>
+      candidate === model.sectionId ||
+      candidate === model.routerModelId ||
+      candidate === model.hfRepo ||
+      model.aliases.includes(candidate),
+  );
 }
 
 export function App() {
@@ -472,6 +535,18 @@ export function App() {
       isCancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!runtime?.running) {
+      return;
+    }
+    return subscribeLlamaModelEvents(event => {
+      const modelUpdate = event.model;
+      if (modelUpdate) {
+        setRouterModels(prev => mergeRouterModelUpdate(prev, modelUpdate));
+      }
+    });
+  }, [runtime?.running]);
 
   useEffect(() => {
     let isCancelled = false;

@@ -361,6 +361,88 @@ test('loads an unloaded router model from the composer selector', async ({page})
   await expect(page.getByText('loaded', {exact: true}).last()).toBeVisible();
 });
 
+test('updates router model selector state from SSE events', async ({page}) => {
+  const model = {
+    id: 'model-a',
+    name: 'Model A',
+    presetName: 'model-a',
+    source: 'huggingface',
+    repoId: 'repo/model-a',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model-a:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    logPath: '/tmp/llama.log',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    modelsMax: 1,
+    sleepIdleSeconds: 90,
+    activeModelId: model.id,
+    lastError: null,
+  };
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: model.id,
+            routerModelId: model.id,
+            alias: model.name,
+            hfRepo: model.hfRef,
+            status: 'unloaded',
+            aliases: [model.id],
+          },
+        ],
+      },
+    });
+  });
+  await page.route('**/api/llama/models/events', async route => {
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: `event: download_progress\ndata: ${JSON.stringify({
+        id: model.id,
+        progress: 35,
+      })}\n\n`,
+    });
+  });
+  await mockConversationRoutes(page, {chat: []});
+
+  await page.goto('/');
+
+  await expect(page.getByText('loading', {exact: true}).last()).toBeVisible();
+  await page.getByRole('button', {name: 'Model', exact: true}).click();
+  await expect(page.getByText('35%')).toBeVisible();
+});
+
 test('renders llama.cpp prompt and generation throughput in chat message metadata', async ({
   page,
 }) => {

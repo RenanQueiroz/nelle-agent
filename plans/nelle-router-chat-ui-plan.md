@@ -154,8 +154,8 @@ Nelle currently differs from the target in these ways:
   status plus reload/load/unload actions. The composer control is now a compact
   searchable router-aware selector that groups browser-local favorites first,
   displays selected/row router status and progress, and loads an unloaded model
-  before activation. It still polls router state after load requests instead of
-  using the final SSE-backed router store.
+  before activation. The web app subscribes to Nelle's router SSE bridge for
+  live status/progress, while bounded load actions still poll for completion.
 - The web UI has a collapsible, virtualized conversation sidebar with search,
   pinned/recent groups, new-chat, running indicators, and row actions.
   Runtime/model/global/chats controls live in a right-side Settings panel.
@@ -1590,16 +1590,14 @@ Exit criteria:
 - Done: move HF search/import and param editing into Settings.
 - Done for the compact composer selector: alias display, built-in search,
   browser-local favorite grouping, selected/row router status and progress, and
-  load-before-activation for unloaded models. Pending: SSE-backed live progress
-  updates.
+  load-before-activation for unloaded models.
 - Done: add manual load/unload controls in Settings model rows.
 - Done: fetch and cache loaded model props so the composer can display
   context-window metadata, gate image attachments, and show loaded-model
   context/modality metadata in selector rows.
 - Done for Settings writes: alias/param edits, HF imports, duplicate/remove, and
   global param saves write `models.ini` and reload router models when running.
-  Remaining: SSE-backed router status/progress store and explicit active-run edit
-  locks.
+  Remaining: explicit active-run edit locks.
 
 Exit criteria:
 
@@ -1666,8 +1664,9 @@ Exit criteria:
 - Done: replace the old throughput text with a Reading/Generation statistics
   widget that shows tokens, elapsed time, and speed for the active view.
 - Done: add Pi-native model override regeneration through the assistant footer
-  model selector. The current POC polls `/api/llama/models` after requesting a
-  load; the final router-aware selector should use the router SSE store.
+  model selector. The current bounded load helper still polls `/api/llama/models`
+  after requesting a load, while shared router display state also updates from
+  the router SSE store.
 - Done: add clipboard copy behavior for assistant messages.
 
 Exit criteria:
