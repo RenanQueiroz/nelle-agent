@@ -281,12 +281,13 @@ Intentional POC limitations:
   rows are sourced from `models.ini` and mirrored into state only as a
   compatibility backup. SQLite stores conversation rows and active-branch
   projections, but is not yet the primary database for all app state.
-- The web UI has a collapsible, virtualized conversation sidebar with new-chat,
-  search, pin/rename/reset/duplicate/delete row actions, pinned/recent sections,
-  and running indicators. User-message fork and conversation duplicate create
-  new Pi session files, and local `.nelle-chat.zip` export/import creates new
-  conversations. Settings is implemented as a right-side panel; final SideNav
-  styling and full branch tree exploration are still pending.
+- The web UI uses an Astryx `SideNav` shell with a collapsible, virtualized
+  conversation sidebar, new-chat, search, pin/rename/reset/duplicate/delete row
+  actions, pinned/recent sections, and running indicators. User-message fork
+  and conversation duplicate create new Pi session files, and local
+  `.nelle-chat.zip` export/import creates new conversations. Settings is
+  implemented as a right-side panel; full branch tree exploration is still
+  pending.
 - Chat/regenerate streams now emit SSE envelopes with stable run ids and
   terminal run events. Full branch tree exploration, compact/title run streams,
   and richer abort recovery states are still pending.

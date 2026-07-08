@@ -156,10 +156,10 @@ Nelle currently differs from the target in these ways:
   displays selected/row router status and progress, and loads an unloaded model
   before activation. The web app subscribes to Nelle's router SSE bridge for
   live status/progress, while bounded load actions still poll for completion.
-- The web UI has a collapsible, virtualized conversation sidebar with search,
-  pinned/recent groups, new-chat, running indicators, and row actions.
+- The web UI uses an Astryx `SideNav` shell with a collapsible, virtualized
+  conversation sidebar with search, pinned/recent groups, new-chat, running
+  indicators, and row actions.
   Runtime/model/global/chats controls live in a right-side Settings panel.
-  Final Astryx SideNav styling is still pending.
 - The server now exposes conversation snapshots and
   `/api/conversations/:id/chat/stream`. Each streamed conversation is bound to
   one Pi JSONL session file under `.nelle/pi/sessions`, and existing session
@@ -177,8 +177,8 @@ Nelle currently differs from the target in these ways:
   are still pending.
 - Done in the current sidebar: reset/delete/pin/rename actions moved out of the
   composer footer and into each conversation row's action menu, and large lists
-  use TanStack virtualization. Fork/duplicate actions are implemented. Final
-  SideNav styling is still pending.
+  use TanStack virtualization inside an Astryx `SideNav` shell.
+  Fork/duplicate actions are implemented.
 - Done: model import/edit UX lives in Settings and writes `models.ini`
   directly. Server reads refresh the model catalog from parsed `models.ini`
   before returning model state.
@@ -1638,9 +1638,8 @@ Exit criteria:
   duplicate Pi's tree as independent Nelle truth.
 - Done in current pane: add collapsible conversation sidebar rail with new chat,
   search, pinned/recent section rows, TanStack-virtualized list, running status
-  indicators, and item overflow menus.
+  indicators, and item overflow menus, all hosted in an Astryx `SideNav` shell.
 - Done in current row actions: pin/unpin, rename, reset, duplicate, and delete.
-  Final SideNav shell styling remains pending.
 - Done: add conversation delete/pin/rename/duplicate.
 - Done: add message-level fork into a new conversation, backed by Pi
   `SessionManager.createBranchedSession()`.

@@ -33,6 +33,7 @@ import {
   type SelectorOptionType,
 } from '@astryxdesign/core/Selector';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
+import {SideNav, SideNavHeading} from '@astryxdesign/core/SideNav';
 import {Switch} from '@astryxdesign/core/Switch';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Token} from '@astryxdesign/core/Token';
@@ -41,6 +42,7 @@ import {useToast} from '@astryxdesign/core/Toast';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Icon} from '@astryxdesign/core/Icon';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
+import {VisuallyHidden} from '@astryxdesign/core/VisuallyHidden';
 import {
   ArrowPathIcon,
   ArrowDownTrayIcon,
@@ -152,6 +154,11 @@ type ComposerModelOptionDetail = {
 };
 
 type SettingsSection = 'runtime' | 'models' | 'global' | 'tools' | 'chats';
+
+type AppNotice = {
+  type: 'info' | 'warning' | 'error' | 'success';
+  text: string;
+};
 
 type ParamRow = {
   id: string;
@@ -377,10 +384,7 @@ export function App() {
   const archiveInputRef = useRef<HTMLInputElement | null>(null);
   const streamAbortController = useRef<AbortController | null>(null);
   const compactAbortController = useRef<AbortController | null>(null);
-  const [notice, setNotice] = useState<{
-    type: 'info' | 'warning' | 'error' | 'success';
-    text: string;
-  } | null>(null);
+  const [notice, setNotice] = useState<AppNotice | null>(null);
 
   const activeModel = useMemo(
     () => models.find(model => model.id === activeModelId) ?? null,
@@ -1467,123 +1471,43 @@ export function App() {
   const runtimeTone = runtime?.running ? 'green' : runtime?.installed ? 'yellow' : 'blue';
 
   return (
-    <AppShell contentPadding={0} height="fill" variant="surface">
+    <AppShell
+      contentPadding={0}
+      height="fill"
+      variant="surface"
+      sideNav={
+        <NelleSideNav
+          isCollapsed={isSidebarCollapsed}
+          onCollapsedChange={setIsSidebarCollapsed}
+          notice={notice}
+          onDismissNotice={() => setNotice(null)}
+          isSettingsOpen={isSettingsOpen}
+          onToggleSettings={() => setIsSettingsOpen(value => !value)}
+          onNewConversation={handleNewConversation}
+          isNewConversationBusy={busyAction === 'new-chat'}
+          onImportConversation={() => archiveInputRef.current?.click()}
+          isImportBusy={busyAction === 'import-chat'}
+          archiveInputRef={archiveInputRef}
+          onArchivePickerChange={handleArchivePickerChange}
+          conversationSearch={conversationSearch}
+          onConversationSearchChange={setConversationSearch}
+          conversations={conversations}
+          activeConversationId={activeConversationId}
+          onSelectConversation={handleSelectConversation}
+          onTogglePin={handleToggleConversationPin}
+          onRename={handleRenameConversation}
+          onReset={handleResetConversation}
+          onExport={handleExportConversation}
+          onClone={handleCloneConversation}
+          onDelete={handleDeleteConversation}
+        />
+      }
+    >
       <Layout
         height="fill"
         content={
           <LayoutContent padding={0}>
             <HStack height="100%" className="nelle-workbench">
-              <VStack
-                gap={4}
-                className={
-                  isSidebarCollapsed
-                    ? 'nelle-side-panel nelle-side-panel-collapsed'
-                    : 'nelle-side-panel nelle-panel-content nelle-scroll'
-                }
-              >
-                {isSidebarCollapsed ? (
-                  <CollapsedSidebar
-                    onExpand={() => setIsSidebarCollapsed(false)}
-                    onOpenSettings={() => {
-                      setIsSidebarCollapsed(false);
-                      setIsSettingsOpen(true);
-                    }}
-                    onNewConversation={handleNewConversation}
-                    isNewConversationBusy={busyAction === 'new-chat'}
-                  />
-                ) : (
-                  <>
-                    <HStack gap={2} vAlign="center">
-                      <Icon icon={ChatBubbleLeftRightIcon} size="md" color="accent" />
-                      <VStack gap={0}>
-                        <Heading level={2}>Nelle Agent</Heading>
-                        <Text type="supporting" color="secondary">
-                          Local Pi + llama.cpp POC
-                        </Text>
-                      </VStack>
-                      <StackItem size="fill" />
-                      <IconButton
-                        label="Settings"
-                        tooltip="Settings"
-                        size="sm"
-                        variant={isSettingsOpen ? 'secondary' : 'ghost'}
-                        icon={<Icon icon={Cog6ToothIcon} size="sm" />}
-                        onClick={() => setIsSettingsOpen(value => !value)}
-                      />
-                      <IconButton
-                        label="Collapse sidebar"
-                        tooltip="Collapse sidebar"
-                        size="sm"
-                        variant="ghost"
-                        icon={<Icon icon={ChevronLeftIcon} size="sm" />}
-                        onClick={() => setIsSidebarCollapsed(true)}
-                      />
-                    </HStack>
-
-                    {notice && (
-                      <Banner
-                        status={notice.type}
-                        title={notice.text}
-                        isDismissable
-                        onDismiss={() => setNotice(null)}
-                      />
-                    )}
-
-                    <Card padding={3}>
-                      <VStack gap={3}>
-                        <HStack gap={2} vAlign="center">
-                          <StackItem size="fill">
-                            <Heading level={3}>Conversations</Heading>
-                          </StackItem>
-                          <Button
-                            label="New chat"
-                            size="sm"
-                            variant="secondary"
-                            icon={<Icon icon={PlusIcon} size="sm" />}
-                            isLoading={busyAction === 'new-chat'}
-                            onClick={handleNewConversation}
-                          />
-                          <Button
-                            label="Import"
-                            size="sm"
-                            variant="ghost"
-                            icon={<Icon icon={ArrowUpTrayIcon} size="sm" />}
-                            isLoading={busyAction === 'import-chat'}
-                            onClick={() => archiveInputRef.current?.click()}
-                          />
-                          <input
-                            ref={archiveInputRef}
-                            aria-label="Import conversation archive"
-                            className="nelle-hidden-file-input"
-                            type="file"
-                            accept=".nelle-chat.zip,application/zip"
-                            onChange={handleArchivePickerChange}
-                          />
-                        </HStack>
-                        <TextInput
-                          label="Search conversations"
-                          value={conversationSearch}
-                          onChange={setConversationSearch}
-                          placeholder="Search chats"
-                        />
-                        <ConversationVirtualList
-                          conversations={conversations}
-                          query={conversationSearch}
-                          activeConversationId={activeConversationId}
-                          onSelect={handleSelectConversation}
-                          onTogglePin={handleToggleConversationPin}
-                          onRename={handleRenameConversation}
-                          onReset={handleResetConversation}
-                          onExport={handleExportConversation}
-                          onClone={handleCloneConversation}
-                          onDelete={handleDeleteConversation}
-                        />
-                      </VStack>
-                    </Card>
-                  </>
-                )}
-              </VStack>
-
               <StackItem size="fill" className="nelle-chat-column">
                 <ChatLayout
                   data-testid="chat-layout"
@@ -2895,45 +2819,200 @@ type ConversationListRow =
       conversation: ConversationListItem;
     };
 
-function CollapsedSidebar({
-  onExpand,
-  onOpenSettings,
+function NelleSideNav({
+  isCollapsed,
+  onCollapsedChange,
+  notice,
+  onDismissNotice,
+  isSettingsOpen,
+  onToggleSettings,
   onNewConversation,
   isNewConversationBusy,
+  onImportConversation,
+  isImportBusy,
+  archiveInputRef,
+  onArchivePickerChange,
+  conversationSearch,
+  onConversationSearchChange,
+  conversations,
+  activeConversationId,
+  onSelectConversation,
+  onTogglePin,
+  onRename,
+  onReset,
+  onExport,
+  onClone,
+  onDelete,
 }: {
-  onExpand: () => void;
-  onOpenSettings: () => void;
+  isCollapsed: boolean;
+  onCollapsedChange: (isCollapsed: boolean) => void;
+  notice: AppNotice | null;
+  onDismissNotice: () => void;
+  isSettingsOpen: boolean;
+  onToggleSettings: () => void;
   onNewConversation: () => void | Promise<void>;
   isNewConversationBusy: boolean;
+  onImportConversation: () => void;
+  isImportBusy: boolean;
+  archiveInputRef: {current: HTMLInputElement | null};
+  onArchivePickerChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  conversationSearch: string;
+  onConversationSearchChange: (value: string) => void;
+  conversations: ConversationListItem[];
+  activeConversationId: string;
+  onSelectConversation: (conversationId: string) => void | Promise<void>;
+  onTogglePin: (conversation: ConversationListItem) => void | Promise<void>;
+  onRename: (conversation: ConversationListItem) => void | Promise<void>;
+  onReset: (conversationId: string) => void | Promise<void>;
+  onExport: (conversation: ConversationListItem) => void | Promise<void>;
+  onClone: (conversation: ConversationListItem) => void | Promise<void>;
+  onDelete: (conversation: ConversationListItem) => void | Promise<void>;
 }) {
   return (
-    <VStack gap={2} hAlign="center" className="nelle-collapsed-sidebar-content">
-      <IconButton
-        label="Expand sidebar"
-        tooltip="Expand sidebar"
-        size="sm"
-        variant="ghost"
-        icon={<Icon icon={ChevronRightIcon} size="sm" />}
-        onClick={onExpand}
-      />
-      <IconButton
-        label="New chat"
-        tooltip="New chat"
-        size="sm"
-        variant="primary"
-        icon={<Icon icon={PlusIcon} size="sm" />}
-        isLoading={isNewConversationBusy}
-        onClick={() => void onNewConversation()}
-      />
-      <IconButton
-        label="Settings"
-        tooltip="Settings"
-        size="sm"
-        variant="ghost"
-        icon={<Icon icon={Cog6ToothIcon} size="sm" />}
-        onClick={onOpenSettings}
-      />
-    </VStack>
+    <SideNav
+      data-testid="nelle-side-nav"
+      className="nelle-side-nav"
+      resizable={{
+        defaultWidth: 360,
+        minWidth: 300,
+        maxWidth: 440,
+        autoSaveId: 'nelle.sideNav.width',
+      }}
+      collapsible={{
+        isCollapsed,
+        onCollapsedChange,
+        hasButton: false,
+      }}
+      header={
+        <VStack gap={0}>
+          <VisuallyHidden as="h2">Nelle Agent</VisuallyHidden>
+          <SideNavHeading
+            heading="Nelle Agent"
+            subheading="Local Pi + llama.cpp POC"
+            icon={<Icon icon={ChatBubbleLeftRightIcon} size="md" color="accent" />}
+            headerEndContent={
+              <IconButton
+                label="Settings"
+                tooltip="Settings"
+                size="sm"
+                variant={isSettingsOpen ? 'secondary' : 'ghost'}
+                icon={<Icon icon={Cog6ToothIcon} size="sm" />}
+                onClick={onToggleSettings}
+              />
+            }
+          />
+        </VStack>
+      }
+      topContent={
+        isCollapsed ? undefined : (
+          <VStack gap={3} className="nelle-side-nav-top">
+            {notice && (
+              <Banner
+                status={notice.type}
+                title={notice.text}
+                isDismissable
+                onDismiss={onDismissNotice}
+              />
+            )}
+            <HStack gap={2} vAlign="center">
+              <Button
+                label="New chat"
+                size="sm"
+                variant="secondary"
+                icon={<Icon icon={PlusIcon} size="sm" />}
+                isLoading={isNewConversationBusy}
+                onClick={onNewConversation}
+              />
+              <Button
+                label="Import"
+                size="sm"
+                variant="ghost"
+                icon={<Icon icon={ArrowUpTrayIcon} size="sm" />}
+                isLoading={isImportBusy}
+                onClick={onImportConversation}
+              />
+              <input
+                ref={archiveInputRef}
+                aria-label="Import conversation archive"
+                className="nelle-hidden-file-input"
+                type="file"
+                accept=".nelle-chat.zip,application/zip"
+                onChange={onArchivePickerChange}
+              />
+            </HStack>
+            <TextInput
+              label="Search conversations"
+              value={conversationSearch}
+              onChange={onConversationSearchChange}
+              placeholder="Search chats"
+            />
+          </VStack>
+        )
+      }
+      footerIcons={
+        <HStack gap={1} hAlign="center" vAlign="center" className="nelle-side-nav-footer-icons">
+          <IconButton
+            label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            tooltip={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            size="sm"
+            variant="ghost"
+            icon={<Icon icon={isCollapsed ? ChevronRightIcon : ChevronLeftIcon} size="sm" />}
+            onClick={() => onCollapsedChange(!isCollapsed)}
+          />
+          {isCollapsed && (
+            <IconButton
+              label="New chat"
+              tooltip="New chat"
+              size="sm"
+              variant="primary"
+              icon={<Icon icon={PlusIcon} size="sm" />}
+              isLoading={isNewConversationBusy}
+              onClick={() => void onNewConversation()}
+            />
+          )}
+          {isCollapsed && (
+            <IconButton
+              label="Settings"
+              tooltip="Settings"
+              size="sm"
+              variant={isSettingsOpen ? 'secondary' : 'ghost'}
+              icon={<Icon icon={Cog6ToothIcon} size="sm" />}
+              onClick={() => {
+                onCollapsedChange(false);
+                if (!isSettingsOpen) {
+                  onToggleSettings();
+                }
+              }}
+            />
+          )}
+        </HStack>
+      }
+    >
+      {isCollapsed ? (
+        <VStack className="nelle-side-nav-collapsed-spacer" />
+      ) : (
+        <VStack gap={2} className="nelle-side-nav-conversations">
+          <HStack gap={2} vAlign="center" className="nelle-side-nav-section-heading">
+            <Text type="supporting" color="secondary" weight="semibold">
+              Conversations
+            </Text>
+            <Token size="sm" color="gray" label={String(conversations.length)} />
+          </HStack>
+          <ConversationVirtualList
+            conversations={conversations}
+            query={conversationSearch}
+            activeConversationId={activeConversationId}
+            onSelect={onSelectConversation}
+            onTogglePin={onTogglePin}
+            onRename={onRename}
+            onReset={onReset}
+            onExport={onExport}
+            onClone={onClone}
+            onDelete={onDelete}
+          />
+        </VStack>
+      )}
+    </SideNav>
   );
 }
 

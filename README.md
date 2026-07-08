@@ -108,16 +108,16 @@ Implemented:
 Not implemented yet:
 
 - Mobile LAN pairing and Expo push.
-- Full Pi-backed conversation UI and lifecycle. The server now maps each Nelle
-  conversation to one Pi session file and reopens that file on demand. The web
-  UI has a collapsible virtualized conversation sidebar with search, pinned and
-  recent sections, running indicators, and row actions for pin, rename, reset,
-  duplicate, and delete. Assistant regeneration uses Pi branch replay with
-  preserved visible answer variants, and user-message fork creates new
-  conversations from persisted Pi entries. The composer has an Astryx
-  `/compact` typeahead, composer-local unsupported slash-command guidance,
-  visible compaction status rows, and local `.nelle-chat.zip` export/import.
-  Richer abort recovery and final SideNav styling are still pending.
+- Remaining Pi-backed conversation lifecycle polish. The server now maps each
+  Nelle conversation to one Pi session file and reopens that file on demand.
+  The web UI uses an Astryx `SideNav` shell with a collapsible virtualized
+  conversation sidebar, search, pinned and recent sections, running indicators,
+  and row actions for pin, rename, reset, duplicate, and delete. Assistant
+  regeneration uses Pi branch replay with preserved visible answer variants,
+  and user-message fork creates new conversations from persisted Pi entries.
+  The composer has an Astryx `/compact` typeahead, composer-local unsupported
+  slash-command guidance, visible compaction status rows, and local
+  `.nelle-chat.zip` export/import. Richer abort recovery is still pending.
 - Complete REST/SSE run lifecycle coverage for compaction/title/background
   events, richer abort recovery states, and llama.cpp slot-level abort
   verification.
