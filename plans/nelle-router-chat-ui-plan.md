@@ -74,6 +74,23 @@ Relevant upstream UI patterns:
   generation indicators.
 - Conversation item actions include pin/unpin, edit name, export, delete, and
   stop generation when that conversation is streaming.
+- In router mode, llama.cpp UI treats global `/props` as server/router metadata
+  and fetches `/props?model=<id>&autoload=false` for loaded model-specific
+  metadata such as modalities and `default_generation_settings.n_ctx`.
+- Model modalities are exposed as booleans for `vision`, `audio`, and `video`.
+  Nelle will use `vision` for image gating and ignore audio/video in the first
+  attachment pass because Pi's supported structured input path is text plus
+  images.
+- Text files and PDFs are always accepted. PDFs are sent as extracted text by
+  default, or as page images only when the selected model has vision support and
+  the user enables that mode.
+- Images require vision support. Unknown or binary-looking files should be
+  rejected or skipped with a visible composer status.
+- llama.cpp's chat stream supports `return_progress`; streamed
+  `prompt_progress` contains `total`, `cache`, `processed`, and `time_ms`.
+  Final/streamed `timings` carries prompt and generated-token timing data.
+- llama.cpp reports context-overflow errors with `n_prompt_tokens` and `n_ctx`,
+  and exposes `n_ctx` in `/props` and `/slots`.
 
 ## Current Gaps
 
@@ -91,6 +108,10 @@ Nelle currently differs from the target in these ways:
 - Reset conversation is a composer footer action rather than a conversation
   action.
 - Model import/edit UX is split between app state and generated preset writes.
+- The composer has no attachment drawer, file picker, context-window bar, or
+  model-modality gating.
+- Chat warnings/errors still appear as page-level notices instead of
+  composer-local Astryx status messages.
 
 ## Target Data Ownership
 
@@ -141,6 +162,9 @@ Core tables:
 - `messages`: `id`, `conversation_id`, `role`, `content`, `created_at`,
   `parent_id`, `active_child_id?`, `model_id?`, `model_runtime_id?`,
   `model_alias_snapshot?`, `performance_json`, `tool_calls_json`.
+- `message_attachments`: `id`, `message_id`, `kind`, `name`, `mime_type`,
+  `size_bytes`, `storage_path?`, `text_content?`, `processing_json`,
+  `created_at`.
 - `settings`: runtime and UI settings that are not model params.
 
 Message model fields:
@@ -159,6 +183,8 @@ Keep generated files out of the DB:
 - `.nelle/llama/models.ini`
 - `.nelle/llama/llama-server.pid.json`
 - logs, downloads, llama.cpp binaries/builds
+- attachment binary payloads under `.nelle/attachments/` when they are too
+  large or unsuitable for SQLite rows
 
 ## Router Runtime Architecture
 
@@ -193,6 +219,10 @@ Nelle should expose stable local APIs that wrap llama.cpp router endpoints:
 - `GET /api/llama/props`
   - calls router `/props`
   - returns `role`, `maxInstances`, `modelsAutoload`, runtime status
+- `GET /api/llama/models/:id/props`
+  - calls router `/props?model=<id>&autoload=false`
+  - returns model-specific `modalities`, `n_ctx`, chat template, and fetch state
+  - may return `unavailable` for unloaded models without autoloading them
 - `GET /api/llama/models`
   - calls router `/models`
   - merges model metadata with parsed `models.ini` display aliases and params
@@ -207,6 +237,10 @@ Nelle should expose stable local APIs that wrap llama.cpp router endpoints:
   - calls router `GET /models?reload=1`
 - `PUT /api/llama/models-ini`
   - writes global and model-section params, then reloads if running
+- `POST /api/llama/tokenize`
+  - optional helper for text-only draft estimates
+  - should never be treated as authoritative for multimodal requests or full
+    chat-template/tool history
 
 Nelle's UI should not call llama.cpp directly except through the existing chat
 proxy path. This gives us one place to normalize errors, router-offline states,
@@ -220,7 +254,9 @@ Selection behavior:
 2. If router reports `loaded` or `sleeping`, use it immediately.
 3. If router reports `unloaded`, call Nelle load API.
 4. Subscribe to model SSE status and show progress until `loaded`.
-5. If loading fails, keep the previous selection and surface the router status
+5. Fetch `/api/llama/models/:id/props` once loaded so the UI can cache
+   modalities and context size for that model.
+6. If loading fails, keep the previous selection and surface the router status
    and logs link.
 
 Capacity behavior:
@@ -310,6 +346,114 @@ Composer:
 - Remove reset conversation button from composer footer.
 - Keep model dropdown.
 - Keep exactly one Astryx default send/stop button.
+- Add a paperclip attachment action in `headerActions`.
+- Show context-window usage in `headerContext`.
+- Route chat-blocking errors and chat warnings through Astryx `ChatComposer`
+  status instead of page-level notices.
+
+### Composer Attachments, Context, And Status
+
+Use Astryx's full-featured composer pattern:
+
+- `ChatComposerDrawer` holds attachment chips/previews.
+- `Token` represents attached files with remove controls.
+- `headerActions` contains the attach-file button and later any context-source
+  controls.
+- `headerContext` contains a compact `ProgressBar` for context-window usage.
+- `footerActions` keeps the router-aware model selector and settings controls.
+- `sendActions` remains for auxiliary controls only. Do not add another send
+  button.
+
+Attachment support:
+
+- Start with user-selected local files from the browser file picker, drag/drop,
+  and paste when browser APIs support it.
+- Supported attachment kinds are text files, PDFs, and images. Audio and video
+  attachments are out of scope for this phase.
+- Voice capture remains out of scope.
+- Use browser-side file processing for preview and immediate send:
+  - read text files as UTF-8 and reject empty/binary-looking content;
+  - extract PDF text with `pdfjs-dist`;
+  - optionally render PDF pages to PNG data URLs when the selected model has
+    vision support and the user enables PDF-as-image mode;
+  - normalize image formats to model-friendly data URLs where needed.
+- Persist attachment metadata with the message. Store large binary payloads
+  under `.nelle/attachments/` and keep the DB row as metadata plus relative
+  storage pointer.
+
+Modality gating:
+
+- Source of truth is model-specific props from
+  `/api/llama/models/:id/props`, which wraps
+  `/props?model=<id>&autoload=false`.
+- In router mode, unloaded models may not have props. After selection loads the
+  model, refresh props before enabling model-specific attachment controls.
+- If modalities are unknown, allow only text and PDF-as-text; keep image
+  controls disabled with a tooltip/status explaining that the selected model
+  needs to be loaded before capabilities are known.
+- Text files and PDF-as-text are model-agnostic.
+- Images and PDF-as-image require `modalities.vision`.
+- Keep `modalities.audio` and `modalities.video` in the internal model-props
+  type for parity with llama.cpp responses, but do not expose audio/video upload
+  in the Nelle composer while Pi only supports text and image structured input.
+- If the user switches models with pending attachments, revalidate the pending
+  attachment list against the new model and surface any newly unsupported items
+  as a top composer error until removed or converted.
+- When replaying conversation history for a model without vision, strip
+  unsupported image parts from history and surface a warning rather than sending
+  invalid content.
+
+Pi and llama.cpp payload mapping:
+
+- Change the Nelle chat request model from `prompt: string` to a structured
+  content array: text parts plus normalized image attachment parts.
+- For llama.cpp/OpenAI chat completions:
+  - text/PDF content becomes `type: "text"` content parts;
+  - images/PDF pages become `type: "image_url"` parts.
+- For Pi:
+  - advertise `input: ["text", "image"]` for vision-capable models in the
+    generated Pi model registry;
+  - send text plus image content through Pi's structured user-message path
+    instead of flattening images into text.
+- If Pi cannot handle the selected structured content path, the composer should
+  show a top error. Do not silently drop attachments or fall back to plain text.
+
+Context-window display:
+
+- Show an Astryx `ProgressBar` in the composer `headerContext`.
+- The progress bar total is selected-model `n_ctx` from
+  `/api/llama/models/:id/props`, falling back to global `/props` only outside
+  router mode.
+- Authoritative used-token values come from streamed `prompt_progress.total`
+  during prompt processing and final/streamed `timings.prompt_n` plus cache and
+  generated-token counters when available.
+- The bar should update live during prompt processing and generation, then keep
+  the last known usage for the active conversation.
+- A debounced text-only `/api/llama/tokenize` estimate may be used for draft
+  text/PDF content, but it must be marked internally as estimated and replaced
+  by streamed llama.cpp values as soon as they arrive.
+- The visible UI is just the progress bar. Wrap it in Astryx `Tooltip` with
+  exact numbers when available, e.g. `Context: 6,240 / 32,768 tokens`.
+- Use semantic progress variants:
+  - neutral/accent below 80%;
+  - warning at or above 80%;
+  - error at or above 100% or when llama.cpp returns context overflow.
+- Near-full context warnings should render as bottom composer status.
+- Context overflow and send-blocking errors should render as top composer
+  status.
+
+Composer status routing:
+
+- Use `ChatComposer` `statusPosition="top"` for blocking errors:
+  llama-server stopped, no model selected, model load failed, unsupported
+  attachment, attachment parse failure that prevents sending, context overflow,
+  and Pi/provider structured-content gaps.
+- Use default bottom status for non-blocking warnings: context near full,
+  PDF-as-image disabled/fallback to text, image history stripped after model
+  switch, skipped empty text files, and partial attachment conversion fallback.
+- General runtime/setup notices outside the chat workflow may still appear in
+  settings/log surfaces, but chat sendability should be explained at the
+  composer itself.
 
 ### Assistant Message Footer
 
@@ -561,12 +705,15 @@ Exit criteria:
 - Replace composer model dropdown with router-aware selector:
   alias display, search, status, load progress.
 - Add manual load/unload controls in Settings model rows.
+- Fetch and cache loaded model props so model selectors can display modality and
+  context-window metadata.
 
 Exit criteria:
 
 - Users can edit global/model params without editing files.
 - Users can see loaded/loading/unloaded/failed states.
 - Model selector loads on selection and shows progress.
+- Loaded models expose context size and image-support capability in the UI.
 
 ### Phase 3: Conversations And Sidebar
 
@@ -608,6 +755,33 @@ Exit criteria:
 - Timing metrics render as a toggleable Reading/Generation widget with icon
   controls and tooltips, without layout overflow on mobile or desktop widths.
 
+### Phase 3C: Composer Attachments And Context Usage
+
+- Add structured chat content and message attachment persistence.
+- Add Astryx `ChatComposerDrawer` attachment chips/previews.
+- Add file picker, drag/drop, and paste handling for text, PDF, and image files.
+- Add PDF text extraction and optional PDF-as-image conversion for vision
+  models.
+- Gate image attachments and PDF-as-image mode on selected-model vision
+  support from `/api/llama/models/:id/props`.
+- Add composer `ProgressBar` for context-window usage with tooltip token
+  counts.
+- Route chat send errors/warnings through `ChatComposer` status top/bottom
+  positions.
+
+Exit criteria:
+
+- Text and PDF-as-text attachments work with text-only models.
+- Image attachments and PDF-as-image are enabled only for vision-capable models.
+- Audio/video attachments are not exposed.
+- Switching models revalidates pending attachments.
+- The composer shows a live/last-known context progress bar with token-count
+  tooltip.
+- llama-server stopped and other send-blocking conditions appear as top
+  composer errors.
+- Near-full context and non-blocking attachment conversions appear as bottom
+  composer warnings.
+
 ### Phase 4: Title Generation
 
 - Add non-persisted title-generation request after first response.
@@ -634,11 +808,15 @@ Unit tests:
 - Performance statistics view selection, formatting, and live auto-switching.
 - Clipboard text formatting.
 - Sidebar row flattening, stable virtual keys, and search/pinned grouping.
+- Attachment file classification, modality gating, PDF/text extraction
+  fallback, and context-progress formatting.
 
 Integration tests:
 
 - Mock router endpoints for `/props`, `/models`, `/models/load`,
   `/models/unload`, `/models/sse`.
+- Mock per-model `/props?model=<id>&autoload=false` for context size and
+  modalities.
 - Verify selector calls load and updates status from SSE.
 - Verify `models-max` is displayed from `/props`.
 - Verify editing `models.ini` calls reload when router is running.
@@ -647,6 +825,10 @@ Integration tests:
 - Verify regenerate preserves the old assistant answer as a sibling branch.
 - Verify prompt/generation metric mapping from streamed `prompt_progress` and
   `timings`.
+- Verify structured text/image content is preserved through Pi when the model
+  supports image input, and rejected through composer status when it does not.
+- Verify context overflow errors with `n_prompt_tokens`/`n_ctx` become composer
+  top errors.
 
 Playwright tests:
 
@@ -666,6 +848,12 @@ Playwright tests:
 - Selecting a different footer model regenerates with that model and keeps the
   new model label on the regenerated answer.
 - Copy button writes assistant text to the clipboard.
+- Attachment drawer adds/removes text, PDF, and image files; unsupported images
+  are blocked for text-only models.
+- Context progress bar tooltip shows used/total token counts and warning/error
+  status at the configured thresholds.
+- Composer shows llama-server stopped/no model/unsupported attachment as top
+  status errors and near-full context as a bottom status warning.
 - Title generation updates only the conversation title, not message history.
 
 ## Risks And Decisions
@@ -684,6 +872,9 @@ Playwright tests:
   so backup state should remain available until the SQLite migration is proven.
 - SQLite timing: sidebar and virtualized conversation list are awkward on the
   current single-array JSON state. Doing SQLite first reduces rework.
+- Attachment token estimates: text-only `/tokenize` estimates are useful for
+  draft UI but not authoritative for multimodal prompts or full chat history.
+  Streamed `prompt_progress` and final `timings` remain authoritative.
 - Title generation cost: it adds one extra model call on new conversations.
   Keep it short and make failures silent.
 
@@ -700,3 +891,5 @@ Playwright tests:
   Nelle imports; `models.ini` stays authoritative.
 - Conversation delete is a hard delete for now.
 - Local file model APIs are removed now, not just hidden.
+- Composer attachments are text, PDF, and image only for now. Audio/video are
+  excluded while the Pi integration path is text plus image.

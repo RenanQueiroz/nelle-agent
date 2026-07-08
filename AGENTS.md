@@ -54,6 +54,12 @@ Project-specific guidance for AI coding agents.
 - Sidebar conversation history virtualization uses `@tanstack/react-virtual`
   with an Astryx-styled `SideNav`/`List` row surface. Keep row keys stable and
   model pinned/search/group headers as one flattened virtual list.
+- Composer attachments are text files, PDFs, and images only. Gate images and
+  PDF-as-image mode on selected-model `modalities.vision`; do not expose
+  audio/video attachments while Pi's structured input path is text plus image.
+- Show context-window usage through the Astryx `ChatComposer` header
+  `ProgressBar` with tooltip token counts. Use composer top status for
+  send-blocking errors and bottom status for non-blocking warnings.
 - Let Astryx `ChatComposer` render its default `ChatSendButton` unless you are
   deliberately replacing it through `sendButton`; `sendActions` is only for
   auxiliary controls and must not create a second send affordance.

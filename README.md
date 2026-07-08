@@ -40,6 +40,8 @@ Not implemented yet:
 - Mobile LAN pairing and Expo push.
 - Collapsible conversation sidebar and persistence. The planned large-history
   list uses TanStack Virtual with Astryx sidebar/list styling.
+- Composer attachments and context-window display. Planned attachment scope is
+  text files, PDFs, and images only; audio/video attachments are out of scope.
 - Sandboxing for host tools.
 - SQLite persistence. The POC uses `.nelle/state.json`.
 - Progress streaming for long installs/builds.
@@ -101,6 +103,11 @@ Set these environment variables when needed:
 The chat composer uses Astryx's default up-arrow send/stop button. The footer is
 reserved for model selection and reset controls so the composer exposes only one
 send affordance.
+
+The planned composer overhaul will move chat warnings/errors into Astryx
+`ChatComposer` status, add a context-window progress bar with used/total token
+tooltip, and support text/PDF/image attachments gated by the selected model's
+vision capability. Audio/video attachments are intentionally excluded for now.
 
 Assistant message metadata shows the message time followed by llama.cpp
 throughput, for example `12:01 PM · prompt 32.30 tok/s · gen 21.53 tok/s`.

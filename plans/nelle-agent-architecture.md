@@ -81,7 +81,8 @@ The first product experience should be UI-driven:
 - Same-LAN HTTP plus pairing tokens is acceptable initially.
 - Mobile notifications should be real push notifications through
   `expo-notifications` and the Expo Push Service.
-- Text chat only. Voice/audio is out of v1 scope.
+- Text chat only. Voice/audio is out of v1 scope. Composer attachments are
+  limited to text files, PDFs, and images for the router/chat UI plan.
 - One model runs at a time. Multi-model concurrency is deferred.
 - The web UI uses Meta's Astryx components and design tokens.
 - This directory should be initialized as a real Git repo with origin
@@ -452,6 +453,16 @@ Initial implementation:
   prompt processing time, and prompt processing speed; Generation shows
   generated tokens, generation time, and generation speed. Use icon controls and
   tooltips rather than long visible labels.
+- Composer attachments should support text files, PDFs, and images only. Use
+  model-specific `/props?model=<id>&autoload=false` metadata to gate images and
+  PDF-as-image mode on `modalities.vision`; keep audio/video out of scope while
+  Pi's structured input path is text plus image.
+- Show context-window usage in the Astryx `ChatComposer` header with a
+  `ProgressBar` and hover/focus tooltip containing used/total token counts.
+  Treat streamed llama.cpp `prompt_progress` and `timings` as authoritative;
+  any tokenization estimate is draft-only.
+- Route chat sendability problems through Astryx `ChatComposer` status:
+  blocking errors above the composer and non-blocking warnings below it.
 - Regenerating an assistant answer should create a sibling branch from the same
   parent user message. Selecting a different model in the message footer should
   load that model if needed and regenerate with that model override in one
@@ -587,6 +598,8 @@ Exit criteria:
 - Web UI displays llama.cpp prompt-processing and generation throughput beside
   assistant message timestamps when the server reports it, using a toggleable
   Reading/Generation stats view with icon tooltips.
+- Web UI shows composer-local errors and warnings through Astryx
+  `ChatComposer.status` rather than page-level chat notices.
 - Web UI displays which model generated each assistant message and supports
   copy plus branch-based regenerate, including regenerate with a model override.
 - Web UI shows each tool call once, updates its status in place, and exposes
@@ -603,6 +616,9 @@ Exit criteria:
 - llama-server download/cache errors are visible through status and logs.
 - New model records update Pi `models.json` and llama `models.ini`.
 - User can switch active model from UI.
+- User can attach text files, PDFs, and images. Image/PDF-as-image controls are
+  gated by selected-model vision support; audio/video attachments are not shown.
+- Composer shows context-window usage with used/total token tooltip.
 
 ### Milestone 5: Mobile LAN API
 
