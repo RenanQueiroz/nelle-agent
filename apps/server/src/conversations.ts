@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import type {DatabaseSync} from 'node:sqlite';
 
 import type {
@@ -248,6 +249,39 @@ export class ConversationRepository {
 
   getTitleSource(id: string): ConversationSnapshot['conversation']['titleSource'] | null {
     return this.getConversation(id)?.title_source ?? null;
+  }
+
+  async markInvalidPiSessionsUnavailable(): Promise<number> {
+    const rows = this.database.connection
+      .prepare(
+        `SELECT * FROM conversations
+         WHERE deleted_at IS NULL
+           AND status != 'unavailable'
+           AND pi_session_path IS NOT NULL`,
+      )
+      .all() as ConversationRow[];
+    let changed = 0;
+    for (const row of rows) {
+      if (await piSessionFileError(row.pi_session_path)) {
+        this.setConversationStatus(row.id, 'unavailable');
+        changed += 1;
+      }
+    }
+    return changed;
+  }
+
+  async markUnavailableIfPiSessionInvalid(id: string): Promise<ConversationListItem | null> {
+    const row = this.getConversation(id);
+    if (!row) {
+      return null;
+    }
+    if (!row.pi_session_path || row.status === 'unavailable') {
+      return mapConversationListItem(row);
+    }
+    if (!(await piSessionFileError(row.pi_session_path))) {
+      return mapConversationListItem(row);
+    }
+    return this.setConversationStatus(id, 'unavailable');
   }
 
   getConversationEntries(id: string): ConversationEntryProjection[] {
@@ -1339,6 +1373,50 @@ function hasConversationSearch(db: DatabaseSync): boolean {
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'conversation_search'")
     .get() as {name: string} | undefined;
   return row != null;
+}
+
+async function piSessionFileError(sessionPath: string | null): Promise<string | null> {
+  if (!sessionPath) {
+    return null;
+  }
+  try {
+    const stat = await fs.stat(sessionPath);
+    if (!stat.isFile()) {
+      return 'Pi session path is not a file.';
+    }
+    const firstLine = await readFirstLine(sessionPath);
+    if (!firstLine) {
+      return 'Pi session file is empty.';
+    }
+    const header = JSON.parse(firstLine) as unknown;
+    if (
+      !header ||
+      typeof header !== 'object' ||
+      (header as {type?: unknown}).type !== 'session' ||
+      typeof (header as {id?: unknown}).id !== 'string'
+    ) {
+      return 'Pi session file is missing a valid session header.';
+    }
+    return null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return 'Pi session file is missing.';
+    }
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function readFirstLine(filePath: string): Promise<string> {
+  const handle = await fs.open(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(64 * 1024);
+    const {bytesRead} = await handle.read(buffer, 0, buffer.length, 0);
+    const chunk = buffer.subarray(0, bytesRead).toString('utf8');
+    const newlineIndex = chunk.search(/\r?\n/);
+    return (newlineIndex >= 0 ? chunk.slice(0, newlineIndex) : chunk).trim();
+  } finally {
+    await handle.close();
+  }
 }
 
 function escapeLike(value: string): string {

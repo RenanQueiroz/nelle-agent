@@ -111,6 +111,7 @@ export async function createServer(paths: AppPaths) {
   const conversations = new ConversationRepository(database);
   await conversations.init();
   conversations.syncPocConversationFromState(await store.getState());
+  await conversations.markInvalidPiSessionsUnavailable();
   const hostTools = new HostToolRepository(database);
   const attachmentSweep = await sweepOrphanAttachmentFiles(
     paths,
@@ -380,6 +381,7 @@ export async function createServer(paths: AppPaths) {
   app.get('/api/conversations', async request => {
     const query = listConversationsQuerySchema.parse(request.query);
     conversations.syncPocConversationFromState(await store.getState());
+    await conversations.markInvalidPiSessionsUnavailable();
     return {conversations: conversations.listConversations(query)};
   });
 
@@ -441,6 +443,7 @@ export async function createServer(paths: AppPaths) {
   app.get('/api/conversations/:id', async (request, reply) => {
     const id = (request.params as {id: string}).id;
     conversations.syncPocConversationFromState(await store.getState());
+    await conversations.markUnavailableIfPiSessionInvalid(id);
     const snapshot = conversations.getSnapshot(id, await store.getState());
     if (!snapshot) {
       return reply.status(404).send({

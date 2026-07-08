@@ -331,9 +331,12 @@ Runtime lifecycle:
 - After a Nelle server restart, rebuild the runtime pool lazily from SQLite
   conversation rows and Pi session files. Resync projections by reading Pi
   entries after `last_synced_pi_entry_id`.
-- If a Pi session file is missing or corrupt, mark the conversation unavailable
-  and show a repair/delete/export-diagnostics action instead of creating a new
-  unrelated session under the same Nelle conversation id.
+- Done for detection/prevention: if a bound Pi session file is missing or
+  corrupt, mark the conversation unavailable, return a `session_unavailable`
+  snapshot error, and block chat, compaction, regeneration, fork, and duplicate
+  without creating a replacement session under the same Nelle conversation id.
+  Repair/delete/export-diagnostics UI polish remains part of the broader repair
+  workflow.
 - Forking or duplicating a conversation creates a new Pi session file through
   Pi's `SessionManager.createBranchedSession(leafId)` primitive and then
   creates a new Nelle conversation row that points to that new file. Use
@@ -1174,9 +1177,9 @@ Rules:
   selected model modalities, host-tool settings, and active run state.
 - Snapshot responses should include enough model and context data to render the
   composer without an immediate second request.
-- If the Pi session file is missing/corrupt, return the conversation row with
-  `status: "unavailable"` and a `session_unavailable` error instead of creating
-  a replacement session.
+- Done: if the Pi session file is missing/corrupt, return the conversation row
+  with `status: "unavailable"` and a `session_unavailable` error instead of
+  creating a replacement session.
 
 API shape:
 
@@ -1586,7 +1589,10 @@ Exit criteria:
 
 - Creating a conversation creates a Pi session file and stores its path/id in
   SQLite.
-- Reopening a conversation after server restart opens the same Pi session file.
+- Done for unavailable-session protection: reopening a conversation after server
+  restart validates the same Pi session file; missing or malformed files become
+  `unavailable` instead of being replaced. Full projection resync from all Pi
+  entries remains covered by the existing active-branch projection path.
 - Multiple conversation runtimes can exist, while each conversation allows only
   one active run.
 - Conversation streams emit typed envelopes with stable `runId`s.

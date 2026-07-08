@@ -302,6 +302,62 @@ test('repository stores Pi session bindings and replaces active branch projectio
   }
 });
 
+test('repository marks missing or corrupt Pi session files unavailable', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    const missingConversation = repository.createConversation({title: 'Missing session'});
+    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const userEntryId = sessionManager.appendMessage({
+      role: 'user',
+      content: 'This session file will disappear',
+    } as any);
+    const sessionPath = sessionManager.getSessionFile();
+    assert.ok(sessionPath);
+    repository.attachPiSession(missingConversation.id, {
+      piSessionPath: sessionPath,
+      piSessionId: sessionManager.getSessionId(),
+      activeLeafPiEntryId: userEntryId,
+    });
+    await fs.rm(sessionPath, {force: true});
+
+    const missing = await repository.markUnavailableIfPiSessionInvalid(missingConversation.id);
+    const missingSnapshot = repository.getSnapshot(missingConversation.id, await store.getState());
+
+    assert.equal(missing?.status, 'unavailable');
+    assert.equal(missingSnapshot?.conversation.status, 'unavailable');
+    assert.equal(missingSnapshot?.capabilities.canSend, false);
+    assert.equal(missingSnapshot?.capabilities.canFork, false);
+    assert.equal(missingSnapshot?.errors[0]?.code, 'session_unavailable');
+
+    const corruptConversation = repository.createConversation({title: 'Corrupt session'});
+    const corruptPath = path.join(paths.piSessionsDir, 'corrupt.jsonl');
+    await fs.mkdir(path.dirname(corruptPath), {recursive: true});
+    await fs.writeFile(corruptPath, 'not-json\n');
+    repository.attachPiSession(corruptConversation.id, {
+      piSessionPath: corruptPath,
+      piSessionId: 'corrupt-session',
+    });
+
+    const changed = await repository.markInvalidPiSessionsUnavailable();
+    const corruptSnapshot = repository.getSnapshot(corruptConversation.id, await store.getState());
+
+    assert.equal(changed, 1);
+    assert.equal(corruptSnapshot?.conversation.status, 'unavailable');
+    assert.equal(
+      repository
+        .listConversations({search: 'Corrupt'})
+        .find(conversation => conversation.id === corruptConversation.id)?.status,
+      'unavailable',
+    );
+  } finally {
+    database.close();
+  }
+});
+
 test('repository applies generated titles without overwriting user titles', async () => {
   const paths = await createTempPaths();
   const database = new AppDatabase(paths);
@@ -605,6 +661,47 @@ test('Pi fork from a user entry creates a durable new session file', async () =>
       repository.getConversationEntries(source.id).map(entry => entry.piEntryId),
       [userEntryId, assistantEntryId],
     );
+  } finally {
+    database.close();
+  }
+});
+
+test('Pi harness does not recreate a missing bound session file', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    await store.addHuggingFaceModel({
+      repoId: 'repo/model',
+      quant: 'UD-Q4_K_M',
+      name: 'Model Q4',
+    });
+
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Missing session'});
+    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const userEntryId = sessionManager.appendMessage({
+      role: 'user',
+      content: 'Original prompt',
+    } as any);
+    const sessionPath = sessionManager.getSessionFile();
+    assert.ok(sessionPath);
+    repository.attachPiSession(conversation.id, {
+      piSessionPath: sessionPath,
+      piSessionId: sessionManager.getSessionId(),
+      activeLeafPiEntryId: userEntryId,
+    });
+    await fs.rm(sessionPath, {force: true});
+
+    const harness = new PiHarness(paths, store, repository, new HostToolRepository(database));
+
+    await assert.rejects(
+      () => harness.streamPrompt('Do not create a replacement session', conversation.id),
+      /conversation session is unavailable/i,
+    );
+    assert.equal(repository.getConversation(conversation.id)?.status, 'unavailable');
+    assert.deepEqual(await fs.readdir(paths.piSessionsDir), []);
   } finally {
     database.close();
   }

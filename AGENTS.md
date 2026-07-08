@@ -52,6 +52,10 @@ Project-specific guidance for AI coding agents.
   files as authoritative for message history, compaction, and branch state;
   SQLite stores conversation indexes, projections, and Nelle-only sidecar
   metadata.
+- Validate existing Pi session bindings before opening a runtime. Missing or
+  malformed session files must mark the conversation `unavailable` and surface
+  `session_unavailable`; do not create a replacement session under the same
+  conversation id.
 - Chat UI streaming should use `/api/conversations/:id/chat/stream`; the legacy
   `/api/chat/stream` endpoint is only a default-conversation compatibility
   wrapper.

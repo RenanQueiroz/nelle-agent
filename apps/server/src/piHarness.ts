@@ -197,6 +197,7 @@ export class PiHarness {
     this.conversations.ensureConversation(conversationId, {
       defaultModelId: activeModel.id,
     });
+    await this.assertConversationSessionAvailable(conversationId);
     const run = this.beginRun(conversationId, 'compact', activeModel.id);
     this.conversations.setConversationStatus(conversationId, 'compacting');
     queue?.push(createRunStartedEvent(run));
@@ -239,16 +240,16 @@ export class PiHarness {
         return {compacted: false};
       }
       const runError = {
-        code: 'compact_failed',
+        code: isSessionUnavailableError(error) ? 'session_unavailable' : 'compact_failed',
         message: error instanceof Error ? error.message : String(error),
-        retryable: true,
+        retryable: !isSessionUnavailableError(error),
       };
       queue?.push(createCompactFailedEvent(run, runError));
       queue?.push(createRunCompletedEvent(run, 'failed', runError));
       throw error;
     } finally {
       this.finishRun(conversationId, run.runId);
-      this.conversations.setConversationStatus(conversationId, 'ready');
+      this.setConversationReadyUnlessUnavailable(conversationId);
     }
   }
 
@@ -318,6 +319,7 @@ export class PiHarness {
       title: prompt.slice(0, 80) || 'New chat',
       defaultModelId: activeModel.id,
     });
+    await this.assertConversationSessionAvailable(conversationId);
     const promptAttachments = await this.preparePromptAttachments(
       conversationId,
       attachments,
@@ -356,7 +358,7 @@ export class PiHarness {
       run,
       promptAttachments,
     }).catch(error => {
-      this.conversations.setConversationStatus(conversationId, 'ready');
+      this.setConversationReadyUnlessUnavailable(conversationId);
       queue.push({
         type: 'error',
         message: error instanceof Error ? error.message : String(error),
@@ -380,6 +382,7 @@ export class PiHarness {
         input.modelId ? `Unknown model: ${input.modelId}` : 'Select a model before regenerating.',
       );
     }
+    await this.assertConversationSessionAvailable(input.conversationId);
 
     const source = this.conversations.getRegenerationSource(
       input.conversationId,
@@ -437,7 +440,7 @@ export class PiHarness {
       appendLegacyState: false,
       promptAttachments,
     }).catch(error => {
-      this.conversations.setConversationStatus(input.conversationId, 'ready');
+      this.setConversationReadyUnlessUnavailable(input.conversationId);
       queue.push({
         type: 'error',
         message: error instanceof Error ? error.message : String(error),
@@ -494,7 +497,7 @@ export class PiHarness {
     if (run.abortRequested) {
       pushRunAbortedEvents(queue, run);
       this.finishRun(conversationId, run.runId);
-      this.conversations.setConversationStatus(conversationId, 'ready');
+      this.setConversationReadyUnlessUnavailable(conversationId);
       queue.end();
       return;
     }
@@ -672,7 +675,7 @@ export class PiHarness {
       queue.push({type: 'done', message: assistantMessage});
       queue.push(createRunCompletedEvent(run, 'completed'));
       this.finishRun(conversationId, run.runId);
-      this.conversations.setConversationStatus(conversationId, 'ready');
+      this.setConversationReadyUnlessUnavailable(conversationId);
       stopPromptResources();
       await this.streamConversationTitleIfNeeded(conversationId, activeModel, syncedEntries, queue);
       queue.end();
@@ -684,16 +687,16 @@ export class PiHarness {
       }
       queue.push(
         createRunCompletedEvent(run, 'failed', {
-          code: 'pi_run_failed',
+          code: isSessionUnavailableError(error) ? 'session_unavailable' : 'pi_run_failed',
           message: error instanceof Error ? error.message : String(error),
-          retryable: true,
+          retryable: !isSessionUnavailableError(error),
         }),
       );
       throw error;
     } finally {
       stopPromptResources();
       this.finishRun(conversationId, run.runId);
-      this.conversations.setConversationStatus(conversationId, 'ready');
+      this.setConversationReadyUnlessUnavailable(conversationId);
     }
   }
 
@@ -820,6 +823,7 @@ export class PiHarness {
     await resourceLoader.reload();
 
     await fs.mkdir(this.paths.piSessionsDir, {recursive: true});
+    await this.assertConversationSessionAvailable(conversationId);
     const binding = this.conversations.getPiSessionBinding(conversationId);
     const sessionManager = binding?.piSessionPath
       ? SessionManager.open(binding.piSessionPath, this.paths.piSessionsDir, this.paths.repoRoot)
@@ -851,6 +855,24 @@ export class PiHarness {
       session,
     });
     return session;
+  }
+
+  private async assertConversationSessionAvailable(conversationId: string): Promise<void> {
+    const conversation = await this.conversations.markUnavailableIfPiSessionInvalid(conversationId);
+    if (conversation?.status !== 'unavailable') {
+      return;
+    }
+    this.#sessions.get(conversationId)?.session.dispose?.();
+    this.#sessions.delete(conversationId);
+    this.#activeRuns.delete(conversationId);
+    throw new SessionUnavailableError();
+  }
+
+  private setConversationReadyUnlessUnavailable(conversationId: string): void {
+    if (this.conversations.getConversation(conversationId)?.status === 'unavailable') {
+      return;
+    }
+    this.conversations.setConversationStatus(conversationId, 'ready');
   }
 
   private async preparePromptAttachments(
@@ -1012,6 +1034,7 @@ export class PiHarness {
     if (!source) {
       throw new Error(`Conversation ${input.conversationId} was not found.`);
     }
+    await this.assertConversationSessionAvailable(input.conversationId);
     const binding = this.conversations.getPiSessionBinding(input.conversationId);
     if (!binding?.piSessionPath) {
       throw new Error('This conversation does not have a Pi session to branch.');
@@ -1875,4 +1898,17 @@ function truncateToolDetail(value: string): string {
     return value;
   }
   return `${value.slice(0, limit)}\n\n[truncated ${value.length - limit} chars]`;
+}
+
+class SessionUnavailableError extends Error {
+  constructor() {
+    super(
+      'The conversation session is unavailable. Restore or import the Pi session file, or delete the conversation.',
+    );
+    this.name = 'SessionUnavailableError';
+  }
+}
+
+function isSessionUnavailableError(error: unknown): boolean {
+  return error instanceof SessionUnavailableError;
 }

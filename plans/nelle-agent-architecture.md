@@ -287,6 +287,11 @@ Intentional POC limitations:
   SQLite schema migrations create a `settings.sqlite` backup before applying
   migrations or repairing missing migration records; broader state/Pi/attachment
   migration backups remain part of the future migration path.
+- Bound Pi session files are validated before snapshot/list recovery and before
+  opening Pi runtimes for chat, compaction, regeneration, fork, or duplicate. A
+  missing or malformed file marks the conversation unavailable and surfaces
+  `session_unavailable`; Nelle does not create a replacement session under that
+  conversation id.
 - The web UI uses an Astryx `SideNav` shell with a collapsible, virtualized
   conversation sidebar, new-chat, search, pin/rename/reset/duplicate/delete row
   actions, pinned/recent sections, and spinner-backed running indicators.
