@@ -1889,8 +1889,9 @@ Playwright tests:
   content on a new branch. The UI groups regenerated answers as variants, so
   users do not need to understand the duplicated Pi user entry.
 - Fork/clone semantics: Nelle implements these as new conversations backed by
-  new Pi session files. Use an isolated temporary runtime so source conversation
-  state is not replaced by Pi's runtime-level fork operation.
+  new Pi session files. Use `SessionManager.createBranchedSession()` directly
+  so source conversation state is not replaced by Pi's runtime-level fork
+  operation.
 - Running router reload: changing or removing a loaded section can trigger
   unload. The UI must warn before destructive model edits, disable destructive
   edits while active runs use that model, and treat router status as
