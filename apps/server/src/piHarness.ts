@@ -10,11 +10,22 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 import {createAsyncQueue} from './asyncQueue';
-import {startLlamaThroughputMonitor} from './llamaThroughput';
+import {
+  beginLlamaPerformanceCapture,
+  mergeChatPerformance,
+  startLlamaThroughputMonitor,
+} from './llamaThroughput';
+import {localLlamaProxyBaseUrl} from './llamaProxy';
 import {isQwenFamilyModel, llamaRuntimeModelId} from './modelCompat';
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
-import type {ChatMessage, ChatStreamEvent, ConfiguredModel, ToolCallEvent} from './types';
+import type {
+  ChatMessage,
+  ChatPerformance,
+  ChatStreamEvent,
+  ConfiguredModel,
+  ToolCallEvent,
+} from './types';
 
 const PROVIDER_ID = 'nelle-llamacpp';
 const TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
@@ -78,13 +89,22 @@ export class PiHarness {
   ): Promise<void> {
     const session = await this.ensureSession(activeModel);
     const state = await this.store.getState();
+    const pushPerformance = (performance: ChatPerformance) => {
+      assistantMessage.performance = mergeChatPerformance(
+        assistantMessage.performance,
+        performance,
+      );
+      queue.push({
+        type: 'assistant_metrics',
+        id: assistantMessage.id,
+        performance: assistantMessage.performance,
+      });
+    };
+    const capture = beginLlamaPerformanceCapture(pushPerformance);
     const monitor = startLlamaThroughputMonitor({
       port: state.runtime.port,
       modelId: llamaRuntimeModelId(activeModel),
-      onPerformance: performance => {
-        assistantMessage.performance = performance;
-        queue.push({type: 'assistant_metrics', id: assistantMessage.id, performance});
-      },
+      onPerformance: pushPerformance,
     });
     const toolCalls: ToolCallEvent[] = [];
     const toolCallStarts = new Map<string, number>();
@@ -178,6 +198,7 @@ export class PiHarness {
       queue.end();
     } finally {
       monitor.stop();
+      capture.stop();
       unsubscribe();
     }
   }
@@ -247,7 +268,7 @@ export class PiHarness {
     const config = {
       providers: {
         [PROVIDER_ID]: {
-          baseUrl: `http://127.0.0.1:${state.runtime.port}/v1`,
+          baseUrl: localLlamaProxyBaseUrl(),
           api: 'openai-completions',
           apiKey: 'nelle-local',
           authHeader: false,

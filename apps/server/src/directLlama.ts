@@ -1,10 +1,15 @@
 import crypto from 'node:crypto';
 
 import {createAsyncQueue} from './asyncQueue';
-import {performanceFromLlamaTimings, startLlamaThroughputMonitor} from './llamaThroughput';
+import {
+  mergeChatPerformance,
+  performanceFromLlamaPromptProgress,
+  performanceFromLlamaTimings,
+  startLlamaThroughputMonitor,
+} from './llamaThroughput';
 import {chatTemplateKwargsForModel, llamaRuntimeModelId} from './modelCompat';
 import type {AppStore} from './store';
-import type {ChatMessage, ChatStreamEvent} from './types';
+import type {ChatMessage, ChatPerformance, ChatStreamEvent} from './types';
 
 export async function streamDirectLlama(
   store: AppStore,
@@ -40,13 +45,21 @@ export async function streamDirectLlama(
 
   void (async () => {
     const modelId = llamaRuntimeModelId(activeModel);
+    const pushPerformance = (performance: ChatPerformance) => {
+      assistantMessage.performance = mergeChatPerformance(
+        assistantMessage.performance,
+        performance,
+      );
+      queue.push({
+        type: 'assistant_metrics',
+        id: assistantMessage.id,
+        performance: assistantMessage.performance,
+      });
+    };
     const monitor = startLlamaThroughputMonitor({
       port: state.runtime.port,
       modelId,
-      onPerformance: performance => {
-        assistantMessage.performance = performance;
-        queue.push({type: 'assistant_metrics', id: assistantMessage.id, performance});
-      },
+      onPerformance: pushPerformance,
     });
 
     try {
@@ -64,6 +77,9 @@ export async function streamDirectLlama(
             {role: 'user', content: prompt},
           ],
           stream: true,
+          return_progress: true,
+          sse_ping_interval: 1,
+          timings_per_token: true,
           max_tokens: 512,
           ...chatTemplateKwargsForModel(activeModel),
         }),
@@ -93,8 +109,13 @@ export async function streamDirectLlama(
             }
             const parsed = JSON.parse(data) as {
               choices?: Array<{delta?: {content?: string}}>;
+              prompt_progress?: unknown;
               timings?: unknown;
             };
+            const promptPerformance = performanceFromLlamaPromptProgress(parsed.prompt_progress);
+            if (promptPerformance) {
+              pushPerformance(promptPerformance);
+            }
             const delta = parsed.choices?.[0]?.delta?.content ?? '';
             if (delta) {
               assistantMessage.content += delta;
@@ -102,8 +123,7 @@ export async function streamDirectLlama(
             }
             const performance = performanceFromLlamaTimings(parsed.timings);
             if (performance) {
-              assistantMessage.performance = performance;
-              queue.push({type: 'assistant_metrics', id: assistantMessage.id, performance});
+              pushPerformance(performance);
             }
           }
         }

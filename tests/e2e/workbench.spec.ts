@@ -86,7 +86,9 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
     .toContain('hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL');
 });
 
-test('renders llama.cpp throughput in chat message metadata', async ({page}) => {
+test('renders llama.cpp prompt and generation throughput in chat message metadata', async ({
+  page,
+}) => {
   const model = {
     id: 'model-1',
     name: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL',
@@ -144,9 +146,17 @@ test('renders llama.cpp throughput in chat message metadata', async ({page}) => 
       content: 'Hello from Nelle.',
       createdAt: '2026-07-07T12:01:01.000Z',
       performance: {
-        tokensPerSecond: 21.529452290733722,
         source: 'llamacpp-timings',
-        generatedTokens: 6,
+        prompt: {
+          tokens: 44,
+          milliseconds: 1362.23,
+          tokensPerSecond: 32.3,
+        },
+        generation: {
+          tokens: 6,
+          milliseconds: 278.688,
+          tokensPerSecond: 21.529452290733722,
+        },
       },
     };
     await route.fulfill({
@@ -176,7 +186,7 @@ test('renders llama.cpp throughput in chat message metadata', async ({page}) => 
   await page.getByLabel('Message input').press('Enter');
 
   await expect(page.getByText('Hello from Nelle.')).toBeVisible();
-  await expect(page.getByText('21.5 tok/s')).toBeVisible();
+  await expect(page.getByText('prompt 32.30 tok/s · gen 21.53 tok/s')).toBeVisible();
 });
 
 test('updates streamed tool calls and shows expandable input and output', async ({page}) => {

@@ -1,9 +1,12 @@
-import type {ChatPerformance} from './types';
+import type {ChatPerformance, ChatPerformanceMetric} from './types';
 
 type SlotSnapshot = {
   id?: number;
   id_task?: number;
   is_processing?: boolean;
+  n_prompt_tokens?: number;
+  n_prompt_tokens_processed?: number;
+  n_prompt_tokens_cache?: number;
   next_token?: Array<{
     has_next_token?: boolean;
     n_decoded?: number;
@@ -22,8 +25,9 @@ export function startLlamaThroughputMonitor(input: {
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
   let activeKey: string | null = null;
-  let baseTokens = 0;
-  let baseTime = 0;
+  let taskStartTime = 0;
+  let generationBaseTokens = 0;
+  let generationBaseTime = 0;
   let lastEmittedAt = 0;
 
   const poll = async () => {
@@ -39,20 +43,27 @@ export function startLlamaThroughputMonitor(input: {
         const now = Date.now();
         if (activeKey !== key) {
           activeKey = key;
-          baseTokens = decoded;
-          baseTime = now;
+          taskStartTime = now;
+          generationBaseTokens = decoded;
+          generationBaseTime = decoded > 0 ? now : 0;
           lastEmittedAt = 0;
         }
 
-        const generatedTokens = Math.max(0, decoded - baseTokens);
-        const elapsedSeconds = (now - baseTime) / 1000;
-        if (generatedTokens > 0 && elapsedSeconds > 0.2 && now - lastEmittedAt >= 500) {
+        if (decoded > 0 && generationBaseTime === 0) {
+          generationBaseTokens = Math.max(0, decoded - 1);
+          generationBaseTime = now;
+        }
+
+        const performance = performanceFromSlotSnapshot({
+          slot,
+          now,
+          taskStartTime,
+          generationBaseTokens,
+          generationBaseTime,
+        });
+        if (performance && now - lastEmittedAt >= 500) {
           lastEmittedAt = now;
-          input.onPerformance({
-            tokensPerSecond: generatedTokens / elapsedSeconds,
-            source: 'llamacpp-slots',
-            generatedTokens,
-          });
+          input.onPerformance(performance);
         }
       }
     } catch {
@@ -80,18 +91,122 @@ export function performanceFromLlamaTimings(timings: unknown): ChatPerformance |
   if (!timings || typeof timings !== 'object') {
     return null;
   }
-  const data = timings as {predicted_per_second?: unknown; predicted_n?: unknown};
-  if (
-    typeof data.predicted_per_second !== 'number' ||
-    !Number.isFinite(data.predicted_per_second)
-  ) {
+  const data = timings as {
+    cache_n?: unknown;
+    prompt_n?: unknown;
+    prompt_ms?: unknown;
+    prompt_per_second?: unknown;
+    predicted_n?: unknown;
+    predicted_ms?: unknown;
+    predicted_per_second?: unknown;
+  };
+  const prompt = metricFromTimingFields({
+    tokens: data.prompt_n,
+    milliseconds: data.prompt_ms,
+    tokensPerSecond: data.prompt_per_second,
+    cacheTokens: data.cache_n,
+  });
+  const generation = metricFromTimingFields({
+    tokens: data.predicted_n,
+    milliseconds: data.predicted_ms,
+    tokensPerSecond: data.predicted_per_second,
+  });
+  if (!prompt && !generation) {
     return null;
   }
   return {
-    tokensPerSecond: data.predicted_per_second,
     source: 'llamacpp-timings',
-    generatedTokens: typeof data.predicted_n === 'number' ? data.predicted_n : undefined,
+    prompt: prompt ?? undefined,
+    generation: generation ?? undefined,
+    tokensPerSecond: generation?.tokensPerSecond,
+    generatedTokens: generation?.tokens,
   };
+}
+
+export function performanceFromLlamaPromptProgress(progress: unknown): ChatPerformance | null {
+  if (!progress || typeof progress !== 'object') {
+    return null;
+  }
+  const data = progress as {
+    cache?: unknown;
+    processed?: unknown;
+    time_ms?: unknown;
+    total?: unknown;
+  };
+  const processed = numberOrNull(data.processed);
+  const cache = numberOrNull(data.cache) ?? 0;
+  const milliseconds = numberOrNull(data.time_ms);
+  const total = numberOrNull(data.total);
+  if (processed == null || milliseconds == null || milliseconds <= 0) {
+    return null;
+  }
+
+  const actualTokens = Math.max(0, processed - cache);
+  const actualTotal = total == null ? undefined : Math.max(0, total - cache);
+  if (actualTokens === 0) {
+    return null;
+  }
+
+  return {
+    source: 'llamacpp-timings',
+    prompt: {
+      tokens: actualTokens,
+      totalTokens: actualTotal,
+      cacheTokens: cache,
+      milliseconds,
+      tokensPerSecond: (actualTokens / milliseconds) * 1000,
+    },
+  };
+}
+
+export function mergeChatPerformance(
+  current: ChatPerformance | undefined,
+  next: ChatPerformance,
+): ChatPerformance {
+  if (!current) {
+    return next;
+  }
+
+  const source =
+    current.source === 'llamacpp-timings' || next.source === 'llamacpp-timings'
+      ? 'llamacpp-timings'
+      : 'llamacpp-slots';
+  const merged: ChatPerformance = {
+    source,
+    prompt: mergeMetric(current.prompt, next.prompt, next.source),
+    generation: mergeMetric(current.generation, next.generation, next.source),
+  };
+
+  if (merged.generation) {
+    merged.tokensPerSecond = merged.generation.tokensPerSecond;
+    merged.generatedTokens = merged.generation.tokens;
+  } else {
+    merged.tokensPerSecond = next.tokensPerSecond ?? current.tokensPerSecond;
+    merged.generatedTokens = next.generatedTokens ?? current.generatedTokens;
+  }
+
+  return merged;
+}
+
+let activeCapture: ((performance: ChatPerformance) => void) | null = null;
+
+export function beginLlamaPerformanceCapture(
+  onPerformance: (performance: ChatPerformance) => void,
+): {stop(): void} {
+  const previous = activeCapture;
+  activeCapture = onPerformance;
+
+  return {
+    stop() {
+      if (activeCapture === onPerformance) {
+        activeCapture = previous;
+      }
+    },
+  };
+}
+
+export function emitCapturedLlamaPerformance(performance: ChatPerformance): void {
+  activeCapture?.(performance);
 }
 
 async function fetchProcessingSlot(port: number, modelId: string): Promise<SlotSnapshot | null> {
@@ -111,4 +226,116 @@ async function fetchProcessingSlot(port: number, modelId: string): Promise<SlotS
       return item.is_processing === true && typeof item.next_token?.[0]?.n_decoded === 'number';
     }) ?? null
   );
+}
+
+function performanceFromSlotSnapshot(input: {
+  slot: SlotSnapshot;
+  now: number;
+  taskStartTime: number;
+  generationBaseTokens: number;
+  generationBaseTime: number;
+}): ChatPerformance | null {
+  const prompt = promptMetricFromSlot(input.slot, input.now - input.taskStartTime);
+  const decoded = input.slot.next_token?.[0]?.n_decoded;
+  const generation =
+    typeof decoded === 'number' && input.generationBaseTime > 0
+      ? metricFromTimingFields({
+          tokens: Math.max(0, decoded - input.generationBaseTokens),
+          milliseconds: input.now - input.generationBaseTime,
+        })
+      : null;
+
+  if (!prompt && !generation) {
+    return null;
+  }
+
+  return {
+    source: 'llamacpp-slots',
+    prompt: prompt ?? undefined,
+    generation: generation ?? undefined,
+    tokensPerSecond: generation?.tokensPerSecond,
+    generatedTokens: generation?.tokens,
+  };
+}
+
+function promptMetricFromSlot(
+  slot: SlotSnapshot,
+  elapsedMilliseconds: number,
+): ChatPerformanceMetric | null {
+  const processed = numberOrNull(slot.n_prompt_tokens_processed);
+  const cache = numberOrNull(slot.n_prompt_tokens_cache) ?? 0;
+  const total = numberOrNull(slot.n_prompt_tokens);
+  if (processed == null || elapsedMilliseconds <= 200) {
+    return null;
+  }
+
+  const actualTokens = Math.max(0, processed - cache);
+  if (actualTokens === 0) {
+    return null;
+  }
+
+  return {
+    tokens: actualTokens,
+    totalTokens: total == null ? undefined : Math.max(0, total - cache),
+    cacheTokens: cache,
+    milliseconds: elapsedMilliseconds,
+    tokensPerSecond: (actualTokens / elapsedMilliseconds) * 1000,
+  };
+}
+
+function metricFromTimingFields(input: {
+  tokens: unknown;
+  milliseconds?: unknown;
+  tokensPerSecond?: unknown;
+  totalTokens?: unknown;
+  cacheTokens?: unknown;
+}): ChatPerformanceMetric | null {
+  const tokens = numberOrNull(input.tokens);
+  const milliseconds = numberOrNull(input.milliseconds);
+  const explicitRate = numberOrNull(input.tokensPerSecond);
+  if (tokens == null || tokens <= 0) {
+    return null;
+  }
+
+  const tokensPerSecond =
+    explicitRate != null && explicitRate > 0
+      ? explicitRate
+      : milliseconds != null && milliseconds > 0
+        ? (tokens / milliseconds) * 1000
+        : null;
+  if (tokensPerSecond == null || !Number.isFinite(tokensPerSecond)) {
+    return null;
+  }
+
+  return {
+    tokens,
+    tokensPerSecond,
+    milliseconds: milliseconds ?? undefined,
+    totalTokens: numberOrNull(input.totalTokens) ?? undefined,
+    cacheTokens: numberOrNull(input.cacheTokens) ?? undefined,
+  };
+}
+
+function mergeMetric(
+  current: ChatPerformanceMetric | undefined,
+  next: ChatPerformanceMetric | undefined,
+  nextSource: ChatPerformance['source'],
+): ChatPerformanceMetric | undefined {
+  if (!current) {
+    return next;
+  }
+  if (!next) {
+    return current;
+  }
+  if (nextSource === 'llamacpp-slots') {
+    return current;
+  }
+  return next;
+}
+
+function numberOrNull(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
 }

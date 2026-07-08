@@ -71,9 +71,24 @@ export type ChatMessage = {
   toolCalls?: ToolCallEvent[];
 };
 
-export type ChatPerformance = {
+export type ChatPerformanceMetric = {
+  tokens: number;
   tokensPerSecond: number;
+  milliseconds?: number;
+  totalTokens?: number;
+  cacheTokens?: number;
+};
+
+export type ChatPerformance = {
   source: 'llamacpp-slots' | 'llamacpp-timings';
+  prompt?: ChatPerformanceMetric;
+  generation?: ChatPerformanceMetric;
+  /**
+   * Legacy generation throughput field. Kept so older persisted POC messages
+   * can still render throughput metadata after the timing shape change.
+   */
+  tokensPerSecond?: number;
+  /** Legacy generated token count matching tokensPerSecond. */
   generatedTokens?: number;
 };
 

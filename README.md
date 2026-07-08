@@ -27,10 +27,10 @@ Implemented:
   model via `hf-repo`.
 - Local GGUF path registration.
 - Pi SDK chat harness configured against the local OpenAI-compatible
-  `llama-server` provider with v1 host file/shell tools enabled.
+  Nelle llama.cpp proxy with v1 host file/shell tools enabled.
 - Direct llama.cpp chat-completions fallback if Pi initialization fails.
-- Chat message metadata shows llama.cpp generation throughput in tokens/sec
-  while generation is active and after final timings are available.
+- Chat message metadata shows llama.cpp prompt-processing and generation
+  throughput in tokens/sec when the server reports those timings.
 - Tool calls stream as a single status row per Pi `toolCallId` and can be
   expanded in the chat UI to inspect captured input and output.
 - Playwright e2e test harness for the browser UI.
@@ -99,11 +99,14 @@ reserved for model selection and reset controls so the composer exposes only one
 send affordance.
 
 Assistant message metadata shows the message time followed by llama.cpp
-throughput, for example `12:01 PM · 21.5 tok/s`. Live updates are estimated from
-the router `/slots?model=...` decoded-token counters. Direct llama.cpp fallback
-responses replace that estimate with the final
-`timings.predicted_per_second` value emitted by the streamed
-`/v1/chat/completions` response.
+throughput, for example `12:01 PM · prompt 32.30 tok/s · gen 21.53 tok/s`.
+Nelle points Pi at an internal `/api/llama-proxy/v1` provider, which forwards
+requests to llama.cpp unchanged except for enabling `return_progress`,
+`sse_ping_interval`, and `timings_per_token` on streamed requests. The proxy
+observes llama.cpp `prompt_progress` and `timings` chunks so the UI can mirror
+llama.cpp's own prompt-processing and token-generation speed calculations. The
+router `/slots?model=...` monitor remains a best-effort fallback and does not
+overwrite exact streamed timings.
 Pi tool execution events are correlated by `toolCallId`, so a running tool row
 updates in place when progress or completion arrives instead of rendering
 separate running and complete rows. Expand the tool row to inspect the captured

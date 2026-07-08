@@ -42,9 +42,11 @@ The first product experience should be UI-driven:
 - Router requests are routed by the request `model` field for OpenAI-style POST
   endpoints. `--models-max` limits how many models can be loaded at once.
   Reference: https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md#routing-requests
-- llama.cpp exposes live slot monitoring through `/slots` and emits final
-  completion timing fields such as `timings.predicted_per_second` on streamed
-  OpenAI-compatible responses.
+- llama.cpp exposes live slot monitoring through `/slots`, prompt processing
+  progress through streamed `prompt_progress` when `return_progress` is enabled,
+  and timing fields such as `timings.prompt_per_second` and
+  `timings.predicted_per_second` on streamed OpenAI-compatible responses when
+  `timings_per_token` is enabled or the response is final.
   Reference: https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md
 - Hugging Face supports GGUF metadata and llama.cpp can consume GGUF models from
   the Hub. The Nelle model picker should be GGUF-first.
@@ -270,14 +272,15 @@ Initial API transport:
 Responsibilities:
 
 - Run Pi using a Nelle-controlled `agentDir`, not the user's global Pi config.
-- Generate or update Pi `models.json` for the local llama.cpp provider.
+- Generate or update Pi `models.json` for Nelle's local llama.cpp proxy
+  provider.
 - Use a local OpenAI-compatible provider:
 
 ```json
 {
   "providers": {
     "nelle-llamacpp": {
-      "baseUrl": "http://127.0.0.1:8080/v1",
+      "baseUrl": "http://127.0.0.1:8787/api/llama-proxy/v1",
       "api": "openai-completions",
       "apiKey": "nelle-local",
       "authHeader": false,
@@ -294,6 +297,10 @@ Responsibilities:
 ```
 
 - Fill `models` from Nelle's configured llama presets.
+- Proxy Pi's streamed chat-completion requests through Nelle so the server can
+  add `return_progress`, `sse_ping_interval`, and `timings_per_token`, relay the
+  SSE stream unchanged, and side-channel llama.cpp `prompt_progress` / `timings`
+  metadata into Nelle chat events.
 - Normalize Pi events into Nelle's API event contract.
 - Persist sessions under Nelle's app data directory.
 - Enable host file and shell tools in v1.
@@ -427,10 +434,10 @@ Initial implementation:
   starting sessions with `thinkingLevel: "off"`. This makes Pi send
   `chat_template_kwargs.enable_thinking = false` to local llama.cpp servers and
   avoids hidden-only `reasoning_content` responses for normal chat.
-- Attach llama.cpp throughput metadata to assistant messages. Live chat uses the
-  router `/slots?model=...` decoded-token counters; direct llama.cpp fallback
-  streams replace that value with final `timings.predicted_per_second` when
-  available.
+- Attach llama.cpp throughput metadata to assistant messages. Prefer exact
+  streamed `prompt_progress` and `timings` values observed by Nelle's llama
+  proxy or direct fallback path; use router `/slots?model=...` decoded-token
+  counters only as best-effort fallback data.
 - Correlate Pi tool execution events by `toolCallId`, upsert the same tool call
   row as it moves from running to complete/error, and preserve compact input and
   output details for expandable UI inspection.
@@ -554,10 +561,10 @@ Exit criteria:
 
 Exit criteria:
 
-- Pi SDK uses Nelle's local llama.cpp provider.
+- Pi SDK uses Nelle's local llama.cpp proxy provider.
 - Web UI can create a session and stream assistant output.
-- Web UI displays llama.cpp generation throughput beside assistant message
-  timestamps when the server reports it.
+- Web UI displays llama.cpp prompt-processing and generation throughput beside
+  assistant message timestamps when the server reports it.
 - Web UI shows each tool call once, updates its status in place, and exposes
   expandable input/output details.
 - Basic session history persists.

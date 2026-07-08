@@ -67,9 +67,19 @@ export type ChatMessage = {
   }>;
 };
 
-export type ChatPerformance = {
+export type ChatPerformanceMetric = {
+  tokens: number;
   tokensPerSecond: number;
+  milliseconds?: number;
+  totalTokens?: number;
+  cacheTokens?: number;
+};
+
+export type ChatPerformance = {
   source: 'llamacpp-slots' | 'llamacpp-timings';
+  prompt?: ChatPerformanceMetric;
+  generation?: ChatPerformanceMetric;
+  tokensPerSecond?: number;
   generatedTokens?: number;
 };
 

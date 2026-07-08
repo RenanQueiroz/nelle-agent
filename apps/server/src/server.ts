@@ -8,6 +8,7 @@ import {z} from 'zod';
 
 import {HuggingFaceService} from './huggingface';
 import {LlamaCppManager} from './llamacpp';
+import {registerLlamaProxy} from './llamaProxy';
 import {PiHarness} from './piHarness';
 import {streamDirectLlama} from './directLlama';
 import {AppStore} from './store';
@@ -50,6 +51,7 @@ export async function createServer(paths: AppPaths) {
   await app.register(cors, {
     origin: true,
   });
+  registerLlamaProxy(app, store);
 
   app.get('/api/health', async () => ({
     ok: true,

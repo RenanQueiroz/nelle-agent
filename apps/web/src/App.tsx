@@ -51,6 +51,8 @@ import {
   streamChat,
   useHuggingFaceModel,
   type ChatMessage as ApiChatMessage,
+  type ChatPerformance,
+  type ChatPerformanceMetric,
   type ChatStreamEvent,
   type ConfiguredModel,
   type HuggingFaceModelResult,
@@ -180,7 +182,12 @@ export function App() {
     if (event.type === 'assistant_metrics') {
       setMessages(prev =>
         prev.map(message =>
-          message.id === event.id ? {...message, performance: event.performance} : message,
+          message.id === event.id
+            ? {
+                ...message,
+                performance: mergeChatPerformance(message.performance, event.performance),
+              }
+            : message,
         ),
       );
     }
@@ -543,7 +550,7 @@ function RenderedMessage({message}: {message: ApiChatMessage}) {
         metadata={
           <ChatMessageMetadata
             timestamp={<Timestamp value={message.createdAt} format="time" />}
-            footer={formatTokensPerSecond(message.performance?.tokensPerSecond)}
+            footer={formatChatPerformance(message.performance)}
           />
         }
       >
@@ -601,11 +608,79 @@ function renderToolCallDetail(call: NonNullable<ApiChatMessage['toolCalls']>[num
   );
 }
 
-function formatTokensPerSecond(value: number | undefined): string | undefined {
-  if (value == null || !Number.isFinite(value)) {
+function formatChatPerformance(performance: ChatPerformance | undefined): string | undefined {
+  if (!performance) {
     return undefined;
   }
-  return `${value.toFixed(value < 100 ? 1 : 0)} tok/s`;
+  const parts = [
+    formatPerformanceMetric('prompt', performance.prompt),
+    formatPerformanceMetric(
+      'gen',
+      performance.generation ??
+        (performance.tokensPerSecond == null
+          ? undefined
+          : {
+              tokens: performance.generatedTokens ?? 0,
+              tokensPerSecond: performance.tokensPerSecond,
+            }),
+    ),
+  ].filter(part => part != null);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
+function formatPerformanceMetric(
+  label: string,
+  metric: ChatPerformanceMetric | undefined,
+): string | undefined {
+  if (!metric || !Number.isFinite(metric.tokensPerSecond)) {
+    return undefined;
+  }
+  return `${label} ${formatTokensPerSecond(metric.tokensPerSecond)}`;
+}
+
+function formatTokensPerSecond(value: number): string {
+  if (value == null || !Number.isFinite(value)) {
+    return '0 tok/s';
+  }
+  return `${value.toFixed(2)} tok/s`;
+}
+
+function mergeChatPerformance(
+  current: ChatPerformance | undefined,
+  next: ChatPerformance,
+): ChatPerformance {
+  if (!current) {
+    return next;
+  }
+  const source =
+    current.source === 'llamacpp-timings' || next.source === 'llamacpp-timings'
+      ? 'llamacpp-timings'
+      : 'llamacpp-slots';
+  const generation = mergeMetric(current.generation, next.generation, next.source);
+  return {
+    source,
+    prompt: mergeMetric(current.prompt, next.prompt, next.source),
+    generation,
+    tokensPerSecond: generation?.tokensPerSecond ?? next.tokensPerSecond ?? current.tokensPerSecond,
+    generatedTokens: generation?.tokens ?? next.generatedTokens ?? current.generatedTokens,
+  };
+}
+
+function mergeMetric(
+  current: ChatPerformanceMetric | undefined,
+  next: ChatPerformanceMetric | undefined,
+  nextSource: ChatPerformance['source'],
+): ChatPerformanceMetric | undefined {
+  if (!current) {
+    return next;
+  }
+  if (!next) {
+    return current;
+  }
+  if (nextSource === 'llamacpp-slots') {
+    return current;
+  }
+  return next;
 }
 
 function looksLikeJson(value: string): boolean {

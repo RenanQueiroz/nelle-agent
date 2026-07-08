@@ -32,9 +32,10 @@ Project-specific guidance for AI coding agents.
 - Nelle persists managed llama-server ownership in
   `.nelle/llama/llama-server.pid.json` so restarted servers can adopt and stop
   the prior router process.
-- Chat messages can carry `performance.tokensPerSecond`, populated from
-  llama.cpp `/slots` live counters or final stream `timings`; keep server and web
-  chat event types aligned.
+- Chat messages carry llama.cpp-style `performance.prompt` and
+  `performance.generation` metrics. Pi calls go through Nelle's
+  `/api/llama-proxy/v1` provider so streamed `prompt_progress` and `timings`
+  chunks can update the UI; `/slots` is only a best-effort fallback.
 - Tool calls must be correlated by stable `id` / Pi `toolCallId`; stream updates
   should upsert existing calls and preserve expandable input/output detail.
 - Keep the workbench viewport-bounded. Do not reintroduce document-level
