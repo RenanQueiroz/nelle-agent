@@ -73,8 +73,9 @@ Project-specific guidance for AI coding agents.
 - The current POC exposes regeneration at
   `/api/conversations/:id/messages/:messageId/regenerate`, branches the Pi
   session before the original user entry, replays that user text, and stores
-  `regenerates_pi_entry_id` / `display_group_id` sidecar metadata. Visible
-  grouped variant UI is still pending.
+  `regenerates_pi_entry_id` / `display_group_id` sidecar metadata. The web UI
+  preserves existing answer variants, hides replayed duplicate user turns, and
+  labels visible assistant variants in the footer.
 - Assistant performance metadata should render as a toggleable Reading
   (prompt processing) / Generation (token output) stats widget with icon
   controls and Astryx tooltips, not as a plain text throughput string.

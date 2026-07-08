@@ -6,9 +6,11 @@ import test from 'node:test';
 
 import {ConversationRepository} from '../../apps/server/src/conversations.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
+import {PiHarness} from '../../apps/server/src/piHarness.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {createServer} from '../../apps/server/src/server.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
+import type {ChatMessage, ConfiguredModel} from '../../apps/server/src/types.ts';
 import {
   assertConversationTransition,
   canTransitionConversation,
@@ -207,6 +209,188 @@ test('repository applies generated titles without overwriting user titles', asyn
         .title,
       'Pinned name',
     );
+  } finally {
+    database.close();
+  }
+});
+
+test('conversation snapshots keep variant rows separate from active path', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Regenerated answer'});
+    repository.replaceConversationProjection(conversation.id, {
+      activeLeafPiEntryId: 'assistant-2',
+      lastSyncedPiEntryId: 'assistant-2',
+      entries: [
+        {
+          piEntryId: 'user-1',
+          entryType: 'message',
+          role: 'user',
+          text: 'Original prompt',
+          createdAt: '2026-07-08T12:00:00.000Z',
+        },
+        {
+          piEntryId: 'assistant-1',
+          parentPiEntryId: 'user-1',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'Original answer',
+          createdAt: '2026-07-08T12:00:01.000Z',
+          displayGroupId: 'assistant-1',
+        },
+        {
+          piEntryId: 'user-2',
+          entryType: 'message',
+          role: 'user',
+          text: 'Original prompt',
+          createdAt: '2026-07-08T12:00:02.000Z',
+        },
+        {
+          piEntryId: 'assistant-2',
+          parentPiEntryId: 'user-2',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'Regenerated answer',
+          createdAt: '2026-07-08T12:00:03.000Z',
+          regeneratesPiEntryId: 'assistant-1',
+          displayGroupId: 'assistant-1',
+        },
+      ],
+    });
+
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+
+    assert.deepEqual(snapshot?.activePathEntryIds, ['user-2', 'assistant-2']);
+    assert.deepEqual(
+      snapshot?.entries.map(entry => entry.piEntryId),
+      ['user-1', 'assistant-1', 'user-2', 'assistant-2'],
+    );
+    assert.equal(snapshot?.entries[3]?.regeneratesPiEntryId, 'assistant-1');
+    assert.equal(snapshot?.entries[3]?.displayGroupId, 'assistant-1');
+  } finally {
+    database.close();
+  }
+});
+
+test('Pi sync preserves existing answer variants when regenerating again', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Repeated regeneration'});
+    repository.replaceConversationProjection(conversation.id, {
+      activeLeafPiEntryId: 'assistant-2',
+      lastSyncedPiEntryId: 'assistant-2',
+      entries: [
+        {
+          piEntryId: 'user-1',
+          entryType: 'message',
+          role: 'user',
+          text: 'Original prompt',
+          createdAt: '2026-07-08T12:00:00.000Z',
+        },
+        {
+          piEntryId: 'assistant-1',
+          parentPiEntryId: 'user-1',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'Original answer',
+          createdAt: '2026-07-08T12:00:01.000Z',
+          displayGroupId: 'assistant-1',
+        },
+        {
+          piEntryId: 'user-2',
+          entryType: 'message',
+          role: 'user',
+          text: 'Original prompt',
+          createdAt: '2026-07-08T12:00:02.000Z',
+        },
+        {
+          piEntryId: 'assistant-2',
+          parentPiEntryId: 'user-2',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'First regenerated answer',
+          createdAt: '2026-07-08T12:00:03.000Z',
+          regeneratesPiEntryId: 'assistant-1',
+          displayGroupId: 'assistant-1',
+        },
+      ],
+    });
+
+    const activeModel: ConfiguredModel = {
+      id: 'repo/model:UD-Q4_K_M',
+      name: 'Model Q4',
+      presetName: 'repo-model-UD-Q4_K_M',
+      source: 'huggingface',
+      repoId: 'repo/model',
+      quant: 'UD-Q4_K_M',
+      params: {contextSize: 8192},
+      createdAt: '2026-07-08T12:00:00.000Z',
+    };
+    const assistantMessage: ChatMessage = {
+      id: 'assistant-message',
+      role: 'assistant',
+      content: 'Second regenerated answer',
+      createdAt: '2026-07-08T12:00:05.000Z',
+      modelId: activeModel.id,
+      modelRuntimeId: activeModel.id,
+      modelAliasSnapshot: activeModel.name,
+      toolCalls: [],
+    };
+    const session = {
+      sessionFile: 'pi-session.json',
+      sessionId: 'pi-session-1',
+      sessionManager: {
+        getLeafId: () => 'assistant-3',
+        getBranch: () => [
+          {
+            id: 'user-3',
+            parentId: null,
+            type: 'message',
+            timestamp: '2026-07-08T12:00:04.000Z',
+            message: {role: 'user', content: 'Original prompt'},
+          },
+          {
+            id: 'assistant-3',
+            parentId: 'user-3',
+            type: 'message',
+            timestamp: '2026-07-08T12:00:05.000Z',
+            message: {role: 'assistant', content: 'Second regenerated answer'},
+          },
+        ],
+      },
+    };
+    const harness = new PiHarness(paths, store, repository) as unknown as {
+      syncPiConversation: (
+        conversationId: string,
+        session: unknown,
+        activeModel: ConfiguredModel,
+        assistantMessage: ChatMessage,
+        status: 'running',
+        metadata: {regeneratesPiEntryId: string; displayGroupId: string},
+      ) => void;
+    };
+    harness.syncPiConversation(conversation.id, session, activeModel, assistantMessage, 'running', {
+      regeneratesPiEntryId: 'assistant-1',
+      displayGroupId: 'assistant-1',
+    });
+
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+
+    assert.deepEqual(
+      snapshot?.entries.map(entry => entry.piEntryId),
+      ['user-1', 'assistant-1', 'user-2', 'assistant-2', 'user-3', 'assistant-3'],
+    );
+    assert.deepEqual(snapshot?.activePathEntryIds, ['user-3', 'assistant-3']);
+    assert.equal(snapshot?.entries[5]?.regeneratesPiEntryId, 'assistant-1');
+    assert.equal(snapshot?.entries[5]?.displayGroupId, 'assistant-1');
   } finally {
     database.close();
   }

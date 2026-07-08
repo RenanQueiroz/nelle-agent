@@ -251,6 +251,7 @@ export class ConversationRepository {
     }
 
     const entries = this.getEntries(id);
+    const activePathEntryIds = buildActivePathEntryIds(entries, row.active_leaf_pi_entry_id);
     const attachments = this.getAttachments(id);
     const models = buildModelList(state.models);
     const selectedModelId = state.activeModelId ?? undefined;
@@ -274,7 +275,7 @@ export class ConversationRepository {
         forkKind: row.fork_kind ?? undefined,
       },
       entries,
-      activePathEntryIds: entries.map(entry => entry.piEntryId),
+      activePathEntryIds,
       attachments,
       context: {},
       models: {
@@ -757,6 +758,29 @@ function mapConversationListItem(row: ConversationRow): ConversationListItem {
     updatedAt: row.updated_at,
     defaultModelId: row.default_model_id ?? undefined,
   };
+}
+
+function buildActivePathEntryIds(
+  entries: ConversationEntryProjection[],
+  activeLeafPiEntryId: string | null,
+): string[] {
+  if (!activeLeafPiEntryId) {
+    return entries.map(entry => entry.piEntryId);
+  }
+  const byId = new Map(entries.map(entry => [entry.piEntryId, entry] as const));
+  const path: string[] = [];
+  const seen = new Set<string>();
+  let cursor: string | undefined = activeLeafPiEntryId;
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    const entry = byId.get(cursor);
+    if (!entry) {
+      break;
+    }
+    path.push(entry.piEntryId);
+    cursor = entry.parentPiEntryId;
+  }
+  return path.length > 0 ? path.reverse() : entries.map(entry => entry.piEntryId);
 }
 
 function buildModelList(models: ConfiguredModel[]): ModelListItem[] {

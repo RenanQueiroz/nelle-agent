@@ -90,11 +90,13 @@ export type ChatMessage = {
   role: 'user' | 'assistant' | 'system';
   content: string;
   createdAt: string;
+  parentPiEntryId?: string;
   modelId?: string;
   modelRuntimeId?: string;
   modelAliasSnapshot?: string;
   regeneratesPiEntryId?: string;
   displayGroupId?: string;
+  variantLabel?: string;
   performance?: ChatPerformance;
   toolCalls?: Array<{
     id: string;

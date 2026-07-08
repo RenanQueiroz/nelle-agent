@@ -508,7 +508,10 @@ test('regenerates an assistant response from the footer model picker', async ({p
   await expect.poll(() => loadCalls).toBe(1);
   await expect.poll(() => regenerateCalls).toBe(1);
   expect(regenerateModelId).toBe(modelB.id);
+  await expect(page.getByText('Original answer.')).toBeVisible();
   await expect(page.getByText('Regenerated with Model B.')).toBeVisible();
+  await expect(page.getByText('variant 1/2')).toBeVisible();
+  await expect(page.getByText('variant 2/2')).toBeVisible();
   await expect(page.getByText('Model B').first()).toBeVisible();
 });
 
@@ -903,6 +906,8 @@ function conversationSnapshot(id: string, chat: MockChatMessage[]) {
       modelId: message.modelId,
       modelRuntimeId: message.modelRuntimeId,
       modelAliasSnapshot: message.modelAliasSnapshot,
+      regeneratesPiEntryId: message.regeneratesPiEntryId,
+      displayGroupId: message.displayGroupId,
     })),
     activePathEntryIds: chat.map(message => message.id),
     attachments: [],
@@ -930,4 +935,6 @@ type MockChatMessage = {
   modelId?: string;
   modelRuntimeId?: string;
   modelAliasSnapshot?: string;
+  regeneratesPiEntryId?: string;
+  displayGroupId?: string;
 };

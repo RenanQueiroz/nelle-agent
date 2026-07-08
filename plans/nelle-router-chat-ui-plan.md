@@ -1618,9 +1618,11 @@ Exit criteria:
 - Done: every new assistant message shows the model that generated it.
 - Done: selecting a different model from an assistant footer loads that model if
   needed and regenerates the answer in one action.
-- Partially done: regeneration creates a Pi-native branch by replaying the
-  original user content on a new branch and stores `regenerates_pi_entry_id` /
-  `display_group_id` metadata. Visible grouped variant UI is still pending.
+- Done: regeneration creates a Pi-native branch by replaying the original user
+  content on a new branch, stores `regenerates_pi_entry_id` /
+  `display_group_id` metadata, preserves existing answer variants in the visible
+  projection, hides replayed duplicate user turns, and labels assistant variants
+  in the footer.
 - Done: copy writes the assistant text to the clipboard and surfaces visible
   toast feedback for success or failure.
 - Done: timing metrics render as a toggleable Reading/Generation widget with

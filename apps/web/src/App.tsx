@@ -1225,6 +1225,7 @@ function renderMessageFooter(input: {
       {hasPerformance && <PerformanceStatistics performance={message.performance!} />}
       {message.role === 'assistant' && (
         <>
+          {message.variantLabel && <Token size="sm" color="blue" label={message.variantLabel} />}
           <IconButton
             label="Regenerate response"
             tooltip="Regenerate response"
@@ -1353,13 +1354,14 @@ function PerformanceStatistics({performance}: {performance: ChatPerformance}) {
 }
 
 function messagesFromSnapshot(snapshot: ConversationSnapshot): ApiChatMessage[] {
-  return snapshot.entries
+  const messages = snapshot.entries
     .filter(entry => entry.entryType === 'message' && entry.role != null)
     .map(entry => ({
       id: entry.piEntryId,
       role: entry.role!,
       content: entry.textPreview ?? '',
       createdAt: entry.createdAt,
+      parentPiEntryId: entry.parentPiEntryId,
       modelId: entry.modelId,
       modelRuntimeId: entry.modelRuntimeId,
       modelAliasSnapshot: entry.modelAliasSnapshot,
@@ -1368,6 +1370,36 @@ function messagesFromSnapshot(snapshot: ConversationSnapshot): ApiChatMessage[] 
       performance: entry.performance as ChatPerformance | undefined,
       toolCalls: entry.toolCalls as ApiChatMessage['toolCalls'],
     }));
+  const replayedUserIds = new Set(
+    messages
+      .filter(message => message.role === 'assistant' && message.regeneratesPiEntryId)
+      .map(message => message.parentPiEntryId)
+      .filter(id => id != null),
+  );
+  const visibleMessages = messages.filter(
+    message => !(message.role === 'user' && replayedUserIds.has(message.id)),
+  );
+  const assistantGroups = new Map<string, ApiChatMessage[]>();
+  for (const message of visibleMessages) {
+    if (message.role !== 'assistant') {
+      continue;
+    }
+    const groupId = message.displayGroupId ?? message.regeneratesPiEntryId ?? message.id;
+    const group = assistantGroups.get(groupId) ?? [];
+    group.push(message);
+    assistantGroups.set(groupId, group);
+  }
+  for (const group of assistantGroups.values()) {
+    if (group.length < 2) {
+      continue;
+    }
+    group
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .forEach((message, index) => {
+        message.variantLabel = `variant ${index + 1}/${group.length}`;
+      });
+  }
+  return visibleMessages;
 }
 
 function ToolCalls({calls}: {calls: NonNullable<ApiChatMessage['toolCalls']>}) {

@@ -20,6 +20,7 @@ import {chatTemplateKwargsForModel, isQwenFamilyModel, llamaRuntimeModelId} from
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
 import type {ConversationRepository, SyncConversationEntry} from './conversations';
+import type {ConversationEntryProjection} from '../../../packages/shared/src/conversations.ts';
 import type {
   ChatMessage,
   ChatPerformance,
@@ -199,6 +200,8 @@ export class PiHarness {
       modelId: activeModel.id,
       modelRuntimeId: llamaRuntimeModelId(activeModel),
       modelAliasSnapshot: activeModel.name,
+      regeneratesPiEntryId: source.regeneratesPiEntryId,
+      displayGroupId: source.displayGroupId,
       toolCalls: [],
     };
 
@@ -513,6 +516,13 @@ export class PiHarness {
       }
     }
 
+    prependExistingVariantGroup(
+      entries,
+      existingEntries,
+      metadata.regeneratesPiEntryId,
+      metadata.displayGroupId,
+    );
+
     this.conversations.replaceConversationProjection(conversationId, {
       piSessionPath: session.sessionFile,
       piSessionId: session.sessionId,
@@ -655,6 +665,87 @@ function stringifyMaybe(value: unknown): string | undefined {
   } catch {
     return String(value).slice(0, 160);
   }
+}
+
+function prependVariantEntry(
+  entries: SyncConversationEntry[],
+  entry: SyncConversationEntry | ConversationEntryProjection,
+): void {
+  if (entries.some(item => item.piEntryId === entry.piEntryId)) {
+    return;
+  }
+  entries.unshift({
+    piEntryId: entry.piEntryId,
+    parentPiEntryId: entry.parentPiEntryId ?? null,
+    entryType: entry.entryType,
+    role: entry.role ?? null,
+    text: isProjectionEntry(entry) ? (entry.textPreview ?? '') : entry.text,
+    createdAt: entry.createdAt,
+    modelId: entry.modelId,
+    modelRuntimeId: entry.modelRuntimeId,
+    modelAliasSnapshot: entry.modelAliasSnapshot,
+    performance: entry.performance,
+    toolCalls: entry.toolCalls,
+    attachmentSummary: entry.attachmentSummary,
+    regeneratesPiEntryId: entry.regeneratesPiEntryId ?? null,
+    displayGroupId: entry.displayGroupId ?? entry.piEntryId,
+  });
+}
+
+function prependExistingVariantGroup(
+  entries: SyncConversationEntry[],
+  existingEntries: Map<string, ConversationEntryProjection>,
+  regeneratesPiEntryId?: string,
+  displayGroupId?: string,
+): void {
+  if (!regeneratesPiEntryId) {
+    return;
+  }
+  const sourceAssistant = existingEntries.get(regeneratesPiEntryId);
+  const groupId = displayGroupId ?? sourceAssistant?.displayGroupId ?? regeneratesPiEntryId;
+  const variantAssistants = [...existingEntries.values()]
+    .filter(
+      entry =>
+        entry.role === 'assistant' && belongsToVariantGroup(entry, regeneratesPiEntryId, groupId),
+    )
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  const groupEntries: ConversationEntryProjection[] = [];
+  const seen = new Set<string>();
+  for (const assistant of variantAssistants) {
+    const parent = assistant.parentPiEntryId
+      ? existingEntries.get(assistant.parentPiEntryId)
+      : undefined;
+    if (parent && !seen.has(parent.piEntryId)) {
+      groupEntries.push(parent);
+      seen.add(parent.piEntryId);
+    }
+    if (!seen.has(assistant.piEntryId)) {
+      groupEntries.push(assistant);
+      seen.add(assistant.piEntryId);
+    }
+  }
+  for (let index = groupEntries.length - 1; index >= 0; index -= 1) {
+    prependVariantEntry(entries, groupEntries[index]!);
+  }
+}
+
+function belongsToVariantGroup(
+  entry: ConversationEntryProjection,
+  regeneratesPiEntryId: string,
+  displayGroupId: string,
+): boolean {
+  return (
+    entry.piEntryId === regeneratesPiEntryId ||
+    entry.displayGroupId === displayGroupId ||
+    entry.regeneratesPiEntryId === regeneratesPiEntryId ||
+    entry.regeneratesPiEntryId === displayGroupId
+  );
+}
+
+function isProjectionEntry(
+  entry: SyncConversationEntry | ConversationEntryProjection,
+): entry is ConversationEntryProjection {
+  return 'textPreview' in entry;
 }
 
 function getToolCallId(event: any): string {

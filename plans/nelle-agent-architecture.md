@@ -252,8 +252,8 @@ manual `/compact [instructions]` through Pi `AgentSession.compact()` plus
 first-turn generated conversation titles through a non-Pi llama.cpp prompt,
 assistant message model snapshots plus footer copy/regenerate actions,
 Pi-native assistant regeneration through branch replay with optional model
-override, and a toggleable Reading/Generation assistant performance stats
-widget,
+override, preserved regenerated-answer variants, and a toggleable
+Reading/Generation assistant performance stats widget,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for
 startup and configuration diagnostics, and the POC model panel can show router
@@ -267,8 +267,8 @@ Intentional POC limitations:
 - The web UI only has a small searchable conversation list with new-chat and row
   actions. The full collapsible, virtualized sidebar and richer conversation
   menus are still pending.
-- Stable run ids/terminal run events, fork/clone, visible branch variant
-  grouping, and export/import are still pending.
+- Stable run ids/terminal run events, fork/clone, full branch tree exploration,
+  and export/import are still pending.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are enabled through Pi and remain unsandboxed.
