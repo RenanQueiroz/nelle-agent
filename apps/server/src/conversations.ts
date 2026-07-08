@@ -11,6 +11,7 @@ import type {
 } from '../../../packages/shared/src/conversations.ts';
 import {
   assertConversationTransition,
+  conversationContextUsageSchema,
   conversationSnapshotSchema,
 } from '../../../packages/shared/src/conversations.ts';
 import type {ChatAttachmentKind} from '../../../packages/shared/src/contracts.ts';
@@ -32,6 +33,7 @@ type ConversationRow = {
   parent_conversation_id: string | null;
   forked_from_pi_entry_id: string | null;
   fork_kind: 'fork' | 'clone' | null;
+  context_usage_json: string | null;
   status: ConversationStatus;
   created_at: string;
   updated_at: string;
@@ -181,6 +183,7 @@ export class ConversationRepository {
       parent_conversation_id: input.parentConversationId ?? null,
       forked_from_pi_entry_id: input.forkedFromPiEntryId ?? null,
       fork_kind: input.forkKind ?? null,
+      context_usage_json: null,
       status: 'ready',
       created_at: now,
       updated_at: now,
@@ -547,7 +550,11 @@ export class ConversationRepository {
       entries,
       activePathEntryIds,
       attachments,
-      context: buildContextUsage(entries, defaultModel?.params.contextSize),
+      context: buildContextUsage(
+        entries,
+        defaultModel?.params.contextSize,
+        contextUsageFromRow(row.context_usage_json),
+      ),
       models: {
         selectedModelId,
         defaultModelId: defaultModelId ?? undefined,
@@ -672,6 +679,29 @@ export class ConversationRepository {
     return mapConversationListItem(next);
   }
 
+  setConversationContextUsage(
+    id: string,
+    context: ConversationContextUsage | null,
+  ): ConversationListItem | null {
+    const row = this.getConversation(id);
+    if (!row) {
+      return null;
+    }
+    const next: ConversationRow = {
+      ...row,
+      context_usage_json: context ? JSON.stringify(context) : null,
+      updated_at: new Date().toISOString(),
+    };
+    this.database.connection
+      .prepare(
+        `UPDATE conversations
+         SET context_usage_json = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(next.context_usage_json, next.updated_at, id);
+    return mapConversationListItem(next);
+  }
+
   replaceConversationProjection(
     id: string,
     input: {
@@ -747,7 +777,7 @@ export class ConversationRepository {
       `UPDATE conversations
        SET active_leaf_pi_entry_id = NULL, last_synced_pi_entry_id = NULL,
            pi_session_path = NULL, pi_session_id = NULL, status = 'ready',
-           updated_at = ?
+           context_usage_json = NULL, updated_at = ?
        WHERE id = ?`,
     ).run(new Date().toISOString(), id);
   }
@@ -848,6 +878,7 @@ export class ConversationRepository {
       parent_conversation_id: existing?.parent_conversation_id ?? null,
       forked_from_pi_entry_id: existing?.forked_from_pi_entry_id ?? null,
       fork_kind: existing?.fork_kind ?? null,
+      context_usage_json: existing?.context_usage_json ?? null,
       status: existing?.status ?? 'ready',
       created_at: existing?.created_at ?? now,
       updated_at: now,
@@ -892,11 +923,11 @@ export class ConversationRepository {
     this.database.connection
       .prepare(
         `INSERT INTO conversations (
-           id, title, title_source, pinned, pi_session_path, pi_session_id,
-           active_leaf_pi_entry_id, last_synced_pi_entry_id, default_model_id,
-           parent_conversation_id, forked_from_pi_entry_id, fork_kind, status,
-           created_at, updated_at, deleted_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, title, title_source, pinned, pi_session_path, pi_session_id,
+          active_leaf_pi_entry_id, last_synced_pi_entry_id, default_model_id,
+          parent_conversation_id, forked_from_pi_entry_id, fork_kind,
+          context_usage_json, status, created_at, updated_at, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -911,6 +942,7 @@ export class ConversationRepository {
         row.parent_conversation_id,
         row.forked_from_pi_entry_id,
         row.fork_kind,
+        row.context_usage_json,
         row.status,
         row.created_at,
         row.updated_at,
@@ -1178,7 +1210,10 @@ function buildModelList(models: ConfiguredModel[]): ModelListItem[] {
 function buildContextUsage(
   entries: ConversationEntryProjection[],
   totalTokens?: number,
+  storedContext?: ConversationContextUsage | null,
 ): ConversationContextUsage {
+  const totalTokenCount = positiveInteger(totalTokens);
+  let derivedContext: ConversationContextUsage | null = null;
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (entry?.role !== 'assistant') {
@@ -1186,16 +1221,53 @@ function buildContextUsage(
     }
     const context = contextUsageFromPerformance(entry.performance, entry.createdAt);
     if (context) {
-      return {
+      derivedContext = {
         ...context,
-        totalTokens: positiveInteger(totalTokens) ?? context.totalTokens,
+        totalTokens: totalTokenCount ?? context.totalTokens,
       };
+      break;
     }
   }
 
+  const mergedStored = storedContext
+    ? {
+        ...storedContext,
+        totalTokens: totalTokenCount ?? storedContext.totalTokens,
+      }
+    : null;
+  if (derivedContext && mergedStored) {
+    return isContextNewer(mergedStored, derivedContext) ? mergedStored : derivedContext;
+  }
+  if (derivedContext) {
+    return derivedContext;
+  }
+  if (mergedStored) {
+    return mergedStored;
+  }
   return {
-    totalTokens: positiveInteger(totalTokens),
+    totalTokens: totalTokenCount,
   };
+}
+
+function contextUsageFromRow(value: string | null): ConversationContextUsage | null {
+  const parsed = parseJson(value);
+  const result = conversationContextUsageSchema.safeParse(parsed);
+  return result.success ? result.data : null;
+}
+
+function isContextNewer(
+  candidate: ConversationContextUsage,
+  current: ConversationContextUsage,
+): boolean {
+  const candidateTime = candidate.updatedAt ? Date.parse(candidate.updatedAt) : Number.NaN;
+  const currentTime = current.updatedAt ? Date.parse(current.updatedAt) : Number.NaN;
+  if (Number.isNaN(candidateTime)) {
+    return false;
+  }
+  if (Number.isNaN(currentTime)) {
+    return true;
+  }
+  return candidateTime >= currentTime;
 }
 
 function contextUsageFromPerformance(

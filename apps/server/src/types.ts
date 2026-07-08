@@ -1,4 +1,7 @@
-import type {AttachmentMetadata} from '../../../packages/shared/src/conversations.ts';
+import type {
+  AttachmentMetadata,
+  ConversationContextUsage,
+} from '../../../packages/shared/src/conversations.ts';
 import type {RunKind, TerminalRunStatus} from '../../../packages/shared/src/conversations.ts';
 import type {ChatAttachmentInput} from '../../../packages/shared/src/contracts.ts';
 
@@ -59,6 +62,11 @@ export type LlamaModelProps = {
   contextWindow?: number;
   chatTemplate?: string;
   defaultGenerationSettings?: unknown;
+  raw: unknown;
+};
+
+export type LlamaTokenizeResult = {
+  tokens: number;
   raw: unknown;
 };
 
@@ -177,6 +185,11 @@ export type ChatStreamEvent =
       error?: {code: string; message: string; retryable?: boolean};
       createdAt: string;
     }
+  | ({
+      type: 'context.updated';
+      conversationId: string;
+      createdAt: string;
+    } & ConversationContextUsage)
   | {
       type: 'compact.started';
       runId: string;

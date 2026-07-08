@@ -45,6 +45,13 @@ const updateGlobalModelParamsSchema = z.object({
   params: editableParamsSchema,
 });
 
+const tokenizeSchema = z.object({
+  content: z.string().max(200_000),
+  addSpecial: z.boolean().optional(),
+  parseSpecial: z.boolean().optional(),
+  withPieces: z.boolean().optional(),
+});
+
 const updateModelSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   params: editableParamsSchema.optional(),
@@ -111,7 +118,7 @@ export async function createServer(paths: AppPaths) {
   );
   const llama = new LlamaCppManager(paths, store);
   const hf = new HuggingFaceService(store);
-  const pi = new PiHarness(paths, store, conversations, hostTools);
+  const pi = new PiHarness(paths, store, conversations, hostTools, llama);
 
   const app = Fastify({
     logger: {
@@ -253,6 +260,11 @@ export async function createServer(paths: AppPaths) {
   app.get('/api/llama/models/:id/props', async (request, reply) => {
     const id = (request.params as {id: string}).id;
     return handleLlamaRoute(reply, () => llama.getModelProps(id));
+  });
+
+  app.post('/api/llama/tokenize', async (request, reply) => {
+    const body = tokenizeSchema.parse(request.body);
+    return handleLlamaRoute(reply, () => llama.tokenize(body.content, body));
   });
 
   app.post('/api/llama/models/:id/load', async (request, reply) => {

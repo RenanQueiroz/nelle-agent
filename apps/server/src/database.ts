@@ -133,6 +133,14 @@ const MIGRATIONS: Migration[] = [
         ON tool_audit_events(conversation_id, pi_tool_call_id);
     `,
   },
+  {
+    version: 2,
+    name: 'conversation_context_usage_cache',
+    checksum: '2026-07-08-conversation-context-usage-cache',
+    sql: `
+      ALTER TABLE conversations ADD COLUMN context_usage_json TEXT;
+    `,
+  },
 ];
 
 export class AppDatabase {

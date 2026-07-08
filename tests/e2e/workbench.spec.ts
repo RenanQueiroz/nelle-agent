@@ -1653,6 +1653,8 @@ test('routes compact slash command outside normal chat streaming', async ({page}
   expect(streamCalls).toBe(0);
   await expect(page.getByText('completed')).toBeVisible();
   await expect(page.getByText('Conversation compacted.')).toBeVisible();
+  await page.getByTestId('composer-context-progress').hover();
+  await expect(page.getByText('Context: 73 / 8,192 tokens')).toBeVisible();
 });
 
 test('rejects unsupported slash commands before they reach chat streaming', async ({page}) => {
@@ -1862,6 +1864,7 @@ async function mockConversationRoutes(
   },
 ): Promise<void> {
   let chat = input.chat;
+  const contextByConversation = new Map<string, ReturnType<typeof contextFromChat>>();
   let conversations = input.conversations ?? [
     {
       id: 'poc-default',
@@ -1909,6 +1912,13 @@ async function mockConversationRoutes(
       input.onCompact?.(body?.instructions);
       const runId = 'run-compact-e2e';
       const createdAt = '2026-07-07T12:04:00.000Z';
+      const compactedContext = {
+        usedTokens: 73,
+        totalTokens: 8192,
+        source: 'estimate',
+        updatedAt: createdAt,
+      };
+      contextByConversation.set('poc-default', compactedContext);
       const events = [
         {
           type: 'run.started',
@@ -1924,6 +1934,12 @@ async function mockConversationRoutes(
           runId,
           conversationId: 'poc-default',
           instructions: body?.instructions,
+          createdAt,
+        },
+        {
+          type: 'context.updated',
+          conversationId: 'poc-default',
+          ...compactedContext,
           createdAt,
         },
         {
@@ -2057,6 +2073,7 @@ async function mockConversationRoutes(
             conversationId,
             chat,
             conversations.find(conversation => conversation.id === conversationId),
+            contextByConversation.get(conversationId),
           ),
         },
       });
@@ -2075,6 +2092,7 @@ function conversationSnapshot(
   id: string,
   chat: MockChatMessage[],
   conversation?: MockConversation,
+  context?: ReturnType<typeof contextFromChat>,
 ) {
   const attachments = chat.flatMap(message =>
     (message.attachments ?? []).map(attachment => ({
@@ -2111,7 +2129,7 @@ function conversationSnapshot(
     })),
     activePathEntryIds: chat.map(message => message.id),
     attachments,
-    context: contextFromChat(chat),
+    context: context ?? contextFromChat(chat),
     models: {available: []},
     capabilities: {
       canSend: true,

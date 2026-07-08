@@ -294,9 +294,8 @@ Intentional POC limitations:
   run events, `message.assistant.completed` final assistant events, and
   first-turn title generation `title` run events. Manual compaction streams
   `compact` run lifecycle and command-status events. Aborted run events clear UI
-  run tracking and model locks. Full branch tree exploration, slot-level abort
-  verification, and authoritative post-compaction token recalculation are still
-  pending.
+  run tracking and model locks. Full branch tree exploration and slot-level
+  abort verification are still pending.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are gated through a Settings acknowledgement/global disable switch
@@ -579,7 +578,9 @@ Initial implementation:
 - Show context-window usage in the Astryx `ChatComposer` header with a
   `ProgressBar` and hover/focus tooltip containing used/total token counts.
   Treat streamed llama.cpp `prompt_progress` and `timings` as authoritative;
-  any tokenization estimate is draft-only.
+  tokenization estimates are marked with `source: "estimate"` and are used for
+  post-compaction context refresh when exact Pi/llama compaction metrics are not
+  available.
 - Route chat sendability problems through Astryx `ChatComposer` status:
   blocking errors above the composer and non-blocking warnings below it.
 - Add slash-command typeahead to the composer from Nelle's allowlist. Initially

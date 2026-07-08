@@ -10,6 +10,7 @@ import type {
   LlamaModelProps,
   LlamaRouterModel,
   LlamaRouterProps,
+  LlamaTokenizeResult,
   RuntimeStatus,
 } from './types';
 import {AppStore} from './store';
@@ -174,6 +175,35 @@ export class LlamaCppManager {
         getProp(raw, 'chat_template') ?? getProp(raw, 'chatTemplate'),
       ),
       defaultGenerationSettings,
+      raw,
+    };
+  }
+
+  async tokenize(
+    content: string,
+    input: {
+      addSpecial?: boolean;
+      parseSpecial?: boolean;
+      withPieces?: boolean;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<LlamaTokenizeResult> {
+    const raw = await this.fetchRouterJson('/tokenize', {
+      method: 'POST',
+      body: {
+        content,
+        add_special: input.addSpecial ?? false,
+        parse_special: input.parseSpecial ?? true,
+        with_pieces: input.withPieces ?? false,
+      },
+      signal: input.signal,
+    });
+    const tokens = getProp(raw, 'tokens');
+    if (!Array.isArray(tokens)) {
+      throw new Error('llama.cpp tokenize response did not include a tokens array.');
+    }
+    return {
+      tokens: tokens.length,
       raw,
     };
   }

@@ -398,6 +398,7 @@ export function App() {
   const archiveInputRef = useRef<HTMLInputElement | null>(null);
   const streamAbortController = useRef<AbortController | null>(null);
   const compactAbortController = useRef<AbortController | null>(null);
+  const activeConversationIdRef = useRef(activeConversationId);
   const [notice, setNotice] = useState<AppNotice | null>(null);
 
   const activeModel = useMemo(
@@ -418,6 +419,10 @@ export function App() {
       ),
     [activeModel?.params.contextSize, activeModelProps?.contextWindow, contextUsage],
   );
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
   const composerBlockingMessage = useMemo(() => {
     if (slashCommandError) {
       return slashCommandError;
@@ -1473,6 +1478,16 @@ export function App() {
       });
       if (event.status === 'failed' && event.error?.message) {
         setComposerError(event.error.message);
+      }
+    }
+    if (event.type === 'context.updated') {
+      if (event.conversationId === activeConversationIdRef.current) {
+        setContextUsage({
+          usedTokens: event.usedTokens,
+          totalTokens: event.totalTokens,
+          source: event.source,
+          updatedAt: event.updatedAt ?? event.createdAt,
+        });
       }
     }
     if (event.type === 'user_message') {

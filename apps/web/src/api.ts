@@ -183,6 +183,11 @@ export type ChatStreamEvent =
       error?: {code: string; message: string; retryable?: boolean};
       createdAt: string;
     }
+  | ({
+      type: 'context.updated';
+      conversationId: string;
+      createdAt: string;
+    } & ConversationContextUsage)
   | {
       type: 'compact.started';
       runId: string;
@@ -391,6 +396,10 @@ export async function loadLlamaModel(modelId: string): Promise<void> {
 
 export async function unloadLlamaModel(modelId: string): Promise<void> {
   await apiPost(`/api/llama/models/${encodeURIComponent(modelId)}/unload`);
+}
+
+export async function tokenizeWithLlama(content: string): Promise<{tokens: number; raw: unknown}> {
+  return apiPost('/api/llama/tokenize', {content});
 }
 
 export function subscribeLlamaModelEvents(

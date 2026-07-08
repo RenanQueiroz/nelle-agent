@@ -175,8 +175,9 @@ Nelle currently differs from the target in these ways:
   `run.completed` events, `message.assistant.completed` final assistant events,
   first-turn title generation emits `title` run events, and `run.aborted` clears
   UI run tracking/model locks. Manual compaction now streams `compact` run
-  lifecycle plus command-status events. Llama.cpp slot-level abort verification
-  and authoritative post-compaction token recalculation are still pending.
+  lifecycle plus command-status events and persists a post-compaction
+  `/api/llama/tokenize` context estimate. Llama.cpp slot-level abort
+  verification is still pending.
 - Done in the current sidebar: reset/delete/pin/rename actions moved out of the
   composer footer and into each conversation row's action menu, and large lists
   use TanStack virtualization inside an Astryx `SideNav` shell.
@@ -463,9 +464,11 @@ Nelle should expose stable local APIs that wrap llama.cpp router endpoints:
 - `PUT /api/llama/models-ini`
   - writes global and model-section params, then reloads if running
 - `POST /api/llama/tokenize`
-  - optional helper for text-only draft estimates
-  - should never be treated as authoritative for multimodal requests or full
-    chat-template/tool history
+  - done: proxies llama.cpp `/tokenize` and returns a normalized token count
+  - used for text-only draft/context estimates and post-compaction context
+    refreshes when exact Pi/llama compaction metrics are unavailable
+  - estimates are marked with `source: "estimate"` and should not be presented
+    as exact multimodal/chat-template/tool-history counts
 
 Nelle's UI should not call llama.cpp directly except through the existing chat
 proxy path. This gives us one place to normalize errors, router-offline states,
@@ -1789,10 +1792,9 @@ Exit criteria:
   `compact.started`, `compact.completed`, and `compact.failed` events.
 - Done: unsupported commands such as `/new`, `/resume`, `/model`, `/login`, and
   `/logout` are never sent to Pi as prompts and show actionable UI guidance.
-- Partially done: compaction completion re-applies the conversation snapshot so
-  the context-window display refreshes when snapshot context changes.
-  Authoritative post-compaction token recalculation remains pending until Nelle
-  adds a tokenize estimate or Pi/llama exposes compaction context metrics.
+- Done: compaction completion stores a llama.cpp `/tokenize` context estimate,
+  emits `context.updated`, and re-applies the conversation snapshot so the
+  context-window display refreshes with persisted used/total token counts.
 - Done: manual compaction uses Pi `AgentSession.compact()` and stop prefers the
   run abort endpoint, which calls `AgentSession.abortCompaction()` server-side.
 

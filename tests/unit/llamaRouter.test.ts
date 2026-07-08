@@ -61,6 +61,17 @@ test('llama router facade normalizes props, models, model props, actions, and ev
     assert.equal(modelProps.contextWindow, 32768);
     assert.deepEqual(modelProps.modalities, {vision: true, audio: false, video: false});
 
+    const tokenizeResponse = await app.inject({
+      method: 'POST',
+      url: '/api/llama/tokenize',
+      payload: {content: 'hello local model'},
+    });
+    assert.equal(tokenizeResponse.statusCode, 200);
+    assert.deepEqual(tokenizeResponse.json<{tokens: number}>(), {
+      tokens: 3,
+      raw: {tokens: [1, 2, 3]},
+    });
+
     const loadResponse = await app.inject({
       method: 'POST',
       url: `/api/llama/models/${encodeURIComponent(model.id)}/load`,
@@ -211,6 +222,10 @@ async function createMockRouter(input: {failModels?: boolean} = {}): Promise<{
         default_generation_settings: {n_ctx: 32768},
         chat_template: 'chatml',
       });
+      return;
+    }
+    if (url === '/tokenize') {
+      sendJson(response, {tokens: [1, 2, 3]});
       return;
     }
     if (url === '/models/sse') {

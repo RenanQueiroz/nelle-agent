@@ -28,16 +28,26 @@ test('SQLite migration creates conversation tables and migration records', async
   const database = new AppDatabase(paths);
   await database.open();
   try {
-    const migration = database.connection
-      .prepare('SELECT version, name FROM schema_migrations WHERE version = 1')
-      .get() as {version: number; name: string} | undefined;
+    const migrations = database.connection
+      .prepare('SELECT version, name FROM schema_migrations ORDER BY version ASC')
+      .all() as Array<{version: number; name: string}>;
     const table = database.connection
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'conversations'")
       .get() as {name: string} | undefined;
+    const contextColumn = database.connection
+      .prepare("PRAGMA table_info('conversations')")
+      .all()
+      .some(column => (column as {name?: string}).name === 'context_usage_json');
 
-    assert.equal(migration?.version, 1);
-    assert.equal(migration?.name, 'initial_conversation_schema');
+    assert.deepEqual(
+      migrations.map(migration => [migration.version, migration.name]),
+      [
+        [1, 'initial_conversation_schema'],
+        [2, 'conversation_context_usage_cache'],
+      ],
+    );
     assert.equal(table?.name, 'conversations');
+    assert.equal(contextColumn, true);
   } finally {
     database.close();
   }
@@ -1210,12 +1220,13 @@ test('Pi compact stream emits run and compaction lifecycle events', async () => 
         getLeafId: () => 'entry-compaction',
       },
     };
-    const harness = new PiHarness(
-      paths,
-      store,
-      repository,
-      new HostToolRepository(database),
-    ) as unknown as CompactStreamHarness;
+    let tokenizedContent = '';
+    const harness = new PiHarness(paths, store, repository, new HostToolRepository(database), {
+      tokenize: async content => {
+        tokenizedContent = content;
+        return {tokens: 42};
+      },
+    }) as unknown as CompactStreamHarness;
     harness.ensureSession = async () => fakeSession;
 
     const events = await collectAsyncQueue(
@@ -1225,19 +1236,27 @@ test('Pi compact stream emits run and compaction lifecycle events', async () => 
 
     assert.deepEqual(
       events.map(event => event.type),
-      ['run.started', 'compact.started', 'compact.completed', 'run.completed'],
+      ['run.started', 'compact.started', 'context.updated', 'compact.completed', 'run.completed'],
     );
     assert.equal(events[0]?.type, 'run.started');
     assert.equal(events[0]?.kind, 'compact');
     assert.equal(events[1]?.type, 'compact.started');
     assert.equal(events[1]?.instructions, 'keep setup details');
-    assert.equal(events[2]?.type, 'compact.completed');
-    assert.equal(events[3]?.type, 'run.completed');
-    assert.equal(events[3]?.status, 'completed');
+    assert.equal(events[2]?.type, 'context.updated');
+    assert.equal(events[2]?.usedTokens, 42);
+    assert.equal(events[2]?.totalTokens, 8192);
+    assert.equal(events[2]?.source, 'estimate');
+    assert.equal(events[3]?.type, 'compact.completed');
+    assert.equal(events[4]?.type, 'run.completed');
+    assert.equal(events[4]?.status, 'completed');
     assert.equal(compactInstructions, 'keep setup details');
+    assert.match(tokenizedContent, /summary: Kept local llama\.cpp setup details\./);
     assert.equal(snapshot?.conversation.status, 'ready');
     assert.equal(snapshot?.conversation.activeLeafPiEntryId, 'entry-compaction');
     assert.equal(snapshot?.entries[2]?.entryType, 'compaction');
+    assert.equal(snapshot?.context.usedTokens, 42);
+    assert.equal(snapshot?.context.totalTokens, 8192);
+    assert.equal(snapshot?.context.source, 'estimate');
   } finally {
     database.close();
   }

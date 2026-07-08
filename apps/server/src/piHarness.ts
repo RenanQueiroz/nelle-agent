@@ -24,6 +24,7 @@ import type {ConversationRepository, SyncConversationEntry} from './conversation
 import type {HostToolRepository} from './hostTools';
 import type {
   AttachmentMetadata,
+  ConversationContextUsage,
   ConversationEntryProjection,
   ConversationSnapshot,
   ConversationStatus,
@@ -58,6 +59,10 @@ type ActiveRun = {
   abortController?: AbortController;
 };
 
+type ContextTokenizer = {
+  tokenize: (content: string) => Promise<{tokens: number}>;
+};
+
 type PreparedPromptAttachment = {
   input: ChatAttachmentInput;
   metadata: AttachmentMetadata;
@@ -84,6 +89,7 @@ export class PiHarness {
     private readonly store: AppStore,
     private readonly conversations: ConversationRepository,
     private readonly hostTools: HostToolRepository,
+    private readonly contextTokenizer?: ContextTokenizer,
   ) {}
 
   resetSession(conversationId?: string): void {
@@ -190,11 +196,25 @@ export class PiHarness {
         throw new Error('There is no conversation context to compact.');
       }
       await session.compact(customInstructions?.trim() || undefined);
-      this.syncPiConversation(conversationId, session, activeModel, undefined, 'compacting');
+      const syncedEntries = this.syncPiConversation(
+        conversationId,
+        session,
+        activeModel,
+        undefined,
+        'compacting',
+      );
       if (run.abortRequested) {
         queue?.push(createRunAbortedEvent(run, 'user'));
         queue?.push(createRunCompletedEvent(run, 'aborted'));
         return {compacted: false};
+      }
+      const context = await this.updateCompactedContextUsage(
+        conversationId,
+        syncedEntries,
+        activeModel,
+      );
+      if (context) {
+        queue?.push(createContextUpdatedEvent(conversationId, context));
       }
       queue?.push(createCompactCompletedEvent(run));
       queue?.push(createRunCompletedEvent(run, 'completed'));
@@ -216,6 +236,33 @@ export class PiHarness {
     } finally {
       this.finishRun(conversationId, run.runId);
       this.conversations.setConversationStatus(conversationId, 'ready');
+    }
+  }
+
+  private async updateCompactedContextUsage(
+    conversationId: string,
+    entries: SyncConversationEntry[],
+    activeModel: ConfiguredModel,
+  ): Promise<ConversationContextUsage | null> {
+    if (!this.contextTokenizer) {
+      return null;
+    }
+    const content = renderContextEstimateInput(entries);
+    if (!content) {
+      return null;
+    }
+    try {
+      const result = await this.contextTokenizer.tokenize(content);
+      const context: ConversationContextUsage = {
+        usedTokens: result.tokens,
+        totalTokens: activeModel.params.contextSize,
+        source: 'estimate',
+        updatedAt: new Date().toISOString(),
+      };
+      this.conversations.setConversationContextUsage(conversationId, context);
+      return context;
+    } catch {
+      return null;
     }
   }
 
@@ -1324,6 +1371,18 @@ function createRunCompletedEvent(
   };
 }
 
+function createContextUpdatedEvent(
+  conversationId: string,
+  context: ConversationContextUsage,
+): ChatStreamEvent {
+  return {
+    type: 'context.updated',
+    conversationId,
+    ...context,
+    createdAt: new Date().toISOString(),
+  };
+}
+
 function createCompactStartedEvent(
   run: ActiveRun,
   instructions: string | undefined,
@@ -1359,6 +1418,20 @@ function createCompactFailedEvent(
     error,
     createdAt: new Date().toISOString(),
   };
+}
+
+function renderContextEstimateInput(entries: SyncConversationEntry[]): string {
+  return entries
+    .map(entry => {
+      const text = entry.text.trim();
+      if (!text) {
+        return '';
+      }
+      const label = entry.entryType === 'compaction' ? 'summary' : (entry.role ?? entry.entryType);
+      return `${label}: ${text}`;
+    })
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function buildPiPrompt(prompt: string, attachments: PreparedPromptAttachment[]): string {
