@@ -1868,8 +1868,8 @@ Unit tests:
 - Event envelope and `NelleError` schema validation.
 - Transport envelope helpers for SSE serialization and snapshot refetch
   recovery assumptions.
-- `models.ini` AST parse/write, including comment/order/unknown key
-  preservation, duplicate editable-key detection, atomic-write failure handling,
+- Done: `models.ini` AST parse/write, including comment/order/unknown key
+  preservation, duplicate editable-key detection, atomic-write failure cleanup,
   and malformed-line round trips.
 - `models.ini` source-of-truth behavior over stale `state.json`, direct HF
   import writes, and full-replacement free-form model param saves.

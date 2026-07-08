@@ -130,3 +130,14 @@ test('atomic models.ini writes keep a backup of previous content', async () => {
   assert.equal(await fs.readFile(filePath, 'utf8'), 'version = 2\n');
   assert.equal(await fs.readFile(`${filePath}.bak`, 'utf8'), 'version = 1\n');
 });
+
+test('atomic models.ini writes remove temporary files after write failure', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-models-ini-fail-'));
+  const filePath = path.join(directory, 'models.ini');
+  await fs.mkdir(filePath);
+
+  await assert.rejects(() => writeModelsIniAtomic(filePath, parseModelsIni('version = 2\n')));
+
+  const entries = await fs.readdir(directory);
+  assert.deepEqual(entries, ['models.ini']);
+});
