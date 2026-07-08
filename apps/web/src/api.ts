@@ -90,6 +90,9 @@ export type ChatMessage = {
   role: 'user' | 'assistant' | 'system';
   content: string;
   createdAt: string;
+  modelId?: string;
+  modelRuntimeId?: string;
+  modelAliasSnapshot?: string;
   performance?: ChatPerformance;
   toolCalls?: Array<{
     id: string;

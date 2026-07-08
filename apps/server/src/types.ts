@@ -103,6 +103,9 @@ export type ChatMessage = {
   role: ChatRole;
   content: string;
   createdAt: string;
+  modelId?: string;
+  modelRuntimeId?: string;
+  modelAliasSnapshot?: string;
   performance?: ChatPerformance;
   toolCalls?: ToolCallEvent[];
 };

@@ -131,6 +131,9 @@ export class PiHarness {
       role: 'assistant',
       content: '',
       createdAt: new Date().toISOString(),
+      modelId: activeModel.id,
+      modelRuntimeId: llamaRuntimeModelId(activeModel),
+      modelAliasSnapshot: activeModel.name,
       toolCalls: [],
     };
 

@@ -250,6 +250,7 @@ basic conversation abort via Pi `AgentSession.abort()`,
 manual `/compact [instructions]` through Pi `AgentSession.compact()` plus
 `abortCompaction()`,
 first-turn generated conversation titles through a non-Pi llama.cpp prompt,
+assistant message model snapshots plus footer copy actions,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for
 startup and configuration diagnostics, and the POC model panel can show router

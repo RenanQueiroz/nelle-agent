@@ -33,6 +33,9 @@ export async function streamDirectLlama(
     role: 'assistant',
     content: '',
     createdAt: new Date().toISOString(),
+    modelId: activeModel.id,
+    modelRuntimeId: llamaRuntimeModelId(activeModel),
+    modelAliasSnapshot: activeModel.name,
   };
 
   await store.appendChatMessage(userMessage);

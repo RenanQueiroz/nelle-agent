@@ -1601,23 +1601,25 @@ Exit criteria:
 
 ### Phase 3B: Assistant Footer Actions
 
-- Persist `model_id`, `model_runtime_id`, and `model_alias_snapshot` on
+- Done: persist `model_id`, `model_runtime_id`, and `model_alias_snapshot` on
   assistant messages.
-- Replace the metadata footer string with a composed footer row containing
-  timestamp, model dropdown, performance statistics, copy, and regenerate.
+- Partially done: replace the metadata footer string with a composed footer row
+  containing timestamp, model alias text, performance statistics, and copy.
+  Model dropdown regeneration is still pending.
 - Replace the old throughput text with a Reading/Generation statistics widget
   that shows tokens, elapsed time, and speed for the active view.
 - Add Pi-native model override regeneration through the router-aware selector.
-- Add clipboard copy behavior for assistant messages.
+- Done: add clipboard copy behavior for assistant messages.
 
 Exit criteria:
 
-- Every assistant message shows the model that generated it.
+- Done: every new assistant message shows the model that generated it.
 - Selecting a different model from an assistant footer loads that model if
   needed and regenerates the answer in one action.
 - Regeneration creates a Pi-native branch by replaying the original user content
   on a new branch, while Nelle groups the answer as a variant in the UI.
-- Copy writes the assistant text to the clipboard and gives visible feedback.
+- Copy writes the assistant text to the clipboard. Visible toast/status feedback
+  is still pending.
 - Timing metrics render as a toggleable Reading/Generation widget with icon
   controls and tooltips, without layout overflow on mobile or desktop widths.
 

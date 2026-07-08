@@ -156,8 +156,9 @@ commands such as `/new`, `/resume`, `/model`, `/login`, and `/logout` stay owned
 by Nelle UI controls. Composer stop calls `AgentSession.abortCompaction()` for
 an active compaction.
 
-Assistant message metadata shows the message time followed by llama.cpp
-throughput, for example `12:01 PM · prompt 32.30 tok/s · gen 21.53 tok/s`.
+Assistant message metadata shows the message time, the model alias that
+generated the assistant response, a copy action, and llama.cpp throughput, for
+example `prompt 32.30 tok/s · gen 21.53 tok/s`.
 Nelle points Pi at an internal `/api/llama-proxy/v1` provider, which forwards
 requests to llama.cpp unchanged except for enabling `return_progress`,
 `sse_ping_interval`, and `timings_per_token` on streamed requests. The proxy

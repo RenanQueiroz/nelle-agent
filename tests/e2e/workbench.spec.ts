@@ -266,6 +266,9 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
       role: 'assistant',
       content: 'Hello from Nelle.',
       createdAt: '2026-07-07T12:01:01.000Z',
+      modelId: model.id,
+      modelRuntimeId: model.id,
+      modelAliasSnapshot: model.name,
       performance: {
         source: 'llamacpp-timings',
         prompt: {
@@ -308,6 +311,8 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
   await page.getByLabel('Message input').press('Enter');
 
   await expect(page.getByText('Hello from Nelle.')).toBeVisible();
+  await expect(page.getByText(model.name).first()).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Copy response'})).toBeVisible();
   await expect(page.getByText('prompt 32.30 tok/s · gen 21.53 tok/s')).toBeVisible();
 });
 
@@ -383,6 +388,9 @@ test('updates streamed tool calls and shows expandable input and output', async 
       role: 'assistant',
       content: 'Done.',
       createdAt: '2026-07-07T12:01:01.000Z',
+      modelId: model.id,
+      modelRuntimeId: model.id,
+      modelAliasSnapshot: model.name,
       toolCalls: [completedCall],
     };
     chat.push(userMessage, assistantMessage);
@@ -696,6 +704,9 @@ function conversationSnapshot(id: string, chat: MockChatMessage[]) {
       createdAt: message.createdAt,
       performance: message.performance,
       toolCalls: message.toolCalls,
+      modelId: message.modelId,
+      modelRuntimeId: message.modelRuntimeId,
+      modelAliasSnapshot: message.modelAliasSnapshot,
     })),
     activePathEntryIds: chat.map(message => message.id),
     attachments: [],
@@ -720,4 +731,7 @@ type MockChatMessage = {
   createdAt: string;
   performance?: unknown;
   toolCalls?: unknown;
+  modelId?: string;
+  modelRuntimeId?: string;
+  modelAliasSnapshot?: string;
 };

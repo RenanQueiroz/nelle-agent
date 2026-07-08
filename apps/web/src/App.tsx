@@ -29,6 +29,7 @@ import {
   ArrowPathIcon,
   ArrowDownTrayIcon,
   ChatBubbleLeftRightIcon,
+  ClipboardDocumentIcon,
   CpuChipIcon,
   EllipsisHorizontalIcon,
   MagnifyingGlassIcon,
@@ -1044,7 +1045,7 @@ function RenderedMessage({message}: {message: ApiChatMessage}) {
         metadata={
           <ChatMessageMetadata
             timestamp={<Timestamp value={message.createdAt} format="time" />}
-            footer={formatChatPerformance(message.performance)}
+            footer={renderMessageFooter(message)}
           />
         }
       >
@@ -1058,6 +1059,38 @@ function RenderedMessage({message}: {message: ApiChatMessage}) {
   );
 }
 
+function renderMessageFooter(message: ApiChatMessage) {
+  const performance = formatChatPerformance(message.performance);
+  const model = message.role === 'assistant' ? message.modelAliasSnapshot : undefined;
+  if (!performance && !model && message.role !== 'assistant') {
+    return undefined;
+  }
+
+  return (
+    <HStack gap={1} vAlign="center" wrap="wrap">
+      {model && (
+        <Text type="supporting" color="secondary">
+          {model}
+        </Text>
+      )}
+      {performance && (
+        <Text type="supporting" color="secondary">
+          {performance}
+        </Text>
+      )}
+      {message.role === 'assistant' && (
+        <Button
+          label="Copy response"
+          size="sm"
+          variant="ghost"
+          icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+          onClick={() => void copyMessageText(message.content)}
+        />
+      )}
+    </HStack>
+  );
+}
+
 function messagesFromSnapshot(snapshot: ConversationSnapshot): ApiChatMessage[] {
   return snapshot.entries
     .filter(entry => entry.entryType === 'message' && entry.role != null)
@@ -1066,6 +1099,9 @@ function messagesFromSnapshot(snapshot: ConversationSnapshot): ApiChatMessage[] 
       role: entry.role!,
       content: entry.textPreview ?? '',
       createdAt: entry.createdAt,
+      modelId: entry.modelId,
+      modelRuntimeId: entry.modelRuntimeId,
+      modelAliasSnapshot: entry.modelAliasSnapshot,
       performance: entry.performance as ChatPerformance | undefined,
       toolCalls: entry.toolCalls as ApiChatMessage['toolCalls'],
     }));
@@ -1210,4 +1246,19 @@ function parseCompactCommand(value: string): string | null {
     return value.slice('/compact '.length).trim();
   }
   return null;
+}
+
+async function copyMessageText(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textArea = document.createElement('textarea');
+  textArea.value = value;
+  textArea.style.position = 'fixed';
+  textArea.style.opacity = '0';
+  document.body.append(textArea);
+  textArea.select();
+  document.execCommand('copy');
+  textArea.remove();
 }
