@@ -1,4 +1,5 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
+import {useVirtualizer} from '@tanstack/react-virtual';
 
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {HStack, VStack, StackItem, Layout, LayoutContent} from '@astryxdesign/core/Layout';
@@ -28,13 +29,17 @@ import {Tooltip} from '@astryxdesign/core/Tooltip';
 import {useToast} from '@astryxdesign/core/Toast';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Icon} from '@astryxdesign/core/Icon';
+import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {
   ArrowPathIcon,
   ArrowDownTrayIcon,
   ArrowTrendingUpIcon,
   BookOpenIcon,
   ChatBubbleLeftRightIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   ClipboardDocumentIcon,
+  Cog6ToothIcon,
   ClockIcon,
   CpuChipIcon,
   DocumentTextIcon,
@@ -150,6 +155,7 @@ export function App() {
   const [isLogVisible, setIsLogVisible] = useState(false);
   const [runtimeLogs, setRuntimeLogs] = useState('');
   const [isSearching, setIsSearching] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
@@ -174,14 +180,6 @@ export function App() {
     }
     return entries;
   }, [models, routerModels]);
-  const visibleConversations = useMemo(() => {
-    const query = conversationSearch.trim().toLowerCase();
-    if (!query) {
-      return conversations;
-    }
-    return conversations.filter(conversation => conversation.title.toLowerCase().includes(query));
-  }, [conversationSearch, conversations]);
-
   useEffect(() => {
     let isCancelled = false;
     void (async () => {
@@ -698,305 +696,304 @@ export function App() {
         content={
           <LayoutContent padding={0}>
             <HStack height="100%" className="nelle-workbench">
-              <VStack gap={4} className="nelle-side-panel nelle-panel-content nelle-scroll">
-                <HStack gap={2} vAlign="center">
-                  <Icon icon={ChatBubbleLeftRightIcon} size="md" color="accent" />
-                  <VStack gap={0}>
-                    <Heading level={2}>Nelle Agent</Heading>
-                    <Text type="supporting" color="secondary">
-                      Local Pi + llama.cpp POC
-                    </Text>
-                  </VStack>
-                </HStack>
-
-                {notice && (
-                  <Banner
-                    status={notice.type}
-                    title={notice.text}
-                    isDismissable
-                    onDismiss={() => setNotice(null)}
+              <VStack
+                gap={4}
+                className={
+                  isSidebarCollapsed
+                    ? 'nelle-side-panel nelle-side-panel-collapsed'
+                    : 'nelle-side-panel nelle-panel-content nelle-scroll'
+                }
+              >
+                {isSidebarCollapsed ? (
+                  <CollapsedSidebar
+                    onExpand={() => setIsSidebarCollapsed(false)}
+                    onNewConversation={handleNewConversation}
+                    isNewConversationBusy={busyAction === 'new-chat'}
                   />
-                )}
-
-                <Card padding={3}>
-                  <VStack gap={3}>
+                ) : (
+                  <>
                     <HStack gap={2} vAlign="center">
-                      <StackItem size="fill">
-                        <Heading level={3}>Conversations</Heading>
-                      </StackItem>
-                      <Button
-                        label="New chat"
+                      <Icon icon={ChatBubbleLeftRightIcon} size="md" color="accent" />
+                      <VStack gap={0}>
+                        <Heading level={2}>Nelle Agent</Heading>
+                        <Text type="supporting" color="secondary">
+                          Local Pi + llama.cpp POC
+                        </Text>
+                      </VStack>
+                      <StackItem size="fill" />
+                      <IconButton
+                        label="Collapse sidebar"
+                        tooltip="Collapse sidebar"
                         size="sm"
-                        variant="secondary"
-                        icon={<Icon icon={PlusIcon} size="sm" />}
-                        isLoading={busyAction === 'new-chat'}
-                        onClick={handleNewConversation}
+                        variant="ghost"
+                        icon={<Icon icon={ChevronLeftIcon} size="sm" />}
+                        onClick={() => setIsSidebarCollapsed(true)}
                       />
                     </HStack>
-                    <TextInput
-                      label="Search conversations"
-                      value={conversationSearch}
-                      onChange={setConversationSearch}
-                      placeholder="Search chats"
-                    />
-                    <VStack gap={1}>
-                      {visibleConversations.map(conversation => (
-                        <HStack key={conversation.id} gap={1} vAlign="center">
+
+                    {notice && (
+                      <Banner
+                        status={notice.type}
+                        title={notice.text}
+                        isDismissable
+                        onDismiss={() => setNotice(null)}
+                      />
+                    )}
+
+                    <Card padding={3}>
+                      <VStack gap={3}>
+                        <HStack gap={2} vAlign="center">
                           <StackItem size="fill">
-                            <Button
-                              label={conversation.title}
-                              size="sm"
-                              variant={
-                                conversation.id === activeConversationId ? 'primary' : 'ghost'
-                              }
-                              onClick={() => void handleSelectConversation(conversation.id)}
-                            />
+                            <Heading level={3}>Conversations</Heading>
                           </StackItem>
-                          {conversation.pinned && <Token label="pinned" color="blue" />}
-                          <DropdownMenu
-                            button={{
-                              label: `Actions for ${conversation.title}`,
-                              variant: 'ghost',
-                              size: 'sm',
-                              children: <Icon icon={EllipsisHorizontalIcon} size="sm" />,
-                            }}
-                            items={[
-                              {
-                                label: conversation.pinned ? 'Unpin' : 'Pin',
-                                onClick: () => void handleToggleConversationPin(conversation),
-                              },
-                              {
-                                label: 'Rename',
-                                onClick: () => void handleRenameConversation(conversation),
-                              },
-                              {
-                                label: 'Reset',
-                                onClick: () => void handleResetConversation(conversation.id),
-                              },
-                              {
-                                label: 'Delete',
-                                onClick: () => void handleDeleteConversation(conversation),
-                              },
-                            ]}
+                          <Button
+                            label="New chat"
+                            size="sm"
+                            variant="secondary"
+                            icon={<Icon icon={PlusIcon} size="sm" />}
+                            isLoading={busyAction === 'new-chat'}
+                            onClick={handleNewConversation}
                           />
                         </HStack>
-                      ))}
-                    </VStack>
-                  </VStack>
-                </Card>
-
-                <Card padding={3}>
-                  <VStack gap={3}>
-                    <HStack gap={2} vAlign="center">
-                      <Icon icon={CpuChipIcon} size="sm" color="secondary" />
-                      <Heading level={3}>llama.cpp</Heading>
-                    </HStack>
-                    <Token
-                      label={
-                        runtime?.running
-                          ? `Running on ${runtime.host}:${runtime.port}`
-                          : runtime?.installed
-                            ? 'Installed, stopped'
-                            : 'Not installed'
-                      }
-                      color={runtimeTone}
-                    />
-                    <Text type="supporting" color="secondary" className="nelle-code">
-                      {runtime?.binaryPath ?? 'No llama-server binary detected'}
-                    </Text>
-                    <Text type="supporting" color="secondary" className="nelle-code">
-                      {runtime?.logPath ?? 'llama-server log path unavailable'}
-                    </Text>
-                    <HStack gap={2} wrap="wrap">
-                      <Button
-                        label={runtime?.installed ? 'Update' : 'Install'}
-                        size="sm"
-                        variant="secondary"
-                        icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-                        isLoading={busyAction === 'install'}
-                        onClick={() =>
-                          runAction('install', async () => {
-                            setRuntime(await installRuntime());
-                          })
-                        }
-                      />
-                      <Button
-                        label="Start"
-                        size="sm"
-                        variant="primary"
-                        icon={<Icon icon={PlayIcon} size="sm" />}
-                        isDisabled={!runtime?.installed || runtime.running}
-                        isLoading={busyAction === 'start'}
-                        onClick={() =>
-                          runAction('start', async () => {
-                            setRuntime(await startRuntime());
-                            await refreshState();
-                          })
-                        }
-                      />
-                      <Button
-                        label="Stop"
-                        size="sm"
-                        variant="secondary"
-                        icon={<Icon icon={StopIcon} size="sm" />}
-                        isDisabled={!runtime?.running}
-                        isLoading={busyAction === 'stop'}
-                        onClick={() =>
-                          runAction('stop', async () => {
-                            setRuntime(await stopRuntime());
-                            setRouterModels([]);
-                          })
-                        }
-                      />
-                      <Button
-                        label="Refresh"
-                        size="sm"
-                        variant="ghost"
-                        icon={<Icon icon={ArrowPathIcon} size="sm" />}
-                        onClick={() =>
-                          runAction('refresh', async () => {
-                            await refreshState();
-                          })
-                        }
-                      />
-                      <Button
-                        label={isLogVisible ? 'Hide logs' : 'Show logs'}
-                        size="sm"
-                        variant="ghost"
-                        isLoading={busyAction === 'runtime-logs'}
-                        onClick={handleToggleLogs}
-                      />
-                      {isLogVisible && (
-                        <Button
-                          label="Refresh logs"
-                          size="sm"
-                          variant="ghost"
-                          isLoading={busyAction === 'runtime-logs'}
-                          onClick={handleRefreshLogs}
+                        <TextInput
+                          label="Search conversations"
+                          value={conversationSearch}
+                          onChange={setConversationSearch}
+                          placeholder="Search chats"
                         />
-                      )}
-                    </HStack>
-                    {isLogVisible && (
-                      <CodeBlock
-                        code={runtimeLogs || 'No llama-server log output yet.'}
-                        language="text"
-                        width="100%"
-                        maxHeight="calc(var(--spacing-10) * 8)"
-                        isWrapped
-                      />
-                    )}
-                    <VStack gap={2}>
-                      <TextInput
-                        label="Max loaded models"
-                        value={modelsMaxInput}
-                        onChange={setModelsMaxInput}
-                        description="Default is 1. Requires a llama.cpp restart."
-                      />
-                      <TextInput
-                        label="Sleep idle seconds"
-                        value={sleepIdleInput}
-                        onChange={setSleepIdleInput}
-                        description="Default is 90. Requires a llama.cpp restart."
-                      />
-                    </VStack>
-                    <Button
-                      label="Save runtime settings"
-                      size="sm"
-                      variant="secondary"
-                      isLoading={busyAction === 'runtime-settings'}
-                      onClick={handleSaveRuntimeSettings}
-                    />
-                  </VStack>
-                </Card>
+                        <ConversationVirtualList
+                          conversations={conversations}
+                          query={conversationSearch}
+                          activeConversationId={activeConversationId}
+                          onSelect={handleSelectConversation}
+                          onTogglePin={handleToggleConversationPin}
+                          onRename={handleRenameConversation}
+                          onReset={handleResetConversation}
+                          onDelete={handleDeleteConversation}
+                        />
+                      </VStack>
+                    </Card>
+                  </>
+                )}
 
-                <Card padding={3}>
-                  <VStack gap={3}>
-                    <HStack gap={2} vAlign="center">
-                      <StackItem size="fill">
-                        <Heading level={3}>Configured models</Heading>
-                      </StackItem>
-                      <Button
-                        label="Reload router models"
-                        size="sm"
-                        variant="ghost"
-                        icon={<Icon icon={ArrowPathIcon} size="sm" />}
-                        isDisabled={!runtime?.running}
-                        isLoading={busyAction === 'router-reload'}
-                        onClick={handleReloadRouterModels}
-                      />
-                    </HStack>
-                    {models.length === 0 && (
-                      <Text type="supporting" color="secondary">
-                        Search Hugging Face and choose a GGUF quant to create the first model.
-                      </Text>
-                    )}
-                    {models.map(model => {
-                      const routerModel = routerModelsByConfiguredId.get(model.id);
-                      const routerStatus =
-                        routerModel?.status ?? (runtime?.running ? 'unlisted' : 'stopped');
-                      const isLoaded = routerStatus === 'loaded' || routerStatus === 'sleeping';
-                      const isLoading = routerStatus === 'loading';
-                      return (
-                        <Card key={model.id} padding={2}>
-                          <VStack gap={0.5}>
-                            <HStack gap={2} vAlign="center">
-                              <StackItem size="fill">
-                                <Text type="label" weight="semibold">
-                                  {model.name}
+                {!isSidebarCollapsed && (
+                  <>
+                    <Card padding={3}>
+                      <VStack gap={3}>
+                        <HStack gap={2} vAlign="center">
+                          <Icon icon={CpuChipIcon} size="sm" color="secondary" />
+                          <Heading level={3}>llama.cpp</Heading>
+                        </HStack>
+                        <Token
+                          label={
+                            runtime?.running
+                              ? `Running on ${runtime.host}:${runtime.port}`
+                              : runtime?.installed
+                                ? 'Installed, stopped'
+                                : 'Not installed'
+                          }
+                          color={runtimeTone}
+                        />
+                        <Text type="supporting" color="secondary" className="nelle-code">
+                          {runtime?.binaryPath ?? 'No llama-server binary detected'}
+                        </Text>
+                        <Text type="supporting" color="secondary" className="nelle-code">
+                          {runtime?.logPath ?? 'llama-server log path unavailable'}
+                        </Text>
+                        <HStack gap={2} wrap="wrap">
+                          <Button
+                            label={runtime?.installed ? 'Update' : 'Install'}
+                            size="sm"
+                            variant="secondary"
+                            icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                            isLoading={busyAction === 'install'}
+                            onClick={() =>
+                              runAction('install', async () => {
+                                setRuntime(await installRuntime());
+                              })
+                            }
+                          />
+                          <Button
+                            label="Start"
+                            size="sm"
+                            variant="primary"
+                            icon={<Icon icon={PlayIcon} size="sm" />}
+                            isDisabled={!runtime?.installed || runtime.running}
+                            isLoading={busyAction === 'start'}
+                            onClick={() =>
+                              runAction('start', async () => {
+                                setRuntime(await startRuntime());
+                                await refreshState();
+                              })
+                            }
+                          />
+                          <Button
+                            label="Stop"
+                            size="sm"
+                            variant="secondary"
+                            icon={<Icon icon={StopIcon} size="sm" />}
+                            isDisabled={!runtime?.running}
+                            isLoading={busyAction === 'stop'}
+                            onClick={() =>
+                              runAction('stop', async () => {
+                                setRuntime(await stopRuntime());
+                                setRouterModels([]);
+                              })
+                            }
+                          />
+                          <Button
+                            label="Refresh"
+                            size="sm"
+                            variant="ghost"
+                            icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                            onClick={() =>
+                              runAction('refresh', async () => {
+                                await refreshState();
+                              })
+                            }
+                          />
+                          <Button
+                            label={isLogVisible ? 'Hide logs' : 'Show logs'}
+                            size="sm"
+                            variant="ghost"
+                            isLoading={busyAction === 'runtime-logs'}
+                            onClick={handleToggleLogs}
+                          />
+                          {isLogVisible && (
+                            <Button
+                              label="Refresh logs"
+                              size="sm"
+                              variant="ghost"
+                              isLoading={busyAction === 'runtime-logs'}
+                              onClick={handleRefreshLogs}
+                            />
+                          )}
+                        </HStack>
+                        {isLogVisible && (
+                          <CodeBlock
+                            code={runtimeLogs || 'No llama-server log output yet.'}
+                            language="text"
+                            width="100%"
+                            maxHeight="calc(var(--spacing-10) * 8)"
+                            isWrapped
+                          />
+                        )}
+                        <VStack gap={2}>
+                          <TextInput
+                            label="Max loaded models"
+                            value={modelsMaxInput}
+                            onChange={setModelsMaxInput}
+                            description="Default is 1. Requires a llama.cpp restart."
+                          />
+                          <TextInput
+                            label="Sleep idle seconds"
+                            value={sleepIdleInput}
+                            onChange={setSleepIdleInput}
+                            description="Default is 90. Requires a llama.cpp restart."
+                          />
+                        </VStack>
+                        <Button
+                          label="Save runtime settings"
+                          size="sm"
+                          variant="secondary"
+                          isLoading={busyAction === 'runtime-settings'}
+                          onClick={handleSaveRuntimeSettings}
+                        />
+                      </VStack>
+                    </Card>
+
+                    <Card padding={3}>
+                      <VStack gap={3}>
+                        <HStack gap={2} vAlign="center">
+                          <StackItem size="fill">
+                            <Heading level={3}>Configured models</Heading>
+                          </StackItem>
+                          <Button
+                            label="Reload router models"
+                            size="sm"
+                            variant="ghost"
+                            icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                            isDisabled={!runtime?.running}
+                            isLoading={busyAction === 'router-reload'}
+                            onClick={handleReloadRouterModels}
+                          />
+                        </HStack>
+                        {models.length === 0 && (
+                          <Text type="supporting" color="secondary">
+                            Search Hugging Face and choose a GGUF quant to create the first model.
+                          </Text>
+                        )}
+                        {models.map(model => {
+                          const routerModel = routerModelsByConfiguredId.get(model.id);
+                          const routerStatus =
+                            routerModel?.status ?? (runtime?.running ? 'unlisted' : 'stopped');
+                          const isLoaded = routerStatus === 'loaded' || routerStatus === 'sleeping';
+                          const isLoading = routerStatus === 'loading';
+                          return (
+                            <Card key={model.id} padding={2}>
+                              <VStack gap={0.5}>
+                                <HStack gap={2} vAlign="center">
+                                  <StackItem size="fill">
+                                    <Text type="label" weight="semibold">
+                                      {model.name}
+                                    </Text>
+                                  </StackItem>
+                                  <Token
+                                    label={formatRouterStatus(routerStatus)}
+                                    color={routerStatusColor(routerStatus)}
+                                  />
+                                </HStack>
+                                <Text type="supporting" color="secondary" className="nelle-code">
+                                  {model.hfRef ?? model.presetName}
                                 </Text>
-                              </StackItem>
-                              <Token
-                                label={formatRouterStatus(routerStatus)}
-                                color={routerStatusColor(routerStatus)}
-                              />
-                            </HStack>
-                            <Text type="supporting" color="secondary" className="nelle-code">
-                              {model.hfRef ?? model.presetName}
-                            </Text>
-                            {routerModel && (
-                              <Text type="supporting" color="secondary" className="nelle-code">
-                                router id: {routerModel.routerModelId ?? routerModel.sectionId}
-                              </Text>
-                            )}
-                            <HStack gap={1} wrap="wrap">
-                              <Button
-                                label={
-                                  model.id === activeModelId ? 'Selected' : `Select ${model.name}`
-                                }
-                                size="sm"
-                                variant={model.id === activeModelId ? 'primary' : 'secondary'}
-                                isLoading={busyAction === 'activate'}
-                                onClick={() =>
-                                  runAction('activate', async () => {
-                                    const updated = await activateModel(model.id);
-                                    setActiveModelId(updated.id);
-                                    await refreshState();
-                                  })
-                                }
-                              />
-                              <Button
-                                label="Load"
-                                size="sm"
-                                variant="secondary"
-                                isDisabled={!runtime?.running || isLoaded || isLoading}
-                                isLoading={busyAction === `load:${model.id}`}
-                                onClick={() => handleLoadRouterModel(model)}
-                              />
-                              <Button
-                                label="Unload"
-                                size="sm"
-                                variant="ghost"
-                                isDisabled={!runtime?.running || !isLoaded}
-                                isLoading={busyAction === `unload:${model.id}`}
-                                onClick={() => handleUnloadRouterModel(model)}
-                              />
-                            </HStack>
-                          </VStack>
-                        </Card>
-                      );
-                    })}
-                  </VStack>
-                </Card>
+                                {routerModel && (
+                                  <Text type="supporting" color="secondary" className="nelle-code">
+                                    router id: {routerModel.routerModelId ?? routerModel.sectionId}
+                                  </Text>
+                                )}
+                                <HStack gap={1} wrap="wrap">
+                                  <Button
+                                    label={
+                                      model.id === activeModelId
+                                        ? 'Selected'
+                                        : `Select ${model.name}`
+                                    }
+                                    size="sm"
+                                    variant={model.id === activeModelId ? 'primary' : 'secondary'}
+                                    isLoading={busyAction === 'activate'}
+                                    onClick={() =>
+                                      runAction('activate', async () => {
+                                        const updated = await activateModel(model.id);
+                                        setActiveModelId(updated.id);
+                                        await refreshState();
+                                      })
+                                    }
+                                  />
+                                  <Button
+                                    label="Load"
+                                    size="sm"
+                                    variant="secondary"
+                                    isDisabled={!runtime?.running || isLoaded || isLoading}
+                                    isLoading={busyAction === `load:${model.id}`}
+                                    onClick={() => handleLoadRouterModel(model)}
+                                  />
+                                  <Button
+                                    label="Unload"
+                                    size="sm"
+                                    variant="ghost"
+                                    isDisabled={!runtime?.running || !isLoaded}
+                                    isLoading={busyAction === `unload:${model.id}`}
+                                    onClick={() => handleUnloadRouterModel(model)}
+                                  />
+                                </HStack>
+                              </VStack>
+                            </Card>
+                          );
+                        })}
+                      </VStack>
+                    </Card>
+                  </>
+                )}
               </VStack>
 
               <StackItem size="fill" className="nelle-chat-column">
@@ -1135,6 +1132,279 @@ export function App() {
       />
     </AppShell>
   );
+}
+
+type ConversationListRow =
+  | {
+      key: string;
+      type: 'section';
+      label: string;
+      count: number;
+    }
+  | {
+      key: string;
+      type: 'conversation';
+      conversation: ConversationListItem;
+    };
+
+function CollapsedSidebar({
+  onExpand,
+  onNewConversation,
+  isNewConversationBusy,
+}: {
+  onExpand: () => void;
+  onNewConversation: () => void | Promise<void>;
+  isNewConversationBusy: boolean;
+}) {
+  return (
+    <VStack gap={2} hAlign="center" className="nelle-collapsed-sidebar-content">
+      <IconButton
+        label="Expand sidebar"
+        tooltip="Expand sidebar"
+        size="sm"
+        variant="ghost"
+        icon={<Icon icon={ChevronRightIcon} size="sm" />}
+        onClick={onExpand}
+      />
+      <IconButton
+        label="New chat"
+        tooltip="New chat"
+        size="sm"
+        variant="primary"
+        icon={<Icon icon={PlusIcon} size="sm" />}
+        isLoading={isNewConversationBusy}
+        onClick={() => void onNewConversation()}
+      />
+      <IconButton
+        label="Settings"
+        tooltip="Expand sidebar to edit settings"
+        size="sm"
+        variant="ghost"
+        icon={<Icon icon={Cog6ToothIcon} size="sm" />}
+        onClick={onExpand}
+      />
+    </VStack>
+  );
+}
+
+function ConversationVirtualList({
+  conversations,
+  query,
+  activeConversationId,
+  onSelect,
+  onTogglePin,
+  onRename,
+  onReset,
+  onDelete,
+}: {
+  conversations: ConversationListItem[];
+  query: string;
+  activeConversationId: string;
+  onSelect: (conversationId: string) => void | Promise<void>;
+  onTogglePin: (conversation: ConversationListItem) => void | Promise<void>;
+  onRename: (conversation: ConversationListItem) => void | Promise<void>;
+  onReset: (conversationId: string) => void | Promise<void>;
+  onDelete: (conversation: ConversationListItem) => void | Promise<void>;
+}) {
+  const rows = useMemo(() => buildConversationRows(conversations, query), [conversations, query]);
+  const scrollRef = useRef<HTMLElement | null>(null);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: index => (rows[index]?.type === 'section' ? 30 : 48),
+    getItemKey: index => rows[index]?.key ?? index,
+    overscan: 10,
+  });
+
+  if (rows.length === 0) {
+    return (
+      <VStack data-testid="conversation-list" className="nelle-conversation-list-empty">
+        <Text type="supporting" color="secondary">
+          No conversations match this search.
+        </Text>
+      </VStack>
+    );
+  }
+
+  return (
+    <VStack
+      ref={scrollRef}
+      data-testid="conversation-list"
+      gap={0}
+      className="nelle-conversation-list"
+    >
+      <VStack
+        gap={0}
+        className="nelle-conversation-virtual-space"
+        style={{height: `${virtualizer.getTotalSize()}px`}}
+      >
+        {virtualizer.getVirtualItems().map(virtualRow => {
+          const row = rows[virtualRow.index];
+          if (!row) {
+            return null;
+          }
+          return (
+            <VStack
+              key={row.key}
+              ref={virtualizer.measureElement}
+              data-index={virtualRow.index}
+              gap={0}
+              className="nelle-conversation-virtual-row"
+              style={{transform: `translateY(${virtualRow.start}px)`}}
+            >
+              {row.type === 'section' ? (
+                <ConversationSectionRow row={row} />
+              ) : (
+                <ConversationRow
+                  conversation={row.conversation}
+                  isActive={row.conversation.id === activeConversationId}
+                  onSelect={onSelect}
+                  onTogglePin={onTogglePin}
+                  onRename={onRename}
+                  onReset={onReset}
+                  onDelete={onDelete}
+                />
+              )}
+            </VStack>
+          );
+        })}
+      </VStack>
+    </VStack>
+  );
+}
+
+function ConversationSectionRow({row}: {row: Extract<ConversationListRow, {type: 'section'}>}) {
+  return (
+    <HStack
+      gap={2}
+      vAlign="center"
+      className="nelle-conversation-section-row"
+      data-testid={`conversation-section-${row.label.toLowerCase()}`}
+    >
+      <Text type="supporting" color="secondary" weight="semibold">
+        {row.label}
+      </Text>
+      <Token size="sm" color="gray" label={String(row.count)} />
+    </HStack>
+  );
+}
+
+function ConversationRow({
+  conversation,
+  isActive,
+  onSelect,
+  onTogglePin,
+  onRename,
+  onReset,
+  onDelete,
+}: {
+  conversation: ConversationListItem;
+  isActive: boolean;
+  onSelect: (conversationId: string) => void | Promise<void>;
+  onTogglePin: (conversation: ConversationListItem) => void | Promise<void>;
+  onRename: (conversation: ConversationListItem) => void | Promise<void>;
+  onReset: (conversationId: string) => void | Promise<void>;
+  onDelete: (conversation: ConversationListItem) => void | Promise<void>;
+}) {
+  return (
+    <HStack
+      gap={1}
+      vAlign="center"
+      className="nelle-conversation-row"
+      data-testid={`conversation-row-${conversation.id}`}
+    >
+      <StackItem size="fill" className="nelle-tight">
+        <Button
+          label={conversation.title}
+          size="sm"
+          variant={isActive ? 'primary' : 'ghost'}
+          onClick={() => void onSelect(conversation.id)}
+        />
+      </StackItem>
+      {conversation.status !== 'ready' && (
+        <ConversationStatusIndicator status={conversation.status} />
+      )}
+      {conversation.pinned && <Token size="sm" label="pinned" color="blue" />}
+      <DropdownMenu
+        button={{
+          label: `Actions for ${conversation.title}`,
+          variant: 'ghost',
+          size: 'sm',
+          children: <Icon icon={EllipsisHorizontalIcon} size="sm" />,
+        }}
+        items={[
+          {
+            label: conversation.pinned ? 'Unpin' : 'Pin',
+            onClick: () => void onTogglePin(conversation),
+          },
+          {
+            label: 'Rename',
+            onClick: () => void onRename(conversation),
+          },
+          {
+            label: 'Reset',
+            onClick: () => void onReset(conversation.id),
+          },
+          {
+            label: 'Delete',
+            onClick: () => void onDelete(conversation),
+          },
+        ]}
+      />
+    </HStack>
+  );
+}
+
+function ConversationStatusIndicator({status}: {status: ConversationListItem['status']}) {
+  const label = status.replace(/_/g, ' ');
+  const variant = status === 'unavailable' ? 'error' : status === 'running' ? 'accent' : 'warning';
+  return (
+    <Tooltip content={`Conversation ${label}`}>
+      <HStack gap={0.5} vAlign="center" className="nelle-conversation-status">
+        <StatusDot
+          label={`Conversation ${label}`}
+          variant={variant}
+          isPulsing={status === 'running' || status === 'compacting' || status === 'aborting'}
+        />
+        <Text type="supporting" color="secondary">
+          {label}
+        </Text>
+      </HStack>
+    </Tooltip>
+  );
+}
+
+function buildConversationRows(
+  conversations: ConversationListItem[],
+  query: string,
+): ConversationListRow[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = normalizedQuery
+    ? conversations.filter(conversation =>
+        conversation.title.toLowerCase().includes(normalizedQuery),
+      )
+    : conversations;
+  const pinned = filtered.filter(conversation => conversation.pinned);
+  const unpinned = filtered.filter(conversation => !conversation.pinned);
+  const rows: ConversationListRow[] = [];
+  if (pinned.length > 0) {
+    rows.push({key: 'section:pinned', type: 'section', label: 'Pinned', count: pinned.length});
+    for (const conversation of pinned) {
+      rows.push({key: `conversation:${conversation.id}`, type: 'conversation', conversation});
+    }
+  }
+  if (unpinned.length > 0) {
+    rows.push({
+      key: normalizedQuery ? 'section:results' : 'section:recent',
+      type: 'section',
+      label: normalizedQuery ? 'Results' : 'Recent',
+      count: unpinned.length,
+    });
+    for (const conversation of unpinned) {
+      rows.push({key: `conversation:${conversation.id}`, type: 'conversation', conversation});
+    }
+  }
+  return rows;
 }
 
 function RenderedMessage({

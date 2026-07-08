@@ -1570,10 +1570,12 @@ Exit criteria:
   conversation-scoped APIs throughout the UI and server.
 - Use Pi session entries and leaf ids for active path and branch state. Do not
   duplicate Pi's tree as independent Nelle truth.
-- Add collapsible sidebar with new chat, settings, search, virtualized list, and
-  item overflow menus.
-- Done in temporary list: move reset/delete behavior to conversation row
-  actions. Final sidebar styling remains pending.
+- Done in current pane: add collapsible conversation sidebar rail with new chat,
+  search, pinned/recent section rows, TanStack-virtualized list, running status
+  indicators, and item overflow menus.
+- Done in current row actions: pin/unpin, rename, reset, and delete. Dedicated
+  Settings placement, export, duplicate, fork, and final SideNav shell styling
+  remain pending.
 - Add conversation export/delete/pin/rename/duplicate.
 - Add message-level fork into a new conversation, backed by Pi fork.
 - Implement local `.nelle-chat.zip` export/import for conversation snapshots,
@@ -1583,8 +1585,9 @@ Exit criteria:
 
 Exit criteria:
 
-- Multiple conversations persist and can be searched.
-- Large conversation lists do not cause sidebar lag.
+- Done: multiple conversations persist and can be searched.
+- Done: large conversation lists are rendered through a virtualized sidebar
+  window instead of mounting every row.
 - Active conversation can stream while another conversation is visible in the
   list with a running indicator.
 - Forking from a persisted user message creates a new Nelle conversation with a

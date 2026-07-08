@@ -798,12 +798,54 @@ test('keeps the page frame fixed while only the chat region scrolls', async ({pa
   expect(Math.abs((composerBoxBefore?.y ?? 0) - (composerBoxAfter?.y ?? 0))).toBeLessThan(2);
 });
 
+test('virtualizes and collapses the conversation sidebar', async ({page}) => {
+  const conversations = Array.from({length: 180}, (_, index) => ({
+    id: index === 0 ? 'poc-default' : `chat-${index}`,
+    title: `Chat ${String(index).padStart(3, '0')}`,
+    titleSource: 'fallback',
+    pinned: index < 3,
+    status: index === 0 ? 'running' : 'ready',
+    updatedAt: new Date(Date.UTC(2026, 6, 7, 12, index)).toISOString(),
+  }));
+
+  await mockConversationRoutes(page, {chat: [], conversations});
+
+  await page.goto('/');
+
+  await expect(page.getByTestId('conversation-section-pinned')).toBeVisible();
+  await expect(page.getByTestId('conversation-section-recent')).toBeVisible();
+  await expect(
+    page.getByTestId('conversation-row-poc-default').getByText('running', {exact: true}),
+  ).toBeVisible();
+  await expect
+    .poll(() => page.locator('[data-testid^="conversation-row-"]').count())
+    .toBeLessThan(40);
+
+  const conversationList = page.getByTestId('conversation-list');
+  await conversationList.evaluate(element => {
+    element.scrollTop = element.scrollHeight - element.clientHeight;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(page.getByRole('button', {name: 'Chat 179', exact: true})).toBeVisible();
+
+  await page.getByRole('button', {name: 'Collapse sidebar'}).click();
+  await expect(page.getByRole('button', {name: 'Expand sidebar'})).toBeVisible();
+  await expect(page.getByLabel('Search conversations')).toHaveCount(0);
+
+  await page.getByRole('button', {name: 'Expand sidebar'}).click();
+  await expect(page.getByLabel('Search conversations')).toBeVisible();
+});
+
 async function mockConversationRoutes(
   page: Page,
-  input: {chat: MockChatMessage[]; onCompact?: (instructions?: string) => void},
+  input: {
+    chat: MockChatMessage[];
+    conversations?: MockConversation[];
+    onCompact?: (instructions?: string) => void;
+  },
 ): Promise<void> {
   let chat = input.chat;
-  let conversations = [
+  let conversations = input.conversations ?? [
     {
       id: 'poc-default',
       title: chat[0]?.content.slice(0, 80) || 'POC chat',
@@ -865,12 +907,18 @@ async function mockConversationRoutes(
       await route.fulfill({json: {conversation}});
       return;
     }
-    if (pathname === '/api/conversations/poc-default' && request.method() === 'GET') {
-      await route.fulfill({json: {snapshot: conversationSnapshot('poc-default', chat)}});
-      return;
-    }
-    if (pathname === '/api/conversations/new-chat' && request.method() === 'GET') {
-      await route.fulfill({json: {snapshot: conversationSnapshot('new-chat', chat)}});
+    const conversationMatch = pathname.match(/^\/api\/conversations\/([^/]+)$/);
+    if (conversationMatch && request.method() === 'GET') {
+      const conversationId = decodeURIComponent(conversationMatch[1]!);
+      await route.fulfill({
+        json: {
+          snapshot: conversationSnapshot(
+            conversationId,
+            chat,
+            conversations.find(conversation => conversation.id === conversationId),
+          ),
+        },
+      });
       return;
     }
     if (pathname.endsWith('/messages') && request.method() === 'DELETE') {
@@ -882,16 +930,20 @@ async function mockConversationRoutes(
   });
 }
 
-function conversationSnapshot(id: string, chat: MockChatMessage[]) {
+function conversationSnapshot(
+  id: string,
+  chat: MockChatMessage[],
+  conversation?: MockConversation,
+) {
   return {
     conversation: {
       id,
-      title: chat[0]?.content.slice(0, 80) || 'POC chat',
-      titleSource: 'fallback',
-      pinned: false,
-      status: 'ready',
+      title: conversation?.title ?? chat[0]?.content.slice(0, 80) ?? 'POC chat',
+      titleSource: conversation?.titleSource ?? 'fallback',
+      pinned: conversation?.pinned ?? false,
+      status: conversation?.status ?? 'ready',
       createdAt: '2026-07-07T12:00:00.000Z',
-      updatedAt: '2026-07-07T12:00:00.000Z',
+      updatedAt: conversation?.updatedAt ?? '2026-07-07T12:00:00.000Z',
     },
     entries: chat.map((message, index) => ({
       conversationId: id,
@@ -937,4 +989,13 @@ type MockChatMessage = {
   modelAliasSnapshot?: string;
   regeneratesPiEntryId?: string;
   displayGroupId?: string;
+};
+
+type MockConversation = {
+  id: string;
+  title: string;
+  titleSource: string;
+  pinned: boolean;
+  status: string;
+  updatedAt: string;
 };

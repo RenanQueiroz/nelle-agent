@@ -69,10 +69,12 @@ Not implemented yet:
   shows router status and exposes reload/load/unload actions, but the final
   settings/sidebar design is not built yet.
 - Full Pi-backed conversation UI and lifecycle. The server now maps each Nelle
-  conversation to one Pi session file and reopens that file on demand, and
-  assistant regeneration uses Pi branch replay with preserved visible answer
-  variants. Fork/clone, export/import, richer abort recovery, and the final
-  sidebar actions are still pending.
+  conversation to one Pi session file and reopens that file on demand. The web
+  UI has a collapsible virtualized conversation sidebar with search, pinned and
+  recent sections, running indicators, and row actions for pin, rename, reset,
+  and delete. Assistant regeneration uses Pi branch replay with preserved
+  visible answer variants. Fork/clone, export/import, richer abort recovery,
+  and the final Settings/sidebar actions are still pending.
 - Fork/duplicate conversation actions backed by Pi's runtime fork/clone
   behavior, creating new Nelle conversations without mutating the source.
 - Complete REST/SSE run lifecycle contracts with stable run ids, terminal

@@ -253,7 +253,9 @@ first-turn generated conversation titles through a non-Pi llama.cpp prompt,
 assistant message model snapshots plus footer copy/regenerate actions,
 Pi-native assistant regeneration through branch replay with optional model
 override, preserved regenerated-answer variants, and a toggleable
-Reading/Generation assistant performance stats widget,
+Reading/Generation assistant performance stats widget, plus a collapsible
+virtualized conversation sidebar with pinned/recent sections and running
+indicators,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for
 startup and configuration diagnostics, and the POC model panel can show router
@@ -264,8 +266,9 @@ Intentional POC limitations:
 - Model/runtime setup state is still stored in `.nelle/state.json`; SQLite
   stores conversation rows and active-branch projections, but is not yet the
   primary database for all app state.
-- The web UI only has a small searchable conversation list with new-chat and row
-  actions. The full collapsible, virtualized sidebar and richer conversation
+- The web UI has a collapsible, virtualized conversation sidebar with new-chat,
+  search, pin/rename/reset/delete row actions, pinned/recent sections, and
+  running indicators. Dedicated Settings, export/import, duplicate, and fork
   menus are still pending.
 - Stable run ids/terminal run events, fork/clone, full branch tree exploration,
   and export/import are still pending.

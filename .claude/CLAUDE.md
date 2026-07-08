@@ -76,6 +76,9 @@ Project-specific guidance for AI coding agents.
   `regenerates_pi_entry_id` / `display_group_id` sidecar metadata. The web UI
   preserves existing answer variants, hides replayed duplicate user turns, and
   labels visible assistant variants in the footer.
+- The web UI conversation pane is collapsible and uses `@tanstack/react-virtual`
+  for pinned/recent conversation sections. Keep row actions and e2e tests aligned
+  when changing the sidebar.
 - Assistant performance metadata should render as a toggleable Reading
   (prompt processing) / Generation (token output) stats widget with icon
   controls and Astryx tooltips, not as a plain text throughput string.
