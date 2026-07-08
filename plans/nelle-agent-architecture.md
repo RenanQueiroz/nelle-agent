@@ -249,7 +249,8 @@ router `models.ini` model catalog state, Pi SDK chat streaming, a direct
 llama.cpp fallback for diagnostics,
 browser-triggered conversation reset, SQLite schema/migration foundations with
 pre-migration `settings.sqlite` backups under `.nelle/backups/`,
-conversation list/snapshot APIs, conversation-scoped chat streaming, one
+conversation list/snapshot APIs, conversation-scoped chat streaming,
+header-only Pi session creation for new conversations, one
 Nelle-conversation-to-one-Pi-session-file binding under `.nelle/pi/sessions`,
 basic conversation abort via Pi `AgentSession.abort()`,
 manual `/compact [instructions]` through Pi `AgentSession.compact()` plus
@@ -287,11 +288,12 @@ Intentional POC limitations:
   SQLite schema migrations create a `settings.sqlite` backup before applying
   migrations or repairing missing migration records; broader state/Pi/attachment
   migration backups remain part of the future migration path.
-- Bound Pi session files are validated before snapshot/list recovery and before
-  opening Pi runtimes for chat, compaction, regeneration, fork, or duplicate. A
-  missing or malformed file marks the conversation unavailable and surfaces
-  `session_unavailable`; Nelle does not create a replacement session under that
-  conversation id.
+- New conversations are immediately bound to a header-only Pi session JSONL
+  file, even before the first prompt. Bound Pi session files are validated
+  before snapshot/list recovery and before opening Pi runtimes for chat,
+  compaction, regeneration, fork, or duplicate. A missing or malformed file
+  marks the conversation unavailable and surfaces `session_unavailable`; Nelle
+  does not create a replacement session under that conversation id.
 - The web UI uses an Astryx `SideNav` shell with a collapsible, virtualized
   conversation sidebar, new-chat, search, pin/rename/reset/duplicate/delete row
   actions, pinned/recent sections, and spinner-backed running indicators.

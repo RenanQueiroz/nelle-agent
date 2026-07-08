@@ -1635,13 +1635,27 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
     });
     assert.equal(createResponse.statusCode, 200);
     const created = createResponse.json<{
-      conversation: {id: string; title: string; pinned: boolean};
-    }>().conversation;
-    assert.equal(created.title, 'New durable chat');
+      conversation: {id: string; title: string; pinned: boolean; piSessionId?: string};
+      snapshot: {conversation: {piSessionId?: string}; entries: unknown[]};
+    }>();
+    assert.equal(created.conversation.title, 'New durable chat');
+    assert.ok(created.conversation.piSessionId);
+    assert.equal(created.snapshot.conversation.piSessionId, created.conversation.piSessionId);
+    assert.deepEqual(created.snapshot.entries, []);
+
+    const sessionFiles = await fs.readdir(paths.piSessionsDir);
+    assert.equal(sessionFiles.length, 1);
+    const sessionHeader = JSON.parse(
+      (await fs.readFile(path.join(paths.piSessionsDir, sessionFiles[0]!), 'utf8')).split(
+        /\r?\n/,
+      )[0]!,
+    ) as {type: string; id: string};
+    assert.equal(sessionHeader.type, 'session');
+    assert.equal(sessionHeader.id, created.conversation.piSessionId);
 
     const patchResponse = await app.inject({
       method: 'PATCH',
-      url: `/api/conversations/${created.id}`,
+      url: `/api/conversations/${created.conversation.id}`,
       payload: {title: 'Renamed chat'},
     });
     assert.equal(patchResponse.statusCode, 200);
@@ -1652,14 +1666,14 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
 
     const pinResponse = await app.inject({
       method: 'POST',
-      url: `/api/conversations/${created.id}/pin`,
+      url: `/api/conversations/${created.conversation.id}/pin`,
     });
     assert.equal(pinResponse.statusCode, 200);
     assert.equal(pinResponse.json<{conversation: {pinned: boolean}}>().conversation.pinned, true);
 
     const abortResponse = await app.inject({
       method: 'POST',
-      url: `/api/conversations/${created.id}/abort`,
+      url: `/api/conversations/${created.conversation.id}/abort`,
     });
     assert.equal(abortResponse.statusCode, 200);
     const aborted = abortResponse.json<{
@@ -1669,18 +1683,18 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
     }>();
     assert.equal(aborted.ok, true);
     assert.equal(aborted.aborted, false);
-    assert.equal(aborted.snapshot.conversation.id, created.id);
+    assert.equal(aborted.snapshot.conversation.id, created.conversation.id);
 
     const compactionAbortResponse = await app.inject({
       method: 'POST',
-      url: `/api/conversations/${created.id}/compact/abort`,
+      url: `/api/conversations/${created.conversation.id}/compact/abort`,
     });
     assert.equal(compactionAbortResponse.statusCode, 200);
     assert.equal(compactionAbortResponse.json<{aborted: boolean}>().aborted, false);
 
     const deleteResponse = await app.inject({
       method: 'DELETE',
-      url: `/api/conversations/${created.id}`,
+      url: `/api/conversations/${created.conversation.id}`,
     });
     assert.equal(deleteResponse.statusCode, 200);
     assert.equal(deleteResponse.json<{ok: boolean}>().ok, true);

@@ -387,10 +387,10 @@ export async function createServer(paths: AppPaths) {
 
   app.post('/api/conversations', async request => {
     const body = createConversationSchema.parse(request.body) ?? {};
-    const conversation = conversations.createConversation(body);
+    const snapshot = await pi.createConversation(body);
     return {
-      conversation,
-      snapshot: conversations.getSnapshot(conversation.id, await store.getState()),
+      conversation: snapshot.conversation,
+      snapshot,
     };
   });
 

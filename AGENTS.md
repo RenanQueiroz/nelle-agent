@@ -52,6 +52,8 @@ Project-specific guidance for AI coding agents.
   files as authoritative for message history, compaction, and branch state;
   SQLite stores conversation indexes, projections, and Nelle-only sidecar
   metadata.
+- API-created conversations should immediately create and bind a header-only Pi
+  session JSONL file, before the first prompt.
 - Validate existing Pi session bindings before opening a runtime. Missing or
   malformed session files must mark the conversation `unavailable` and surface
   `session_unavailable`; do not create a replacement session under the same

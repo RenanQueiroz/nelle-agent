@@ -317,8 +317,10 @@ Nelle-owned:
 
 Runtime lifecycle:
 
-- Create new conversations with `SessionManager.create(cwd, sessionDir)`, using
-  Nelle's app-owned Pi session directory under `.nelle/pi/sessions`.
+- Done for API-created conversations: create new conversations with
+  `SessionManager.create(cwd, sessionDir)`, write the header-only Pi session
+  JSONL file immediately, and store its path/id in SQLite using Nelle's
+  app-owned Pi session directory under `.nelle/pi/sessions`.
 - Reopen existing conversations with
   `SessionManager.open(pi_session_path, sessionDir)`.
 - Maintain a lazy `PiConversationRuntimePool` keyed by `conversation.id`.
@@ -1587,8 +1589,8 @@ Future migration expectations:
 
 Exit criteria:
 
-- Creating a conversation creates a Pi session file and stores its path/id in
-  SQLite.
+- Done: creating a conversation through the API creates a header-only Pi session
+  file and stores its path/id in SQLite.
 - Done for unavailable-session protection: reopening a conversation after server
   restart validates the same Pi session file; missing or malformed files become
   `unavailable` instead of being replaced. Full projection resync from all Pi

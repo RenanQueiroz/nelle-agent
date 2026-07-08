@@ -112,6 +112,29 @@ export class PiHarness {
     this.#activeRuns.clear();
   }
 
+  async createConversation(input: {
+    title?: string;
+    defaultModelId?: string | null;
+  }): Promise<ConversationSnapshot> {
+    const conversation = this.conversations.createConversation(input);
+    const sessionManager = SessionManager.create(this.paths.repoRoot, this.paths.piSessionsDir);
+    const sessionFile = sessionManager.getSessionFile();
+    if (!sessionFile) {
+      throw new Error('Pi did not allocate a session file for the new conversation.');
+    }
+    await ensureSessionFile(sessionFile, sessionManager);
+    this.conversations.attachPiSession(conversation.id, {
+      piSessionPath: sessionFile,
+      piSessionId: sessionManager.getSessionId(),
+      activeLeafPiEntryId: sessionManager.getLeafId(),
+    });
+    const snapshot = this.conversations.getSnapshot(conversation.id, await this.store.getState());
+    if (!snapshot) {
+      throw new Error('Created conversation snapshot was not available.');
+    }
+    return snapshot;
+  }
+
   async abortConversation(conversationId: string): Promise<AbortConversationResult> {
     const run = this.#activeRuns.get(conversationId);
     if (run) {
@@ -1061,7 +1084,7 @@ export class PiHarness {
     if (!branchedSessionPath) {
       throw new Error('Pi did not create a branched session file.');
     }
-    await ensureBranchedSessionFile(branchedSessionPath, sourceManager);
+    await ensureSessionFile(branchedSessionPath, sourceManager);
     const branchedManager = SessionManager.open(
       branchedSessionPath,
       this.paths.piSessionsDir,
@@ -1845,7 +1868,7 @@ function isUserMessageEntry(entry: unknown): boolean {
   return data.type === 'message' && data.message?.role === 'user';
 }
 
-async function ensureBranchedSessionFile(sessionPath: string, manager: any): Promise<void> {
+async function ensureSessionFile(sessionPath: string, manager: any): Promise<void> {
   try {
     await fs.access(sessionPath);
     return;

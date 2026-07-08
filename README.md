@@ -34,11 +34,11 @@ Implemented:
 - SQLite schema/migration foundation in `.nelle/settings.sqlite`, including
   timestamped database backups under `.nelle/backups/` before applying schema
   migrations or repairing missing migration records. Conversation list/snapshot
-  APIs bind each active conversation to a Nelle-owned Pi JSONL session file
-  under `.nelle/pi/sessions`, and SQLite stores the UI projection for the active
-  Pi branch. If a bound Pi session file is missing or malformed, Nelle marks the
-  conversation unavailable and surfaces `session_unavailable` instead of
-  creating a replacement session under the same conversation id.
+  APIs bind each new conversation to a header-only Nelle-owned Pi JSONL session
+  file under `.nelle/pi/sessions`, and SQLite stores the UI projection for the
+  active Pi branch. If a bound Pi session file is missing or malformed, Nelle
+  marks the conversation unavailable and surfaces `session_unavailable` instead
+  of creating a replacement session under the same conversation id.
 - Conversation-scoped chat streaming through
   `/api/conversations/:id/chat/stream`, with the legacy `/api/chat/stream`
   route kept as a default-conversation compatibility wrapper.
