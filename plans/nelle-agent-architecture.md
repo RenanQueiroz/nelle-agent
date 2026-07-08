@@ -113,7 +113,7 @@ The first product experience should be UI-driven:
   comments, ordering, unknown keys, and untouched user edits. Hugging Face
   imports keep exact `hf-repo` refs while using stable canonical section ids.
 - This directory should be initialized as a real Git repo with origin
-  `git@github.com:RenanQueiroz/nelle-server.git`.
+  `git@github.com:RenanQueiroz/nelle-agent.git`.
 
 ## Current Recommendation
 

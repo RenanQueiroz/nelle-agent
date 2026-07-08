@@ -30,15 +30,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RenanQueiroz/nelle-server.git"
+    "url": "git+https://github.com/RenanQueiroz/nelle-agent.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/RenanQueiroz/nelle-server/issues"
+    "url": "https://github.com/RenanQueiroz/nelle-agent/issues"
   },
-  "homepage": "https://github.com/RenanQueiroz/nelle-server#readme",
+  "homepage": "https://github.com/RenanQueiroz/nelle-agent#readme",
   "dependencies": {
     "@astryxdesign/cli": "^0.1.3",
     "@astryxdesign/core": "^0.1.3",
