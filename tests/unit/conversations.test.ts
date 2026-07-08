@@ -214,6 +214,137 @@ test('repository applies generated titles without overwriting user titles', asyn
   }
 });
 
+test('Pi title generation stores sanitized first-turn title without adding history', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  const originalFetch = globalThis.fetch;
+  const requests: unknown[] = [];
+  globalThis.fetch = (async (_url, init) => {
+    requests.push(JSON.parse(String(init?.body)));
+    return new Response(JSON.stringify({choices: [{message: {content: '"Local Model Setup!"'}}]}), {
+      status: 200,
+      headers: {'content-type': 'application/json'},
+    });
+  }) as typeof fetch;
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'New chat'});
+    const activeModel = createTestModel();
+    const entries = createFirstTurnEntries();
+    const harness = new PiHarness(paths, store, repository) as unknown as TitleGenerationHarness;
+
+    const title = await harness.maybeGenerateConversationTitle(
+      conversation.id,
+      activeModel,
+      entries,
+    );
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+
+    assert.equal(title, 'Local Model Setup');
+    assert.equal(snapshot?.conversation.title, 'Local Model Setup');
+    assert.equal(snapshot?.conversation.titleSource, 'generated');
+    assert.deepEqual(repository.getConversationEntries(conversation.id), []);
+    assert.deepEqual((await store.getState()).chat, []);
+    assert.equal(requests.length, 1);
+    const request = requests[0] as {messages?: Array<{role: string; content: string}>};
+    assert.equal(request.messages?.[0]?.role, 'system');
+    assert.match(request.messages?.[1]?.content ?? '', /User: Explain local setup/);
+    assert.match(request.messages?.[1]?.content ?? '', /Assistant: Use llama.cpp locally/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test('Pi title generation falls back quietly when llama title request fails', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response('upstream unavailable', {status: 502})) as typeof fetch;
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'New chat'});
+    const harness = new PiHarness(paths, store, repository) as unknown as TitleGenerationHarness;
+
+    const title = await harness.maybeGenerateConversationTitle(
+      conversation.id,
+      createTestModel(),
+      createFirstTurnEntries(),
+    );
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+
+    assert.equal(title, null);
+    assert.equal(snapshot?.conversation.title, 'New chat');
+    assert.equal(snapshot?.conversation.titleSource, 'fallback');
+    assert.deepEqual(repository.getConversationEntries(conversation.id), []);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test('Pi title generation skips non-first-turn and user-named conversations', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return new Response(JSON.stringify({choices: [{message: {content: 'Should Not Use'}}]}), {
+      status: 200,
+      headers: {'content-type': 'application/json'},
+    });
+  }) as typeof fetch;
+  try {
+    const repository = new ConversationRepository(database);
+    const userNamed = repository.createConversation({title: 'Pinned name', titleSource: 'user'});
+    const fallback = repository.createConversation({title: 'New chat'});
+    const harness = new PiHarness(paths, store, repository) as unknown as TitleGenerationHarness;
+
+    const userNamedTitle = await harness.maybeGenerateConversationTitle(
+      userNamed.id,
+      createTestModel(),
+      createFirstTurnEntries(),
+    );
+    const multiTurnTitle = await harness.maybeGenerateConversationTitle(
+      fallback.id,
+      createTestModel(),
+      [
+        ...createFirstTurnEntries(),
+        {
+          piEntryId: 'user-2',
+          entryType: 'message',
+          role: 'user',
+          text: 'Follow up',
+          createdAt: '2026-07-08T12:02:00.000Z',
+        },
+      ],
+    );
+
+    assert.equal(userNamedTitle, null);
+    assert.equal(multiTurnTitle, null);
+    assert.equal(fetchCalls, 0);
+    assert.equal(
+      repository.getSnapshot(userNamed.id, await store.getState())?.conversation.title,
+      'Pinned name',
+    );
+    assert.equal(
+      repository.getSnapshot(fallback.id, await store.getState())?.conversation.title,
+      'New chat',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
 test('conversation snapshots keep variant rows separate from active path', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
@@ -485,6 +616,58 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
     await app.close();
   }
 });
+
+type TitleGenerationHarness = {
+  maybeGenerateConversationTitle: (
+    conversationId: string,
+    activeModel: ConfiguredModel,
+    entries: Array<{
+      piEntryId: string;
+      entryType: string;
+      role?: ChatMessage['role'] | null;
+      text: string;
+      createdAt: string;
+    }>,
+  ) => Promise<string | null>;
+};
+
+function createTestModel(): ConfiguredModel {
+  return {
+    id: 'repo/model:UD-Q4_K_M',
+    name: 'Model Q4',
+    presetName: 'repo-model-UD-Q4_K_M',
+    source: 'huggingface',
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-08T12:00:00.000Z',
+  };
+}
+
+function createFirstTurnEntries(): Array<{
+  piEntryId: string;
+  entryType: string;
+  role: ChatMessage['role'];
+  text: string;
+  createdAt: string;
+}> {
+  return [
+    {
+      piEntryId: 'user-1',
+      entryType: 'message',
+      role: 'user',
+      text: 'Explain local setup',
+      createdAt: '2026-07-08T12:00:00.000Z',
+    },
+    {
+      piEntryId: 'assistant-1',
+      entryType: 'message',
+      role: 'assistant',
+      text: 'Use llama.cpp locally',
+      createdAt: '2026-07-08T12:01:00.000Z',
+    },
+  ];
+}
 
 async function createTempPaths(): Promise<AppPaths> {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-test-'));

@@ -1693,12 +1693,13 @@ Exit criteria:
 
 - Done: add non-persisted title-generation request after first response.
 - Done: add safeguards for user-edited/imported titles.
-- Add tests for success, failure fallback, and no-history pollution.
+- Done: add tests for success, failure fallback, skip conditions, and
+  no-history pollution.
 
 Exit criteria:
 
-- New conversations receive concise generated titles after first response.
-- The title prompt is never persisted or sent through Pi tools.
+- Done: new conversations receive concise generated titles after first response.
+- Done: the title prompt is never persisted or sent through Pi tools.
 
 ## Testing Strategy
 
