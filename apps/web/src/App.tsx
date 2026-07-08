@@ -26,6 +26,12 @@ import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {createStaticSource, TypeaheadItem, type SearchableItem} from '@astryxdesign/core/Typeahead';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
+import {
+  Selector,
+  SelectorOption,
+  type SelectorOptionData,
+  type SelectorOptionType,
+} from '@astryxdesign/core/Selector';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Token} from '@astryxdesign/core/Token';
@@ -56,6 +62,7 @@ import {
   PlusIcon,
   PlayIcon,
   SparklesIcon,
+  StarIcon,
   StopIcon,
   TrashIcon,
   XMarkIcon,
@@ -121,9 +128,19 @@ const ATTACHMENT_LIMITS = {
   maxDraftBytes: 100 * 1024 * 1024,
   maxTextCharacters: 200_000,
 };
+const FAVORITE_MODEL_IDS_STORAGE_KEY = 'nelle.favoriteModelIds';
 
 type DraftAttachment = ChatAttachmentInput & {
   warning?: string;
+};
+
+type ComposerModelOptionDetail = {
+  model: ConfiguredModel;
+  routerStatus: string;
+  routerModel?: LlamaRouterModel;
+  props?: LlamaModelProps | null;
+  isFavorite: boolean;
+  progressPercent: number | null;
 };
 
 type SettingsSection = 'runtime' | 'models' | 'global' | 'chats';
@@ -240,6 +257,8 @@ export function App() {
   const [routerModels, setRouterModels] = useState<LlamaRouterModel[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [activeModelProps, setActiveModelProps] = useState<LlamaModelProps | null>(null);
+  const [modelPropsById, setModelPropsById] = useState<Record<string, LlamaModelProps>>({});
+  const [favoriteModelIds, setFavoriteModelIds] = useState<string[]>(readFavoriteModelIds);
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [activeConversationId, setActiveConversationId] = useState('poc-default');
   const [messages, setMessages] = useState<ApiChatMessage[]>([]);
@@ -283,6 +302,7 @@ export function App() {
     () => models.find(model => model.id === activeModelId) ?? null,
     [activeModelId, models],
   );
+  const favoriteModelIdSet = useMemo(() => new Set(favoriteModelIds), [favoriteModelIds]);
   const activeCommandRows = useMemo(
     () => commandRows.filter(row => row.conversationId === activeConversationId),
     [activeConversationId, commandRows],
@@ -350,6 +370,53 @@ export function App() {
     () => routerStatusForModel(activeModel, routerModelsByConfiguredId, runtime),
     [activeModel, routerModelsByConfiguredId, runtime],
   );
+  const activeModelIsFavorite = activeModelId != null && favoriteModelIdSet.has(activeModelId);
+  const composerModelDetailsById = useMemo(() => {
+    const details = new Map<string, ComposerModelOptionDetail>();
+    for (const model of models) {
+      const routerModel = routerModelsByConfiguredId.get(model.id);
+      const routerStatus = routerStatusForModel(model, routerModelsByConfiguredId, runtime);
+      details.set(model.id, {
+        model,
+        routerModel,
+        routerStatus: routerStatus ?? 'stopped',
+        props: modelPropsById[model.id] ?? (model.id === activeModelId ? activeModelProps : null),
+        isFavorite: favoriteModelIdSet.has(model.id),
+        progressPercent: normalizeRouterProgressPercent(routerModel?.progress),
+      });
+    }
+    return details;
+  }, [
+    activeModelId,
+    activeModelProps,
+    favoriteModelIdSet,
+    modelPropsById,
+    models,
+    routerModelsByConfiguredId,
+    runtime,
+  ]);
+  const composerModelSelectorOptions = useMemo<SelectorOptionType[]>(() => {
+    const favoriteOptions: SelectorOptionData[] = [];
+    const otherOptions: SelectorOptionData[] = [];
+    for (const model of models) {
+      const option = {value: model.id, label: model.name};
+      if (favoriteModelIdSet.has(model.id)) {
+        favoriteOptions.push(option);
+      } else {
+        otherOptions.push(option);
+      }
+    }
+    if (favoriteOptions.length === 0) {
+      return otherOptions;
+    }
+    const sections: SelectorOptionType[] = [
+      {type: 'section', title: 'Favorites', options: favoriteOptions},
+    ];
+    if (otherOptions.length > 0) {
+      sections.push({type: 'section', title: 'All models', options: otherOptions});
+    }
+    return sections;
+  }, [favoriteModelIdSet, models]);
   useEffect(() => {
     let isCancelled = false;
     void (async () => {
@@ -419,6 +486,7 @@ export function App() {
         const props = await getLlamaModelProps(activeModel.id);
         if (!isCancelled) {
           setActiveModelProps(props);
+          setModelPropsById(prev => ({...prev, [activeModel.id]: props}));
         }
       } catch {
         if (!isCancelled) {
@@ -430,6 +498,65 @@ export function App() {
       isCancelled = true;
     };
   }, [activeComposerRouterStatus, activeModel, runtime?.running]);
+
+  useEffect(() => {
+    let isCancelled = false;
+    if (!runtime?.running) {
+      return () => {
+        isCancelled = true;
+      };
+    }
+    const modelsNeedingProps = models.filter(
+      model =>
+        isRunnableRouterStatus(routerModelsByConfiguredId.get(model.id)?.status) &&
+        modelPropsById[model.id] == null,
+    );
+    if (modelsNeedingProps.length === 0) {
+      return () => {
+        isCancelled = true;
+      };
+    }
+    void (async () => {
+      const entries = await Promise.all(
+        modelsNeedingProps.map(async model => {
+          try {
+            return [model.id, await getLlamaModelProps(model.id)] as const;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (isCancelled) {
+        return;
+      }
+      setModelPropsById(prev => {
+        const next = {...prev};
+        for (const entry of entries) {
+          if (entry) {
+            next[entry[0]] = entry[1];
+          }
+        }
+        return next;
+      });
+    })();
+    return () => {
+      isCancelled = true;
+    };
+  }, [modelPropsById, models, routerModelsByConfiguredId, runtime?.running]);
+
+  useEffect(() => {
+    if (models.length === 0) {
+      return;
+    }
+    const configuredModelIds = new Set(models.map(model => model.id));
+    setFavoriteModelIds(prev => {
+      const next = prev.filter(modelId => configuredModelIds.has(modelId));
+      if (next.length !== prev.length) {
+        writeFavoriteModelIds(next);
+      }
+      return next;
+    });
+  }, [models]);
 
   function syncSettingsDrafts(
     globalParams: Record<string, string> | undefined,
@@ -667,6 +794,26 @@ export function App() {
       const activatedModel = await activateModel(model.id);
       setActiveModelId(activatedModel.id);
       await refreshState();
+    });
+  }
+
+  async function handleComposerModelSelectorChange(modelId: string) {
+    const model = models.find(item => item.id === modelId);
+    if (model) {
+      await handleSelectComposerModel(model);
+    }
+  }
+
+  function handleToggleActiveModelFavorite() {
+    if (!activeModelId) {
+      return;
+    }
+    setFavoriteModelIds(prev => {
+      const next = prev.includes(activeModelId)
+        ? prev.filter(modelId => modelId !== activeModelId)
+        : [activeModelId, ...prev];
+      writeFavoriteModelIds(next);
+      return next;
     });
   }
 
@@ -1355,18 +1502,36 @@ export function App() {
                       statusPosition={composerStatusPosition}
                       footerActions={
                         <HStack gap={1} vAlign="center" wrap="wrap">
-                          <DropdownMenu
-                            button={{
-                              label: activeModel?.name ?? 'No model',
-                              variant: 'ghost',
-                              size: 'sm',
-                              children: activeModel?.name ?? 'No model',
-                            }}
-                            items={models.map(model => ({
-                              label: model.name,
-                              onClick: () => void handleSelectComposerModel(model),
-                            }))}
+                          <Selector
+                            label="Model"
+                            isLabelHidden
+                            size="sm"
+                            className="nelle-composer-model-selector"
+                            hasSearch
+                            searchPlaceholder="Search models"
+                            placeholder="Select model"
+                            options={composerModelSelectorOptions}
+                            value={activeModelId ?? undefined}
+                            changeAction={handleComposerModelSelectorChange}
+                            renderOption={option => (
+                              <ComposerModelSelectorOption
+                                option={option}
+                                detail={composerModelDetailsById.get(option.value)}
+                              />
+                            )}
                           />
+                          {activeModel && (
+                            <IconButton
+                              label={activeModelIsFavorite ? 'Unfavorite model' : 'Favorite model'}
+                              tooltip={
+                                activeModelIsFavorite ? 'Unfavorite model' : 'Favorite model'
+                              }
+                              size="sm"
+                              variant={activeModelIsFavorite ? 'primary' : 'ghost'}
+                              icon={<Icon icon={StarIcon} size="sm" />}
+                              onClick={handleToggleActiveModelFavorite}
+                            />
+                          )}
                           {activeComposerRouterStatus && (
                             <Tooltip content="Selected model router status">
                               <Token
@@ -2343,6 +2508,75 @@ function positiveTokenCount(value: number | undefined): number | undefined {
 
 function formatInteger(value: number): string {
   return value.toLocaleString();
+}
+
+function ComposerModelSelectorOption({
+  option,
+  detail,
+}: {
+  option: SelectorOptionData;
+  detail?: ComposerModelOptionDetail;
+}) {
+  if (!detail) {
+    return <SelectorOption label={option.label ?? option.value} />;
+  }
+
+  return (
+    <SelectorOption
+      label={option.label ?? option.value}
+      description={
+        <VStack gap={1}>
+          <Text type="supporting" color="secondary">
+            {formatComposerModelDescription(detail)}
+          </Text>
+          {detail.routerStatus === 'loading' && (
+            <ProgressBar
+              label={`${detail.model.name} load progress`}
+              isLabelHidden
+              value={detail.progressPercent ?? 0}
+              isIndeterminate={detail.progressPercent == null}
+              variant="accent"
+            />
+          )}
+        </VStack>
+      }
+      endContent={
+        <HStack gap={1} vAlign="center" wrap="wrap">
+          {detail.isFavorite && <Token size="sm" color="blue" label="favorite" />}
+          <Token
+            size="sm"
+            color={routerStatusColor(detail.routerStatus)}
+            label={formatRouterStatus(detail.routerStatus)}
+          />
+          {detail.routerStatus === 'loading' && detail.progressPercent != null && (
+            <Token size="sm" color="blue" label={`${Math.round(detail.progressPercent)}%`} />
+          )}
+        </HStack>
+      }
+    />
+  );
+}
+
+function formatComposerModelDescription(detail: ComposerModelOptionDetail): string {
+  const parts = [detail.model.hfRef ?? detail.model.presetName];
+  const contextWindow =
+    positiveTokenCount(detail.props?.contextWindow) ??
+    positiveTokenCount(detail.model.params.contextSize);
+  if (contextWindow != null) {
+    parts.push(`ctx ${formatInteger(contextWindow)}`);
+  }
+  if (detail.props) {
+    parts.push(detail.props.modalities.vision ? 'images supported' : 'text only');
+  }
+  return parts.join(' | ');
+}
+
+function normalizeRouterProgressPercent(progress: number | undefined): number | null {
+  if (progress == null || !Number.isFinite(progress)) {
+    return null;
+  }
+  const percent = progress <= 1 ? progress * 100 : progress;
+  return Math.min(100, Math.max(0, percent));
 }
 
 function CommandStatusMessage({row}: {row: CommandStatusRow}) {
@@ -3452,6 +3686,33 @@ async function delay(milliseconds: number): Promise<void> {
   await new Promise(resolve => {
     setTimeout(resolve, milliseconds);
   });
+}
+
+function readFavoriteModelIds(): string[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+  try {
+    const rawValue = window.localStorage.getItem(FAVORITE_MODEL_IDS_STORAGE_KEY);
+    if (!rawValue) {
+      return [];
+    }
+    const parsed = JSON.parse(rawValue);
+    return Array.isArray(parsed) ? parsed.filter(value => typeof value === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeFavoriteModelIds(modelIds: string[]): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.setItem(FAVORITE_MODEL_IDS_STORAGE_KEY, JSON.stringify(modelIds));
+  } catch {
+    // Favorites only affect composer ordering; chat should keep working if storage is blocked.
+  }
 }
 
 function archiveFilename(title: string): string {

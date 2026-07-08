@@ -68,8 +68,9 @@ Project-specific guidance for AI coding agents.
   Settings writes free-form string params into `models.ini` through server APIs,
   reloads router models when llama-server is running, and keeps the persisted
   stable section id as the llama.cpp/OpenAI model id.
-- The composer model selector is compact but router-aware: it shows the selected
-  router status and loads unloaded router models before activating them.
+- The composer model selector is compact but router-aware: it is searchable,
+  groups browser-local favorites first, shows selected/row router
+  status/progress, and loads unloaded router models before activating them.
 - New Hugging Face imports should use the stable canonical section id as the
   model id; route clients must URL-encode model ids because they may contain
   `/` and `:`.

@@ -265,8 +265,9 @@ Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for
 startup and configuration diagnostics. Runtime/model/global/chats controls live
 in a right-side Settings panel with router model status plus
-reload/load/unload actions, while the compact composer model selector shows the
-selected router status and loads unloaded router models before activation.
+reload/load/unload actions, while the compact composer model selector is
+searchable, groups browser-local favorites first, shows router status/progress
+and loaded-model metadata, and loads unloaded router models before activation.
 
 Intentional POC limitations:
 
@@ -278,8 +279,8 @@ Intentional POC limitations:
   and running indicators. User-message fork and conversation duplicate create
   new Pi session files, and local `.nelle-chat.zip` export/import creates new
   conversations. Settings is implemented as a right-side panel; final SideNav
-  styling, richer composer model search/progress/favorites, and full branch tree
-  exploration are still pending.
+  styling, SSE-backed live model status, explicit active-run edit locks, and full
+  branch tree exploration are still pending.
 - Chat/regenerate streams now emit SSE envelopes with stable run ids and
   terminal run events. Full branch tree exploration, compact/title run streams,
   and richer abort recovery states are still pending.

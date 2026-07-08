@@ -85,7 +85,7 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
 
   await expect(page.getByText('unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL').first()).toBeVisible();
   await expect(page.getByRole('button', {name: 'Selected'})).toBeVisible();
-  await expect(page.getByText('router stopped').first()).toBeVisible();
+  await expect(page.getByText('router stopped').last()).toBeVisible();
   await expect
     .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
     .toContain('[unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL]');
@@ -340,16 +340,25 @@ test('loads an unloaded router model from the composer selector', async ({page})
 
   await page.goto('/');
 
-  await expect(page.getByRole('button', {name: 'Model A'})).toBeVisible();
-  await expect(page.getByText('loaded', {exact: true})).toBeVisible();
+  const composerModelButton = page.getByRole('button', {name: 'Model', exact: true});
+  await expect(composerModelButton).toContainText('Model A');
+  await expect(page.getByText('loaded', {exact: true}).last()).toBeVisible();
 
-  await page.getByRole('button', {name: 'Model A'}).click();
-  await page.getByRole('menuitem', {name: 'Model B'}).click();
+  await page.getByRole('button', {name: 'Favorite model'}).click();
+  await expect(page.getByRole('button', {name: 'Unfavorite model'})).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => window.localStorage.getItem('nelle.favoriteModelIds')))
+    .toContain(modelA.id);
+
+  await composerModelButton.click();
+  await expect(page.getByText('Favorites')).toBeVisible();
+  await page.getByPlaceholder('Search models').fill('Model B');
+  await page.getByRole('option', {name: /Model B/}).click();
 
   await expect.poll(() => loadCalls).toBe(1);
   await expect.poll(() => activateCalls).toBe(1);
-  await expect(page.getByRole('button', {name: 'Model B'})).toBeVisible();
-  await expect(page.getByText('loaded', {exact: true})).toBeVisible();
+  await expect(composerModelButton).toContainText('Model B');
+  await expect(page.getByText('loaded', {exact: true}).last()).toBeVisible();
 });
 
 test('renders llama.cpp prompt and generation throughput in chat message metadata', async ({

@@ -151,10 +151,11 @@ Nelle currently differs from the target in these ways:
   full-file `models.ini` editing is not exposed.
 - Runtime settings for `modelsMax` and `sleepIdleSeconds` exist, the
   Nelle-owned `/api/llama/*` router facade exists, and Settings exposes router
-  status plus reload/load/unload actions. The composer dropdown is now a compact
-  router-aware selector that displays the selected model status and loads an
-  unloaded model before activation, but it does not yet show search, rich load
-  progress, or favorites.
+  status plus reload/load/unload actions. The composer control is now a compact
+  searchable router-aware selector that groups browser-local favorites first,
+  displays selected/row router status and progress, and loads an unloaded model
+  before activation. It still polls router state after load requests instead of
+  using the final SSE-backed router store.
 - The web UI has a collapsible, virtualized conversation sidebar with search,
   pinned/recent groups, new-chat, running indicators, and row actions.
   Runtime/model/global/chats controls live in a right-side Settings panel.
@@ -1587,26 +1588,27 @@ Exit criteria:
 - Done: build settings surface with Runtime, Models, Global Params, and Chats
   sections.
 - Done: move HF search/import and param editing into Settings.
-- Done for the compact composer selector: alias display, selected router status,
-  and load-before-activation for unloaded models. Pending: richer search,
-  favorites, and progress display.
+- Done for the compact composer selector: alias display, built-in search,
+  browser-local favorite grouping, selected/row router status and progress, and
+  load-before-activation for unloaded models. Pending: SSE-backed live progress
+  updates.
 - Done: add manual load/unload controls in Settings model rows.
-- Done for the active composer model: fetch and cache loaded model props so the
-  composer can display context-window metadata and gate image attachments.
-  Pending: expose modality/context metadata inside the richer selector.
+- Done: fetch and cache loaded model props so the composer can display
+  context-window metadata, gate image attachments, and show loaded-model
+  context/modality metadata in selector rows.
 - Done for Settings writes: alias/param edits, HF imports, duplicate/remove, and
   global param saves write `models.ini` and reload router models when running.
-  Remaining: richer composer selector progress/favorites and explicit active-run
-  edit locks.
+  Remaining: SSE-backed router status/progress store and explicit active-run edit
+  locks.
 
 Exit criteria:
 
 - Done: users can edit global/model params without editing files.
 - Done: users can see loaded/loading/unloaded/failed states in Settings rows.
-- Done: composer model selector loads unloaded models before activation and
-  shows the selected model router status. Pending: rich progress display.
-- Done for the active composer model: loaded model props expose context size and
-  image-support capability in the UI. Pending: selector-row metadata.
+- Done: composer model selector loads unloaded models before activation, supports
+  search/favorites, and shows selected/row router status plus progress.
+- Done: loaded model props expose context size and image-support capability in
+  the composer and selector-row UI.
 - Done: Settings edits/removals reload the running router and keep active runs
   captured by request-time model ids. Pending: disable destructive edits while a
   matching active run is in progress.

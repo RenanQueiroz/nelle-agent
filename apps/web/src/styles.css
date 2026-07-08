@@ -97,6 +97,11 @@ body {
   min-width: calc(var(--spacing-10) * 3);
 }
 
+.nelle-composer-model-selector {
+  width: min(100%, calc(var(--spacing-10) * 5));
+  min-width: calc(var(--spacing-10) * 3);
+}
+
 .nelle-hidden-file-input {
   display: none;
 }

@@ -47,7 +47,8 @@ Implemented:
   search/import, model alias editing, free-form model/global `models.ini`
   params, model duplicate/remove, load/unload/reload actions, archive import,
   and clear-all chats.
-- The compact composer model selector shows the selected router status and
+- The compact composer model selector is searchable, groups browser-local
+  favorites first, shows router status/progress and loaded-model metadata, and
   loads an unloaded router model before activating it for the next chat turn.
 - Pi SDK chat harness configured against the local OpenAI-compatible
   Nelle llama.cpp proxy with v1 host file/shell tools enabled.
