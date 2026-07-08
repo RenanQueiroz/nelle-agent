@@ -276,10 +276,11 @@ attachment sweeps under `.nelle/attachments/`,
 host-tool acknowledgement/global disable settings, SQLite tool audit rows, and
 tool-audit archive export,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
-browser workbench. The runtime UI also exposes a llama-server log tail for
-startup and configuration diagnostics. Runtime/model/global/chats controls live
-in a right-side Settings panel with router model status plus
-reload/load/unload actions, while the compact composer model selector is
+browser workbench. The runtime UI also exposes a llama-server log tail and
+router-reported loaded/maximum model capacity for startup and configuration
+diagnostics. Runtime/model/global/chats controls live in a right-side Settings
+panel with router model status plus reload/load/unload actions, while the
+compact composer model selector is
 searchable, groups browser-local favorites first, shows router status/progress
 and loaded-model metadata from the router SSE store, and loads unloaded router
 models before activation. Settings rows for models with active runs are locked
@@ -531,7 +532,8 @@ Model concurrency:
 - Pass `--sleep-idle-seconds`, defaulting to `90`, so loaded models can sleep
   when idle.
 - Let llama.cpp enforce capacity and LRU unload behavior. Nelle should surface
-  router status, not duplicate the router's scheduling policy.
+  router status and router-reported loaded/maximum capacity from
+  `/api/llama/props`, not duplicate the router's scheduling policy.
 
 `models.ini` example:
 

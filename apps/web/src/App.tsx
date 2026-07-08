@@ -92,6 +92,7 @@ import {
   getHostToolSettings,
   getLlamaModelProps,
   getLlamaModels,
+  getLlamaRouterProps,
   getRuntime,
   getRuntimeLogs,
   getState,
@@ -129,6 +130,7 @@ import {
   type LlamaModelProps,
   type LlamaRouterModel,
   type LlamaRouterModelUpdate,
+  type LlamaRouterProps,
   type RuntimeStatus,
 } from './api';
 
@@ -360,6 +362,7 @@ export function App() {
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [models, setModels] = useState<ConfiguredModel[]>([]);
   const [routerModels, setRouterModels] = useState<LlamaRouterModel[]>([]);
+  const [routerProps, setRouterProps] = useState<LlamaRouterProps | null>(null);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [activeModelProps, setActiveModelProps] = useState<LlamaModelProps | null>(null);
   const [modelPropsById, setModelPropsById] = useState<Record<string, LlamaModelProps>>({});
@@ -580,13 +583,25 @@ export function App() {
           if (!isCancelled) {
             setRouterModels(nextRouterModels);
           }
+          try {
+            const nextRouterProps = await getLlamaRouterProps();
+            if (!isCancelled) {
+              setRouterProps(nextRouterProps);
+            }
+          } catch {
+            if (!isCancelled) {
+              setRouterProps(null);
+            }
+          }
         } catch {
           if (!isCancelled) {
             setRouterModels([]);
+            setRouterProps(null);
           }
         }
       } else {
         setRouterModels([]);
+        setRouterProps(null);
       }
     })();
     return () => {
@@ -726,6 +741,7 @@ export function App() {
       await refreshRouterModels({silent: true});
     } else {
       setRouterModels([]);
+      setRouterProps(null);
     }
   }
 
@@ -754,8 +770,14 @@ export function App() {
   ): Promise<void> {
     try {
       setRouterModels(input.reload ? await reloadLlamaModels() : await getLlamaModels());
+      try {
+        setRouterProps(await getLlamaRouterProps());
+      } catch {
+        setRouterProps(null);
+      }
     } catch (error) {
       setRouterModels([]);
+      setRouterProps(null);
       if (!input.silent) {
         throw error;
       }
@@ -1889,6 +1911,8 @@ export function App() {
                   onSectionChange={setSettingsSection}
                   onClose={() => setIsSettingsOpen(false)}
                   runtime={runtime}
+                  routerProps={routerProps}
+                  routerModels={routerModels}
                   runtimeTone={runtimeTone}
                   runtimeLogs={runtimeLogs}
                   isLogVisible={isLogVisible}
@@ -1911,6 +1935,7 @@ export function App() {
                     runAction('stop', async () => {
                       setRuntime(await stopRuntime());
                       setRouterModels([]);
+                      setRouterProps(null);
                     })
                   }
                   onRefresh={() =>
@@ -1995,6 +2020,8 @@ function SettingsPanel({
   onSectionChange,
   onClose,
   runtime,
+  routerProps,
+  routerModels,
   runtimeTone,
   runtimeLogs,
   isLogVisible,
@@ -2046,6 +2073,8 @@ function SettingsPanel({
   onSectionChange: (section: SettingsSection) => void;
   onClose: () => void;
   runtime: RuntimeStatus | null;
+  routerProps: LlamaRouterProps | null;
+  routerModels: LlamaRouterModel[];
   runtimeTone: 'green' | 'yellow' | 'blue';
   runtimeLogs: string;
   isLogVisible: boolean;
@@ -2124,6 +2153,8 @@ function SettingsPanel({
       {section === 'runtime' && (
         <RuntimeSettingsSection
           runtime={runtime}
+          routerProps={routerProps}
+          routerModels={routerModels}
           runtimeTone={runtimeTone}
           runtimeLogs={runtimeLogs}
           isLogVisible={isLogVisible}
@@ -2225,6 +2256,8 @@ function SettingsPanel({
 
 function RuntimeSettingsSection({
   runtime,
+  routerProps,
+  routerModels,
   runtimeTone,
   runtimeLogs,
   isLogVisible,
@@ -2242,6 +2275,8 @@ function RuntimeSettingsSection({
   onSaveRuntimeSettings,
 }: {
   runtime: RuntimeStatus | null;
+  routerProps: LlamaRouterProps | null;
+  routerModels: LlamaRouterModel[];
   runtimeTone: 'green' | 'yellow' | 'blue';
   runtimeLogs: string;
   isLogVisible: boolean;
@@ -2258,6 +2293,19 @@ function RuntimeSettingsSection({
   onRefreshLogs: () => void | Promise<void>;
   onSaveRuntimeSettings: () => void | Promise<void>;
 }) {
+  const loadedRouterModelCount = routerModels.filter(
+    model => model.status === 'loaded' || model.status === 'sleeping',
+  ).length;
+  const loadingRouterModelCount = routerModels.filter(model => model.status === 'loading').length;
+  const routerCapacityLabel =
+    runtime?.running && routerProps?.maxInstances != null
+      ? `Router capacity: ${loadedRouterModelCount}/${routerProps.maxInstances} loaded${
+          loadingRouterModelCount > 0 ? `, ${loadingRouterModelCount} loading` : ''
+        }`
+      : runtime?.running
+        ? 'Router capacity unavailable'
+        : 'Router stopped';
+
   return (
     <Card padding={3}>
       <VStack gap={3}>
@@ -2275,6 +2323,7 @@ function RuntimeSettingsSection({
           }
           color={runtimeTone}
         />
+        <Token label={routerCapacityLabel} color={runtime?.running ? 'blue' : 'yellow'} />
         <Text type="supporting" color="secondary" className="nelle-code">
           {runtime?.binaryPath ?? 'No llama-server binary detected'}
         </Text>

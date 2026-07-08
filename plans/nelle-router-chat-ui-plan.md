@@ -1622,20 +1622,20 @@ Exit criteria:
 
 ### Phase 1: Router Metadata And `models.ini` Ownership
 
-- Integrate the Phase 0 lossless `models.ini` parser/writer with the existing
-  model APIs.
-- Use the Phase 0 model id canonicalizer for HF imports and Pi model registry
-  generation.
+- Done: integrate the Phase 0 lossless `models.ini` parser/writer with the
+  existing model APIs.
+- Done: use the Phase 0 model id canonicalizer for HF imports and Pi model
+  registry generation.
 - Done: change `LlamaCppManager.start()` to start router mode without requiring
   an active model.
 - Done: add configurable `modelsMax` and `sleepIdleSeconds`.
-- Remove local path registration UI/API from the active product surface.
-- Make HF import write `models.ini` sections directly.
-- Make AppStore refresh model catalog state from parsed `models.ini` so manual
-  INI edits, imports, edits, duplicates, and removals converge on the same
-  source of truth.
-- Add `/api/llama/models`, reload, load, unload, and events endpoints.
-- Update Pi model generation to read from parsed `models.ini`.
+- Done: remove local path registration UI/API from the active product surface.
+- Done: make HF import write `models.ini` sections directly.
+- Done: make AppStore refresh model catalog state from parsed `models.ini` so
+  manual INI edits, imports, edits, duplicates, and removals converge on the
+  same source of truth.
+- Done: add `/api/llama/models`, reload, load, unload, and events endpoints.
+- Done: update Pi model generation to read from parsed `models.ini`.
 
 Exit criteria:
 
@@ -1643,12 +1643,21 @@ Exit criteria:
   launches a fake `llama-server` with no models and verifies
   `--models-preset`, `--models-max`, `--sleep-idle-seconds`, and no single
   `--model` flag.
-- Importing an HF quant updates `models.ini`.
-- Duplicate or invalid editable INI keys are surfaced before save.
-- Imported HF refs keep exact `hf-repo` values and stable section ids.
-- Running router reloads model list without restarting.
-- Selecting an unloaded model loads it through router endpoints.
-- Router-enforced `models-max` is reflected in UI status.
+- Done: importing an HF quant updates `models.ini`; e2e coverage asserts the
+  canonical section id and exact `hf-repo` line after importing a searched
+  quant.
+- Done: duplicate or invalid editable INI keys are surfaced before save. Unit
+  coverage validates duplicate sections/keys in the lossless parser and rejects
+  reserved model keys through the model-settings API.
+- Done: imported HF refs keep exact `hf-repo` values and stable section ids.
+  Unit and e2e coverage cover unsloth/Qwen-style `UD-*` refs.
+- Done: running router reloads model list without restarting. Unit and e2e
+  coverage assert `/models?reload=1` is called through the Nelle router facade.
+- Done: selecting an unloaded model loads it through router endpoints before
+  activation. E2e coverage exercises the composer selector path.
+- Done: router-enforced `models-max` is reflected in UI status by fetching
+  llama.cpp router props and showing the loaded/maximum capacity in Runtime
+  settings.
 
 ### Phase 2: Model Selector And Settings
 

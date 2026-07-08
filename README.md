@@ -23,7 +23,7 @@ Implemented:
   - The router pid is persisted under `.nelle/llama/` so a restarted
     `nelle-server` can adopt and stop the llama-server it previously started.
   - The runtime UI can show the llama-server log tail for startup/configuration
-    diagnostics.
+    diagnostics and the router-reported loaded/maximum model capacity.
 - Hugging Face GGUF search and quant selection that lets `llama-server`
   download/cache the model via `hf-repo`.
 - Stable llama.cpp/OpenAI model ids for new Hugging Face imports, plus a
@@ -58,8 +58,8 @@ Implemented:
 - A right-side Settings panel with Runtime, Models, Global Params, and Chats
   sections. Settings owns llama.cpp install/start/stop/logs, HF GGUF
   search/import, model alias editing, free-form model/global `models.ini`
-  params, model duplicate/remove, load/unload/reload actions, archive import,
-  and clear-all chats.
+  params, model duplicate/remove, load/unload/reload actions, router-capacity
+  status, archive import, and clear-all chats.
 - The compact composer model selector is searchable, groups browser-local
   favorites first, shows router status/progress and loaded-model metadata, and
   subscribes to router SSE updates while loading an unloaded router model before

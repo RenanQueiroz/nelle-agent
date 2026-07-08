@@ -182,6 +182,17 @@ test('shows router model status and load/unload controls', async ({page}) => {
       },
     });
   });
+  await page.route('**/api/llama/props', async route => {
+    await route.fulfill({
+      json: {
+        role: 'router',
+        maxInstances: 1,
+        modelsAutoload: false,
+        runtime,
+        raw: {role: 'router', max_instances: 1, models_autoload: false},
+      },
+    });
+  });
   await page.route('**/api/llama/models/reload', async route => {
     reloadCalls += 1;
     await route.fulfill({
@@ -216,6 +227,9 @@ test('shows router model status and load/unload controls', async ({page}) => {
   await page.getByRole('button', {name: 'Models'}).click();
   await expect(page.getByText('loaded', {exact: true}).last()).toBeVisible();
   await expect(page.getByText(`router id: ${model.id}`)).toBeVisible();
+  await page.getByRole('button', {name: 'Runtime'}).click();
+  await expect(page.getByText('Router capacity: 1/1 loaded')).toBeVisible();
+  await page.getByRole('button', {name: 'Models'}).click();
   await expect(page.getByRole('button', {name: 'Load', exact: true})).toBeDisabled();
   await page.getByRole('button', {name: 'Unload', exact: true}).click();
   await expect(page.getByText('unloaded', {exact: true}).last()).toBeVisible();

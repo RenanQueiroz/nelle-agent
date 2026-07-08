@@ -45,6 +45,8 @@ Project-specific guidance for AI coding agents.
 - Browser/server UI code should use Nelle's `/api/llama/*` router facade for
   llama.cpp props, models, load/unload, reload, model props, and router events.
   Do not call llama.cpp directly from the web app.
+- Runtime settings should show router-reported loaded/maximum model capacity
+  from `/api/llama/props`; let llama.cpp enforce model scheduling.
 - `/api/llama/tokenize` proxies llama.cpp `/tokenize` for text-only estimates.
   Post-compaction context refreshes persist the estimate in
   `conversations.context_usage_json` and stream a `context.updated` event.
