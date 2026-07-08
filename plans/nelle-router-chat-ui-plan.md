@@ -143,9 +143,9 @@ Relevant Pi SDK/session behavior:
 
 Nelle currently differs from the target in these ways:
 
-- App state still owns `models[]`, `activeModelId`, and free-form global/model
-  params; `models.ini` is updated through the lossless AST writer, but it is
-  not yet the source of truth.
+- Done: `models.ini` is the model catalog and free-form global/model parameter
+  source of truth. The POC `state.json` mirrors parsed model records and active
+  model id only as a compatibility backup.
 - New Hugging Face imports use stable canonical section ids, and Settings can
   edit aliases plus free-form global/model `models.ini` params. Direct
   full-file `models.ini` editing is not exposed.
@@ -164,9 +164,10 @@ Nelle currently differs from the target in these ways:
   `/api/conversations/:id/chat/stream`. Each streamed conversation is bound to
   one Pi JSONL session file under `.nelle/pi/sessions`, and existing session
   files are reopened on demand after a Nelle server restart.
-- SQLite stores conversation rows and active-branch projections, but model and
-  runtime setup state still live in `.nelle/state.json`, with the default
-  `poc-default` chat kept for legacy compatibility.
+- SQLite stores conversation rows and active-branch projections. Runtime setup
+  state still lives in `.nelle/state.json`, while model catalog state is sourced
+  from `models.ini` and mirrored into state for compatibility. The default
+  `poc-default` chat remains for legacy compatibility.
 - Basic stop now calls the run-specific abort endpoint when a stream has
   received a run id, cancels the active browser stream, and invokes Pi
   `AgentSession.abort()` for a cached conversation runtime. Chat/regenerate
@@ -178,9 +179,9 @@ Nelle currently differs from the target in these ways:
   composer footer and into each conversation row's action menu, and large lists
   use TanStack virtualization. Fork/duplicate actions are implemented. Final
   SideNav styling is still pending.
-- Model import/edit UX lives in Settings, but the backing storage is still the
-  POC app state plus generated preset writes rather than parsing `models.ini`
-  as the canonical catalog on every read.
+- Done: model import/edit UX lives in Settings and writes `models.ini`
+  directly. Server reads refresh the model catalog from parsed `models.ini`
+  before returning model state.
 - Done: the composer has an attachment drawer, file picker, paste/drop handling,
   SQLite metadata persistence, content-addressed image storage under
   `.nelle/attachments/`, and selected-model vision gating for images. Text files
@@ -1573,6 +1574,9 @@ Exit criteria:
 - Add configurable `modelsMax` and `sleepIdleSeconds`.
 - Remove local path registration UI/API from the active product surface.
 - Make HF import write `models.ini` sections directly.
+- Make AppStore refresh model catalog state from parsed `models.ini` so manual
+  INI edits, imports, edits, duplicates, and removals converge on the same
+  source of truth.
 - Add `/api/llama/models`, reload, load, unload, and events endpoints.
 - Update Pi model generation to read from parsed `models.ini`.
 
@@ -1787,6 +1791,8 @@ Unit tests:
 - `models.ini` AST parse/write, including comment/order/unknown key
   preservation, duplicate editable-key detection, atomic-write failure handling,
   and malformed-line round trips.
+- `models.ini` source-of-truth behavior over stale `state.json`, direct HF
+  import writes, and full-replacement free-form model param saves.
 - HF import section generation and stable model id canonicalization, including
   `UD-` quant normalization and collision hash suffixes.
 - Global and per-model param validation.

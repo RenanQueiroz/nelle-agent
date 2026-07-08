@@ -242,8 +242,9 @@ Companion implementation plans:
 The first POC implements the local Fastify server, React/Vite browser UI,
 Astryx chat surface, Hugging Face GGUF search, Hugging Face quant selection
 through llama.cpp-managed `hf-repo` references, managed `llama.cpp`
-install/update/start/stop paths, a lossless writer for router `models.ini`, Pi
-SDK chat streaming, a direct llama.cpp fallback for diagnostics,
+install/update/start/stop paths, a lossless parser/writer for authoritative
+router `models.ini` model catalog state, Pi SDK chat streaming, a direct
+llama.cpp fallback for diagnostics,
 browser-triggered conversation reset, SQLite schema/migration foundations,
 conversation list/snapshot APIs, conversation-scoped chat streaming, one
 Nelle-conversation-to-one-Pi-session-file binding under `.nelle/pi/sessions`,
@@ -274,9 +275,10 @@ against unload/save/remove until the run completes or aborts.
 
 Intentional POC limitations:
 
-- Model/runtime setup state is still stored in `.nelle/state.json`; SQLite
-  stores conversation rows and active-branch projections, but is not yet the
-  primary database for all app state.
+- Runtime setup state is still stored in `.nelle/state.json`; model catalog
+  rows are sourced from `models.ini` and mirrored into state only as a
+  compatibility backup. SQLite stores conversation rows and active-branch
+  projections, but is not yet the primary database for all app state.
 - The web UI has a collapsible, virtualized conversation sidebar with new-chat,
   search, pin/rename/reset/duplicate/delete row actions, pinned/recent sections,
   and running indicators. User-message fork and conversation duplicate create

@@ -27,8 +27,10 @@ Implemented:
 - Hugging Face GGUF search and quant selection that lets `llama-server`
   download/cache the model via `hf-repo`.
 - Stable llama.cpp/OpenAI model ids for new Hugging Face imports, plus a
-  lossless `models.ini` writer that preserves comments and unknown keys while
-  updating Nelle-managed fields.
+  lossless `models.ini` catalog parser/writer that preserves comments and
+  unknown keys while updating Nelle-managed fields. New imports, alias edits,
+  duplicates, removals, and free-form params write `models.ini` first; the POC
+  `state.json` mirrors that catalog as a compatibility backup.
 - SQLite schema/migration foundation in `.nelle/settings.sqlite`, plus
   conversation list/snapshot APIs. Each active conversation is bound to a
   Nelle-owned Pi JSONL session file under `.nelle/pi/sessions`, and SQLite
@@ -118,8 +120,9 @@ Not implemented yet:
 - Host-tool first-run acknowledgement, global disable switch, and durable tool
   audit storage. Sandboxing remains later.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for
-  model/runtime settings and default-conversation compatibility, while
-  conversation projections live in `.nelle/settings.sqlite`.
+  runtime settings, catalog backup, and default-conversation compatibility,
+  while conversation projections live in `.nelle/settings.sqlite` and
+  `models.ini` owns the model catalog.
 - Progress streaming for long installs/builds.
 
 ## Setup

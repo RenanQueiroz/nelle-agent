@@ -64,10 +64,17 @@ Project-specific guidance for AI coding agents.
   comments, ordering, unknown keys, and untouched user edits. Keep exact
   `hf-repo` refs while deriving stable canonical section ids for router/OpenAI
   model ids.
+- `models.ini` is the active model catalog and free-form params source of
+  truth. `AppStore` refreshes model records from parsed `models.ini` before
+  returning model state; `.nelle/state.json` mirrors the catalog only as a POC
+  compatibility backup.
 - Runtime/model/global/chats controls live in the right-side Settings panel.
   Settings writes free-form string params into `models.ini` through server APIs,
   reloads router models when llama-server is running, and keeps the persisted
   stable section id as the llama.cpp/OpenAI model id.
+- Model param update payloads are full replacements for editable params in a
+  section. Preserve a free-form key by including it in the submitted key/value
+  draft; omit it to delete it.
 - The composer model selector is compact but router-aware: it is searchable,
   groups browser-local favorites first, shows selected/row router
   status/progress from router SSE updates, and loads unloaded router models
