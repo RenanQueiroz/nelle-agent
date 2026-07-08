@@ -11,6 +11,7 @@ import {LlamaCppManager} from './llamacpp';
 import {registerLlamaProxy} from './llamaProxy';
 import {PiHarness} from './piHarness';
 import {streamDirectLlama} from './directLlama';
+import {createErrorEvent} from './errors';
 import {AppStore} from './store';
 import {AppDatabase} from './database';
 import {exportConversationArchive, importConversationArchive} from './conversationArchive';
@@ -909,10 +910,7 @@ async function writeChatStream(
 }
 
 function writeChatError(raw: {write: (chunk: string) => void}, error: unknown): void {
-  const event: ChatStreamEvent = {
-    type: 'error',
-    message: error instanceof Error ? error.message : String(error),
-  };
+  const event: ChatStreamEvent = createErrorEvent(error, {fallbackCode: 'stream_failed'});
   raw.write(
     serializeSseEnvelope(
       createEventEnvelope({

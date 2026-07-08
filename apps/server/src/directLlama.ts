@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import {createAsyncQueue} from './asyncQueue';
+import {createErrorEvent} from './errors';
 import {
   mergeChatPerformance,
   performanceFromLlamaPromptProgress,
@@ -167,10 +168,7 @@ export async function streamDirectLlama(
         },
         createdAt: new Date().toISOString(),
       });
-      queue.push({
-        type: 'error',
-        message: error instanceof Error ? error.message : String(error),
-      });
+      queue.push(createErrorEvent(error, {fallbackCode: 'llama_direct_failed', retryable: true}));
       queue.end();
     } finally {
       monitor.stop();

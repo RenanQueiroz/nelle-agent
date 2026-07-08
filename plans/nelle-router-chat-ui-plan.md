@@ -1303,7 +1303,9 @@ envelopes and include stable run ids plus `run.started`, `run.aborted`, and
 `run.completed` data events. The browser stream reader remains backward
 compatible with older raw event payloads. Final assistant messages now emit
 `message.assistant.completed`; the legacy `done` event is still emitted as a
-compatibility alias while older clients/tests exist.
+compatibility alias while older clients/tests exist. Stream `error` events carry
+stable `NelleError` fields, with known mappings such as `conversation_busy`,
+`invalid_conversation_transition`, and `session_unavailable`.
 
 Durability rules:
 
@@ -1602,7 +1604,10 @@ Exit criteria:
 - Conversation streams emit typed envelopes with stable `runId`s.
 - Conversation snapshots can rebuild the active timeline from Pi plus SQLite
   sidecar metadata.
-- Invalid state transitions are rejected with stable `NelleError` codes.
+- Done: invalid state transitions and same-conversation active-run conflicts are
+  rejected with stable `NelleError` codes. Stream errors normalize known
+  failures such as `conversation_busy`, `invalid_conversation_transition`, and
+  `session_unavailable` instead of sending message-only payloads.
 - Done: aborting an active chat/regenerate run calls Pi abort, closes the llama
   proxy request, and emits `run.aborted`.
 - `models.ini` can be parsed and written without dropping comments, unknown
@@ -1861,7 +1866,8 @@ Unit tests:
 - Router/model race policy reducers for selected-model removal, LRU unload,
   reload after edit, and active-run model immutability.
 - Pi event mapping into Nelle stream events, including unknown-event tolerance.
-- Conversation/run state machine transitions and `conversation_busy` errors.
+- Done: conversation/run state machine transitions and `conversation_busy`
+  stream errors.
 - Conversation snapshot building from Pi entries plus SQLite sidecar metadata.
 - Pi session projection sync from entry lists, leaf id changes, and missing
   session-file handling.

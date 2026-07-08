@@ -142,6 +142,11 @@ export function assertConversationTransition(
   to: ConversationStatus,
 ): void {
   if (!canTransitionConversation(from, to)) {
-    throw new Error(`Invalid conversation status transition: ${from} -> ${to}`);
+    const error = new Error(`Invalid conversation status transition: ${from} -> ${to}`);
+    Object.assign(error, {
+      code: 'invalid_conversation_transition',
+      retryable: false,
+    });
+    throw error;
   }
 }

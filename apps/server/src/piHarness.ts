@@ -18,6 +18,7 @@ import {
 } from './llamaThroughput';
 import {localLlamaProxyBaseUrl} from './llamaProxy';
 import {chatTemplateKwargsForModel, isQwenFamilyModel, llamaRuntimeModelId} from './modelCompat';
+import {createErrorEvent} from './errors';
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
 import {
@@ -254,10 +255,7 @@ export class PiHarness {
         }
         await this.runCompactConversation(conversationId, activeModel, customInstructions, queue);
       } catch (error) {
-        queue.push({
-          type: 'error',
-          message: error instanceof Error ? error.message : String(error),
-        });
+        queue.push(createErrorEvent(error, {fallbackCode: 'compact_failed'}));
       } finally {
         queue.end();
       }
@@ -436,10 +434,7 @@ export class PiHarness {
       promptAttachments,
     }).catch(error => {
       this.setConversationReadyUnlessUnavailable(conversationId);
-      queue.push({
-        type: 'error',
-        message: error instanceof Error ? error.message : String(error),
-      });
+      queue.push(createErrorEvent(error, {fallbackCode: 'pi_run_failed', retryable: true}));
       queue.end();
     });
 
@@ -518,10 +513,7 @@ export class PiHarness {
       promptAttachments,
     }).catch(error => {
       this.setConversationReadyUnlessUnavailable(input.conversationId);
-      queue.push({
-        type: 'error',
-        message: error instanceof Error ? error.message : String(error),
-      });
+      queue.push(createErrorEvent(error, {fallbackCode: 'pi_run_failed', retryable: true}));
       queue.end();
     });
 

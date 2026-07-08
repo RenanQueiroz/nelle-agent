@@ -81,6 +81,9 @@ Project-specific guidance for AI coding agents.
   stable `runId` values plus `run.started`, `message.assistant.completed`, and
   `run.completed` events when adding new stream behavior. Keep legacy `done`
   events until old clients/tests no longer need them.
+- Stream `error` events must carry stable `NelleError` fields (`code`,
+  `message`, optional `detail`/`retryable`/`logRef`); do not emit message-only
+  errors from new server stream paths.
 - `models.ini` editing should use a lossless AST parser/writer that preserves
   comments, ordering, unknown keys, and untouched user edits. Keep exact
   `hf-repo` refs while deriving stable canonical section ids for router/OpenAI

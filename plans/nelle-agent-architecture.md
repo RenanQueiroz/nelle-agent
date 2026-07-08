@@ -145,7 +145,8 @@ Use a TypeScript-first stack:
   binaries.
 - Streaming contract: typed SSE envelopes for conversation runs, Pi/tool
   events, performance/context updates, model status, compaction, aborts, and
-  errors.
+  errors. Stream errors use stable `NelleError` codes instead of message-only
+  payloads.
 
 Why this default:
 
@@ -312,12 +313,14 @@ Intentional POC limitations:
   as a right-side panel; full branch tree exploration is still pending.
 - Chat/regenerate streams now emit SSE envelopes with stable run ids, terminal
   run events, `message.assistant.completed` final assistant events, and
-  first-turn title generation `title` run events. Manual compaction streams
-  `compact` run lifecycle and command-status events. Aborted run events clear UI
-  run tracking and model locks. After chat/regenerate/compact aborts, Nelle
-  best-effort checks llama.cpp `/slots` for a five-second grace window and
-  surfaces a `llama_slot_still_processing` warning if the slot is still active.
-  Full branch tree exploration is still pending.
+  first-turn title generation `title` run events. Stream `error` events carry
+  stable `NelleError` fields, including `conversation_busy` for same-conversation
+  run conflicts. Manual compaction streams `compact` run lifecycle and
+  command-status events. Aborted run events clear UI run tracking and model
+  locks. After chat/regenerate/compact aborts, Nelle best-effort checks
+  llama.cpp `/slots` for a five-second grace window and surfaces a
+  `llama_slot_still_processing` warning if the slot is still active. Full
+  branch tree exploration is still pending.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are gated through a Settings acknowledgement/global disable switch

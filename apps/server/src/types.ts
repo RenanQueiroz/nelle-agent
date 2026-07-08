@@ -234,7 +234,7 @@ export type ChatStreamEvent =
   | {type: 'warning'; message: string}
   | {type: 'message.assistant.completed'; message: ChatMessage}
   | {type: 'done'; message: ChatMessage}
-  | {type: 'error'; message: string};
+  | ({type: 'error'} & NelleError);
 
 export type AppState = {
   version: 1;

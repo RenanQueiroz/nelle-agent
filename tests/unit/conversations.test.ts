@@ -111,7 +111,12 @@ test('conversation state machine accepts planned transitions and rejects invalid
   assert.equal(canTransitionConversation('unavailable', 'running'), false);
   assert.throws(
     () => assertConversationTransition('ready', 'aborting'),
-    /Invalid conversation status transition/,
+    error => {
+      assert.match(String((error as Error).message), /Invalid conversation status transition/);
+      assert.equal((error as {code?: string}).code, 'invalid_conversation_transition');
+      assert.equal((error as {retryable?: boolean}).retryable, false);
+      return true;
+    },
   );
 });
 
@@ -1412,6 +1417,63 @@ test('Pi compact stream emits run and compaction lifecycle events', async () => 
   }
 });
 
+test('Pi compact stream reports busy conversations with stable error codes', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  const database = new AppDatabase(paths);
+  await database.open();
+  let releaseCompact: (() => void) | undefined;
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Busy compact'});
+    const compactGate = new Promise<void>(resolve => {
+      releaseCompact = resolve;
+    });
+    const fakeSession = {
+      messages: [{role: 'user', content: 'Keep this context.'}],
+      sessionFile: path.join(paths.piSessionsDir, 'busy-compact.jsonl'),
+      sessionId: 'pi-busy-compact',
+      compact: async () => {
+        await compactGate;
+      },
+      sessionManager: {
+        getBranch: () => [],
+        getLeafId: () => null,
+      },
+    };
+    const harness = new PiHarness(paths, store, repository, new HostToolRepository(database), {
+      tokenize: async () => ({tokens: 1}),
+    }) as unknown as CompactStreamHarness;
+    harness.ensureSession = async () => fakeSession;
+
+    const firstIterator = (await harness.streamCompactConversation(conversation.id))[
+      Symbol.asyncIterator
+    ]();
+    const firstEvent = await firstIterator.next();
+    assert.equal(firstEvent.value?.type, 'run.started');
+
+    const secondEvents = await collectAsyncQueue(
+      await harness.streamCompactConversation(conversation.id),
+    );
+    assert.equal(secondEvents[0]?.type, 'error');
+    assert.equal(secondEvents[0]?.code, 'conversation_busy');
+    assert.equal(secondEvents[0]?.message, 'This conversation already has an active run.');
+    assert.equal(secondEvents[0]?.retryable, true);
+
+    releaseCompact?.();
+    const remainingFirstEvents = await collectAsyncIterator(firstIterator);
+    assert.equal(remainingFirstEvents.at(-1)?.type, 'run.completed');
+  } finally {
+    releaseCompact?.();
+    database.close();
+  }
+});
+
 test('conversation snapshots keep variant rows separate from active path', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
@@ -1976,6 +2038,18 @@ async function collectAsyncQueue<T>(queue: AsyncIterable<T>): Promise<T[]> {
   const items: T[] = [];
   for await (const item of queue) {
     items.push(item);
+  }
+  return items;
+}
+
+async function collectAsyncIterator<T>(iterator: AsyncIterator<T>): Promise<T[]> {
+  const items: T[] = [];
+  while (true) {
+    const item = await iterator.next();
+    if (item.done) {
+      break;
+    }
+    items.push(item.value);
   }
   return items;
 }

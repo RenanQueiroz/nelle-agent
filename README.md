@@ -46,8 +46,9 @@ Implemented:
   route kept as a default-conversation compatibility wrapper.
 - Chat streams are sent as Nelle SSE envelopes with monotonic event ids, stable
   run ids, `run.started` / `run.completed` terminal run events, and
-  `message.assistant.completed` final assistant events. The browser client still
-  accepts older raw stream events for tests and compatibility.
+  `message.assistant.completed` final assistant events. Stream `error` events
+  carry stable `NelleError` codes such as `conversation_busy`. The browser
+  client still accepts older raw stream events for tests and compatibility.
 - Nelle-owned llama.cpp router facade endpoints under `/api/llama/*` for router
   props, model list/reload, model load/unload, per-model props, and model SSE
   events.
