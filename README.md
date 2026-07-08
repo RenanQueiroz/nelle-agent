@@ -45,15 +45,19 @@ Not implemented yet:
   and Nelle-only metadata.
 - Fork/duplicate conversation actions backed by Pi's runtime fork/clone
   behavior, creating new Nelle conversations without mutating the source.
-- Typed stream/abort contracts for chat runs. Planned stop behavior calls Pi
-  abort and propagates cancellation through Nelle's llama.cpp proxy.
+- REST/SSE snapshot and stream contracts for chat runs. Planned stop behavior
+  calls Pi abort and propagates cancellation through Nelle's llama.cpp proxy.
+- Local `.nelle-chat.zip` conversation export/import, including Pi session
+  files, Nelle sidecar metadata, attachments, model manifest snapshots, and
+  tool audit rows.
 - Composer attachments and context-window display. Planned attachment scope is
   text files, PDFs, and images only; audio/video attachments are out of scope.
 - Slash-command typeahead and manual `/compact` support. Planned slash-command
   scope is Nelle-allowlisted, with Pi session/model/auth commands handled by
   Nelle UI controls instead of chat input.
-- Sandboxing for host tools.
-- SQLite persistence. The POC uses `.nelle/state.json`.
+- Host-tool first-run acknowledgement, global disable switch, and durable tool
+  audit storage. Sandboxing remains later.
+- SQLite persistence and migrations. The POC uses `.nelle/state.json`.
 - Progress streaming for long installs/builds.
 
 ## Setup

@@ -66,7 +66,9 @@ Relevant upstream UI patterns:
   metric badges with tooltips.
 - Regeneration is branch-based in llama.cpp: it creates a sibling assistant
   message from the same parent user message rather than overwriting the old
-  answer.
+  answer. Nelle uses this as a UI reference, but intentionally maps
+  regeneration to Pi-native branch replay so Pi remains the session source of
+  truth.
 - Copy is implemented as a message action that formats the message and writes it
   to the clipboard.
 - The sidebar supports collapse/expand, new chat, settings, search, pinned
@@ -274,8 +276,8 @@ Runtime lifecycle:
 
 - Create new conversations with `SessionManager.create(cwd, sessionDir)`, using
   Nelle's app-owned Pi session directory under `.nelle/pi/sessions`.
-- Reopen existing conversations with `SessionManager.open(pi_session_path,
-sessionDir)`.
+- Reopen existing conversations with
+  `SessionManager.open(pi_session_path, sessionDir)`.
 - Maintain a lazy `PiConversationRuntimePool` keyed by `conversation.id`.
   Dispose idle runtimes after a configurable idle window, but keep the session
   files durable.
@@ -313,6 +315,10 @@ Core tables:
   `processing_json`, `created_at`.
 - `model_cache`: `section_id`, `hf_repo`, `alias`, `router_model_id?`,
   `status?`, `modalities_json?`, `context_window?`, `updated_at`.
+- `tool_audit_events`: `id`, `conversation_id`, `pi_entry_id?`,
+  `pi_tool_call_id`, `tool_name`, `status`, `input_json`, `output_json?`,
+  `error_json?`, `started_at`, `completed_at?`, `duration_ms?`.
+- `schema_migrations`: `version`, `name`, `applied_at`, `checksum`.
 - `settings`: runtime and UI settings that are not model params.
 
 Recommended indexes:
@@ -329,6 +335,8 @@ Recommended indexes:
 - `conversation_entry_projection(conversation_id, display_group_id)`.
 - `message_attachments(conversation_id, pi_entry_id)`.
 - `model_cache(section_id)` primary key.
+- `tool_audit_events(conversation_id, started_at)`.
+- `tool_audit_events(conversation_id, pi_tool_call_id)`.
 
 Projection rules:
 
@@ -446,6 +454,34 @@ Capacity behavior:
 - Display current `max_instances` from `/props` so users understand why a model
   was unloaded.
 
+Router and model race handling:
+
+- A run captures its `requestedModelId` at start. Changing the composer model
+  after a run starts affects only the next send.
+- Assistant footer regeneration captures its override model at action time. If
+  the override model is unloaded, load it first and start regeneration only
+  after the router reports `loaded` or `sleeping`.
+- If a model is unloaded by router LRU while selected in the composer, keep it
+  selected and mark it `unloaded`; the next send can load it again.
+- If a model is removed from `models.ini` while selected, clear the active
+  composer selection and show a top composer error until the user chooses a
+  configured model. Historical assistant messages keep their alias snapshot and
+  runtime id.
+- If a model section is edited while the router is running, write `models.ini`
+  first, call router reload, then refresh `/models`. Warn that editing a loaded
+  model can unload/reload it and should not be done during active runs.
+- Disable destructive model edits while any active run is using that model. For
+  non-destructive alias edits, allow the save and keep existing assistant
+  `model_alias_snapshot` values unchanged.
+- If router reload reports that a loaded model source was changed or removed,
+  treat the affected status update as authoritative and update selectors,
+  settings rows, and composer status from the next `/models` refresh.
+- If the router reports a runtime id different from Nelle's section id, store it
+  in `model_cache.router_model_id` and assistant `model_runtime_id`, but keep
+  Nelle requests and Pi model registry entries keyed by the stable section id.
+- If model loading fails during send/regenerate, do not append a user message
+  or move Pi's active leaf. Surface the router error and logs link.
+
 ## Model Management UX
 
 Move model import and editing into Settings.
@@ -477,8 +513,8 @@ HF import:
 1. Search HF for GGUF repos and quants as today.
 2. User selects repo and quant.
 3. Nelle adds/updates a section in `models.ini`:
-   - section id: canonical llama.cpp runtime id if known, otherwise deterministic
-     sanitized id based on repo plus quant
+   - section id: the stable `<repoId>:<canonicalQuantTag>` id from the Model id
+     canonicalization rules, with a short hash suffix on exact-ref collision
    - `hf-repo = <repo>:<quant>`
    - `alias = <user alias or repo:quant>`
 4. If router is running, call reload.
@@ -569,6 +605,32 @@ Attachment support:
 - Persist attachment metadata with the message. Store large binary payloads
   under `.nelle/attachments/` and keep the DB row as metadata plus relative
   storage pointer.
+
+Attachment storage and limits:
+
+- Use content-addressed storage under `.nelle/attachments/<sha256-prefix>/`
+  for raw binaries that must be retained, with original filenames stored only as
+  metadata.
+- Store extracted text in SQLite only when it is below `attachmentTextInlineMax`
+  (recommended default: 256 KiB). Larger extracted text should be stored as a
+  sidecar file with a relative path in `message_attachments.storage_path`.
+- Enforce conservative first-pass limits:
+  - 10 files per draft message.
+  - 25 MiB per file.
+  - 100 MiB total pending attachment payload per draft message.
+  - 200,000 extracted characters per text/PDF attachment before truncation with
+    a visible warning.
+  - 20 rendered PDF pages when PDF-as-image mode is enabled.
+- Keep the limits in Nelle settings so they can become advanced controls later,
+  but do not expose them in the first UI pass unless needed.
+- Reject path traversal and never trust browser-supplied paths. Persist only
+  normalized metadata, content hashes, and Nelle-owned relative storage paths.
+- Unsent uploads are temporary. Clean abandoned temp files on server startup and
+  on a periodic retention sweep.
+- Hard-deleting a conversation deletes attachment metadata and any attachment
+  files no longer referenced by another conversation/import.
+- Export/import must preserve attachment metadata and files without allowing
+  archive paths to escape the import directory.
 
 Modality gating:
 
@@ -721,6 +783,51 @@ Abort behavior:
   normal aborted run events.
 - Do not send `/compact` through `AgentSession.prompt()` and do not persist it
   as a normal user message.
+
+### Tool Permission And Audit UX
+
+Host file/shell tools are v1 scope, but they are not sandboxed in the first
+implementation. Nelle should make that tradeoff explicit and auditable.
+
+First-run and settings policy:
+
+- Show a first-run acknowledgement before enabling host file/shell tools. The
+  text should state that tools run with the same OS permissions as the user who
+  launched Nelle.
+- Default recommendation: enable host tools only after this acknowledgement.
+  The product may still ship with tools available in v1, but the user should
+  make an explicit informed choice.
+- Add a Settings control to enable/disable host tools globally. Disabling tools
+  updates the Pi model/tool registry for new runs and blocks tool execution for
+  active conversation runtimes when possible.
+- Do not add per-tool approval prompts in the first implementation; that is a
+  later sandbox/permissions phase. The first pass focuses on clear disclosure,
+  visible execution rows, and auditability.
+
+Runtime behavior:
+
+- Tool calls render inline as expandable chat rows correlated by Pi
+  `toolCallId`.
+- Expanded rows show tool name, status, normalized input, normalized output,
+  duration, and error detail when present.
+- Sensitive values should not be guessed or automatically redacted in v1, but
+  rows should avoid adding extra secrets beyond what Pi/tool execution already
+  emitted.
+- If host tools are disabled, Pi/tool calls should fail closed with a
+  `tools_disabled` error and a composer or message-level explanation.
+
+Audit storage:
+
+- Persist an append-only audit trail for host tool calls under Nelle-owned app
+  data. Recommended first implementation: SQLite table `tool_audit_events` plus
+  optional JSONL export files under `.nelle/logs/tools/`.
+- Minimum fields: `id`, `conversation_id`, `pi_entry_id?`, `pi_tool_call_id`,
+  `tool_name`, `status`, `input_json`, `output_json?`, `error_json?`,
+  `started_at`, `completed_at?`, and `duration_ms?`.
+- Audit rows are Nelle sidecar metadata. They may be exported with a
+  conversation, but Pi session files remain the message-history source of truth.
+- Clearing all chats removes matching audit rows unless the user explicitly
+  exports diagnostics first.
 
 ### Assistant Message Footer
 
@@ -875,6 +982,23 @@ Fork and duplicate behavior:
 - Export/import/sharing should continue to operate on the selected Nelle
   conversation's Pi session file.
 
+Branch/tree UX boundary:
+
+- v1 shows the active Pi path as the main conversation timeline.
+- Regenerated assistant answers are grouped as variants for the same visible
+  user prompt using Nelle `display_group_id` metadata, even though Pi represents
+  the replay as a new user entry on a branch.
+- Fork and duplicate are exposed as explicit actions that create new Nelle
+  conversations. The source conversation stays on its current active path.
+- Nelle does not need a full Pi tree explorer in the first implementation. The
+  data model must preserve enough metadata to add one later, but the v1 UI does
+  not expose arbitrary tree navigation, branch pruning, or branch reparenting.
+- Hidden/inactive Pi branches remain in the Pi session file and can be exported
+  or surfaced later. They should not be silently deleted by projection sync.
+- If the active branch changes after regeneration, fork, or import, update
+  `active_leaf_pi_entry_id` from Pi and rebuild the active-path projection from
+  Pi rather than deriving branch state from SQLite.
+
 ### Virtualized List
 
 Use real virtualization for conversation rows once conversation count can grow.
@@ -910,6 +1034,80 @@ Constraints:
   container or unexpectedly tied to row-local layout state.
 
 ### Conversation Persistence
+
+Conversation snapshot contract:
+
+`GET /api/conversations/:id` returns a complete snapshot that lets the web UI
+render the active conversation after initial load, server restart, or stream
+disconnect. Streams patch this state, but refetching the snapshot is always the
+recovery path.
+
+Recommended shared shape:
+
+```ts
+type ConversationSnapshot = {
+  conversation: {
+    id: string;
+    title: string;
+    titleSource: 'generated' | 'user' | 'imported' | 'fallback';
+    pinned: boolean;
+    status: 'ready' | 'running' | 'compacting' | 'aborting' | 'unavailable';
+    createdAt: string;
+    updatedAt: string;
+    piSessionId?: string;
+    activeLeafPiEntryId?: string;
+    defaultModelId?: string;
+    parentConversationId?: string;
+    forkedFromPiEntryId?: string;
+    forkKind?: 'fork' | 'clone';
+    currentRun?: {
+      runId: string;
+      kind: 'chat' | 'regenerate' | 'compact' | 'title';
+      modelId?: string;
+      startedAt: string;
+      status: 'pending' | 'running' | 'aborting';
+    };
+  };
+  entries: ConversationEntryProjection[];
+  activePathEntryIds: string[];
+  attachments: AttachmentMetadata[];
+  context: {
+    usedTokens?: number;
+    totalTokens?: number;
+    source?: 'estimate' | 'prompt_progress' | 'timings' | 'pi';
+    updatedAt?: string;
+  };
+  models: {
+    selectedModelId?: string;
+    defaultModelId?: string;
+    available: ModelListItem[];
+  };
+  capabilities: {
+    canSend: boolean;
+    canAbort: boolean;
+    canCompact: boolean;
+    canFork: boolean;
+    canAttachImages: boolean;
+    canAttachText: boolean;
+  };
+  errors: NelleError[];
+};
+```
+
+Rules:
+
+- `entries` contains the active visible path plus any Nelle-visible variants
+  needed to render regenerate groups. It does not need to include every hidden
+  Pi tree branch in v1.
+- `activePathEntryIds` is derived from Pi's current leaf and is the timeline
+  ordering source for the active path.
+- `capabilities` is derived from conversation status, router/model state,
+  selected model modalities, host-tool settings, and active run state.
+- Snapshot responses should include enough model and context data to render the
+  composer without an immediate second request.
+- If the Pi session file is missing/corrupt, return the conversation row with
+  `status: "unavailable"` and a `session_unavailable` error instead of creating
+  a replacement session.
 
 API shape:
 
@@ -949,10 +1147,56 @@ Fork/clone API:
 - Both routes return the new conversation snapshot and may optionally stream a
   `conversation.forked` event if the caller is subscribed.
 
+Export/import format:
+
+- Export a single Nelle conversation as a `.nelle-chat.zip` archive.
+- Archive contents:
+  - `manifest.json`: format version, exported-at timestamp, app version,
+    conversation id/title metadata, source platform, and checksum list.
+  - `pi-session.jsonl`: the Pi session file for that conversation.
+  - `nelle-conversation.json`: Nelle sidecar metadata such as pin state, title
+    source, model alias snapshots, performance metadata, tool-call UI metadata,
+    context metadata, and active visible branch/grouping hints.
+  - `attachments/`: referenced attachment files, stored by content hash.
+  - `models-manifest.json`: model ids, alias snapshots, `hf-repo` refs when
+    known, router runtime ids, and context/modality metadata observed at export
+    time.
+  - `tool-audit.jsonl`: optional host-tool audit rows for the conversation.
+- Do not include secrets, pairing tokens, app-wide settings, managed
+  llama.cpp binaries, model weights, cache directories, or logs by default.
+- Validate import archives before writing: reject absolute paths, `..`
+  segments, duplicate critical files, unsupported format versions, and checksum
+  mismatches.
+- Import creates a new Nelle conversation id and copies the Pi session file into
+  `.nelle/pi/sessions`; it never overwrites an existing conversation.
+- Import rebuilds projection rows from the Pi session file, then overlays
+  Nelle sidecar metadata by Pi entry id where possible.
+- If imported models are not configured locally, keep historical assistant
+  labels from snapshots and show missing models as unavailable for
+  regeneration until the user imports matching `hf-repo` refs.
+- Export/import are local file operations in this plan. External sharing and
+  remote sync are deferred, but the archive format should avoid local-only
+  absolute paths so future sharing is possible.
+
 ### Streaming And Event Contract
 
 Use one event envelope for conversation streams, global runtime streams, and
 future mobile clients.
+
+Transport policy:
+
+- v1 browser clients use REST for commands/snapshots and SSE for streaming
+  conversation, router, runtime, log-tail, and install/build progress events.
+- Do not introduce WebSocket as the default browser transport in v1 unless a
+  specific bidirectional need appears that REST commands plus SSE cannot cover.
+- Mobile clients can reuse the same REST/SSE contract on LAN. If a future
+  mobile transport uses WebSocket for background constraints, it should carry
+  the same `NelleEventEnvelope` payloads.
+- Expo push notifications are separate from chat/run streaming. Push should
+  notify that work changed; the app then fetches snapshots or subscribes to
+  streams when reachable.
+- SSE reconnects should refetch the relevant snapshot rather than relying on
+  durable event replay in v1.
 
 Envelope:
 
@@ -1006,6 +1250,35 @@ Core llama/router events:
 - `llama.model.updated`: `{ sectionId, routerModelId?, status, progress?, error? }`
 - `llama.logs.updated`: `{ lines, cursor }`
 
+Pi event mapping:
+
+- `AgentSession` prompt start or Nelle request acceptance -> `run.started`.
+- User message append/entry creation -> `message.user.created`.
+- Assistant message start -> `message.assistant.started`.
+- Assistant visible text delta -> `message.assistant.delta`.
+- Assistant reasoning/thinking deltas are ignored for normal chat while
+  Qwen-family thinking is disabled. If thinking is enabled later, add a
+  separate opt-in `message.assistant.thinking_delta` event and UI surface.
+- Assistant final entry -> `message.assistant.completed` plus
+  `conversation.updated`.
+- Pi tool execution start/progress/end -> upsert `tool_call.updated` by
+  `toolCallId`.
+- Pi compaction start/end/failure -> `compact.started`, `compact.completed`, or
+  `compact.failed`.
+- Pi abort/stop result -> `run.aborted` and `run.completed` with
+  `status: "aborted"`.
+- Pi auto-retry start/end should update the active run status detail and may
+  emit `conversation.updated`; do not append normal chat messages for retry
+  bookkeeping.
+- Pi `session_info_changed` or session replacement after fork/clone -> refresh
+  conversation metadata, resubscribe to the new `AgentSession`, and emit
+  `conversation.updated` or `conversation.forked`.
+- Pi queue/backpressure updates, if exposed, should map to run status detail
+  rather than creating independent user-visible messages.
+- Any Pi event Nelle does not understand should be logged at debug level and
+  ignored in the UI until explicitly mapped. Unknown Pi events must not break
+  the stream.
+
 Error shape:
 
 ```ts
@@ -1025,6 +1298,36 @@ Naming:
   `pi_run_aborted`, `unsupported_attachment`, `context_overflow`,
   `unsupported_slash_command`, and `session_unavailable`.
 - User-facing text should come from `message`, not from parsing `code`.
+
+Conversation and run state machine:
+
+- Conversation statuses:
+  - `ready`: no active run, Pi session is usable.
+  - `running`: chat, regenerate, or title run is active.
+  - `compacting`: manual compaction is active.
+  - `aborting`: abort request accepted and Nelle is waiting for Pi/proxy idle.
+  - `unavailable`: Pi session file or runtime dependency is missing/corrupt.
+- Run statuses:
+  - `pending`: request accepted but Pi/provider stream has not started.
+  - `running`: Pi/provider stream is active.
+  - `aborting`: stop requested, abort propagation in progress.
+  - `completed`: run finished normally.
+  - `aborted`: run stopped by user/server/runtime.
+  - `failed`: run ended with an error.
+- Allowed conversation transitions:
+  - `ready -> running | compacting | unavailable`.
+  - `running -> ready | aborting | unavailable`.
+  - `compacting -> ready | aborting | unavailable`.
+  - `aborting -> ready | unavailable`.
+  - `unavailable -> ready` only after explicit repair/reimport succeeds.
+- Active run ids are unique per conversation. A conversation may have at most
+  one `pending`, `running`, or `aborting` run.
+- Starting a chat/regenerate/title run while the same conversation is not
+  `ready` returns `conversation_busy`.
+- Starting `/compact` while the conversation is not `ready` returns
+  `conversation_busy`.
+- A failed title-generation run must not move the conversation out of `ready`
+  once the chat run has already completed.
 
 ### Abort And Cancellation
 
@@ -1097,12 +1400,33 @@ Implementation notes:
 - Do not trigger title generation for imported conversations or conversations
   with a user-edited title.
 
-## Migration Plan
+## Migration And Backup Plan
 
 Existing POC state may contain `.nelle/state.json` with `models[]`,
 `activeModelId`, and one global `chat`.
 
-Migration steps:
+Migration framework:
+
+- Store schema state in SQLite with a `schema_migrations` table rather than
+  relying only on `PRAGMA user_version`.
+- Run migrations inside transactions when SQLite supports the whole operation.
+  Filesystem side effects should be staged first, then committed by atomic
+  rename after the database transaction succeeds.
+- Before any migration that rewrites app data, create a timestamped backup
+  directory under `.nelle/backups/<timestamp>/`.
+- Back up at least: `state.json`, `llama/models.ini`, Pi session files touched
+  by the migration, SQLite database files, and attachment metadata/files touched
+  by the migration.
+- Keep `models.ini.bak` behavior for individual model-catalog writes even after
+  SQLite migrations exist.
+- If migration fails, leave the backup in place, keep the original files when
+  possible, and start the app in a setup/repair-safe state with a visible error
+  and log reference. Do not partially create a replacement conversation for a
+  failed Pi session migration.
+- Migrations should be idempotent where practical. Re-running after failure
+  should detect completed steps from the database and backup markers.
+
+POC-to-SQLite migration steps:
 
 1. Parse existing `models[]`.
 2. Write HF-backed models into `models.ini` if not already present.
@@ -1116,6 +1440,18 @@ Migration steps:
 6. Backfill conversation entry projections from the newly created Pi session.
 7. Keep `state.json` as a backup until SQLite migration is proven.
 
+Future migration expectations:
+
+- Never rewrite Pi session files unless Pi provides the migration operation or
+  the old file is preserved in a backup.
+- Rebuild projection tables from Pi session files instead of treating
+  projection rows as durable history.
+- Attachment GC should run after successful migrations, not before. It should
+  delete only unreferenced Nelle-owned files.
+- Export/import versioning should be independent from app database migration
+  versioning. Import code should migrate old archive formats into the current
+  internal snapshot shape.
+
 ## Implementation Phases
 
 ### Phase 0: Contracts, Persistence, And Pi Runtime Foundation
@@ -1124,16 +1460,22 @@ Migration steps:
   chat content parts, attachments, performance metrics, model cache records, and
   conversation snapshots.
 - Add SQLite migrations for conversations, entry projections, attachments,
-  model cache, settings, and FTS title search.
+  model cache, tool audit events, settings, schema migrations, and FTS title
+  search.
+- Add the migration/backup runner and the POC `.nelle/state.json` migration
+  path.
 - Add `PiConversationRuntimePool`:
   create/open/dispose runtimes by conversation id, map each conversation to one
   Pi session file, resubscribe after runtime replacement, and support multiple
   active conversation runtimes.
 - Add Pi session projection sync from `SessionManager` entries into SQLite,
   using Pi entry ids and leaf id as durable cursors.
-- Add the Nelle SSE event envelope helper and stream plumbing.
+- Add the Nelle SSE event envelope helper, transport policy helpers, Pi event
+  mapper, and conversation/run state machine.
 - Add the abort API and Pi/proxy abort propagation before expanding the UI.
 - Add lossless `models.ini` parser/writer and model id canonicalizer.
+- Add export/import archive schemas and validation helpers, even if the UI lands
+  in Phase 3.
 
 Exit criteria:
 
@@ -1143,10 +1485,15 @@ Exit criteria:
 - Multiple conversation runtimes can exist, while each conversation allows only
   one active run.
 - Conversation streams emit typed envelopes with stable `runId`s.
+- Conversation snapshots can rebuild the active timeline from Pi plus SQLite
+  sidecar metadata.
+- Invalid state transitions are rejected with stable `NelleError` codes.
 - Aborting an active run calls Pi abort, closes the llama proxy request, and
   emits `run.aborted`.
 - `models.ini` can be parsed and written without dropping comments, unknown
   keys, or ordering in untouched sections.
+- Migrations create backups before rewriting app data and fail into a repairable
+  state.
 
 ### Phase 1: Router Metadata And `models.ini` Ownership
 
@@ -1181,6 +1528,8 @@ Exit criteria:
 - Add manual load/unload controls in Settings model rows.
 - Fetch and cache loaded model props so model selectors can display modality and
   context-window metadata.
+- Implement router/model race policies for selection changes, router reloads,
+  loaded-model edits, and removed selected models.
 
 Exit criteria:
 
@@ -1188,6 +1537,8 @@ Exit criteria:
 - Users can see loaded/loading/unloaded/failed states.
 - Model selector loads on selection and shows progress.
 - Loaded models expose context size and image-support capability in the UI.
+- Editing or removing models while the router is running produces predictable
+  reload/status behavior and never mutates an active run's captured model.
 
 ### Phase 3: Conversations And Sidebar
 
@@ -1200,6 +1551,10 @@ Exit criteria:
 - Move reset/delete behavior to sidebar actions.
 - Add conversation export/delete/pin/rename/duplicate.
 - Add message-level fork into a new conversation, backed by Pi fork.
+- Implement local `.nelle-chat.zip` export/import for conversation snapshots,
+  Pi session files, attachments, model manifest snapshots, and tool audit rows.
+- Keep the visible branch UX scoped to active-path timelines, regenerate
+  variants, fork, and duplicate. Do not build a full Pi tree explorer in v1.
 
 Exit criteria:
 
@@ -1211,6 +1566,11 @@ Exit criteria:
   new Pi session file and leaves the source conversation unchanged.
 - Duplicating a conversation creates a new Nelle conversation from the active Pi
   branch.
+- Exporting and importing a conversation round trips the Pi session file,
+  Nelle sidecar metadata, attachments, model manifest snapshots, and tool audit
+  rows without overwriting existing conversations.
+- Inactive Pi branches are preserved in session files and are not dropped by
+  projection rebuilds.
 - Conversation delete removes SQLite rows, the Pi session file, and attachment
   files.
 
@@ -1243,6 +1603,8 @@ Exit criteria:
 - Add file picker, drag/drop, and paste handling for text, PDF, and image files.
 - Add PDF text extraction and optional PDF-as-image conversion for vision
   models.
+- Add attachment size/count/text extraction limits, content-hash storage, temp
+  upload cleanup, and delete/export/import integration.
 - Gate image attachments and PDF-as-image mode on selected-model vision
   support from `/api/llama/models/:id/props`.
 - Add composer `ProgressBar` for context-window usage with tooltip token
@@ -1253,6 +1615,8 @@ Exit criteria:
 Exit criteria:
 
 - Text and PDF-as-text attachments work with text-only models.
+- Attachment limits are enforced with composer status messages, and abandoned
+  temp uploads are cleaned up.
 - Image attachments and PDF-as-image are enabled only for vision-capable models.
 - Audio/video attachments are not exposed.
 - Switching models revalidates pending attachments.
@@ -1302,6 +1666,8 @@ Exit criteria:
 Unit tests:
 
 - Event envelope and `NelleError` schema validation.
+- Transport envelope helpers for SSE serialization and snapshot refetch
+  recovery assumptions.
 - `models.ini` AST parse/write, including comment/order/unknown key
   preservation, duplicate editable-key detection, atomic-write failure handling,
   and malformed-line round trips.
@@ -1309,19 +1675,32 @@ Unit tests:
   `UD-` quant normalization and collision hash suffixes.
 - Global and per-model param validation.
 - Router event normalization.
+- Router/model race policy reducers for selected-model removal, LRU unload,
+  reload after edit, and active-run model immutability.
+- Pi event mapping into Nelle stream events, including unknown-event tolerance.
+- Conversation/run state machine transitions and `conversation_busy` errors.
+- Conversation snapshot building from Pi entries plus SQLite sidecar metadata.
 - Pi session projection sync from entry lists, leaf id changes, and missing
   session-file handling.
 - Conversation title sanitization/fallback.
 - Message model metadata selection and alias snapshot fallback.
 - Fork/clone request validation, source entry eligibility, new conversation
   metadata, and default title generation.
+- Branch/variant grouping from `display_group_id` without dropping inactive Pi
+  branches.
 - Regenerate request path construction, branch creation, and model override
   validation.
 - Performance statistics view selection, formatting, and live auto-switching.
 - Clipboard text formatting.
 - Sidebar row flattening, stable virtual keys, and search/pinned grouping.
-- Attachment file classification, modality gating, PDF/text extraction
-  fallback, and context-progress formatting.
+- Attachment file classification, size/count limits, content-hash storage,
+  modality gating, PDF/text extraction fallback, temp cleanup, and
+  context-progress formatting.
+- Export/import archive manifest validation, path traversal rejection, checksum
+  validation, and sidecar metadata overlay by Pi entry id.
+- Migration runner backup creation, idempotent retry behavior, and failed
+  migration repair state.
+- Tool audit event persistence and deletion/export behavior.
 - Slash-command parsing, Nelle allowlist/blocklist behavior, unsupported
   command guidance, and `/compact` instruction extraction.
 
@@ -1347,6 +1726,8 @@ Integration tests:
 - Verify selector calls load and updates status from SSE.
 - Verify `models-max` is displayed from `/props`.
 - Verify editing `models.ini` calls reload when router is running.
+- Verify removing or editing a selected/loaded model follows the router/model
+  race policy and does not mutate active runs.
 - Verify regenerate with a model override calls router load when needed and
   streams with the selected model.
 - Verify regenerate preserves the old answer, replays the original user content
@@ -1357,6 +1738,13 @@ Integration tests:
   supports image input, and rejected through composer status when it does not.
 - Verify context overflow errors with `n_prompt_tokens`/`n_ctx` become composer
   top errors.
+- Verify exported `.nelle-chat.zip` archives import as new conversations and
+  preserve Pi history, Nelle sidecar metadata, attachments, and tool audit rows.
+- Verify host-tool calls create audit rows and disabled tools fail closed with
+  `tools_disabled`.
+- Verify migration from `.nelle/state.json` creates backups, converts supported
+  data, drops local-path models from active state, and leaves failed migrations
+  repairable.
 - Verify `/compact` calls `AgentSession.compact()` for the active conversation,
   compaction stop calls `AgentSession.abortCompaction()`, unsupported slash
   commands are rejected before Pi prompt submission, and busy conversations
@@ -1372,6 +1760,8 @@ Playwright tests:
 - Settings HF import writes `models.ini` and model appears in selector.
 - Selecting an unloaded model shows loading progress then selected loaded model.
 - Sidebar creates, searches, pins, renames, exports, and deletes conversations.
+- Importing a `.nelle-chat.zip` archive creates a new conversation and does not
+  overwrite an existing one.
 - Sidebar duplicate creates a copied conversation without mutating the source.
 - User message fork action creates a new forked conversation and opens/selects
   it according to the current UI routing decision.
@@ -1390,8 +1780,12 @@ Playwright tests:
 - Copy button writes assistant text to the clipboard.
 - Attachment drawer adds/removes text, PDF, and image files; unsupported images
   are blocked for text-only models.
+- Attachment size/count/unsupported-type failures appear in composer status and
+  do not send a partial prompt silently.
 - Context progress bar tooltip shows used/total token counts and warning/error
   status at the configured thresholds.
+- First-run host-tool acknowledgement appears before host tools are enabled,
+  and tool rows expose expandable input/output details.
 - Composer shows llama-server stopped/no model/unsupported attachment as top
   status errors and near-full context as a bottom status warning.
 - Typing `/` shows the slash-command typeahead, selecting `/compact` inserts the
@@ -1418,12 +1812,23 @@ Playwright tests:
   new Pi session files. Use an isolated temporary runtime so source conversation
   state is not replaced by Pi's runtime-level fork operation.
 - Running router reload: changing or removing a loaded section can trigger
-  unload. The UI must warn before destructive model edits.
+  unload. The UI must warn before destructive model edits, disable destructive
+  edits while active runs use that model, and treat router status as
+  authoritative after reload.
 - Local path migration: local path model entries are removed from active state,
   so backup state should remain available until the SQLite migration is proven.
 - SQLite source-of-truth boundary: Pi session files own message history and
   tree state; SQLite projection rows are cache/sidecar data and must be
   rebuildable.
+- Snapshot contract: clients recover from stream disconnects by refetching
+  snapshots. Durable event replay is intentionally deferred.
+- Transport: v1 browser uses REST plus SSE. WebSocket remains available as a
+  future mobile/background transport only if it carries the same event envelope.
+- Pi event mapping: unknown Pi events must be ignored safely and logged until
+  Nelle explicitly supports them.
+- State machine: each conversation has at most one active run. Cross-conversation
+  concurrency is allowed, but same-conversation sends/compactions fail with
+  `conversation_busy`.
 - Abort propagation: Pi exposes `AgentSession.abort()`, but Nelle must also
   preserve abort signals through the llama proxy. llama.cpp disconnect behavior
   should be verified per release; if a slot keeps generating after abort, show a
@@ -1431,6 +1836,17 @@ Playwright tests:
 - Attachment token estimates: text-only `/tokenize` estimates are useful for
   draft UI but not authoritative for multimodal prompts or full chat history.
   Streamed `prompt_progress` and final `timings` remain authoritative.
+- Attachment storage: content-addressed files and conservative upload limits
+  reduce accidental disk growth, but the first implementation still needs temp
+  cleanup and import path validation.
+- Tool security: v1 host tools are unsandboxed. The implementation must require
+  explicit acknowledgement, expose a disable switch, render tool input/output,
+  and keep an audit trail until a stronger permission/sandbox model exists.
+- Export/import: archives are local `.nelle-chat.zip` bundles with Pi session
+  files plus Nelle sidecar metadata. They must not include model weights,
+  secrets, pairing tokens, or absolute local paths.
+- Migration safety: migrations create timestamped backups and fail into a
+  repairable setup state rather than partially rewriting conversations.
 - Title generation cost: it adds one extra model call on new conversations.
   Keep it short and make failures silent.
 - Pi slash-command boundary: Pi owns many interactive commands that conflict
@@ -1467,9 +1883,22 @@ Playwright tests:
 - Multiple Pi conversation runtimes may be active simultaneously when Pi and the
   local router can support them. Nelle only forbids concurrent runs within the
   same conversation.
+- The v1 browser transport is REST for commands/snapshots and SSE for
+  conversation, router, runtime, log-tail, and install/build events.
+- Conversation snapshots are the recovery source after stream disconnects; v1
+  does not require durable event replay.
 - Fork and duplicate are in scope for the conversation UI. Both use Pi runtime
   fork/clone behavior and create new Nelle conversations rather than mutating or
   replacing the source conversation.
+- The v1 branch UI shows the active Pi path, regenerate variants, fork, and
+  duplicate. A full Pi tree explorer is deferred, but inactive Pi branches must
+  remain preserved in session files.
 - UI stop/abort calls Pi `AgentSession.abort()` and propagates abort to the
   llama.cpp proxy request. Nelle does not auto-kill llama.cpp unless the user
   explicitly chooses a runtime stop/restart action.
+- Host file/shell tools require explicit first-run acknowledgement and remain
+  globally disableable until sandboxing/per-tool permissions are designed.
+- Conversation export/import uses local `.nelle-chat.zip` archives and imports
+  always create new Nelle conversations.
+- Database migrations use `schema_migrations`, timestamped backups, and
+  repairable failure behavior.

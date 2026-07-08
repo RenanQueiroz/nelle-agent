@@ -43,9 +43,9 @@ Project-specific guidance for AI coding agents.
 - Implement conversation fork/duplicate through Pi runtime fork/clone behavior,
   creating a new Nelle conversation for the new Pi session file and leaving the
   source conversation unchanged.
-- Chat/run streams use typed Nelle event envelopes. UI stop/abort calls Pi
-  `AgentSession.abort()` and must propagate cancellation through Nelle's
-  llama.cpp proxy request.
+- Browser v1 uses REST for commands/snapshots and SSE streams with typed Nelle
+  event envelopes. UI stop/abort calls Pi `AgentSession.abort()` and must
+  propagate cancellation through Nelle's llama.cpp proxy request.
 - `models.ini` editing should use a lossless AST parser/writer that preserves
   comments, ordering, unknown keys, and untouched user edits. Keep exact
   `hf-repo` refs while deriving stable canonical section ids for router/OpenAI
@@ -55,13 +55,17 @@ Project-specific guidance for AI coding agents.
   `/api/llama-proxy/v1` provider so streamed `prompt_progress` and `timings`
   chunks can update the UI; `/slots` is only a best-effort fallback.
 - Assistant messages should persist the generating model id/runtime id and an
-  alias snapshot. Footer model changes should regenerate as a sibling branch
-  with a model override, not silently overwrite the prior answer.
+  alias snapshot. Footer model changes should regenerate through Pi-native
+  branch replay with a model override, then group the new answer as a UI
+  variant instead of overwriting the prior answer.
 - Assistant performance metadata should render as a toggleable Reading
   (prompt processing) / Generation (token output) stats widget with icon
   controls and Astryx tooltips, not as a plain text throughput string.
 - Tool calls must be correlated by stable `id` / Pi `toolCallId`; stream updates
   should upsert existing calls and preserve expandable input/output detail.
+- Host file/shell tools are unsandboxed in v1. Require explicit first-run
+  acknowledgement, keep a global disable switch, and persist tool audit events
+  until sandboxing/per-tool permissions are designed.
 - Keep the workbench viewport-bounded. Do not reintroduce document-level
   scrolling; side panels and the chat history should scroll internally while
   the composer stays docked.

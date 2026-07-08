@@ -90,7 +90,9 @@ The first product experience should be UI-driven:
   `expo-notifications` and the Expo Push Service.
 - Text chat only. Voice/audio is out of v1 scope. Composer attachments are
   limited to text files, PDFs, and images for the router/chat UI plan.
-- One model runs at a time. Multi-model concurrency is deferred.
+- The default router capacity is one loaded model, but `modelsMax` is
+  user-configurable. The product should not assume most users can run multiple
+  large local models concurrently.
 - The web UI uses Meta's Astryx components and design tokens.
 - Chat slash commands are Nelle allowlisted. Support `/compact [instructions]`
   first, and route session, model, auth, settings, export, and copy workflows
@@ -119,7 +121,7 @@ The first product experience should be UI-driven:
 
 Use a TypeScript-first stack:
 
-- Local app/server: Node.js + Fastify + WebSocket/SSE.
+- Local app/server: Node.js + Fastify + REST/SSE.
 - Launch surface: a small cross-platform CLI/server entrypoint that starts the
   local server and opens the setup/admin UI in the system browser.
 - Admin UI: React + Vite + TypeScript + Astryx + React Compiler.
@@ -129,9 +131,11 @@ Use a TypeScript-first stack:
   executables by Nelle on Windows/macOS; source-built binaries managed by Nelle
   on Linux.
 - Mobile client: separate React Native repo that talks to the server over a
-  versioned HTTP/WebSocket API.
-- Persistence: SQLite for app metadata, plus filesystem storage for generated
-  llama presets, Pi sessions, logs, and downloaded binaries.
+  versioned HTTP/SSE API on LAN. WebSocket can be added later behind the same
+  event envelope if mobile background constraints require it.
+- Persistence: SQLite for app metadata, plus filesystem storage for
+  user-editable llama router presets, Pi sessions, logs, and downloaded
+  binaries.
 - Streaming contract: typed SSE envelopes for conversation runs, Pi/tool
   events, performance/context updates, model status, compaction, aborts, and
   errors.
@@ -302,16 +306,19 @@ Responsibilities:
 - Serve the admin UI.
 - Expose REST endpoints for settings, model catalog, runtime status,
   sessions, pairing, and diagnostics.
-- Expose WebSocket or SSE streams for chat deltas, tool events, server logs,
-  and notifications.
+- Expose SSE streams for chat deltas, tool events, server logs, runtime status,
+  router status, and install/build progress.
 - Own auth, pairing, and permission gates.
 - Own all process supervision for `llama-server`.
 
 Initial API transport:
 
 - REST for commands and state snapshots.
-- WebSocket for bidirectional chat and live status.
-- SSE can be added for read-only progress streams if it simplifies the web UI.
+- SSE for v1 browser/mobile LAN event streams.
+- WebSocket is deferred unless a specific bidirectional transport need appears;
+  if added, it should carry the same typed Nelle event envelopes.
+- Push notifications are separate from chat/run streaming and should trigger
+  snapshot refreshes rather than carry full conversation state.
 
 ### Pi Bridge
 
@@ -365,6 +372,8 @@ Responsibilities:
   `abortRetry()` for UI stop/compact behavior rather than reimplementing those
   mechanics.
 - Enable host file and shell tools in v1.
+- Require explicit first-run acknowledgement before host tools are enabled,
+  keep a global disable switch, and persist an audit trail for tool calls.
 - Expose only Nelle-allowlisted Pi slash behavior through the web composer.
   Initially this means manual compaction through `/compact [instructions]`.
   Other Pi built-ins remain UI-owned or unsupported, and extension/skill/prompt
@@ -387,8 +396,9 @@ Responsibilities:
 
 - Install, update, or locate `llama-server` for the current platform.
 - Detect CPU/GPU capabilities enough to recommend a binary/backend.
-- Maintain an app-owned model directory and generated preset INI.
-- Start router mode with one active model at a time:
+- Maintain an app-owned llama directory and user-editable `models.ini` router
+  preset.
+- Start router mode with configurable loaded-model capacity, defaulting to one:
 
 ```bash
 llama-server \
@@ -427,15 +437,17 @@ Runtime install/update policy:
 
 Model concurrency:
 
-- Run exactly one model at a time in v1.
-- Keep multiple configured model records.
+- Keep multiple configured model records in `models.ini`.
 - Use router mode with `--models-max` defaulting to `1` so switching models can
   use router load/unload APIs rather than changing raw command lines.
+- Expose `modelsMax` as a runtime setting; changing it requires a router
+  restart.
 - Pass `--sleep-idle-seconds`, defaulting to `90`, so loaded models can sleep
   when idle.
-- Do not expose multi-model concurrency controls in v1.
+- Let llama.cpp enforce capacity and LRU unload behavior. Nelle should surface
+  router status, not duplicate the router's scheduling policy.
 
-Generated preset example:
+`models.ini` example:
 
 ```ini
 version = 1
@@ -446,7 +458,6 @@ c = 8192
 [unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL]
 hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 alias = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
-load-on-startup = true
 stop-timeout = 10
 ```
 
@@ -473,21 +484,21 @@ Responsibilities:
   `hf-repo` reference instead of forcing Nelle to download the files itself.
 - Show only useful model files by default, with quantization, size, license,
   architecture, downloads, and disk-space checks.
-- Generate Nelle model records and llama preset sections after HF ref import.
+- Write llama router preset sections in `models.ini` after HF ref import.
 
 Initial implementation:
 
 - Preferred for normal setup: Nelle stores the selected repo/quant and writes
   `hf-repo = <repo>:<quant>` in the generated llama.cpp preset so llama.cpp owns
   download, cache, sharded-file handling, and companion `mmproj` downloads.
-- Canonicalize the generated preset section and OpenAI `model` id the same way
+- Canonicalize the `models.ini` section and OpenAI `model` id the same way
   llama.cpp does. For example, `UD-Q4_K_XL` is requested from Hugging Face as-is
   but exposed through the router as `Q4_K_XL`.
 - Do not write `n-gpu-layers` by default. Let llama.cpp use its own default
   unless the user explicitly configures GPU offload parameters.
-- Also write `alias = <repo>:<quant>` for Hugging Face refs as metadata and for
-  pre-load routing compatibility, but do not rely on aliases after the child
-  model reports its canonical id.
+- Also write `alias = <repo>:<quant>` for Hugging Face refs as user-facing
+  metadata. Keep Nelle requests keyed by the stable section id and cache any
+  router-reported runtime id separately.
 - Register Qwen-family models in Pi with model-level
   `compat.thinkingFormat = "qwen-chat-template"` and `reasoning = true`, while
   starting sessions with `thinkingLevel: "off"`. This makes Pi send
@@ -545,7 +556,9 @@ Initial same-LAN flow:
    pairing token.
 4. Mobile app scans the code and exchanges the token for a long-lived device
    credential.
-5. Mobile app opens a WebSocket for chat events, notifications, and status.
+5. Mobile app uses REST plus SSE for chat events and status while on LAN.
+   Push notifications are delivered through Expo and cause the app to refresh
+   snapshots when reachable.
 
 Security defaults:
 
@@ -625,7 +638,8 @@ Exit criteria:
   abort propagation.
 - Implement the lossless `models.ini` parser/writer and HF model id
   canonicalizer.
-- Confirm `llama-server` router mode with generated preset on this host.
+- Confirm `llama-server` router mode with Nelle-owned `models.ini` on this
+  host.
 - Confirm a first HF `hf-repo` import path.
 - Confirm Linux source-build flow from latest `llama.cpp` master.
 - Confirm Windows/macOS release-asset naming and update metadata.
@@ -644,7 +658,7 @@ Exit criteria:
 Exit criteria:
 
 - App can install, locate, update, start, and stop `llama-server`.
-- App can generate `models.ini`.
+- App can parse, edit, and write `models.ini` without dropping user edits.
 - App can start/stop router mode with configurable `--models-max` and
   `--sleep-idle-seconds`.
 - App can list router models and show loaded/unloaded status.
@@ -715,10 +729,8 @@ Exit criteria:
 5. What is the expected user profile: developers comfortable with local AI
    knobs, or nontechnical users who need aggressive defaults and fewer controls?
 6. Should Hugging Face auth/gated models be first-release scope?
-7. Should model parameters be per model, per runtime profile, or both?
-8. Should the server expose OpenAI-compatible endpoints for third-party local
+7. Should the server expose OpenAI-compatible endpoints for third-party local
    tools, or only the Nelle-specific API?
-9. How much of Pi's session tree/branching UI should Nelle expose initially?
-10. What is the minimum acceptable packaged app size?
-11. Are we comfortable with GPL/other model license surfaces being shown as UI
-    warnings rather than enforced policy?
+8. What is the minimum acceptable packaged app size?
+9. Are we comfortable with GPL/other model license surfaces being shown as UI
+   warnings rather than enforced policy?
