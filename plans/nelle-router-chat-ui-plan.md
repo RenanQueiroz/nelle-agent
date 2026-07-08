@@ -56,6 +56,16 @@ Relevant upstream UI patterns:
   progress. If a selected model is not loaded, it calls `loadModel`.
 - The selector and store do not implement custom `models_max` policy; the
   backend router does.
+- Assistant messages persist the model that generated them and display that
+  model in the assistant footer.
+- llama.cpp's assistant footer uses the router model selector as a per-message
+  regenerate control. Choosing a different model loads it if needed and calls
+  regenerate with a `modelOverride`.
+- Regeneration is branch-based in llama.cpp: it creates a sibling assistant
+  message from the same parent user message rather than overwriting the old
+  answer.
+- Copy is implemented as a message action that formats the message and writes it
+  to the clipboard.
 - The sidebar supports collapse/expand, new chat, settings, search, pinned
   conversations, recent conversations, per-item overflow actions, and running
   generation indicators.
@@ -126,8 +136,20 @@ Core tables:
 - `conversations`: `id`, `title`, `pinned`, `created_at`, `updated_at`,
   `model_id`, `archived_at?`.
 - `messages`: `id`, `conversation_id`, `role`, `content`, `created_at`,
-  `performance_json`, `tool_calls_json`.
+  `parent_id`, `active_child_id?`, `model_id?`, `model_runtime_id?`,
+  `model_alias_snapshot?`, `performance_json`, `tool_calls_json`.
 - `settings`: runtime and UI settings that are not model params.
+
+Message model fields:
+
+- `model_id` is Nelle's configured model/section id used to request the answer.
+- `model_runtime_id` is the llama.cpp/OpenAI model id observed in the request or
+  stream, such as the canonical quant-tag id.
+- `model_alias_snapshot` is the display label at generation time. It keeps old
+  messages understandable even if the user later renames or removes the model.
+- For Pi responses, set these fields from the active/override model at stream
+  start and update from llama.cpp stream metadata if the proxy observes a more
+  specific runtime id.
 
 Keep generated files out of the DB:
 
@@ -286,6 +308,56 @@ Composer:
 - Keep model dropdown.
 - Keep exactly one Astryx default send/stop button.
 
+### Assistant Message Footer
+
+Each assistant message footer should show:
+
+- Timestamp.
+- Model picker/dropdown displaying the model that generated that answer.
+- Prompt-processing and generation tokens/sec metrics when available.
+- Copy button.
+- Regenerate button.
+
+Use Astryx `ChatMessageMetadata.footer` as a React node instead of a formatted
+string. The footer should remain compact, wrap cleanly on narrow widths, and use
+icon buttons with accessible labels/tooltips for copy and regenerate.
+
+Model dropdown behavior:
+
+1. The dropdown's current value is the message's `model_id`/`model_runtime_id`,
+   displayed using `model_alias_snapshot` or the current alias from
+   `models.ini`.
+2. Opening the dropdown lists router models with the same loaded/loading/failed
+   status used by the composer selector.
+3. Selecting the same model triggers a normal regenerate.
+4. Selecting a different model loads that model through the router if needed,
+   then regenerates that assistant message with `modelOverride`.
+5. The per-message dropdown does not change the composer/global selected model
+   unless we deliberately add that behavior later.
+6. If the historical model is no longer in `models.ini`, show the snapshot label
+   as unavailable and keep copy/regenerate with another selected model possible.
+
+Copy behavior:
+
+- Copy the assistant message content as plain text/markdown text.
+- Do not include tool-call internals by default; add explicit copy controls for
+  tool details later if needed.
+- Use the browser Clipboard API with a fallback for non-secure contexts, and
+  surface success/failure through a compact notice.
+
+Regenerate behavior:
+
+- Add a conversation-scoped regenerate endpoint:
+  `POST /api/conversations/:conversationId/messages/:messageId/regenerate`.
+- Request body: `{ "modelId"?: string }`.
+- The server finds the parent user message and the active path up to that parent,
+  creates a sibling assistant branch, and streams the new assistant answer.
+- The previous assistant answer is not hard-deleted. The conversation active
+  path moves to the regenerated branch.
+- Store model metadata, timings, and tool calls on the newly generated message.
+- If model loading fails, keep the old active branch and surface the router
+  error/log link.
+
 ### Virtualized List
 
 Use real virtualization for conversation rows once conversation count can grow.
@@ -316,10 +388,12 @@ API shape:
 - `POST /api/conversations/:id/export`
 - `DELETE /api/conversations`
 - `POST /api/conversations/:id/chat/stream`
+- `POST /api/conversations/:id/messages/:messageId/regenerate`
 
 Chat streaming should be conversation-scoped. The stream route appends the user
 message, streams assistant deltas/tool calls/timing metadata, persists the final
-assistant message, and updates `conversations.updated_at`.
+assistant message, records model metadata, and updates
+`conversations.updated_at`.
 
 ## Generated Conversation Titles
 
@@ -409,6 +483,8 @@ Exit criteria:
 
 - Add SQLite conversation/message storage.
 - Replace global chat state with conversation-scoped APIs.
+- Add message parent/branch metadata so regenerated answers can become siblings
+  rather than destructive replacements.
 - Add collapsible sidebar with new chat, settings, search, virtualized list, and
   item overflow menus.
 - Move reset/delete behavior to sidebar actions.
@@ -420,6 +496,26 @@ Exit criteria:
 - Large conversation lists do not cause sidebar lag.
 - Active conversation can stream while another conversation is visible in the
   list with a running indicator.
+- Regenerated assistant messages create a new active branch without deleting the
+  previous answer.
+
+### Phase 3B: Assistant Footer Actions
+
+- Persist `model_id`, `model_runtime_id`, and `model_alias_snapshot` on
+  assistant messages.
+- Replace the metadata footer string with a composed footer row containing
+  timestamp, model dropdown, throughput metrics, copy, and regenerate.
+- Add model override regeneration through the router-aware selector.
+- Add clipboard copy behavior for assistant messages.
+
+Exit criteria:
+
+- Every assistant message shows the model that generated it.
+- Selecting a different model from an assistant footer loads that model if
+  needed and regenerates the answer in one action.
+- Copy writes the assistant text to the clipboard and gives visible feedback.
+- Timing metrics still render beside the timestamp/model without layout
+  overflow on mobile and desktop widths.
 
 ### Phase 4: Title Generation
 
@@ -441,6 +537,10 @@ Unit tests:
 - Global and per-model param validation.
 - Router event normalization.
 - Conversation title sanitization/fallback.
+- Message model metadata selection and alias snapshot fallback.
+- Regenerate request path construction, branch creation, and model override
+  validation.
+- Clipboard text formatting.
 
 Integration tests:
 
@@ -449,6 +549,9 @@ Integration tests:
 - Verify selector calls load and updates status from SSE.
 - Verify `models-max` is displayed from `/props`.
 - Verify editing `models.ini` calls reload when router is running.
+- Verify regenerate with a model override calls router load when needed and
+  streams with the selected model.
+- Verify regenerate preserves the old assistant answer as a sibling branch.
 
 Playwright tests:
 
@@ -457,6 +560,11 @@ Playwright tests:
 - Sidebar creates, searches, pins, renames, exports, and deletes conversations.
 - Composer stays docked while message list scrolls.
 - Virtualized list remains responsive with thousands of conversations.
+- Assistant footer shows timestamp, model label/dropdown, tokens/sec, copy, and
+  regenerate.
+- Selecting a different footer model regenerates with that model and keeps the
+  new model label on the regenerated answer.
+- Copy button writes assistant text to the clipboard.
 - Title generation updates only the conversation title, not message history.
 
 ## Risks And Decisions
@@ -465,6 +573,10 @@ Playwright tests:
   unknown user params. Avoid ad hoc string edits.
 - Model id canonicalization: llama.cpp may expose a canonical id different from
   the HF quant suffix. We need stable section ids and alias display rules.
+- Historical model display: message footers must keep a model alias snapshot so
+  renamed or removed models do not make old answers ambiguous.
+- Regeneration semantics: branch-based regeneration avoids destructive loss, but
+  it requires active-path handling and UI affordances for sibling navigation.
 - Running router reload: changing or removing a loaded section can trigger
   unload. The UI must warn before destructive model edits.
 - Local path migration: local path model entries are removed from active state,

@@ -40,6 +40,9 @@ Project-specific guidance for AI coding agents.
   `performance.generation` metrics. Pi calls go through Nelle's
   `/api/llama-proxy/v1` provider so streamed `prompt_progress` and `timings`
   chunks can update the UI; `/slots` is only a best-effort fallback.
+- Assistant messages should persist the generating model id/runtime id and an
+  alias snapshot. Footer model changes should regenerate as a sibling branch
+  with a model override, not silently overwrite the prior answer.
 - Tool calls must be correlated by stable `id` / Pi `toolCallId`; stream updates
   should upsert existing calls and preserve expandable input/output detail.
 - Keep the workbench viewport-bounded. Do not reintroduce document-level

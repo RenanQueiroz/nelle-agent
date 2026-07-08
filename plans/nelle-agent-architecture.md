@@ -440,6 +440,13 @@ Initial implementation:
   streamed `prompt_progress` and `timings` values observed by Nelle's llama
   proxy or direct fallback path; use router `/slots?model=...` decoded-token
   counters only as best-effort fallback data.
+- Persist the model that generated each assistant message, including a display
+  alias snapshot and llama.cpp runtime model id. Assistant footers should show
+  timestamp, model selector, throughput, copy, and regenerate controls.
+- Regenerating an assistant answer should create a sibling branch from the same
+  parent user message. Selecting a different model in the message footer should
+  load that model if needed and regenerate with that model override in one
+  action.
 - Correlate Pi tool execution events by `toolCallId`, upsert the same tool call
   row as it moves from running to complete/error, and preserve compact input and
   output details for expandable UI inspection.
@@ -570,6 +577,8 @@ Exit criteria:
 - Web UI can create a session and stream assistant output.
 - Web UI displays llama.cpp prompt-processing and generation throughput beside
   assistant message timestamps when the server reports it.
+- Web UI displays which model generated each assistant message and supports
+  copy plus branch-based regenerate, including regenerate with a model override.
 - Web UI shows each tool call once, updates its status in place, and exposes
   expandable input/output details.
 - Basic session history persists.
