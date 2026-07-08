@@ -640,6 +640,43 @@ test('conversation delete removes owned session files and unreferenced attachmen
   }
 });
 
+test('server startup sweeps orphan attachment files and preserves referenced files', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  const orphanAttachmentPath = path.join(paths.attachmentsDir, 'or', 'orphan.bin');
+  const referencedAttachmentPath = path.join(paths.attachmentsDir, 'dd', 'referenced.bin');
+  try {
+    await fs.mkdir(path.dirname(orphanAttachmentPath), {recursive: true});
+    await fs.mkdir(path.dirname(referencedAttachmentPath), {recursive: true});
+    await fs.writeFile(orphanAttachmentPath, 'orphan attachment');
+    await fs.writeFile(referencedAttachmentPath, 'referenced attachment');
+
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Referenced attachment'});
+    repository.createPendingAttachments(conversation.id, [
+      {
+        uploadId: 'referenced',
+        kind: 'image',
+        name: 'referenced.bin',
+        storagePath: 'attachments/dd/referenced.bin',
+        processing: {status: 'ready'},
+      },
+    ]);
+  } finally {
+    database.close();
+  }
+
+  const app = await createServer(paths);
+  try {
+    await assert.rejects(() => fs.access(orphanAttachmentPath), {code: 'ENOENT'});
+    await assert.rejects(() => fs.access(path.dirname(orphanAttachmentPath)), {code: 'ENOENT'});
+    await fs.access(referencedAttachmentPath);
+  } finally {
+    await app.close();
+  }
+});
+
 test('conversation export and import round trip Pi history and attachments', async () => {
   const paths = await createTempPaths();
   const database = new AppDatabase(paths);

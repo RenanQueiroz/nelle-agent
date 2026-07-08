@@ -184,8 +184,9 @@ Nelle currently differs from the target in these ways:
 - Done: the composer has an attachment drawer, file picker, paste/drop handling,
   SQLite metadata persistence, content-addressed image storage under
   `.nelle/attachments/`, and selected-model vision gating for images. Text files
-  and PDFs are sent as extracted text. Direct hard-delete cleanup is
-  implemented. Local archive export/import is implemented. Optional
+  and PDFs are sent as extracted text. Direct hard-delete cleanup and startup
+  orphan attachment sweeps are implemented. Local archive export/import is
+  implemented. Optional
   PDF-as-image mode remains pending.
 - Chat send-blocking errors and warnings now use composer-local Astryx status
   for the chat workflow. Runtime/setup notices outside chat can still appear in
@@ -660,8 +661,10 @@ Attachment storage and limits:
   but do not expose them in the first UI pass unless needed.
 - Reject path traversal and never trust browser-supplied paths. Persist only
   normalized metadata, content hashes, and Nelle-owned relative storage paths.
-- Unsent uploads are temporary. Clean abandoned temp files on server startup and
-  on a periodic retention sweep.
+- Unsent browser drafts are client-only today. Server startup sweeps
+  content-addressed files under `.nelle/attachments/` that are not referenced by
+  `message_attachments.storage_path`; any future server temp-upload API must add
+  startup and periodic retention cleanup.
 - Hard-deleting a conversation deletes attachment metadata and any attachment
   files no longer referenced by another conversation/import.
 - Export/import must preserve attachment metadata and files without allowing
@@ -1701,7 +1704,9 @@ Exit criteria:
 - Done: conversation hard delete removes the Pi session file and unreferenced
   attachment files.
 - Done: export/import archives include referenced attachment files and restore
-  them on import. Pending: broader orphan cleanup sweeps.
+  them on import.
+- Done: server startup sweeps orphan files under `.nelle/attachments/` when no
+  SQLite attachment metadata references their `attachments/...` storage path.
 - Done for images: gate image attachments on selected-model vision support from
   `/api/llama/models/:id/props`. Pending: PDF-as-image mode.
 - Done: add composer `ProgressBar` for context-window usage with tooltip token

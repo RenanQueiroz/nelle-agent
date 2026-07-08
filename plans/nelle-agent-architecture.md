@@ -260,7 +260,8 @@ indicators and an Astryx `/compact` slash-command composer flow with visible
 compaction status rows,
 context-window usage in the composer header, text/PDF/image composer
 attachments with selected-model vision gating, attachment metadata persistence,
-and content-addressed storage for sent image payloads,
+content-addressed storage for sent image payloads, and startup orphan
+attachment sweeps under `.nelle/attachments/`,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for
 startup and configuration diagnostics. Runtime/model/global/chats controls live
@@ -288,9 +289,10 @@ Intentional POC limitations:
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are enabled through Pi and remain unsandboxed.
-- PDF-as-image mode, durable tool audit archive rows, and broader orphan cleanup
-  sweeps are still pending. Direct hard delete removes the conversation's Pi
-  session file and unreferenced attachment files.
+- PDF-as-image mode and durable tool audit archive rows are still pending.
+  Direct hard delete removes the conversation's Pi session file and
+  unreferenced attachment files, and server startup sweeps orphan attachment
+  files absent from SQLite metadata.
 - The UI is adapted from Astryx `ai-chat` and `ai-chat-landing` templates, but
   the raw generated template files are not kept in `src`.
 

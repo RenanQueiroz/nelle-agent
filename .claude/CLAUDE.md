@@ -124,8 +124,10 @@ Project-specific guidance for AI coding agents.
   stored content-addressed under `.nelle/attachments/` after send, and metadata
   is bound to the resulting Pi user entry in SQLite.
 - Conversation hard delete removes the deleted conversation's Pi session file
-  and only unreferenced attachment files. Keep file cleanup constrained to
-  Nelle-owned data/session directories.
+  and only unreferenced attachment files. Server startup also sweeps orphan
+  files under `.nelle/attachments/` that are absent from SQLite attachment
+  metadata. Keep file cleanup constrained to Nelle-owned data/session
+  directories.
 - Conversation export/import uses local `.nelle-chat.zip` archives with
   manifest checksums, the Pi session JSONL, Nelle sidecar metadata, referenced
   attachment files, and model snapshots. Imports always create a new

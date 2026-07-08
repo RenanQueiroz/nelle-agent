@@ -98,6 +98,10 @@ export async function createServer(paths: AppPaths) {
   const conversations = new ConversationRepository(database);
   await conversations.init();
   conversations.syncPocConversationFromState(await store.getState());
+  const attachmentSweep = await sweepOrphanAttachmentFiles(
+    paths,
+    conversations.getReferencedAttachmentStoragePaths(),
+  );
   const llama = new LlamaCppManager(paths, store);
   const hf = new HuggingFaceService(store);
   const pi = new PiHarness(paths, store, conversations);
@@ -107,6 +111,9 @@ export async function createServer(paths: AppPaths) {
       level: process.env.LOG_LEVEL ?? 'info',
     },
   });
+  if (attachmentSweep.deleted > 0 || attachmentSweep.failed.length > 0) {
+    app.log.info({attachmentSweep}, 'completed orphan attachment sweep');
+  }
   app.addContentTypeParser(
     ['application/zip', 'application/octet-stream'],
     {parseAs: 'buffer'},
@@ -952,6 +959,55 @@ async function deleteConversationResources(
     }
     await unlinkOwnedPath(paths.dataDir, attachmentPath, result, paths.attachmentsDir);
   }
+  return result;
+}
+
+async function sweepOrphanAttachmentFiles(
+  paths: AppPaths,
+  referencedStoragePaths: Set<string>,
+): Promise<FileCleanupResult> {
+  const result: FileCleanupResult = {deleted: 0, skipped: 0, failed: []};
+  const attachmentsRoot = path.resolve(paths.attachmentsDir);
+  const dataRoot = path.resolve(paths.dataDir);
+
+  async function visit(directory: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(directory, {withFileTypes: true});
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return;
+      }
+      result.failed.push({
+        path: path.resolve(directory),
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    for (const entry of entries) {
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolutePath);
+        continue;
+      }
+      if (!entry.isFile()) {
+        result.skipped += 1;
+        continue;
+      }
+
+      const storagePath = path
+        .relative(dataRoot, path.resolve(absolutePath))
+        .split(path.sep)
+        .join('/');
+      if (referencedStoragePaths.has(storagePath)) {
+        continue;
+      }
+      await unlinkOwnedPath(attachmentsRoot, absolutePath, result, attachmentsRoot);
+    }
+  }
+
+  await visit(attachmentsRoot);
   return result;
 }
 

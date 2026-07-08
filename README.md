@@ -86,6 +86,9 @@ Implemented:
   manifest, checksums, the Pi session JSONL, Nelle sidecar metadata, referenced
   attachment files, and model snapshot metadata. Imports always create a new
   conversation.
+- Server startup sweeps orphan files under `.nelle/attachments/` that are no
+  longer referenced by SQLite attachment metadata, while direct hard delete
+  removes the conversation's Pi session file and unreferenced attachments.
 - The composer stop action calls `/api/conversations/:id/abort`, aborts the
   active browser stream, and invokes Pi `AgentSession.abort()` for the cached
   conversation runtime when one is active.
@@ -112,8 +115,6 @@ Not implemented yet:
   verification.
 - Durable tool audit storage and archive inclusion. Export currently writes an
   empty `tool-audit.jsonl` placeholder until tool audit persistence lands.
-- Broader orphan garbage-collection sweeps. Direct hard delete removes the
-  conversation's Pi session file and unreferenced attachment files.
 - Host-tool first-run acknowledgement, global disable switch, and durable tool
   audit storage. Sandboxing remains later.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for

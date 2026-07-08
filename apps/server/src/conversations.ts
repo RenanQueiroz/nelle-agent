@@ -809,6 +809,17 @@ export class ConversationRepository {
     };
   }
 
+  getReferencedAttachmentStoragePaths(): Set<string> {
+    const rows = this.database.connection
+      .prepare(
+        `SELECT DISTINCT storage_path
+         FROM message_attachments
+         WHERE storage_path IS NOT NULL`,
+      )
+      .all() as Array<{storage_path: string}>;
+    return new Set(rows.map(row => row.storage_path));
+  }
+
   hardDeleteAllConversations(): void {
     const db = this.database.connection;
     db.exec('DELETE FROM conversations;');
