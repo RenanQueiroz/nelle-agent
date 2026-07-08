@@ -9,11 +9,12 @@ import {
 } from './llamaThroughput';
 import {chatTemplateKwargsForModel, llamaRuntimeModelId} from './modelCompat';
 import type {AppStore} from './store';
-import type {ChatMessage, ChatPerformance, ChatStreamEvent} from './types';
+import type {ChatAttachmentInput, ChatMessage, ChatPerformance, ChatStreamEvent} from './types';
 
 export async function streamDirectLlama(
   store: AppStore,
   prompt: string,
+  attachments: ChatAttachmentInput[] = [],
 ): Promise<AsyncIterable<ChatStreamEvent>> {
   const state = await store.getState();
   const activeModel = await store.getActiveModel();
@@ -77,7 +78,7 @@ export async function streamDirectLlama(
               role: message.role,
               content: message.content,
             })),
-            {role: 'user', content: prompt},
+            {role: 'user', content: openAiUserContent(prompt, attachments)},
           ],
           stream: true,
           return_progress: true,
@@ -146,4 +147,36 @@ export async function streamDirectLlama(
   })();
 
   return queue;
+}
+
+function openAiUserContent(
+  prompt: string,
+  attachments: ChatAttachmentInput[],
+): string | Array<Record<string, unknown>> {
+  if (attachments.length === 0) {
+    return prompt;
+  }
+  const textParts = attachments
+    .filter(attachment => attachment.kind !== 'image' && attachment.text)
+    .map(
+      attachment =>
+        `<attachment name="${attachment.name}" type="${attachment.kind}">\n${attachment.text}\n</attachment>`,
+    );
+  const parts: Array<Record<string, unknown>> = [
+    {
+      type: 'text',
+      text:
+        textParts.length === 0 ? prompt : `${prompt}\n\nAttached files:\n${textParts.join('\n\n')}`,
+    },
+  ];
+  for (const attachment of attachments) {
+    if (attachment.kind !== 'image' || !attachment.data || !attachment.mimeType) {
+      continue;
+    }
+    const url = attachment.data.startsWith('data:')
+      ? attachment.data
+      : `data:${attachment.mimeType};base64,${attachment.data}`;
+    parts.push({type: 'image_url', image_url: {url}});
+  }
+  return parts;
 }

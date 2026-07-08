@@ -1,6 +1,6 @@
 import {z} from 'zod';
 
-import {nelleErrorSchema} from './contracts.ts';
+import {chatAttachmentKindSchema, nelleErrorSchema} from './contracts.ts';
 
 export const conversationStatusSchema = z.enum([
   'ready',
@@ -45,11 +45,14 @@ export const attachmentMetadataSchema = z.object({
   id: z.string(),
   conversationId: z.string(),
   piEntryId: z.string().optional(),
-  kind: z.string(),
+  uploadId: z.string().optional(),
+  kind: chatAttachmentKindSchema,
   name: z.string(),
   mimeType: z.string().optional(),
   sizeBytes: z.number().int().nonnegative().optional(),
   storagePath: z.string().optional(),
+  textPreview: z.string().optional(),
+  processing: z.unknown().optional(),
   createdAt: z.string(),
 });
 

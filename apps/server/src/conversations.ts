@@ -13,6 +13,7 @@ import {
   assertConversationTransition,
   conversationSnapshotSchema,
 } from '../../../packages/shared/src/conversations.ts';
+import type {ChatAttachmentKind} from '../../../packages/shared/src/contracts.ts';
 import type {AppDatabase} from './database';
 import type {AppState, ChatMessage, ConfiguredModel} from './types';
 
@@ -59,11 +60,14 @@ type AttachmentRow = {
   id: string;
   conversation_id: string;
   pi_entry_id: string | null;
+  upload_id: string | null;
   kind: string;
   name: string;
   mime_type: string | null;
   size_bytes: number | null;
   storage_path: string | null;
+  text_content: string | null;
+  processing_json: string | null;
   created_at: string;
 };
 
@@ -98,6 +102,24 @@ export type SyncConversationEntry = {
   attachmentSummary?: unknown;
   regeneratesPiEntryId?: string | null;
   displayGroupId?: string | null;
+};
+
+export type CreateAttachmentInput = {
+  uploadId: string;
+  kind: ChatAttachmentKind;
+  name: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  storagePath?: string;
+  textContent?: string;
+  processing?: unknown;
+  createdAt?: string;
+};
+
+export type StoredAttachment = AttachmentMetadata & {
+  uploadId?: string;
+  textContent?: string;
+  processing?: unknown;
 };
 
 export type RegenerationSource = {
@@ -243,6 +265,90 @@ export class ConversationRepository {
       regeneratesPiEntryId: assistantEntry.regeneratesPiEntryId ?? assistantEntry.piEntryId,
       displayGroupId: assistantEntry.displayGroupId ?? assistantEntry.piEntryId,
     };
+  }
+
+  createPendingAttachments(
+    conversationId: string,
+    attachments: CreateAttachmentInput[],
+  ): AttachmentMetadata[] {
+    if (attachments.length === 0) {
+      return [];
+    }
+    const created: AttachmentMetadata[] = [];
+    const db = this.database.connection;
+    const insert = db.prepare(
+      `INSERT INTO message_attachments (
+         id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
+         size_bytes, storage_path, text_content, processing_json, created_at
+       ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    db.exec('BEGIN');
+    try {
+      for (const attachment of attachments) {
+        const now = attachment.createdAt ?? new Date().toISOString();
+        const id = crypto.randomUUID();
+        insert.run(
+          id,
+          conversationId,
+          attachment.uploadId,
+          attachment.kind,
+          attachment.name,
+          attachment.mimeType ?? null,
+          attachment.sizeBytes ?? null,
+          attachment.storagePath ?? null,
+          attachment.textContent ?? null,
+          jsonOrNull(attachment.processing),
+          now,
+        );
+        created.push({
+          id,
+          conversationId,
+          uploadId: attachment.uploadId,
+          kind: attachment.kind,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          storagePath: attachment.storagePath,
+          textPreview: attachment.textContent?.slice(0, 240),
+          processing: attachment.processing,
+          createdAt: now,
+        });
+      }
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+    return created;
+  }
+
+  bindAttachmentsToEntry(
+    conversationId: string,
+    uploadIds: string[],
+    piEntryId: string,
+  ): AttachmentMetadata[] {
+    if (uploadIds.length === 0) {
+      return [];
+    }
+    const placeholders = uploadIds.map(() => '?').join(', ');
+    const db = this.database.connection;
+    db.prepare(
+      `UPDATE message_attachments
+       SET pi_entry_id = ?
+       WHERE conversation_id = ? AND upload_id IN (${placeholders})`,
+    ).run(piEntryId, conversationId, ...uploadIds);
+
+    const attachments = this.getAttachmentsForEntry(conversationId, piEntryId);
+    db.prepare(
+      `UPDATE conversation_entry_projection
+       SET attachment_summary_json = ?
+       WHERE conversation_id = ? AND pi_entry_id = ?`,
+    ).run(jsonOrNull(summarizeAttachments(attachments)), conversationId, piEntryId);
+    return attachments;
+  }
+
+  getStoredAttachmentsForEntry(conversationId: string, piEntryId: string): StoredAttachment[] {
+    return this.getAttachmentsForEntry(conversationId, piEntryId);
   }
 
   getSnapshot(id: string, state: AppState): ConversationSnapshot | null {
@@ -508,6 +614,9 @@ export class ConversationRepository {
     const now = new Date().toISOString();
     const title = state.chat[0]?.content.slice(0, 80) || 'POC chat';
     const existing = this.getConversation(POC_CONVERSATION_ID);
+    if (existing?.pi_session_id) {
+      return mapConversationListItem(existing);
+    }
     const row: ConversationRow = {
       id: POC_CONVERSATION_ID,
       title: existing?.title ?? title,
@@ -687,25 +796,29 @@ export class ConversationRepository {
   private getAttachments(conversationId: string): AttachmentMetadata[] {
     const rows = this.database.connection
       .prepare(
-        `SELECT id, conversation_id, pi_entry_id, kind, name, mime_type,
-                size_bytes, storage_path, created_at
+        `SELECT id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
+                size_bytes, storage_path, text_content, processing_json, created_at
          FROM message_attachments
          WHERE conversation_id = ?
          ORDER BY created_at ASC`,
       )
       .all(conversationId) as AttachmentRow[];
 
-    return rows.map(row => ({
-      id: row.id,
-      conversationId: row.conversation_id,
-      piEntryId: row.pi_entry_id ?? undefined,
-      kind: row.kind,
-      name: row.name,
-      mimeType: row.mime_type ?? undefined,
-      sizeBytes: row.size_bytes ?? undefined,
-      storagePath: row.storage_path ?? undefined,
-      createdAt: row.created_at,
-    }));
+    return rows.map(mapAttachmentRow);
+  }
+
+  private getAttachmentsForEntry(conversationId: string, piEntryId: string): StoredAttachment[] {
+    const rows = this.database.connection
+      .prepare(
+        `SELECT id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
+                size_bytes, storage_path, text_content, processing_json, created_at
+         FROM message_attachments
+         WHERE conversation_id = ? AND pi_entry_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all(conversationId, piEntryId) as AttachmentRow[];
+
+    return rows.map(mapAttachmentRow);
   }
 
   private searchConversations(db: DatabaseSync, search: string, limit: number): ConversationRow[] {
@@ -748,6 +861,44 @@ export class ConversationRepository {
       title,
     );
   }
+}
+
+function mapAttachmentRow(row: AttachmentRow): StoredAttachment {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    piEntryId: row.pi_entry_id ?? undefined,
+    uploadId: row.upload_id ?? undefined,
+    kind: normalizeAttachmentKind(row.kind),
+    name: row.name,
+    mimeType: row.mime_type ?? undefined,
+    sizeBytes: row.size_bytes ?? undefined,
+    storagePath: row.storage_path ?? undefined,
+    textPreview: row.text_content?.slice(0, 240),
+    textContent: row.text_content ?? undefined,
+    processing: parseJson(row.processing_json),
+    createdAt: row.created_at,
+  };
+}
+
+function normalizeAttachmentKind(kind: string): ChatAttachmentKind {
+  if (kind === 'pdf' || kind === 'image' || kind === 'text') {
+    return kind;
+  }
+  return 'text';
+}
+
+function summarizeAttachments(attachments: AttachmentMetadata[]): unknown {
+  return {
+    count: attachments.length,
+    items: attachments.map(attachment => ({
+      id: attachment.id,
+      kind: attachment.kind,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+    })),
+  };
 }
 
 function mapConversationListItem(row: ConversationRow): ConversationListItem {

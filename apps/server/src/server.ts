@@ -15,7 +15,8 @@ import {AppStore} from './store';
 import {AppDatabase} from './database';
 import {ConversationRepository, POC_CONVERSATION_ID} from './conversations';
 import type {AppPaths} from './paths';
-import type {ChatStreamEvent} from './types';
+import type {ChatAttachmentInput, ChatStreamEvent} from './types';
+import {chatRequestSchema} from '../../../packages/shared/src/contracts.ts';
 
 const useHuggingFaceModelSchema = z.object({
   repoId: z.string().min(1),
@@ -26,10 +27,6 @@ const useHuggingFaceModelSchema = z.object({
 const runtimeSettingsSchema = z.object({
   modelsMax: z.number().int().min(1).optional(),
   sleepIdleSeconds: z.number().int().min(0).optional(),
-});
-
-const chatSchema = z.object({
-  message: z.string().min(1),
 });
 
 const compactConversationSchema = z
@@ -410,7 +407,7 @@ export async function createServer(paths: AppPaths) {
         },
       });
     }
-    const body = chatSchema.parse(request.body);
+    const body = chatRequestSchema.parse(request.body);
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache, no-transform',
@@ -425,6 +422,7 @@ export async function createServer(paths: AppPaths) {
         pi,
         conversationId: id,
         message: body.message,
+        attachments: body.attachments ?? [],
       });
       await writeChatStream(reply.raw, streamResult.stream);
       if (streamResult.syncLegacyState) {
@@ -473,7 +471,7 @@ export async function createServer(paths: AppPaths) {
   });
 
   app.post('/api/chat/stream', async (request, reply) => {
-    const body = chatSchema.parse(request.body);
+    const body = chatRequestSchema.parse(request.body);
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache, no-transform',
@@ -488,6 +486,7 @@ export async function createServer(paths: AppPaths) {
         pi,
         conversationId: POC_CONVERSATION_ID,
         message: body.message,
+        attachments: body.attachments ?? [],
       });
       await writeChatStream(reply.raw, streamResult.stream);
       if (streamResult.syncLegacyState) {
@@ -519,19 +518,20 @@ async function createChatStream(input: {
   pi: PiHarness;
   conversationId: string;
   message: string;
+  attachments: ChatAttachmentInput[];
 }): Promise<{stream: AsyncIterable<ChatStreamEvent>; syncLegacyState: boolean}> {
   if (process.env.NELLE_PI_DISABLED === '1') {
     if (input.conversationId !== POC_CONVERSATION_ID) {
       throw new Error('Direct llama.cpp fallback only supports the default POC conversation.');
     }
     return {
-      stream: await streamDirectLlama(input.store, input.message),
+      stream: await streamDirectLlama(input.store, input.message, input.attachments),
       syncLegacyState: true,
     };
   }
   try {
     return {
-      stream: await input.pi.streamPrompt(input.message, input.conversationId),
+      stream: await input.pi.streamPrompt(input.message, input.conversationId, input.attachments),
       syncLegacyState: false,
     };
   } catch (error) {
@@ -540,7 +540,7 @@ async function createChatStream(input: {
       throw error;
     }
     return {
-      stream: await streamDirectLlama(input.store, input.message),
+      stream: await streamDirectLlama(input.store, input.message, input.attachments),
       syncLegacyState: true,
     };
   }

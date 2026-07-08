@@ -171,9 +171,11 @@ Nelle currently differs from the target in these ways:
 - Model import/edit UX is split between app state and generated preset writes.
   The POC UI can call router model list/load/unload/reload APIs, but model
   editing has not moved into Settings yet.
-- The composer has no attachment drawer, file picker, attachment persistence, or
-  attachment model-modality gating. Context-window usage now renders in the
-  Astryx composer header from llama.cpp prompt/generation metrics.
+- Done: the composer has an attachment drawer, file picker, paste/drop handling,
+  SQLite metadata persistence, content-addressed image storage under
+  `.nelle/attachments/`, and selected-model vision gating for images. Text files
+  and PDFs are sent as extracted text. Optional PDF-as-image mode, export/import,
+  and hard-delete file garbage collection remain pending.
 - Chat send-blocking errors and warnings now use composer-local Astryx status
   for the chat workflow. Runtime/setup notices outside chat can still appear in
   the page-level workbench notices.
@@ -677,16 +679,20 @@ Modality gating:
 
 Pi and llama.cpp payload mapping:
 
-- Change the Nelle chat request model from `prompt: string` to a structured
-  content array: text parts plus normalized image attachment parts.
+- Change the Nelle chat request model from `prompt: string` to
+  `{ message, attachments }`, where attachments carry extracted text/PDF content
+  or normalized image data. Keep unsent drafts browser-local until submit.
 - For llama.cpp/OpenAI chat completions:
   - text/PDF content becomes `type: "text"` content parts;
   - images/PDF pages become `type: "image_url"` parts.
 - For Pi:
-  - advertise `input: ["text", "image"]` for vision-capable models in the
-    generated Pi model registry;
-  - send text plus image content through Pi's structured user-message path
-    instead of flattening images into text.
+  - advertise `input: ["text", "image"]` in the generated Pi model registry so
+    valid image prompts can pass through Pi. Nelle's router-props gate is the
+    authoritative per-model vision check until model capability caching is
+    implemented;
+  - send text plus image content through Pi's structured user-message path:
+    text/PDF attachments are appended as explicit text attachment blocks, while
+    images are passed through `AgentSession.prompt(text, { images })`.
 - If Pi cannot handle the selected structured content path, the composer should
   show a top error. Do not silently drop attachments or fall back to plain text.
 
@@ -1638,15 +1644,21 @@ Exit criteria:
 
 ### Phase 3C: Composer Attachments And Context Usage
 
-- Add structured chat content and message attachment persistence.
-- Add Astryx `ChatComposerDrawer` attachment chips/previews.
-- Add file picker, drag/drop, and paste handling for text, PDF, and image files.
-- Add PDF text extraction and optional PDF-as-image conversion for vision
-  models.
-- Add attachment size/count/text extraction limits, content-hash storage, temp
-  upload cleanup, and delete/export/import integration.
-- Gate image attachments and PDF-as-image mode on selected-model vision
-  support from `/api/llama/models/:id/props`.
+- Done: add structured chat request attachments and message attachment
+  persistence. Sent image binaries are stored content-addressed under
+  `.nelle/attachments/`; text/PDF extracted text is stored inline up to the
+  configured extraction cap.
+- Done: add Astryx `ChatComposerDrawer` attachment chips/previews.
+- Done: add file picker, drag/drop, and paste handling for text, PDF, and image
+  files.
+- Done: add PDF text extraction with `pdfjs-dist`. Pending: optional
+  PDF-as-image conversion for vision models.
+- Done: add attachment size/count/text extraction limits and content-hash
+  storage. No server temp upload API exists yet; unsent drafts are client-only.
+  Pending: hard-delete file garbage collection and delete/export/import
+  integration.
+- Done for images: gate image attachments on selected-model vision support from
+  `/api/llama/models/:id/props`. Pending: PDF-as-image mode.
 - Done: add composer `ProgressBar` for context-window usage with tooltip token
   counts. The UI fetches selected-model props for `n_ctx`, falls back to the
   configured model context size when props are unavailable, updates live from
@@ -1658,20 +1670,22 @@ Exit criteria:
 
 Exit criteria:
 
-- Text and PDF-as-text attachments work with text-only models.
-- Attachment limits are enforced with composer status messages, and abandoned
-  temp uploads are cleaned up.
-- Image attachments and PDF-as-image are enabled only for vision-capable models.
-- Audio/video attachments are not exposed.
-- Switching models revalidates pending attachments.
+- Done: text and PDF-as-text attachments work with text-only models.
+- Done: attachment limits are enforced with composer status messages. No
+  abandoned server temp uploads exist in this implementation because drafts stay
+  client-only until send.
+- Done for images: image attachments are enabled only for vision-capable models.
+  Pending: optional PDF-as-image mode.
+- Done: audio/video attachments are not exposed.
+- Done: switching models revalidates pending image attachments through composer
+  status before send.
 - Done: the composer shows a live/last-known context progress bar with
   token-count tooltip.
 - Done for chat workflow: llama-server stopped, no model selected, unsupported
   slash commands, chat stream errors, and context overflow appear as top
   composer errors.
-- Done for context usage: near-full context appears as a bottom composer
-  warning. Non-blocking attachment conversion warnings remain pending with the
-  attachment implementation.
+- Done: near-full context and non-blocking attachment conversion/truncation
+  warnings appear as bottom composer warnings.
 
 ### Phase 3D: Slash Commands And Manual Compaction
 

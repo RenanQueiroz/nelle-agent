@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {type ChangeEvent, useEffect, useMemo, useRef, useState} from 'react';
 import {useVirtualizer} from '@tanstack/react-virtual';
 
 import {AppShell} from '@astryxdesign/core/AppShell';
@@ -10,6 +10,7 @@ import {Banner} from '@astryxdesign/core/Banner';
 import {Card} from '@astryxdesign/core/Card';
 import {
   ChatComposer,
+  ChatComposerDrawer,
   ChatComposerInput,
   ChatLayout,
   ChatMessage,
@@ -48,6 +49,8 @@ import {
   DocumentTextIcon,
   EllipsisHorizontalIcon,
   MagnifyingGlassIcon,
+  PaperClipIcon,
+  PhotoIcon,
   PlusIcon,
   PlayIcon,
   SparklesIcon,
@@ -83,6 +86,8 @@ import {
   updateRuntimeSettings,
   useHuggingFaceModel,
   type ChatMessage as ApiChatMessage,
+  type AttachmentMetadata,
+  type ChatAttachmentInput,
   type ChatPerformance,
   type ChatPerformanceMetric,
   type ChatStreamEvent,
@@ -95,6 +100,17 @@ import {
   type LlamaRouterModel,
   type RuntimeStatus,
 } from './api';
+
+const ATTACHMENT_LIMITS = {
+  maxFiles: 10,
+  maxFileBytes: 25 * 1024 * 1024,
+  maxDraftBytes: 100 * 1024 * 1024,
+  maxTextCharacters: 200_000,
+};
+
+type DraftAttachment = ChatAttachmentInput & {
+  warning?: string;
+};
 
 const formatBytes = (value: number | null) => {
   if (value == null) {
@@ -192,6 +208,7 @@ export function App() {
   const [contextUsage, setContextUsage] = useState<ConversationContextUsage>({});
   const [conversationSearch, setConversationSearch] = useState('');
   const [composerDraft, setComposerDraft] = useState('');
+  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const [slashCommandError, setSlashCommandError] = useState<string | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [composerWarning, setComposerWarning] = useState<string | null>(null);
@@ -206,6 +223,7 @@ export function App() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const streamAbortController = useRef<AbortController | null>(null);
   const compactAbortController = useRef<AbortController | null>(null);
   const [notice, setNotice] = useState<{
@@ -236,6 +254,10 @@ export function App() {
     if (composerError) {
       return composerError;
     }
+    const attachmentError = getDraftAttachmentError(draftAttachments, activeModelProps);
+    if (attachmentError) {
+      return attachmentError;
+    }
     if (!runtime?.running) {
       return 'Start llama.cpp before chatting.';
     }
@@ -243,7 +265,15 @@ export function App() {
       return 'Select a GGUF model before chatting.';
     }
     return getContextOverflowMessage(displayedContextUsage);
-  }, [activeModel, composerError, displayedContextUsage, runtime?.running, slashCommandError]);
+  }, [
+    activeModel,
+    activeModelProps,
+    composerError,
+    displayedContextUsage,
+    draftAttachments,
+    runtime?.running,
+    slashCommandError,
+  ]);
   const composerWarningMessage =
     composerBlockingMessage == null
       ? (composerWarning ?? getContextWarningMessage(displayedContextUsage))
@@ -519,6 +549,40 @@ export function App() {
     }
   }
 
+  async function handleComposerFiles(files: File[]) {
+    setComposerError(null);
+    setComposerWarning(null);
+    try {
+      const result = await prepareDraftAttachments(files, {
+        existing: draftAttachments,
+        canAttachImages: activeModelProps?.modalities.vision === true,
+      });
+      if (result.attachments.length > 0) {
+        setDraftAttachments(prev => [...prev, ...result.attachments]);
+      }
+      if (result.warning) {
+        setComposerWarning(result.warning);
+      }
+    } catch (error) {
+      setComposerError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function handleRemoveDraftAttachment(id: string) {
+    setDraftAttachments(prev => prev.filter(attachment => attachment.id !== id));
+    if (composerError) {
+      setComposerError(null);
+    }
+  }
+
+  function handleFilePickerChange(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = '';
+    if (files.length > 0) {
+      void handleComposerFiles(files);
+    }
+  }
+
   async function handleChatSubmit(value: string) {
     const prompt = normalizeComposerValue(value);
     if (!prompt || isStreaming || isCompacting) {
@@ -541,6 +605,12 @@ export function App() {
       restoreComposerDraft(prompt, setComposerDraft);
       return;
     }
+    const attachmentError = getDraftAttachmentError(draftAttachments, activeModelProps);
+    if (attachmentError) {
+      setComposerError(attachmentError);
+      restoreComposerDraft(prompt, setComposerDraft);
+      return;
+    }
     setIsStreaming(true);
     setNotice(null);
     setComposerError(null);
@@ -553,7 +623,9 @@ export function App() {
         prompt,
         applyChatEvent,
         abortController.signal,
+        draftAttachments,
       );
+      setDraftAttachments([]);
       setRuntime(await getRuntime());
       await refreshConversations(activeConversationId);
     } catch (error) {
@@ -637,6 +709,7 @@ export function App() {
       setActiveConversationId(created.id);
       setMessages([]);
       setContextUsage({});
+      setDraftAttachments([]);
       await refreshConversations(created.id);
     });
   }
@@ -645,6 +718,7 @@ export function App() {
     setSlashCommandError(null);
     setComposerError(null);
     setComposerWarning(null);
+    setDraftAttachments([]);
     setActiveConversationId(conversationId);
     await refreshConversations(conversationId);
   }
@@ -1205,8 +1279,43 @@ export function App() {
                       onStop={() =>
                         void (isCompacting ? handleStopCompaction() : handleStopGeneration())
                       }
+                      headerActions={
+                        <HStack gap={1} vAlign="center">
+                          <IconButton
+                            label="Attach files"
+                            tooltip="Attach files"
+                            size="sm"
+                            variant="ghost"
+                            icon={<Icon icon={PaperClipIcon} size="sm" />}
+                            isDisabled={isStreaming || isCompacting}
+                            onClick={() => fileInputRef.current?.click()}
+                          />
+                          <input
+                            ref={fileInputRef}
+                            aria-label="Attach files"
+                            className="nelle-hidden-file-input"
+                            type="file"
+                            multiple
+                            accept="text/*,.txt,.md,.json,.csv,.log,.pdf,application/pdf,image/png,image/jpeg,image/webp,image/gif"
+                            onChange={handleFilePickerChange}
+                          />
+                        </HStack>
+                      }
                       headerContext={<ContextWindowUsage context={displayedContextUsage} />}
-                      input={<ChatComposerInput triggers={[slashCommandTrigger]} />}
+                      drawer={
+                        draftAttachments.length > 0 ? (
+                          <AttachmentDrawer
+                            attachments={draftAttachments}
+                            onRemove={handleRemoveDraftAttachment}
+                          />
+                        ) : undefined
+                      }
+                      input={
+                        <ChatComposerInput
+                          triggers={[slashCommandTrigger]}
+                          onFiles={files => void handleComposerFiles(files)}
+                        />
+                      }
                       status={composerStatus}
                       statusPosition={composerStatusPosition}
                       footerActions={
@@ -1370,6 +1479,40 @@ function ContextWindowUsage({context}: {context: ConversationContextUsage}) {
         />
       </HStack>
     </Tooltip>
+  );
+}
+
+function AttachmentDrawer({
+  attachments,
+  onRemove,
+}: {
+  attachments: DraftAttachment[];
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <ChatComposerDrawer
+      count={attachments.length}
+      label="Attachments"
+      data-testid="attachment-drawer"
+    >
+      <HStack gap={1} vAlign="center" wrap="wrap">
+        {attachments.map(attachment => (
+          <Tooltip key={attachment.id} content={attachmentTooltip(attachment)}>
+            <Token
+              size="sm"
+              color={
+                attachment.kind === 'image' ? 'blue' : attachment.kind === 'pdf' ? 'red' : 'gray'
+              }
+              label={attachment.name}
+              icon={
+                <Icon icon={attachment.kind === 'image' ? PhotoIcon : DocumentTextIcon} size="sm" />
+              }
+              onRemove={() => onRemove(attachment.id)}
+            />
+          </Tooltip>
+        ))}
+      </HStack>
+    </ChatComposerDrawer>
   );
 }
 
@@ -1802,6 +1945,9 @@ function RenderedMessage({
       avatar={message.role === 'assistant' ? <Avatar name="Nelle" size="small" /> : undefined}
     >
       {message.toolCalls && message.toolCalls.length > 0 && <ToolCalls calls={message.toolCalls} />}
+      {message.attachments && message.attachments.length > 0 && (
+        <MessageAttachments attachments={message.attachments} />
+      )}
       <ChatMessageBubble
         variant={message.role === 'assistant' ? 'ghost' : undefined}
         metadata={
@@ -1824,6 +1970,27 @@ function RenderedMessage({
         )}
       </ChatMessageBubble>
     </ChatMessage>
+  );
+}
+
+function MessageAttachments({attachments}: {attachments: AttachmentMetadata[]}) {
+  return (
+    <HStack gap={1} vAlign="center" wrap="wrap" className="nelle-message-attachments">
+      {attachments.map(attachment => (
+        <Tooltip key={attachment.id} content={attachmentTooltip(attachment)}>
+          <Token
+            size="sm"
+            color={
+              attachment.kind === 'image' ? 'blue' : attachment.kind === 'pdf' ? 'red' : 'gray'
+            }
+            label={attachment.name}
+            icon={
+              <Icon icon={attachment.kind === 'image' ? PhotoIcon : DocumentTextIcon} size="sm" />
+            }
+          />
+        </Tooltip>
+      ))}
+    </HStack>
   );
 }
 
@@ -1996,6 +2163,15 @@ function PerformanceStatistics({performance}: {performance: ChatPerformance}) {
 }
 
 function messagesFromSnapshot(snapshot: ConversationSnapshot): ApiChatMessage[] {
+  const attachmentsByEntry = new Map<string, AttachmentMetadata[]>();
+  for (const attachment of snapshot.attachments) {
+    if (!attachment.piEntryId) {
+      continue;
+    }
+    const list = attachmentsByEntry.get(attachment.piEntryId) ?? [];
+    list.push(attachment);
+    attachmentsByEntry.set(attachment.piEntryId, list);
+  }
   const messages = snapshot.entries
     .filter(entry => entry.entryType === 'message' && entry.role != null)
     .map(entry => ({
@@ -2011,6 +2187,7 @@ function messagesFromSnapshot(snapshot: ConversationSnapshot): ApiChatMessage[] 
       displayGroupId: entry.displayGroupId,
       performance: entry.performance as ChatPerformance | undefined,
       toolCalls: entry.toolCalls as ApiChatMessage['toolCalls'],
+      attachments: attachmentsByEntry.get(entry.piEntryId),
     }));
   const replayedUserIds = new Set(
     messages
@@ -2248,6 +2425,234 @@ const SLASH_COMMAND_GUIDANCE: Record<string, string> = {
   '/changelog': 'Release notes are not exposed in the chat composer.',
   '/quit': 'Stop the server from the host process or runtime controls.',
 };
+
+async function prepareDraftAttachments(
+  files: File[],
+  input: {existing: DraftAttachment[]; canAttachImages: boolean},
+): Promise<{attachments: DraftAttachment[]; warning?: string}> {
+  if (input.existing.length + files.length > ATTACHMENT_LIMITS.maxFiles) {
+    throw new Error(`Attach at most ${ATTACHMENT_LIMITS.maxFiles} files per message.`);
+  }
+  const existingBytes = input.existing.reduce(
+    (sum, attachment) => sum + (attachment.sizeBytes ?? 0),
+    0,
+  );
+  let nextBytes = existingBytes;
+  const attachments: DraftAttachment[] = [];
+  const warnings: string[] = [];
+  for (const file of files) {
+    if (file.size > ATTACHMENT_LIMITS.maxFileBytes) {
+      throw new Error(
+        `${file.name} is larger than ${formatBytes(ATTACHMENT_LIMITS.maxFileBytes)}.`,
+      );
+    }
+    nextBytes += file.size;
+    if (nextBytes > ATTACHMENT_LIMITS.maxDraftBytes) {
+      throw new Error(
+        `Attachments are limited to ${formatBytes(ATTACHMENT_LIMITS.maxDraftBytes)} per message.`,
+      );
+    }
+    const result = await prepareDraftAttachment(file, input.canAttachImages);
+    if (result.warning) {
+      warnings.push(result.warning);
+    }
+    attachments.push(result.attachment);
+  }
+  return {attachments, warning: warnings.join(' ') || undefined};
+}
+
+async function prepareDraftAttachment(
+  file: File,
+  canAttachImages: boolean,
+): Promise<{attachment: DraftAttachment; warning?: string}> {
+  if (isImageFile(file)) {
+    if (!canAttachImages) {
+      throw new Error('Image attachments require a selected model with vision support.');
+    }
+    return {
+      attachment: {
+        id: crypto.randomUUID(),
+        kind: 'image',
+        name: file.name,
+        mimeType: file.type || mimeTypeFromName(file.name) || 'image/jpeg',
+        sizeBytes: file.size,
+        data: await readFileAsBase64(file),
+      },
+    };
+  }
+
+  if (isPdfFile(file)) {
+    const extracted = await extractPdfText(file);
+    if (!extracted.text.trim()) {
+      throw new Error(`${file.name} did not contain extractable text.`);
+    }
+    return {
+      attachment: {
+        id: crypto.randomUUID(),
+        kind: 'pdf',
+        name: file.name,
+        mimeType: file.type || 'application/pdf',
+        sizeBytes: file.size,
+        text: extracted.text,
+      },
+      warning: extracted.truncated
+        ? `${file.name} was truncated to ${ATTACHMENT_LIMITS.maxTextCharacters.toLocaleString()} characters.`
+        : undefined,
+    };
+  }
+
+  if (!isTextFile(file)) {
+    throw new Error(`${file.name} is not a supported text, PDF, or image attachment.`);
+  }
+
+  const rawText = await file.text();
+  if (isBinaryText(rawText)) {
+    throw new Error(
+      `${file.name} looks like a binary file. Attach text, PDF, or image files only.`,
+    );
+  }
+  const text = rawText.slice(0, ATTACHMENT_LIMITS.maxTextCharacters);
+  if (!text.trim()) {
+    throw new Error(`${file.name} is empty.`);
+  }
+  return {
+    attachment: {
+      id: crypto.randomUUID(),
+      kind: 'text',
+      name: file.name,
+      mimeType: file.type || mimeTypeFromName(file.name) || 'text/plain',
+      sizeBytes: file.size,
+      text,
+    },
+    warning:
+      rawText.length > text.length
+        ? `${file.name} was truncated to ${ATTACHMENT_LIMITS.maxTextCharacters.toLocaleString()} characters.`
+        : undefined,
+  };
+}
+
+let pdfJsPromise: Promise<typeof import('pdfjs-dist')> | null = null;
+
+async function loadPdfJs(): Promise<typeof import('pdfjs-dist')> {
+  pdfJsPromise ??= import('pdfjs-dist').then(module => {
+    return import('pdfjs-dist/build/pdf.worker.mjs?url').then(workerModule => {
+      module.GlobalWorkerOptions.workerSrc = pdfWorkerUrlFromModule(workerModule);
+      return module;
+    });
+  });
+  return pdfJsPromise;
+}
+
+function pdfWorkerUrlFromModule(workerModule: unknown): string {
+  if (typeof workerModule === 'string') {
+    return workerModule;
+  }
+  const value = (workerModule as {default?: unknown}).default;
+  if (typeof value !== 'string') {
+    throw new Error('Could not resolve the PDF worker URL.');
+  }
+  return value;
+}
+
+async function extractPdfText(file: File): Promise<{text: string; truncated: boolean}> {
+  const pdfjs = await loadPdfJs();
+  const task = pdfjs.getDocument({data: new Uint8Array(await file.arrayBuffer())});
+  const document = await task.promise;
+  const pages: string[] = [];
+  let truncated = false;
+  try {
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const pageText = content.items
+        .map(item => ('str' in item && typeof item.str === 'string' ? item.str : ''))
+        .filter(Boolean)
+        .join(' ');
+      if (pageText) {
+        pages.push(pageText);
+      }
+      const currentText = pages.join('\n\n');
+      if (currentText.length >= ATTACHMENT_LIMITS.maxTextCharacters) {
+        truncated = true;
+        return {
+          text: currentText.slice(0, ATTACHMENT_LIMITS.maxTextCharacters),
+          truncated,
+        };
+      }
+    }
+    return {text: pages.join('\n\n'), truncated};
+  } finally {
+    await document.cleanup();
+    await task.destroy();
+  }
+}
+
+async function readFileAsBase64(file: File): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(String(reader.result ?? '')));
+    reader.addEventListener('error', () => reject(reader.error ?? new Error('File read failed.')));
+    reader.readAsDataURL(file);
+  });
+  return dataUrl.split(',')[1] ?? '';
+}
+
+function getDraftAttachmentError(
+  attachments: DraftAttachment[],
+  activeModelProps: LlamaModelProps | null,
+): string | null {
+  if (!attachments.some(attachment => attachment.kind === 'image')) {
+    return null;
+  }
+  if (activeModelProps?.modalities.vision === true) {
+    return null;
+  }
+  return 'Image attachments require a selected model with vision support.';
+}
+
+function attachmentTooltip(attachment: DraftAttachment | AttachmentMetadata): string {
+  const type =
+    attachment.kind === 'pdf' ? 'PDF text' : attachment.kind === 'image' ? 'Image' : 'Text file';
+  return `${type} · ${formatBytes(attachment.sizeBytes ?? null)}`;
+}
+
+function isImageFile(file: File): boolean {
+  return file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(file.name);
+}
+
+function isPdfFile(file: File): boolean {
+  return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+}
+
+function isTextFile(file: File): boolean {
+  return (
+    file.type.startsWith('text/') ||
+    /\.(txt|md|markdown|json|jsonl|csv|tsv|log|xml|yaml|yml|toml|ini|sql)$/i.test(file.name)
+  );
+}
+
+function mimeTypeFromName(name: string): string | undefined {
+  if (/\.pdf$/i.test(name)) {
+    return 'application/pdf';
+  }
+  if (/\.png$/i.test(name)) {
+    return 'image/png';
+  }
+  if (/\.webp$/i.test(name)) {
+    return 'image/webp';
+  }
+  if (/\.gif$/i.test(name)) {
+    return 'image/gif';
+  }
+  if (/\.jpe?g$/i.test(name)) {
+    return 'image/jpeg';
+  }
+  return undefined;
+}
+
+function isBinaryText(value: string): boolean {
+  return value.includes('\u0000');
+}
 
 function restoreComposerDraft(value: string, setDraft: (value: string) => void) {
   window.setTimeout(() => {

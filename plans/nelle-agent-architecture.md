@@ -257,6 +257,9 @@ Reading/Generation assistant performance stats widget, plus a collapsible
 virtualized conversation sidebar with pinned/recent sections and running
 indicators and an Astryx `/compact` slash-command composer flow with visible
 compaction status rows,
+context-window usage in the composer header, text/PDF/image composer
+attachments with selected-model vision gating, attachment metadata persistence,
+and content-addressed storage for sent image payloads,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for
 startup and configuration diagnostics, and the POC model panel can show router
@@ -276,8 +279,8 @@ Intentional POC limitations:
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are enabled through Pi and remain unsandboxed.
-- Context-window usage UI is not built yet, so manual compaction cannot update a
-  visible context meter yet.
+- Attachment export/import, PDF-as-image mode, and attachment file garbage
+  collection on hard delete are still pending.
 - The UI is adapted from Astryx `ai-chat` and `ai-chat-landing` templates, but
   the raw generated template files are not kept in `src`.
 
@@ -541,10 +544,11 @@ Initial implementation:
   prompt processing time, and prompt processing speed; Generation shows
   generated tokens, generation time, and generation speed. Use icon controls and
   tooltips rather than long visible labels.
-- Composer attachments should support text files, PDFs, and images only. Use
+- Composer attachments support text files, PDFs, and images only. Text and PDFs
+  are sent as extracted text; images use Pi's structured image input. Use
   model-specific `/props?model=<id>&autoload=false` metadata to gate images and
-  PDF-as-image mode on `modalities.vision`; keep audio/video out of scope while
-  Pi's structured input path is text plus image.
+  future PDF-as-image mode on `modalities.vision`; keep audio/video out of
+  scope while Pi's structured input path is text plus image.
 - Show context-window usage in the Astryx `ChatComposer` header with a
   `ProgressBar` and hover/focus tooltip containing used/total token counts.
   Treat streamed llama.cpp `prompt_progress` and `timings` as authoritative;
@@ -718,8 +722,9 @@ Exit criteria:
 - llama-server download/cache errors are visible through status and logs.
 - New model records update Pi `models.json` and llama `models.ini`.
 - User can switch active model from UI.
-- User can attach text files, PDFs, and images. Image/PDF-as-image controls are
-  gated by selected-model vision support; audio/video attachments are not shown.
+- User can attach text files, PDFs, and images. Images are gated by selected
+  model vision support; future PDF-as-image controls should use the same gate.
+  Audio/video attachments are not shown.
 - Composer shows context-window usage with used/total token tooltip.
 
 ### Milestone 5: Mobile LAN API

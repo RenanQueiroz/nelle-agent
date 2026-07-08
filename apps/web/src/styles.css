@@ -97,6 +97,14 @@ body {
   min-width: calc(var(--spacing-10) * 3);
 }
 
+.nelle-hidden-file-input {
+  display: none;
+}
+
+.nelle-message-attachments {
+  max-width: min(100%, calc(var(--spacing-10) * 14));
+}
+
 .nelle-search-panel {
   width: 420px;
   min-width: 360px;

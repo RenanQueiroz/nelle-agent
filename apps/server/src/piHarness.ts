@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
+import path from 'node:path';
 
 import {
   AuthStorage,
@@ -20,7 +21,11 @@ import {chatTemplateKwargsForModel, isQwenFamilyModel, llamaRuntimeModelId} from
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
 import type {ConversationRepository, SyncConversationEntry} from './conversations';
-import type {ConversationEntryProjection} from '../../../packages/shared/src/conversations.ts';
+import type {
+  AttachmentMetadata,
+  ConversationEntryProjection,
+} from '../../../packages/shared/src/conversations.ts';
+import type {ChatAttachmentInput} from '../../../packages/shared/src/contracts.ts';
 import type {
   ChatMessage,
   ChatPerformance,
@@ -31,11 +36,29 @@ import type {
 
 const PROVIDER_ID = 'nelle-llamacpp';
 const TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
+const ATTACHMENT_TEXT_INLINE_MAX = 200_000;
 
 type ManagedSession = {
   conversationId: string;
   modelId: string;
   session: any;
+};
+
+type PreparedPromptAttachment = {
+  input: ChatAttachmentInput;
+  metadata: AttachmentMetadata;
+  text?: string;
+  image?: {
+    type: 'image';
+    data: string;
+    mimeType: string;
+  };
+};
+
+type PreparedPromptAttachments = {
+  items: PreparedPromptAttachment[];
+  metadata: AttachmentMetadata[];
+  uploadIds: string[];
 };
 
 export class PiHarness {
@@ -108,6 +131,7 @@ export class PiHarness {
   async streamPrompt(
     prompt: string,
     conversationId = 'poc-default',
+    attachments: ChatAttachmentInput[] = [],
   ): Promise<AsyncIterable<ChatStreamEvent>> {
     const activeModel = await this.store.getActiveModel();
     if (!activeModel) {
@@ -118,6 +142,11 @@ export class PiHarness {
       title: prompt.slice(0, 80) || 'New chat',
       defaultModelId: activeModel.id,
     });
+    const promptAttachments = await this.preparePromptAttachments(
+      conversationId,
+      attachments,
+      activeModel,
+    );
     this.conversations.setConversationStatus(conversationId, 'running');
 
     const queue = createAsyncQueue<ChatStreamEvent>();
@@ -126,6 +155,7 @@ export class PiHarness {
       role: 'user',
       content: prompt,
       createdAt: new Date().toISOString(),
+      attachments: promptAttachments.metadata,
     };
     const assistantMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -144,16 +174,16 @@ export class PiHarness {
     queue.push({type: 'user_message', message: userMessage});
     queue.push({type: 'assistant_start', message: assistantMessage, harness: 'pi'});
 
-    void this.runPiPrompt(activeModel, conversationId, prompt, assistantMessage, queue).catch(
-      error => {
-        this.conversations.setConversationStatus(conversationId, 'ready');
-        queue.push({
-          type: 'error',
-          message: error instanceof Error ? error.message : String(error),
-        });
-        queue.end();
-      },
-    );
+    void this.runPiPrompt(activeModel, conversationId, prompt, assistantMessage, queue, {
+      promptAttachments,
+    }).catch(error => {
+      this.conversations.setConversationStatus(conversationId, 'ready');
+      queue.push({
+        type: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      });
+      queue.end();
+    });
 
     return queue;
   }
@@ -183,6 +213,15 @@ export class PiHarness {
     if (!prompt) {
       throw new Error('The source user message is empty and cannot be regenerated.');
     }
+    const sourceAttachments = await this.loadAttachmentInputsForEntry(
+      input.conversationId,
+      source.userEntry.piEntryId,
+    );
+    const promptAttachments = await this.preparePromptAttachments(
+      input.conversationId,
+      sourceAttachments,
+      activeModel,
+    );
 
     this.conversations.setConversationStatus(input.conversationId, 'running');
     const queue = createAsyncQueue<ChatStreamEvent>();
@@ -191,6 +230,7 @@ export class PiHarness {
       role: 'user',
       content: prompt,
       createdAt: new Date().toISOString(),
+      attachments: promptAttachments.metadata,
     };
     const assistantMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -213,6 +253,7 @@ export class PiHarness {
       regeneratesPiEntryId: source.regeneratesPiEntryId,
       displayGroupId: source.displayGroupId,
       appendLegacyState: false,
+      promptAttachments,
     }).catch(error => {
       this.conversations.setConversationStatus(input.conversationId, 'ready');
       queue.push({
@@ -236,6 +277,7 @@ export class PiHarness {
       regeneratesPiEntryId?: string;
       displayGroupId?: string;
       appendLegacyState?: boolean;
+      promptAttachments?: PreparedPromptAttachments;
     } = {},
   ): Promise<void> {
     const session = await this.ensureSession(conversationId, activeModel);
@@ -332,7 +374,10 @@ export class PiHarness {
     });
 
     try {
-      await session.prompt(prompt);
+      const promptAttachments = options.promptAttachments ?? emptyPreparedAttachments();
+      await session.prompt(buildPiPrompt(prompt, promptAttachments.items), {
+        images: promptAttachments.items.map(item => item.image).filter(item => item != null),
+      });
       assistantMessage.toolCalls = toolCalls;
       if (!assistantMessage.content.trim()) {
         const fallback = thinkingText.trim();
@@ -363,8 +408,18 @@ export class PiHarness {
         {
           regeneratesPiEntryId: options.regeneratesPiEntryId,
           displayGroupId: options.displayGroupId,
+          userPromptText: prompt,
+          userAttachmentSummary: summarizePreparedAttachments(promptAttachments.metadata),
         },
       );
+      const userEntry = findPromptUserEntry(syncedEntries, assistantMessage);
+      if (userEntry && promptAttachments.uploadIds.length > 0) {
+        this.conversations.bindAttachmentsToEntry(
+          conversationId,
+          promptAttachments.uploadIds,
+          userEntry.piEntryId,
+        );
+      }
       queue.push({type: 'done', message: assistantMessage});
       const title = await this.maybeGenerateConversationTitle(
         conversationId,
@@ -447,6 +502,155 @@ export class PiHarness {
     return session;
   }
 
+  private async preparePromptAttachments(
+    conversationId: string,
+    attachments: ChatAttachmentInput[],
+    activeModel: ConfiguredModel,
+  ): Promise<PreparedPromptAttachments> {
+    if (attachments.length === 0) {
+      return emptyPreparedAttachments();
+    }
+    if (attachments.some(attachment => attachment.kind === 'image')) {
+      await this.assertImageAttachmentsSupported(activeModel);
+    }
+
+    await fs.mkdir(this.paths.attachmentsDir, {recursive: true});
+    const records = [];
+    const prepared: Array<Omit<PreparedPromptAttachment, 'metadata'>> = [];
+    for (const attachment of attachments) {
+      if (attachment.kind === 'image') {
+        const image = decodeImageAttachment(attachment);
+        const storagePath = await this.writeAttachmentBlob(image.buffer, image.mimeType);
+        records.push({
+          uploadId: attachment.id,
+          kind: attachment.kind,
+          name: attachment.name,
+          mimeType: image.mimeType,
+          sizeBytes: attachment.sizeBytes ?? image.buffer.byteLength,
+          storagePath,
+          processing: {
+            status: 'ready',
+            source: 'chat-request',
+            sha256: image.sha256,
+          },
+        });
+        prepared.push({
+          input: attachment,
+          image: {
+            type: 'image',
+            data: image.data,
+            mimeType: image.mimeType,
+          },
+        });
+        continue;
+      }
+
+      const text = (attachment.text ?? '').slice(0, ATTACHMENT_TEXT_INLINE_MAX);
+      records.push({
+        uploadId: attachment.id,
+        kind: attachment.kind,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        textContent: text,
+        processing: {
+          status: 'ready',
+          source: 'chat-request',
+          truncated: (attachment.text?.length ?? 0) > text.length,
+        },
+      });
+      prepared.push({
+        input: attachment,
+        text,
+      });
+    }
+
+    const metadata = this.conversations.createPendingAttachments(conversationId, records);
+    return {
+      items: prepared.map((item, index) => ({
+        ...item,
+        metadata: metadata[index]!,
+      })),
+      metadata,
+      uploadIds: attachments.map(attachment => attachment.id),
+    };
+  }
+
+  private async assertImageAttachmentsSupported(activeModel: ConfiguredModel): Promise<void> {
+    const state = await this.store.getState();
+    const response = await fetch(
+      `http://${state.runtime.host}:${state.runtime.port}/props?model=${encodeURIComponent(
+        llamaRuntimeModelId(activeModel),
+      )}&autoload=false`,
+    );
+    if (!response.ok) {
+      throw new Error(
+        'Could not verify image support for the selected model. Load the model before sending images.',
+      );
+    }
+    const raw = (await response.json()) as unknown;
+    const modalities = getObjectProp(raw, 'modalities');
+    const hasVision = booleanOrFalse(
+      getObjectProp(modalities, 'vision') ?? getObjectProp(raw, 'vision'),
+    );
+    if (!hasVision) {
+      throw new Error('Image attachments require a selected model with vision support.');
+    }
+  }
+
+  private async writeAttachmentBlob(buffer: Buffer, mimeType: string): Promise<string> {
+    const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+    const directory = path.join(this.paths.attachmentsDir, sha256.slice(0, 2));
+    await fs.mkdir(directory, {recursive: true});
+    const absolutePath = path.join(directory, `${sha256}${extensionForMimeType(mimeType)}`);
+    try {
+      await fs.writeFile(absolutePath, buffer, {flag: 'wx'});
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        throw error;
+      }
+    }
+    return relativeDataPath(this.paths.dataDir, absolutePath);
+  }
+
+  private async loadAttachmentInputsForEntry(
+    conversationId: string,
+    piEntryId: string,
+  ): Promise<ChatAttachmentInput[]> {
+    const stored = this.conversations.getStoredAttachmentsForEntry(conversationId, piEntryId);
+    const inputs: ChatAttachmentInput[] = [];
+    for (const attachment of stored) {
+      if (attachment.kind === 'image') {
+        if (!attachment.storagePath || !attachment.mimeType) {
+          continue;
+        }
+        const absolutePath = resolveDataPath(this.paths.dataDir, attachment.storagePath);
+        const buffer = await fs.readFile(absolutePath);
+        inputs.push({
+          id: crypto.randomUUID(),
+          kind: 'image',
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes ?? buffer.byteLength,
+          data: buffer.toString('base64'),
+        });
+        continue;
+      }
+      if (!attachment.textContent) {
+        continue;
+      }
+      inputs.push({
+        id: crypto.randomUUID(),
+        kind: attachment.kind,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        text: attachment.textContent,
+      });
+    }
+    return inputs;
+  }
+
   private syncPiConversation(
     conversationId: string,
     session: any,
@@ -456,6 +660,8 @@ export class PiHarness {
     metadata: {
       regeneratesPiEntryId?: string;
       displayGroupId?: string;
+      userPromptText?: string;
+      userAttachmentSummary?: unknown;
     } = {},
   ): SyncConversationEntry[] {
     const branch = session.sessionManager.getBranch() as any[];
@@ -513,6 +719,12 @@ export class PiHarness {
         lastAssistant.toolCalls = assistantMessage.toolCalls;
         lastAssistant.regeneratesPiEntryId = metadata.regeneratesPiEntryId;
         lastAssistant.displayGroupId = metadata.displayGroupId ?? metadata.regeneratesPiEntryId;
+      }
+      const promptedUser = findPromptUserEntry(entries, assistantMessage);
+      if (promptedUser) {
+        promptedUser.text = metadata.userPromptText ?? promptedUser.text;
+        promptedUser.attachmentSummary =
+          metadata.userAttachmentSummary ?? promptedUser.attachmentSummary;
       }
     }
 
@@ -621,7 +833,7 @@ export class PiHarness {
       id: llamaRuntimeModelId(model),
       name: model.name,
       reasoning: isQwenFamilyModel(model),
-      input: ['text'],
+      input: ['text', 'image'],
       contextWindow: model.params.contextSize,
       maxTokens: Math.min(512, Math.max(128, Math.floor(model.params.contextSize / 8))),
       cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
@@ -665,6 +877,147 @@ function stringifyMaybe(value: unknown): string | undefined {
   } catch {
     return String(value).slice(0, 160);
   }
+}
+
+function emptyPreparedAttachments(): PreparedPromptAttachments {
+  return {items: [], metadata: [], uploadIds: []};
+}
+
+function buildPiPrompt(prompt: string, attachments: PreparedPromptAttachment[]): string {
+  const textAttachments = attachments.filter(item => item.text);
+  if (textAttachments.length === 0) {
+    return prompt;
+  }
+  const renderedAttachments = textAttachments
+    .map(
+      attachment =>
+        `<attachment name="${escapeAttachmentAttribute(attachment.metadata.name)}" type="${
+          attachment.metadata.kind
+        }">\n${attachment.text}\n</attachment>`,
+    )
+    .join('\n\n');
+  return `${prompt}\n\nAttached files:\n${renderedAttachments}`;
+}
+
+function summarizePreparedAttachments(attachments: AttachmentMetadata[]): unknown {
+  if (attachments.length === 0) {
+    return undefined;
+  }
+  return {
+    count: attachments.length,
+    items: attachments.map(attachment => ({
+      id: attachment.id,
+      kind: attachment.kind,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+    })),
+  };
+}
+
+function findPromptUserEntry(
+  entries: SyncConversationEntry[],
+  assistantMessage: ChatMessage,
+): SyncConversationEntry | undefined {
+  let assistantIndex = -1;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry?.role === 'assistant') {
+      assistantIndex = index;
+      if (!assistantMessage.content || entry.text === assistantMessage.content) {
+        break;
+      }
+    }
+  }
+  if (assistantIndex < 0) {
+    return undefined;
+  }
+  const assistantEntry = entries[assistantIndex];
+  const parentId = assistantEntry?.parentPiEntryId;
+  if (parentId) {
+    const parent = entries.find(entry => entry.piEntryId === parentId);
+    if (parent?.role === 'user') {
+      return parent;
+    }
+  }
+  for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+    if (entries[index]?.role === 'user') {
+      return entries[index];
+    }
+  }
+  return undefined;
+}
+
+function decodeImageAttachment(attachment: ChatAttachmentInput): {
+  data: string;
+  mimeType: string;
+  buffer: Buffer;
+  sha256: string;
+} {
+  const parsed = parseImageData(attachment.data ?? '', attachment.mimeType);
+  const buffer = Buffer.from(parsed.data, 'base64');
+  const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+  return {...parsed, buffer, sha256};
+}
+
+function parseImageData(
+  value: string,
+  fallbackMimeType?: string,
+): {data: string; mimeType: string} {
+  const dataUrlMatch = value.match(/^data:([^;]+);base64,(.+)$/);
+  if (dataUrlMatch) {
+    return {mimeType: dataUrlMatch[1]!, data: dataUrlMatch[2]!};
+  }
+  if (!fallbackMimeType?.startsWith('image/')) {
+    throw new Error('Image attachments require an image MIME type.');
+  }
+  return {mimeType: fallbackMimeType, data: value};
+}
+
+function getObjectProp(value: unknown, key: string): unknown {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
+}
+
+function booleanOrFalse(value: unknown): boolean {
+  return value === true || value === 'true' || value === 1;
+}
+
+function extensionForMimeType(mimeType: string): string {
+  if (mimeType === 'image/png') {
+    return '.png';
+  }
+  if (mimeType === 'image/webp') {
+    return '.webp';
+  }
+  if (mimeType === 'image/gif') {
+    return '.gif';
+  }
+  return '.jpg';
+}
+
+function relativeDataPath(dataDir: string, absolutePath: string): string {
+  return path.relative(dataDir, absolutePath).split(path.sep).join('/');
+}
+
+function resolveDataPath(dataDir: string, relativePath: string): string {
+  const resolved = path.resolve(dataDir, ...relativePath.split('/'));
+  const normalizedDataDir = path.resolve(dataDir);
+  if (resolved !== normalizedDataDir && !resolved.startsWith(`${normalizedDataDir}${path.sep}`)) {
+    throw new Error('Attachment path escaped the Nelle data directory.');
+  }
+  return resolved;
+}
+
+function escapeAttachmentAttribute(value: string): string {
+  return value.replace(/[<&"]/g, character => {
+    if (character === '<') {
+      return '&lt;';
+    }
+    if (character === '&') {
+      return '&amp;';
+    }
+    return '&quot;';
+  });
 }
 
 function prependVariantEntry(

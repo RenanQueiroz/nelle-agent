@@ -90,6 +90,7 @@ export type ChatMessage = {
   role: 'user' | 'assistant' | 'system';
   content: string;
   createdAt: string;
+  attachments?: AttachmentMetadata[];
   parentPiEntryId?: string;
   modelId?: string;
   modelRuntimeId?: string;
@@ -108,6 +109,16 @@ export type ChatMessage = {
     output?: string;
     errorMessage?: string;
   }>;
+};
+
+export type ChatAttachmentInput = {
+  id: string;
+  kind: 'text' | 'pdf' | 'image';
+  name: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  text?: string;
+  data?: string;
 };
 
 export type ChatPerformanceMetric = {
@@ -162,6 +173,7 @@ export type ConversationEntryProjection = {
   displayGroupId?: string;
   performance?: unknown;
   toolCalls?: unknown;
+  attachmentSummary?: unknown;
 };
 
 export type ConversationContextUsage = {
@@ -181,17 +193,7 @@ export type ConversationSnapshot = {
   };
   entries: ConversationEntryProjection[];
   activePathEntryIds: string[];
-  attachments: Array<{
-    id: string;
-    conversationId: string;
-    piEntryId?: string;
-    kind: string;
-    name: string;
-    mimeType?: string;
-    sizeBytes?: number;
-    storagePath?: string;
-    createdAt: string;
-  }>;
+  attachments: AttachmentMetadata[];
   context: ConversationContextUsage;
   models: {
     selectedModelId?: string;
@@ -207,6 +209,21 @@ export type ConversationSnapshot = {
     canAttachText: boolean;
   };
   errors: Array<{code: string; message: string; retryable?: boolean}>;
+};
+
+export type AttachmentMetadata = {
+  id: string;
+  conversationId: string;
+  piEntryId?: string;
+  uploadId?: string;
+  kind: 'text' | 'pdf' | 'image';
+  name: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  storagePath?: string;
+  textPreview?: string;
+  processing?: unknown;
+  createdAt: string;
 };
 
 export type AppStateResponse = {
@@ -397,13 +414,14 @@ export async function streamConversationChat(
   message: string,
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
+  attachments: ChatAttachmentInput[] = [],
 ): Promise<void> {
   const response = await fetch(
     `/api/conversations/${encodeURIComponent(conversationId)}/chat/stream`,
     {
       method: 'POST',
       headers: {'content-type': 'application/json'},
-      body: JSON.stringify({message}),
+      body: JSON.stringify({message, attachments}),
       signal,
     },
   );

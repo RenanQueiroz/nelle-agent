@@ -1,3 +1,8 @@
+import type {AttachmentMetadata} from '../../../packages/shared/src/conversations.ts';
+import type {ChatAttachmentInput} from '../../../packages/shared/src/contracts.ts';
+
+export type {ChatAttachmentInput};
+
 export type RuntimeInstallMode = 'source-master' | 'github-release' | 'external';
 
 export type RuntimeStatus = {
@@ -103,6 +108,7 @@ export type ChatMessage = {
   role: ChatRole;
   content: string;
   createdAt: string;
+  attachments?: AttachmentMetadata[];
   modelId?: string;
   modelRuntimeId?: string;
   modelAliasSnapshot?: string;

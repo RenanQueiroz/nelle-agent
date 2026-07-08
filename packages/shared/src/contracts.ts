@@ -10,6 +10,75 @@ export const nelleErrorSchema = z.object({
 
 export type NelleError = z.infer<typeof nelleErrorSchema>;
 
+export const chatAttachmentKindSchema = z.enum(['text', 'pdf', 'image']);
+
+export const chatAttachmentInputSchema = z.object({
+  id: z.string().min(1).max(120),
+  kind: chatAttachmentKindSchema,
+  name: z.string().min(1).max(255),
+  mimeType: z.string().min(1).max(120).optional(),
+  sizeBytes: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(25 * 1024 * 1024)
+    .optional(),
+  text: z.string().max(200_000).optional(),
+  data: z.string().max(40_000_000).optional(),
+});
+
+export type ChatAttachmentKind = z.infer<typeof chatAttachmentKindSchema>;
+export type ChatAttachmentInput = z.infer<typeof chatAttachmentInputSchema>;
+
+export const chatRequestSchema = z
+  .object({
+    message: z.string().min(1),
+    attachments: z.array(chatAttachmentInputSchema).max(10).optional(),
+  })
+  .superRefine((value, context) => {
+    const totalSize = (value.attachments ?? []).reduce(
+      (sum, attachment) => sum + (attachment.sizeBytes ?? 0),
+      0,
+    );
+    if (totalSize > 100 * 1024 * 1024) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Attachments are limited to 100 MiB per message.',
+        path: ['attachments'],
+      });
+    }
+
+    for (const [index, attachment] of (value.attachments ?? []).entries()) {
+      if (attachment.kind === 'image') {
+        if (!attachment.mimeType?.startsWith('image/')) {
+          context.addIssue({
+            code: 'custom',
+            message: 'Image attachments require an image MIME type.',
+            path: ['attachments', index, 'mimeType'],
+          });
+        }
+        if (!attachment.data) {
+          context.addIssue({
+            code: 'custom',
+            message: 'Image attachments require base64 image data.',
+            path: ['attachments', index, 'data'],
+          });
+        }
+        continue;
+      }
+
+      if (!attachment.text) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Text and PDF attachments require extracted text.',
+          path: ['attachments', index, 'text'],
+        });
+      }
+    }
+  });
+
+export type ChatRequest = z.infer<typeof chatRequestSchema>;
+
 export const eventEnvelopeSchema = z.object({
   id: z.string().min(1),
   type: z.string().min(1),

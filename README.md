@@ -50,6 +50,13 @@ Implemented:
 - Chat workflow errors and warnings render through Astryx `ChatComposer` status:
   send-blocking errors appear above the composer, while near-full context and
   other non-blocking chat warnings appear below it.
+- Composer attachments for text files, PDFs, and images:
+  - Text files and PDFs are extracted client-side and sent to Pi as text.
+  - Images are sent through Pi's structured image input only when the selected
+    llama.cpp model reports vision support.
+  - Sent image payloads are stored content-addressed under `.nelle/attachments/`;
+    attachment metadata is stored in SQLite and shown on user messages.
+  - Audio/video attachments and PDF-as-image mode are not exposed yet.
 - Assistant message footers show the model alias snapshot, copy action, and
   regenerate controls. The footer model menu can load another configured router
   model and call `/api/conversations/:id/messages/:messageId/regenerate` with a
@@ -87,8 +94,9 @@ Not implemented yet:
 - Local `.nelle-chat.zip` conversation export/import, including Pi session
   files, Nelle sidecar metadata, attachments, model manifest snapshots, and
   tool audit rows.
-- Composer attachments. Planned attachment scope is text files, PDFs, and
-  images only; audio/video attachments are out of scope.
+- Attachment file cleanup during hard delete/export/import. Attachment rows are
+  persisted and bound to messages, but full archive/garbage-collection flows are
+  still pending.
 - Host-tool first-run acknowledgement, global disable switch, and durable tool
   audit storage. Sandboxing remains later.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for
@@ -160,9 +168,11 @@ other send-blocking chat errors appear above the composer. Nelle supports
 `/compact [instructions]` through Astryx slash-command typeahead by calling Pi
 `AgentSession.compact()` directly; commands such as `/new`, `/resume`, `/model`,
 `/login`, and `/logout` stay owned by Nelle UI controls. Composer stop calls
-`AgentSession.abortCompaction()` for an active compaction. The remaining planned
-composer work is text/PDF/image attachments gated by the selected model's vision
-capability. Audio/video attachments are intentionally excluded for now.
+`AgentSession.abortCompaction()` for an active compaction. The composer
+attachment drawer accepts text files, PDFs, and images. Text/PDF attachments are
+sent as extracted text; images require selected-model vision support from
+llama.cpp model props. Audio/video attachments are intentionally excluded for
+now.
 
 Assistant message metadata shows the message time, the model alias that
 generated the assistant response, copy/regenerate actions, visible copy

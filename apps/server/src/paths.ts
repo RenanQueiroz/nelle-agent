@@ -5,6 +5,7 @@ export type AppPaths = {
   repoRoot: string;
   dataDir: string;
   downloadsDir: string;
+  attachmentsDir: string;
   llamaDir: string;
   llamaBinDir: string;
   llamaSrcDir: string;
@@ -30,6 +31,7 @@ export function createAppPaths(): AppPaths {
     repoRoot,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
+    attachmentsDir: path.join(dataDir, 'attachments'),
     llamaDir,
     llamaBinDir: path.join(llamaDir, 'bin'),
     llamaSrcDir: path.join(llamaDir, 'src'),

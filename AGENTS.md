@@ -100,9 +100,14 @@ Project-specific guidance for AI coding agents.
 - Sidebar conversation history virtualization uses `@tanstack/react-virtual`
   with an Astryx-styled `SideNav`/`List` row surface. Keep row keys stable and
   model pinned/search/group headers as one flattened virtual list.
-- Composer attachments are text files, PDFs, and images only. Gate images and
-  PDF-as-image mode on selected-model `modalities.vision`; do not expose
-  audio/video attachments while Pi's structured input path is text plus image.
+- Composer attachments are text files, PDFs, and images only. Gate images, and
+  any future PDF-as-image mode, on selected-model `modalities.vision`; do not
+  expose audio/video attachments while Pi's structured input path is text plus
+  image.
+- Current attachments are request-embedded: browser drafts stay client-only,
+  text/PDF files are extracted in the web app, images are base64-normalized and
+  stored content-addressed under `.nelle/attachments/` after send, and metadata
+  is bound to the resulting Pi user entry in SQLite.
 - Show context-window usage through the Astryx `ChatComposer` header
   `ProgressBar` with tooltip token counts. Use composer top status for
   send-blocking errors and bottom status for non-blocking warnings.

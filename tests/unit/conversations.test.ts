@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import {ConversationRepository} from '../../apps/server/src/conversations.ts';
+import {ConversationRepository, POC_CONVERSATION_ID} from '../../apps/server/src/conversations.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {PiHarness} from '../../apps/server/src/piHarness.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
@@ -81,6 +81,52 @@ test('repository mirrors current POC chat into a conversation snapshot', async (
     assert.equal(snapshot?.entries[0]?.textPreview, 'Hello Nelle');
     assert.equal(snapshot?.models.available[0]?.id, 'repo/model:Q4_K_M');
     assert.equal(repository.listConversations({search: 'Hello'}).length, 1);
+  } finally {
+    database.close();
+  }
+});
+
+test('repository does not overwrite Pi-bound POC projection from legacy state', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    await store.appendChatMessage({
+      id: 'legacy-user',
+      role: 'user',
+      content: 'Legacy state prompt',
+      createdAt: '2026-07-08T12:00:00.000Z',
+    });
+    const repository = new ConversationRepository(database);
+    repository.createConversation({id: POC_CONVERSATION_ID, title: 'Pi default'});
+    repository.attachPiSession(POC_CONVERSATION_ID, {
+      piSessionPath: path.join(paths.piSessionsDir, 'poc.jsonl'),
+      piSessionId: 'pi-poc',
+      activeLeafPiEntryId: 'pi-user',
+    });
+    repository.replaceConversationProjection(POC_CONVERSATION_ID, {
+      piSessionPath: path.join(paths.piSessionsDir, 'poc.jsonl'),
+      piSessionId: 'pi-poc',
+      activeLeafPiEntryId: 'pi-user',
+      lastSyncedPiEntryId: 'pi-user',
+      entries: [
+        {
+          piEntryId: 'pi-user',
+          entryType: 'message',
+          role: 'user',
+          text: 'Pi prompt',
+          createdAt: '2026-07-08T12:00:01.000Z',
+        },
+      ],
+    });
+
+    repository.syncPocConversationFromState(await store.getState());
+    const snapshot = repository.getSnapshot(POC_CONVERSATION_ID, await store.getState());
+
+    assert.equal(snapshot?.conversation.piSessionId, 'pi-poc');
+    assert.equal(snapshot?.entries[0]?.piEntryId, 'pi-user');
+    assert.equal(snapshot?.entries[0]?.textPreview, 'Pi prompt');
   } finally {
     database.close();
   }
@@ -269,6 +315,73 @@ test('repository derives context usage from assistant performance metadata', asy
       totalTokens: 8192,
       source: 'timings',
       updatedAt: '2026-07-08T12:00:01.000Z',
+    });
+  } finally {
+    database.close();
+  }
+});
+
+test('repository persists and binds message attachments to Pi entries', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Attachment chat'});
+    repository.replaceConversationProjection(conversation.id, {
+      activeLeafPiEntryId: 'assistant-1',
+      lastSyncedPiEntryId: 'assistant-1',
+      entries: [
+        {
+          piEntryId: 'user-1',
+          entryType: 'message',
+          role: 'user',
+          text: 'Summarize the file',
+          createdAt: '2026-07-08T12:00:00.000Z',
+        },
+        {
+          piEntryId: 'assistant-1',
+          parentPiEntryId: 'user-1',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'The file describes local setup.',
+          createdAt: '2026-07-08T12:00:01.000Z',
+        },
+      ],
+    });
+
+    const pending = repository.createPendingAttachments(conversation.id, [
+      {
+        uploadId: 'draft-1',
+        kind: 'text',
+        name: 'notes.md',
+        mimeType: 'text/markdown',
+        sizeBytes: 28,
+        textContent: 'Nelle uses llama.cpp locally.',
+        processing: {status: 'ready'},
+      },
+    ]);
+    assert.equal(pending[0]?.piEntryId, undefined);
+
+    const bound = repository.bindAttachmentsToEntry(conversation.id, ['draft-1'], 'user-1');
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+
+    assert.equal(bound.length, 1);
+    assert.equal(snapshot?.attachments[0]?.piEntryId, 'user-1');
+    assert.equal(snapshot?.attachments[0]?.uploadId, 'draft-1');
+    assert.equal(snapshot?.attachments[0]?.textPreview, 'Nelle uses llama.cpp locally.');
+    assert.deepEqual(snapshot?.entries[0]?.attachmentSummary, {
+      count: 1,
+      items: [
+        {
+          id: snapshot.attachments[0]?.id,
+          kind: 'text',
+          name: 'notes.md',
+          mimeType: 'text/markdown',
+          sizeBytes: 28,
+        },
+      ],
     });
   } finally {
     database.close();
@@ -740,6 +853,7 @@ async function createTempPaths(): Promise<AppPaths> {
     repoRoot,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
+    attachmentsDir: path.join(dataDir, 'attachments'),
     llamaDir,
     llamaBinDir: path.join(llamaDir, 'bin'),
     llamaSrcDir: path.join(llamaDir, 'src'),

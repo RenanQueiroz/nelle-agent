@@ -358,6 +358,146 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
   await expect(page.getByText('Generation speed')).toBeVisible();
 });
 
+test('attaches text files and blocks images for text-only models', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'Model One',
+    presetName: 'model-one',
+    source: 'huggingface',
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  const chat: MockChatMessage[] = [];
+  let streamCalls = 0;
+  let requestBody: {message?: string; attachments?: MockAttachmentRequest[]} | null = null;
+  const textFilePath = path.join(repoRoot, '.nelle-e2e', 'attachment-note.txt');
+  const imagePath = path.join(repoRoot, '.nelle-e2e', 'attachment-image.png');
+  await fs.mkdir(path.dirname(textFilePath), {recursive: true});
+  await fs.writeFile(textFilePath, 'Router mode should load models on selection.');
+  await fs.writeFile(
+    imagePath,
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  );
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/llama/models/**/props', async route => {
+    await route.fulfill({
+      json: {
+        modelId: model.id,
+        modalities: {vision: false, audio: false, video: false},
+        contextWindow: 8192,
+        raw: {},
+      },
+    });
+  });
+  await mockConversationRoutes(page, {chat});
+  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+    streamCalls += 1;
+    requestBody = route.request().postDataJSON() as {
+      message?: string;
+      attachments?: MockAttachmentRequest[];
+    };
+    const userAttachments = (requestBody.attachments ?? []).map((attachment, index) => ({
+      id: `attachment-${index}`,
+      conversationId: 'poc-default',
+      piEntryId: 'user-1',
+      uploadId: attachment.id,
+      kind: attachment.kind,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      textPreview: attachment.text?.slice(0, 240),
+      createdAt: '2026-07-07T12:01:00.000Z',
+    }));
+    const userMessage = {
+      id: 'user-1',
+      role: 'user',
+      content: requestBody.message ?? '',
+      createdAt: '2026-07-07T12:01:00.000Z',
+      attachments: userAttachments,
+    };
+    const assistantMessage = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'I read the attachment.',
+      createdAt: '2026-07-07T12:01:01.000Z',
+      modelId: model.id,
+      modelRuntimeId: model.id,
+      modelAliasSnapshot: model.name,
+    };
+    chat.push(userMessage, assistantMessage);
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: [
+        {type: 'user_message', message: userMessage},
+        {
+          type: 'assistant_start',
+          harness: 'pi',
+          message: {...assistantMessage, content: ''},
+        },
+        {type: 'assistant_delta', id: assistantMessage.id, delta: assistantMessage.content},
+        {type: 'done', message: assistantMessage},
+      ]
+        .map(event => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('input[aria-label="Attach files"]').setInputFiles(imagePath);
+  await expect(page.getByRole('alert')).toContainText('Image attachments require');
+  expect(streamCalls).toBe(0);
+
+  await page.locator('input[aria-label="Attach files"]').setInputFiles(textFilePath);
+  await expect(page.getByTestId('attachment-drawer')).toContainText('attachment-note.txt');
+  await page.getByLabel('Message input').fill('summarize this file');
+  await page.getByLabel('Message input').press('Enter');
+
+  await expect.poll(() => streamCalls).toBe(1);
+  expect(requestBody?.attachments?.[0]?.kind).toBe('text');
+  expect(requestBody?.attachments?.[0]?.name).toBe('attachment-note.txt');
+  expect(requestBody?.attachments?.[0]?.text).toContain('Router mode should load models');
+  await expect(page.getByText('I read the attachment.')).toBeVisible();
+  await expect(page.getByText('attachment-note.txt')).toBeVisible();
+});
+
 test('regenerates an assistant response from the footer model picker', async ({page}) => {
   const modelA = {
     id: 'model-a',
@@ -1018,6 +1158,13 @@ function conversationSnapshot(
   chat: MockChatMessage[],
   conversation?: MockConversation,
 ) {
+  const attachments = chat.flatMap(message =>
+    (message.attachments ?? []).map(attachment => ({
+      ...attachment,
+      conversationId: id,
+      piEntryId: message.id,
+    })),
+  );
   return {
     conversation: {
       id,
@@ -1045,7 +1192,7 @@ function conversationSnapshot(
       displayGroupId: message.displayGroupId,
     })),
     activePathEntryIds: chat.map(message => message.id),
-    attachments: [],
+    attachments,
     context: contextFromChat(chat),
     models: {available: []},
     capabilities: {
@@ -1087,6 +1234,7 @@ type MockChatMessage = {
   role: string;
   content: string;
   createdAt: string;
+  attachments?: MockAttachment[];
   performance?: unknown;
   toolCalls?: unknown;
   modelId?: string;
@@ -1094,6 +1242,29 @@ type MockChatMessage = {
   modelAliasSnapshot?: string;
   regeneratesPiEntryId?: string;
   displayGroupId?: string;
+};
+
+type MockAttachment = {
+  id: string;
+  conversationId: string;
+  piEntryId?: string;
+  uploadId?: string;
+  kind: 'text' | 'pdf' | 'image';
+  name: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  textPreview?: string;
+  createdAt: string;
+};
+
+type MockAttachmentRequest = {
+  id: string;
+  kind: 'text' | 'pdf' | 'image';
+  name: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  text?: string;
+  data?: string;
 };
 
 type MockConversation = {
