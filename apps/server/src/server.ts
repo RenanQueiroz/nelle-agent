@@ -614,6 +614,37 @@ export async function createServer(paths: AppPaths) {
     };
   });
 
+  app.post('/api/conversations/:id/compact/stream', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    if (!conversations.getConversation(id)) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    const body = compactConversationSchema.parse(request.body) ?? {};
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+
+    try {
+      if (process.env.NELLE_PI_DISABLED === '1') {
+        throw new Error('Compaction requires the Pi harness.');
+      }
+      const stream = await pi.streamCompactConversation(id, body.instructions);
+      await writeChatStream(reply.raw, stream, id);
+    } catch (error) {
+      writeChatError(reply.raw, error);
+    } finally {
+      reply.raw.end();
+    }
+  });
+
   app.post('/api/conversations/:id/compact/abort', async (request, reply) => {
     const id = (request.params as {id: string}).id;
     if (!conversations.getConversation(id)) {

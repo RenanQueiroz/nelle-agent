@@ -183,6 +183,30 @@ export type ChatStreamEvent =
       error?: {code: string; message: string; retryable?: boolean};
       createdAt: string;
     }
+  | {
+      type: 'compact.started';
+      runId: string;
+      conversationId: string;
+      instructions?: string;
+      createdAt: string;
+    }
+  | {
+      type: 'compact.completed';
+      runId: string;
+      conversationId: string;
+      compacted: boolean;
+      tokensBefore?: number;
+      firstKeptEntryId?: string;
+      summaryPreview?: string;
+      createdAt: string;
+    }
+  | {
+      type: 'compact.failed';
+      runId: string;
+      conversationId: string;
+      error: {code: string; message: string; retryable?: boolean};
+      createdAt: string;
+    }
   | {type: 'user_message'; message: ChatMessage}
   | {type: 'assistant_start'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
   | {type: 'assistant_delta'; id: string; delta: string}
@@ -687,6 +711,25 @@ export async function compactConversation(
     signal,
   });
   return parseJson(response);
+}
+
+export async function streamCompactConversation(
+  id: string,
+  instructions: string | undefined,
+  onEvent: (event: ChatStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/compact/stream`, {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify(instructions ? {instructions} : {}),
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`Compact request failed: ${response.status}`);
+  }
+
+  await readEventStream(response, onEvent);
 }
 
 export async function abortConversationCompaction(

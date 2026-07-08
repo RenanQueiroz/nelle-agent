@@ -1161,6 +1161,88 @@ test('Pi title generation skips non-first-turn and user-named conversations', as
   }
 });
 
+test('Pi compact stream emits run and compaction lifecycle events', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Compact me'});
+    let compactInstructions: string | undefined;
+    const branch = [
+      {
+        id: 'user-1',
+        parentId: null,
+        type: 'message',
+        message: {role: 'user', content: 'Summarize the repo setup.'},
+        timestamp: '2026-07-08T12:00:00.000Z',
+      },
+      {
+        id: 'assistant-1',
+        parentId: 'user-1',
+        type: 'message',
+        message: {role: 'assistant', content: 'Use the local llama.cpp router.'},
+        timestamp: '2026-07-08T12:01:00.000Z',
+      },
+      {
+        id: 'entry-compaction',
+        parentId: 'assistant-1',
+        type: 'compaction',
+        summary: 'Kept local llama.cpp setup details.',
+        timestamp: '2026-07-08T12:02:00.000Z',
+      },
+    ];
+    const fakeSession = {
+      messages: [{role: 'user', content: 'Summarize the repo setup.'}],
+      sessionFile: path.join(paths.piSessionsDir, 'compact.jsonl'),
+      sessionId: 'pi-compact',
+      compact: async (instructions?: string) => {
+        compactInstructions = instructions;
+      },
+      sessionManager: {
+        getBranch: () => branch,
+        getLeafId: () => 'entry-compaction',
+      },
+    };
+    const harness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+    ) as unknown as CompactStreamHarness;
+    harness.ensureSession = async () => fakeSession;
+
+    const events = await collectAsyncQueue(
+      await harness.streamCompactConversation(conversation.id, 'keep setup details'),
+    );
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+
+    assert.deepEqual(
+      events.map(event => event.type),
+      ['run.started', 'compact.started', 'compact.completed', 'run.completed'],
+    );
+    assert.equal(events[0]?.type, 'run.started');
+    assert.equal(events[0]?.kind, 'compact');
+    assert.equal(events[1]?.type, 'compact.started');
+    assert.equal(events[1]?.instructions, 'keep setup details');
+    assert.equal(events[2]?.type, 'compact.completed');
+    assert.equal(events[3]?.type, 'run.completed');
+    assert.equal(events[3]?.status, 'completed');
+    assert.equal(compactInstructions, 'keep setup details');
+    assert.equal(snapshot?.conversation.status, 'ready');
+    assert.equal(snapshot?.conversation.activeLeafPiEntryId, 'entry-compaction');
+    assert.equal(snapshot?.entries[2]?.entryType, 'compaction');
+  } finally {
+    database.close();
+  }
+});
+
 test('conversation snapshots keep variant rows separate from active path', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
@@ -1612,6 +1694,23 @@ type TitleGenerationHarness = {
     queue: ReturnType<typeof createAsyncQueue<ChatStreamEvent>>,
   ) => Promise<void>;
   abortConversationRun: (conversationId: string, runId: string) => Promise<boolean>;
+};
+
+type CompactStreamHarness = {
+  ensureSession: () => Promise<{
+    messages: Array<{role: string; content: string}>;
+    sessionFile: string;
+    sessionId: string;
+    compact: (instructions?: string) => Promise<void>;
+    sessionManager: {
+      getBranch: () => Array<unknown>;
+      getLeafId: () => string;
+    };
+  }>;
+  streamCompactConversation: (
+    conversationId: string,
+    customInstructions?: string,
+  ) => Promise<AsyncIterable<ChatStreamEvent>>;
 };
 
 async function collectAsyncQueue<T>(queue: AsyncIterable<T>): Promise<T[]> {

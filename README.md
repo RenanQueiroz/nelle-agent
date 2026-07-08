@@ -121,8 +121,8 @@ Not implemented yet:
   slash-command guidance, visible compaction status rows, and local
   `.nelle-chat.zip` export/import. Slot-level abort verification is still
   pending.
-- Complete REST/SSE run lifecycle coverage for compaction/background events and
-  llama.cpp slot-level abort verification.
+- Llama.cpp slot-level abort verification and authoritative post-compaction
+  context token recalculation.
 - Host-tool sandboxing and per-tool permission prompts. The current v1 gate is
   acknowledgement plus a global enable/disable switch.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for
@@ -195,7 +195,9 @@ other send-blocking chat errors appear above the composer. Nelle supports
 `/compact [instructions]` through Astryx slash-command typeahead by calling Pi
 `AgentSession.compact()` directly; commands such as `/new`, `/resume`, `/model`,
 `/login`, and `/logout` stay owned by Nelle UI controls. Composer stop calls
-`AgentSession.abortCompaction()` for an active compaction. The composer
+Nelle's run abort endpoint for active streamed compactions, with
+`AgentSession.abortCompaction()` as the server-side Pi cancellation primitive.
+The composer
 attachment drawer accepts text files, PDFs, and images. Text/PDF attachments are
 sent as extracted text by default; vision-capable models expose a PDF-as-image
 toggle that renders pages as image attachments. Images require selected-model

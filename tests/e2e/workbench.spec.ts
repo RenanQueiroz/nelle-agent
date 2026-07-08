@@ -1901,6 +1901,52 @@ async function mockConversationRoutes(
       });
       return;
     }
+    if (
+      pathname === '/api/conversations/poc-default/compact/stream' &&
+      request.method() === 'POST'
+    ) {
+      const body = request.postDataJSON() as {instructions?: string} | null;
+      input.onCompact?.(body?.instructions);
+      const runId = 'run-compact-e2e';
+      const createdAt = '2026-07-07T12:04:00.000Z';
+      const events = [
+        {
+          type: 'run.started',
+          runId,
+          conversationId: 'poc-default',
+          kind: 'compact',
+          modelId: 'model-1',
+          status: 'running',
+          createdAt,
+        },
+        {
+          type: 'compact.started',
+          runId,
+          conversationId: 'poc-default',
+          instructions: body?.instructions,
+          createdAt,
+        },
+        {
+          type: 'compact.completed',
+          runId,
+          conversationId: 'poc-default',
+          compacted: true,
+          createdAt,
+        },
+        {
+          type: 'run.completed',
+          runId,
+          conversationId: 'poc-default',
+          status: 'completed',
+          createdAt,
+        },
+      ];
+      await route.fulfill({
+        headers: {'content-type': 'text/event-stream; charset=utf-8'},
+        body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''),
+      });
+      return;
+    }
     if (pathname === '/api/conversations/poc-default/compact' && request.method() === 'POST') {
       const body = request.postDataJSON() as {instructions?: string} | null;
       input.onCompact?.(body?.instructions);

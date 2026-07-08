@@ -120,7 +120,7 @@ export class PiHarness {
     }
     const managed = this.#sessions.get(conversationId);
     if (!managed) {
-      return false;
+      return run.kind === 'compact';
     }
     this.conversations.setConversationStatus(conversationId, 'aborting');
     if (run.kind === 'compact') {
@@ -139,28 +139,94 @@ export class PiHarness {
     if (!activeModel) {
       throw new Error('Select a model before compacting conversation context.');
     }
+    return await this.runCompactConversation(conversationId, activeModel, customInstructions);
+  }
+
+  async streamCompactConversation(
+    conversationId: string,
+    customInstructions?: string,
+  ): Promise<AsyncIterable<ChatStreamEvent>> {
+    const queue = createAsyncQueue<ChatStreamEvent>();
+    void (async () => {
+      try {
+        const activeModel = await this.store.getActiveModel();
+        if (!activeModel) {
+          throw new Error('Select a model before compacting conversation context.');
+        }
+        await this.runCompactConversation(conversationId, activeModel, customInstructions, queue);
+      } catch (error) {
+        queue.push({
+          type: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        queue.end();
+      }
+    })();
+    return queue;
+  }
+
+  private async runCompactConversation(
+    conversationId: string,
+    activeModel: ConfiguredModel,
+    customInstructions?: string,
+    queue?: ReturnType<typeof createAsyncQueue<ChatStreamEvent>>,
+  ): Promise<{compacted: boolean}> {
     this.conversations.ensureConversation(conversationId, {
       defaultModelId: activeModel.id,
     });
+    const run = this.beginRun(conversationId, 'compact', activeModel.id);
     this.conversations.setConversationStatus(conversationId, 'compacting');
-
+    queue?.push(createRunStartedEvent(run));
+    queue?.push(createCompactStartedEvent(run, customInstructions));
     try {
       const session = await this.ensureSession(conversationId, activeModel);
+      if (run.abortRequested) {
+        queue?.push(createRunAbortedEvent(run, 'user'));
+        queue?.push(createRunCompletedEvent(run, 'aborted'));
+        return {compacted: false};
+      }
       if ((session.messages?.length ?? 0) === 0) {
         throw new Error('There is no conversation context to compact.');
       }
       await session.compact(customInstructions?.trim() || undefined);
       this.syncPiConversation(conversationId, session, activeModel, undefined, 'compacting');
+      if (run.abortRequested) {
+        queue?.push(createRunAbortedEvent(run, 'user'));
+        queue?.push(createRunCompletedEvent(run, 'aborted'));
+        return {compacted: false};
+      }
+      queue?.push(createCompactCompletedEvent(run));
+      queue?.push(createRunCompletedEvent(run, 'completed'));
       return {compacted: true};
+    } catch (error) {
+      if (run.abortRequested) {
+        queue?.push(createRunAbortedEvent(run, 'user'));
+        queue?.push(createRunCompletedEvent(run, 'aborted'));
+        return {compacted: false};
+      }
+      const runError = {
+        code: 'compact_failed',
+        message: error instanceof Error ? error.message : String(error),
+        retryable: true,
+      };
+      queue?.push(createCompactFailedEvent(run, runError));
+      queue?.push(createRunCompletedEvent(run, 'failed', runError));
+      throw error;
     } finally {
+      this.finishRun(conversationId, run.runId);
       this.conversations.setConversationStatus(conversationId, 'ready');
     }
   }
 
   abortCompaction(conversationId: string): boolean {
+    const run = this.#activeRuns.get(conversationId);
+    if (run?.kind === 'compact') {
+      run.abortRequested = true;
+    }
     const managed = this.#sessions.get(conversationId);
     if (!managed) {
-      return false;
+      return run?.kind === 'compact';
     }
     managed.session.abortCompaction?.();
     this.conversations.setConversationStatus(conversationId, 'ready');
@@ -1253,6 +1319,43 @@ function createRunCompletedEvent(
     runId: run.runId,
     conversationId: run.conversationId,
     status,
+    error,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function createCompactStartedEvent(
+  run: ActiveRun,
+  instructions: string | undefined,
+): ChatStreamEvent {
+  const trimmedInstructions = instructions?.trim();
+  return {
+    type: 'compact.started',
+    runId: run.runId,
+    conversationId: run.conversationId,
+    instructions: trimmedInstructions || undefined,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function createCompactCompletedEvent(run: ActiveRun): ChatStreamEvent {
+  return {
+    type: 'compact.completed',
+    runId: run.runId,
+    conversationId: run.conversationId,
+    compacted: true,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function createCompactFailedEvent(
+  run: ActiveRun,
+  error: {code: string; message: string; retryable?: boolean},
+): ChatStreamEvent {
+  return {
+    type: 'compact.failed',
+    runId: run.runId,
+    conversationId: run.conversationId,
     error,
     createdAt: new Date().toISOString(),
   };

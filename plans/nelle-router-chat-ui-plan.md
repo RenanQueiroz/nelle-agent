@@ -174,8 +174,9 @@ Nelle currently differs from the target in these ways:
   streams now emit SSE envelopes with stable run ids and terminal
   `run.completed` events, `message.assistant.completed` final assistant events,
   first-turn title generation emits `title` run events, and `run.aborted` clears
-  UI run tracking/model locks. Compact run streaming and llama.cpp slot-level
-  verification are still pending.
+  UI run tracking/model locks. Manual compaction now streams `compact` run
+  lifecycle plus command-status events. Llama.cpp slot-level abort verification
+  and authoritative post-compaction token recalculation are still pending.
 - Done in the current sidebar: reset/delete/pin/rename actions moved out of the
   composer footer and into each conversation row's action menu, and large lists
   use TanStack virtualization inside an Astryx `SideNav` shell.
@@ -808,8 +809,10 @@ Slash-command UI:
 2. Require the active conversation to be idle for the first implementation.
    Reject while an assistant turn or another compaction is running and surface a
    composer top error.
-3. Call a conversation-scoped Nelle endpoint:
-   `POST /api/conversations/:id/compact`.
+3. Call a conversation-scoped Nelle stream endpoint:
+   `POST /api/conversations/:id/compact/stream`. Keep
+   `POST /api/conversations/:id/compact` as a compatibility JSON endpoint for
+   non-streaming callers.
 4. The server invokes `AgentSession.compact(instructions)` for the active
    conversation/session.
 5. Render a command/status row in the chat timeline with states such as
@@ -1183,6 +1186,7 @@ API shape:
 - `POST /api/conversations/:id/chat/stream`
 - `POST /api/conversations/:id/abort`
 - `POST /api/conversations/:id/compact`
+- `POST /api/conversations/:id/compact/stream`
 - `POST /api/conversations/:id/compact/abort`
 - `POST /api/conversations/:id/messages/:messageId/regenerate`
 
@@ -1299,6 +1303,9 @@ Durability rules:
 
 Core conversation events:
 
+Run-scoped events include `runId` and `conversationId` in the envelope and event
+data.
+
 - `run.started`: `{ kind: "chat" | "regenerate" | "compact" | "title", modelId?: string }`
 - `run.completed`: `{ status: "completed" | "aborted" | "failed", error?: NelleError }`
 - `run.aborted`: `{ reason: "user" | "server" | "runtime" }`
@@ -1408,10 +1415,10 @@ Conversation and run state machine:
 
 Abort behavior:
 
-- Done for chat/regenerate/title: add stable run ids and
+- Done for chat/regenerate/title/compact: add stable run ids and
   `POST /api/conversations/:id/runs/:runId/abort` for active run aborts. Keep
-  the older conversation abort endpoint as a fallback. Pending: compaction run
-  stream ids because compaction still uses a request/response endpoint.
+  the older conversation abort and compact-abort endpoints as fallbacks for
+  non-streaming callers.
 - The server validates that the run belongs to the conversation and is still
   active. Repeated abort requests are idempotent.
 - For chat/regenerate runs, call `AgentSession.abort()` on that conversation's
@@ -1778,14 +1785,16 @@ Exit criteria:
 - Done: typing `/` opens an Astryx-styled command typeahead showing `/compact`.
 - Done: `/compact` and `/compact <instructions>` run manual compaction for the
   active idle conversation and display visible progress/completion/failure rows.
+- Done: `/compact` uses the compact SSE endpoint with stable compact run ids,
+  `compact.started`, `compact.completed`, and `compact.failed` events.
 - Done: unsupported commands such as `/new`, `/resume`, `/model`, `/login`, and
   `/logout` are never sent to Pi as prompts and show actionable UI guidance.
 - Partially done: compaction completion re-applies the conversation snapshot so
   the context-window display refreshes when snapshot context changes.
   Authoritative post-compaction token recalculation remains pending until Nelle
   adds a tokenize estimate or Pi/llama exposes compaction context metrics.
-- Done: manual compaction uses Pi `AgentSession.compact()` and stop uses
-  `AgentSession.abortCompaction()`.
+- Done: manual compaction uses Pi `AgentSession.compact()` and stop prefers the
+  run abort endpoint, which calls `AgentSession.abortCompaction()` server-side.
 
 ### Phase 4: Title Generation
 

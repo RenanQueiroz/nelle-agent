@@ -177,6 +177,30 @@ export type ChatStreamEvent =
       error?: {code: string; message: string; retryable?: boolean};
       createdAt: string;
     }
+  | {
+      type: 'compact.started';
+      runId: string;
+      conversationId: string;
+      instructions?: string;
+      createdAt: string;
+    }
+  | {
+      type: 'compact.completed';
+      runId: string;
+      conversationId: string;
+      compacted: boolean;
+      tokensBefore?: number;
+      firstKeptEntryId?: string;
+      summaryPreview?: string;
+      createdAt: string;
+    }
+  | {
+      type: 'compact.failed';
+      runId: string;
+      conversationId: string;
+      error: {code: string; message: string; retryable?: boolean};
+      createdAt: string;
+    }
   | {type: 'user_message'; message: ChatMessage}
   | {type: 'assistant_start'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
   | {type: 'assistant_delta'; id: string; delta: string}

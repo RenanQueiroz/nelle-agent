@@ -79,7 +79,6 @@ import {
   activateModel,
   clearConversation,
   cloneConversation,
-  compactConversation,
   createConversation,
   deleteConversation,
   deleteAllConversations,
@@ -104,6 +103,7 @@ import {
   startRuntime,
   stopRuntime,
   subscribeLlamaModelEvents,
+  streamCompactConversation,
   streamConversationChat,
   streamRegenerateMessage,
   unloadLlamaModel,
@@ -1095,19 +1095,78 @@ export function App() {
     });
     const abortController = new AbortController();
     compactAbortController.current = abortController;
+    let completed = false;
     try {
-      const result = await compactConversation(
+      await streamCompactConversation(
         activeConversationId,
         instructions || undefined,
+        event => {
+          applyChatEvent(event);
+          if (event.type === 'run.started' && event.kind === 'compact') {
+            updateCommandRow(commandRow.id, {
+              runId: event.runId,
+              status: 'compacting',
+              message: 'Compacting conversation context...',
+            });
+          }
+          if (event.type === 'compact.started') {
+            updateCommandRow(commandRow.id, {
+              runId: event.runId,
+              status: 'compacting',
+              instructions: event.instructions ?? instructions,
+              message: 'Compacting conversation context...',
+            });
+          }
+          if (event.type === 'compact.completed') {
+            completed = true;
+            updateCommandRow(commandRow.id, {
+              runId: event.runId,
+              status: 'completed',
+              message: 'Conversation compacted.',
+              completedAt: event.createdAt,
+            });
+          }
+          if (event.type === 'compact.failed') {
+            updateCommandRow(commandRow.id, {
+              runId: event.runId,
+              status: 'failed',
+              message: event.error.message,
+              completedAt: event.createdAt,
+            });
+            setComposerError(event.error.message);
+          }
+          if (event.type === 'run.aborted') {
+            updateCommandRow(commandRow.id, {
+              runId: event.runId,
+              status: 'aborted',
+              message: 'Compaction stopped.',
+              completedAt: event.createdAt,
+            });
+            setComposerWarning('Compaction stopped.');
+          }
+          if (event.type === 'run.completed' && event.status === 'aborted') {
+            updateCommandRow(commandRow.id, {
+              runId: event.runId,
+              status: 'aborted',
+              message: 'Compaction stopped.',
+              completedAt: event.createdAt,
+            });
+          }
+          if (event.type === 'error') {
+            updateCommandRow(commandRow.id, {
+              status: 'failed',
+              message: event.message,
+              completedAt: new Date().toISOString(),
+            });
+          }
+        },
         abortController.signal,
       );
-      applyConversationSnapshot(result.snapshot, setMessages, setContextUsage);
-      await refreshConversations(activeConversationId);
-      updateCommandRow(commandRow.id, {
-        status: 'completed',
-        message: 'Conversation compacted.',
-        completedAt: new Date().toISOString(),
-      });
+      if (completed) {
+        const snapshot = await getConversation(activeConversationId);
+        applyConversationSnapshot(snapshot, setMessages, setContextUsage);
+        await refreshConversations(activeConversationId);
+      }
     } catch (error) {
       if (isAbortError(error)) {
         updateCommandRow(commandRow.id, {
@@ -1274,7 +1333,15 @@ export function App() {
   async function handleStopCompaction() {
     compactAbortController.current?.abort();
     await runAction('abort-compaction', async () => {
-      await abortConversationCompaction(activeConversationId);
+      const runId = activeRunIds[activeConversationId];
+      const abortRequest = runId
+        ? abortConversationRun(activeConversationId, runId)
+        : abortConversationCompaction(activeConversationId);
+      setActiveRunIds(previous => removeActiveRunId(previous, activeConversationId, runId));
+      if (runId) {
+        setActiveRunModelsById(previous => removeRunModel(previous, runId));
+      }
+      await abortRequest;
       updateActiveCompactionRows({
         status: 'aborted',
         message: 'Compaction stopped.',
@@ -1762,6 +1829,7 @@ type CommandStatusRow = {
   id: string;
   conversationId: string;
   kind: 'compact';
+  runId?: string;
   status: 'pending' | 'compacting' | 'completed' | 'failed' | 'aborted';
   instructions: string;
   message: string;

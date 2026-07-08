@@ -97,8 +97,9 @@ The first product experience should be UI-driven:
 - Chat slash commands are Nelle allowlisted. Support `/compact [instructions]`
   first, and route session, model, auth, settings, export, and copy workflows
   through Nelle UI controls instead of Pi's interactive slash commands.
-  `/compact` should call Pi `AgentSession.compact()` directly, and stop during
-  compaction should call `AgentSession.abortCompaction()`.
+  `/compact` should call Pi `AgentSession.compact()` through Nelle's compact
+  stream endpoint, and stop during compaction should use Nelle's run abort
+  endpoint, which calls `AgentSession.abortCompaction()` server-side.
 - Each Nelle conversation maps to exactly one Pi session JSONL file. Pi owns
   message history, compaction, and branch/tree state; SQLite owns Nelle's
   conversation index, projections, and sidecar UI metadata.
@@ -291,9 +292,11 @@ Intentional POC limitations:
   pending.
 - Chat/regenerate streams now emit SSE envelopes with stable run ids, terminal
   run events, `message.assistant.completed` final assistant events, and
-  first-turn title generation `title` run events. Aborted run events clear UI
-  run tracking and model locks. Full branch tree exploration, compact run
-  streaming, and slot-level abort verification are still pending.
+  first-turn title generation `title` run events. Manual compaction streams
+  `compact` run lifecycle and command-status events. Aborted run events clear UI
+  run tracking and model locks. Full branch tree exploration, slot-level abort
+  verification, and authoritative post-compaction token recalculation are still
+  pending.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are gated through a Settings acknowledgement/global disable switch
