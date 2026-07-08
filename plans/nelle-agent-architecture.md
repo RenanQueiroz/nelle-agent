@@ -281,8 +281,9 @@ Intentional POC limitations:
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are enabled through Pi and remain unsandboxed.
-- Attachment export/import, PDF-as-image mode, and attachment file garbage
-  collection on hard delete are still pending.
+- Attachment export/import, PDF-as-image mode, and broader orphan cleanup sweeps
+  are still pending. Direct hard delete removes the conversation's Pi session
+  file and unreferenced attachment files.
 - The UI is adapted from Astryx `ai-chat` and `ai-chat-landing` templates, but
   the raw generated template files are not kept in `src`.
 

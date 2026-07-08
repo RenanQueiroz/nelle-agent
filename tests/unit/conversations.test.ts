@@ -545,6 +545,100 @@ test('Pi fork from a user entry creates a durable new session file', async () =>
   }
 });
 
+test('conversation delete removes owned session files and unreferenced attachments', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  const privateAttachmentPath = path.join(paths.attachmentsDir, 'aa', 'private.bin');
+  const sharedAttachmentPath = path.join(paths.attachmentsDir, 'bb', 'shared.bin');
+  const sessionPath = path.join(paths.piSessionsDir, 'delete-me.jsonl');
+  let targetId = '';
+  let keeperId = '';
+  try {
+    await fs.mkdir(path.dirname(privateAttachmentPath), {recursive: true});
+    await fs.mkdir(path.dirname(sharedAttachmentPath), {recursive: true});
+    await fs.mkdir(paths.piSessionsDir, {recursive: true});
+    await fs.writeFile(privateAttachmentPath, 'private attachment');
+    await fs.writeFile(sharedAttachmentPath, 'shared attachment');
+    await fs.writeFile(sessionPath, '{"type":"session","id":"delete-me"}\n');
+
+    const repository = new ConversationRepository(database);
+    const target = repository.createConversation({title: 'Delete target'});
+    const keeper = repository.createConversation({title: 'Keep shared file'});
+    targetId = target.id;
+    keeperId = keeper.id;
+    repository.attachPiSession(target.id, {
+      piSessionPath: sessionPath,
+      piSessionId: 'delete-me',
+      activeLeafPiEntryId: 'user-1',
+    });
+    for (const conversationId of [target.id, keeper.id]) {
+      repository.replaceConversationProjection(conversationId, {
+        activeLeafPiEntryId: 'user-1',
+        lastSyncedPiEntryId: 'user-1',
+        entries: [
+          {
+            piEntryId: 'user-1',
+            entryType: 'message',
+            role: 'user',
+            text: 'Attached',
+            createdAt: '2026-07-08T12:00:00.000Z',
+          },
+        ],
+      });
+    }
+    repository.createPendingAttachments(target.id, [
+      {
+        uploadId: 'private',
+        kind: 'image',
+        name: 'private.bin',
+        storagePath: 'attachments/aa/private.bin',
+        processing: {status: 'ready'},
+      },
+      {
+        uploadId: 'shared-target',
+        kind: 'image',
+        name: 'shared.bin',
+        storagePath: 'attachments/bb/shared.bin',
+        processing: {status: 'ready'},
+      },
+    ]);
+    repository.bindAttachmentsToEntry(target.id, ['private', 'shared-target'], 'user-1');
+    repository.createPendingAttachments(keeper.id, [
+      {
+        uploadId: 'shared-keeper',
+        kind: 'image',
+        name: 'shared.bin',
+        storagePath: 'attachments/bb/shared.bin',
+        processing: {status: 'ready'},
+      },
+    ]);
+    repository.bindAttachmentsToEntry(keeper.id, ['shared-keeper'], 'user-1');
+  } finally {
+    database.close();
+  }
+
+  const app = await createServer(paths);
+  try {
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/api/conversations/${targetId}`,
+    });
+    assert.equal(deleteResponse.statusCode, 200);
+    assert.equal(deleteResponse.json<{cleanup: {deleted: number}}>().cleanup.deleted, 2);
+    await assert.rejects(() => fs.access(sessionPath), {code: 'ENOENT'});
+    await assert.rejects(() => fs.access(privateAttachmentPath), {code: 'ENOENT'});
+    await fs.access(sharedAttachmentPath);
+    const keeperResponse = await app.inject({
+      method: 'GET',
+      url: `/api/conversations/${keeperId}`,
+    });
+    assert.equal(keeperResponse.statusCode, 200);
+  } finally {
+    await app.close();
+  }
+});
+
 test('Pi title generation stores sanitized first-turn title without adding history', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
@@ -942,7 +1036,7 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
       url: `/api/conversations/${created.id}`,
     });
     assert.equal(deleteResponse.statusCode, 200);
-    assert.deepEqual(deleteResponse.json(), {ok: true});
+    assert.equal(deleteResponse.json<{ok: boolean}>().ok, true);
   } finally {
     await app.close();
   }

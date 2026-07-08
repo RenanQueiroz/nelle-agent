@@ -98,9 +98,9 @@ Not implemented yet:
 - Local `.nelle-chat.zip` conversation export/import, including Pi session
   files, Nelle sidecar metadata, attachments, model manifest snapshots, and
   tool audit rows.
-- Attachment file cleanup during hard delete/export/import. Attachment rows are
-  persisted and bound to messages, but full archive/garbage-collection flows are
-  still pending.
+- Attachment export/import and broader garbage-collection flows. Direct hard
+  delete now removes the conversation's Pi session file and unreferenced
+  attachment files, while archive round trips are still pending.
 - Host-tool first-run acknowledgement, global disable switch, and durable tool
   audit storage. Sandboxing remains later.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for

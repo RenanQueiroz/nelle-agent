@@ -13,7 +13,11 @@ import {PiHarness} from './piHarness';
 import {streamDirectLlama} from './directLlama';
 import {AppStore} from './store';
 import {AppDatabase} from './database';
-import {ConversationRepository, POC_CONVERSATION_ID} from './conversations';
+import {
+  ConversationRepository,
+  POC_CONVERSATION_ID,
+  type ConversationDeleteResources,
+} from './conversations';
 import type {AppPaths} from './paths';
 import type {ChatAttachmentInput, ChatStreamEvent} from './types';
 import {chatRequestSchema} from '../../../packages/shared/src/contracts.ts';
@@ -240,10 +244,12 @@ export async function createServer(paths: AppPaths) {
   });
 
   app.delete('/api/conversations', async () => {
+    const resources = conversations.getAllConversationDeleteResources();
     conversations.hardDeleteAllConversations();
+    const cleanup = await deleteConversationResources(paths, resources);
     await store.clearChat();
     pi.resetSession();
-    return {ok: true};
+    return {ok: true, cleanup};
   });
 
   app.get('/api/conversations/:id', async (request, reply) => {
@@ -309,6 +315,15 @@ export async function createServer(paths: AppPaths) {
 
   app.delete('/api/conversations/:id', async (request, reply) => {
     const id = (request.params as {id: string}).id;
+    const resources = conversations.getConversationDeleteResources(id);
+    if (!resources) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
     if (!conversations.hardDeleteConversation(id)) {
       return reply.status(404).send({
         error: {
@@ -321,7 +336,8 @@ export async function createServer(paths: AppPaths) {
     if (id === POC_CONVERSATION_ID) {
       await store.clearChat();
     }
-    return {ok: true};
+    const cleanup = await deleteConversationResources(paths, resources);
+    return {ok: true, cleanup};
   });
 
   app.delete('/api/conversations/:id/messages', async (request, reply) => {
@@ -651,4 +667,79 @@ async function hasBuiltWeb(webDistDir: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+type FileCleanupResult = {
+  deleted: number;
+  skipped: number;
+  failed: Array<{path: string; message: string}>;
+};
+
+async function deleteConversationResources(
+  paths: AppPaths,
+  resources: ConversationDeleteResources,
+): Promise<FileCleanupResult> {
+  const result: FileCleanupResult = {deleted: 0, skipped: 0, failed: []};
+  for (const sessionPath of resources.piSessionPaths) {
+    await unlinkOwnedPath(paths.piSessionsDir, sessionPath, result);
+  }
+  for (const storagePath of resources.attachmentStoragePaths) {
+    const attachmentPath = resolveRelativeDataPath(paths.dataDir, storagePath);
+    if (!attachmentPath) {
+      result.skipped += 1;
+      continue;
+    }
+    await unlinkOwnedPath(paths.dataDir, attachmentPath, result, paths.attachmentsDir);
+  }
+  return result;
+}
+
+async function unlinkOwnedPath(
+  root: string,
+  candidatePath: string,
+  result: FileCleanupResult,
+  pruneRoot = root,
+): Promise<void> {
+  const resolvedRoot = path.resolve(root);
+  const resolvedPath = path.resolve(candidatePath);
+  if (!isPathWithin(resolvedPath, resolvedRoot) || resolvedPath === resolvedRoot) {
+    result.skipped += 1;
+    return;
+  }
+  try {
+    await fs.unlink(resolvedPath);
+    result.deleted += 1;
+    await pruneEmptyParents(path.dirname(resolvedPath), pruneRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      result.skipped += 1;
+      return;
+    }
+    result.failed.push({
+      path: resolvedPath,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function resolveRelativeDataPath(dataDir: string, relativePath: string): string | null {
+  const resolved = path.resolve(dataDir, ...relativePath.split('/'));
+  return isPathWithin(resolved, path.resolve(dataDir)) ? resolved : null;
+}
+
+async function pruneEmptyParents(start: string, root: string): Promise<void> {
+  const resolvedRoot = path.resolve(root);
+  let current = path.resolve(start);
+  while (isPathWithin(current, resolvedRoot) && current !== resolvedRoot) {
+    try {
+      await fs.rmdir(current);
+    } catch {
+      return;
+    }
+    current = path.dirname(current);
+  }
+}
+
+function isPathWithin(candidatePath: string, root: string): boolean {
+  return candidatePath === root || candidatePath.startsWith(`${root}${path.sep}`);
 }

@@ -130,6 +130,11 @@ export type RegenerationSource = {
   displayGroupId: string;
 };
 
+export type ConversationDeleteResources = {
+  piSessionPaths: string[];
+  attachmentStoragePaths: string[];
+};
+
 export class ConversationRepository {
   constructor(private readonly database: AppDatabase) {}
 
@@ -681,6 +686,51 @@ export class ConversationRepository {
     return result.changes > 0;
   }
 
+  getConversationDeleteResources(id: string): ConversationDeleteResources | null {
+    const row = this.getConversation(id);
+    if (!row) {
+      return null;
+    }
+    const attachmentRows = this.database.connection
+      .prepare(
+        `SELECT DISTINCT storage_path
+         FROM message_attachments
+         WHERE conversation_id = ? AND storage_path IS NOT NULL`,
+      )
+      .all(id) as Array<{storage_path: string}>;
+    const attachmentStoragePaths = attachmentRows
+      .map(item => item.storage_path)
+      .filter(
+        storagePath => !this.isAttachmentStorageReferencedByOtherConversation(storagePath, id),
+      );
+
+    return {
+      piSessionPaths: row.pi_session_path ? [row.pi_session_path] : [],
+      attachmentStoragePaths,
+    };
+  }
+
+  getAllConversationDeleteResources(): ConversationDeleteResources {
+    const piRows = this.database.connection
+      .prepare(
+        `SELECT DISTINCT pi_session_path
+         FROM conversations
+         WHERE pi_session_path IS NOT NULL`,
+      )
+      .all() as Array<{pi_session_path: string}>;
+    const attachmentRows = this.database.connection
+      .prepare(
+        `SELECT DISTINCT storage_path
+         FROM message_attachments
+         WHERE storage_path IS NOT NULL`,
+      )
+      .all() as Array<{storage_path: string}>;
+    return {
+      piSessionPaths: piRows.map(row => row.pi_session_path),
+      attachmentStoragePaths: attachmentRows.map(row => row.storage_path),
+    };
+  }
+
   hardDeleteAllConversations(): void {
     const db = this.database.connection;
     db.exec('DELETE FROM conversations;');
@@ -939,6 +989,20 @@ export class ConversationRepository {
       conversationId,
       title,
     );
+  }
+
+  private isAttachmentStorageReferencedByOtherConversation(
+    storagePath: string,
+    conversationId: string,
+  ): boolean {
+    const row = this.database.connection
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM message_attachments
+         WHERE storage_path = ? AND conversation_id != ?`,
+      )
+      .get(storagePath, conversationId) as {count: number};
+    return row.count > 0;
   }
 }
 

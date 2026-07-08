@@ -154,8 +154,8 @@ Nelle currently differs from the target in these ways:
 - The web UI has side panels for runtime/model setup plus a collapsible,
   virtualized conversation sidebar with search, pinned/recent groups,
   new-chat, running indicators, and row actions. The final Astryx SideNav
-  shell, dedicated Settings placement, export, duplicate, and fork actions are
-  still pending.
+  shell, dedicated Settings placement, and export/import actions are still
+  pending.
 - The server now exposes conversation snapshots and
   `/api/conversations/:id/chat/stream`. Each streamed conversation is bound to
   one Pi JSONL session file under `.nelle/pi/sessions`, and existing session
@@ -169,16 +169,16 @@ Nelle currently differs from the target in these ways:
   states, and llama.cpp slot-level verification are still pending.
 - Done in the current sidebar: reset/delete/pin/rename actions moved out of the
   composer footer and into each conversation row's action menu, and large lists
-  use TanStack virtualization. Final SideNav styling plus export/fork/duplicate
-  actions are still pending.
+  use TanStack virtualization. Fork/duplicate actions are implemented. Final
+  SideNav styling plus export/import actions are still pending.
 - Model import/edit UX is split between app state and generated preset writes.
   The POC UI can call router model list/load/unload/reload APIs, but model
   editing has not moved into Settings yet.
 - Done: the composer has an attachment drawer, file picker, paste/drop handling,
   SQLite metadata persistence, content-addressed image storage under
   `.nelle/attachments/`, and selected-model vision gating for images. Text files
-  and PDFs are sent as extracted text. Optional PDF-as-image mode, export/import,
-  and hard-delete file garbage collection remain pending.
+  and PDFs are sent as extracted text. Direct hard-delete cleanup is
+  implemented. Optional PDF-as-image mode and export/import remain pending.
 - Chat send-blocking errors and warnings now use composer-local Astryx status
   for the chat workflow. Runtime/setup notices outside chat can still appear in
   the page-level workbench notices.
@@ -1623,8 +1623,8 @@ Exit criteria:
   rows without overwriting existing conversations.
 - Inactive Pi branches are preserved in session files and are not dropped by
   projection rebuilds.
-- Conversation delete removes SQLite rows, the Pi session file, and attachment
-  files.
+- Done: conversation delete removes SQLite rows, the Pi session file, and
+  unreferenced attachment files.
 
 ### Phase 3B: Assistant Footer Actions
 
@@ -1669,8 +1669,9 @@ Exit criteria:
   PDF-as-image conversion for vision models.
 - Done: add attachment size/count/text extraction limits and content-hash
   storage. No server temp upload API exists yet; unsent drafts are client-only.
-  Pending: hard-delete file garbage collection and delete/export/import
-  integration.
+- Done: conversation hard delete removes the Pi session file and unreferenced
+  attachment files. Pending: export/import attachment integration and broader
+  orphan cleanup sweeps.
 - Done for images: gate image attachments on selected-model vision support from
   `/api/llama/models/:id/props`. Pending: PDF-as-image mode.
 - Done: add composer `ProgressBar` for context-window usage with tooltip token

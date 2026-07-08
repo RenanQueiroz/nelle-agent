@@ -109,6 +109,9 @@ Project-specific guidance for AI coding agents.
   text/PDF files are extracted in the web app, images are base64-normalized and
   stored content-addressed under `.nelle/attachments/` after send, and metadata
   is bound to the resulting Pi user entry in SQLite.
+- Conversation hard delete removes the deleted conversation's Pi session file
+  and only unreferenced attachment files. Keep file cleanup constrained to
+  Nelle-owned data/session directories.
 - Show context-window usage through the Astryx `ChatComposer` header
   `ProgressBar` with tooltip token counts. Use composer top status for
   send-blocking errors and bottom status for non-blocking warnings.
