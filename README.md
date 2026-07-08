@@ -162,10 +162,11 @@ by Nelle UI controls. Composer stop calls `AgentSession.abortCompaction()` for
 an active compaction.
 
 Assistant message metadata shows the message time, the model alias that
-generated the assistant response, copy/regenerate actions, and llama.cpp
-throughput, for example `prompt 32.30 tok/s · gen 21.53 tok/s`. The footer model
-menu regenerates that answer with a selected configured model without changing
-the composer model.
+generated the assistant response, copy/regenerate actions, and a toggleable
+llama.cpp statistics widget. Reading shows prompt tokens, prompt processing
+time, and prompt processing speed; Generation shows generated tokens,
+generation time, and generation speed. The footer model menu regenerates that
+answer with a selected configured model without changing the composer model.
 Nelle points Pi at an internal `/api/llama-proxy/v1` provider, which forwards
 requests to llama.cpp unchanged except for enabling `return_progress`,
 `sse_ping_interval`, and `timings_per_token` on streamed requests. The proxy

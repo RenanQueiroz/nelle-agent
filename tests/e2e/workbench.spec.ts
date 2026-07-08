@@ -313,7 +313,22 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
   await expect(page.getByText('Hello from Nelle.')).toBeVisible();
   await expect(page.getByText(model.name).first()).toBeVisible();
   await expect(page.getByRole('button', {name: 'Copy response'})).toBeVisible();
-  await expect(page.getByText('prompt 32.30 tok/s · gen 21.53 tok/s')).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Reading (prompt processing)'})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Generation (token output)'})).toBeVisible();
+  await expect(page.getByText('44 tokens')).toBeVisible();
+  await expect(page.getByText('1.36s')).toBeVisible();
+  await expect(page.getByText('32.30 t/s')).toBeVisible();
+
+  await page.getByText('32.30 t/s').hover();
+  await expect(page.getByText('Prompt processing speed')).toBeVisible();
+
+  await page.getByRole('button', {name: 'Generation (token output)'}).click();
+  await expect(page.getByText('6 tokens')).toBeVisible();
+  await expect(page.getByText('279ms')).toBeVisible();
+  await expect(page.getByText('21.53 t/s')).toBeVisible();
+
+  await page.getByText('21.53 t/s').hover();
+  await expect(page.getByText('Generation speed')).toBeVisible();
 });
 
 test('regenerates an assistant response from the footer model picker', async ({page}) => {

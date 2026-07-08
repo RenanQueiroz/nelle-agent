@@ -252,7 +252,8 @@ manual `/compact [instructions]` through Pi `AgentSession.compact()` plus
 first-turn generated conversation titles through a non-Pi llama.cpp prompt,
 assistant message model snapshots plus footer copy/regenerate actions,
 Pi-native assistant regeneration through branch replay with optional model
-override,
+override, and a toggleable Reading/Generation assistant performance stats
+widget,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for
 startup and configuration diagnostics, and the POC model panel can show router
@@ -691,8 +692,8 @@ Exit criteria:
 - Pi SDK uses Nelle's local llama.cpp proxy provider.
 - Web UI can create a session and stream assistant output.
 - Web UI displays llama.cpp prompt-processing and generation throughput beside
-  assistant message timestamps when the server reports it. The final toggleable
-  Reading/Generation stats view with icon tooltips is still planned.
+  assistant message timestamps when the server reports it, using a toggleable
+  Reading/Generation stats view with icon tooltips.
 - Web UI shows composer-local errors and warnings through Astryx
   `ChatComposer.status` rather than page-level chat notices.
 - Web UI displays which model generated each assistant message and supports

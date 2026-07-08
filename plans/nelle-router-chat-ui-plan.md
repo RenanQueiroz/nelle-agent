@@ -862,7 +862,7 @@ icon buttons with accessible labels/tooltips for copy and regenerate.
 
 ### Performance Statistics View
 
-Replace the current plain `prompt 32.30 tok/s · gen 21.53 tok/s` footer text
+Replace the previous plain `prompt 32.30 tok/s · gen 21.53 tok/s` footer text
 with a compact statistics widget modeled after llama.cpp's
 `ChatMessageStatistics`.
 
@@ -1603,12 +1603,11 @@ Exit criteria:
 
 - Done: persist `model_id`, `model_runtime_id`, and `model_alias_snapshot` on
   assistant messages.
-- Partially done: replace the metadata footer string with a composed footer row
-  containing timestamp, model dropdown, plain performance text, copy, and
-  regenerate controls. The Reading/Generation statistics widget is still
-  pending.
-- Replace the old throughput text with a Reading/Generation statistics widget
-  that shows tokens, elapsed time, and speed for the active view.
+- Done: replace the metadata footer string with a composed footer row
+  containing timestamp, model dropdown, Reading/Generation statistics widget,
+  copy, and regenerate controls.
+- Done: replace the old throughput text with a Reading/Generation statistics
+  widget that shows tokens, elapsed time, and speed for the active view.
 - Done: add Pi-native model override regeneration through the assistant footer
   model selector. The current POC polls `/api/llama/models` after requesting a
   load; the final router-aware selector should use the router SSE store.
@@ -1624,8 +1623,9 @@ Exit criteria:
   `display_group_id` metadata. Visible grouped variant UI is still pending.
 - Copy writes the assistant text to the clipboard. Visible toast/status feedback
   is still pending.
-- Timing metrics render as a toggleable Reading/Generation widget with icon
-  controls and tooltips, without layout overflow on mobile or desktop widths.
+- Done: timing metrics render as a toggleable Reading/Generation widget with
+  icon controls and tooltips, without layout overflow on mobile or desktop
+  widths.
 
 ### Phase 3C: Composer Attachments And Context Usage
 

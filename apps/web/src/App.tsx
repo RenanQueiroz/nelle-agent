@@ -24,18 +24,24 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Token} from '@astryxdesign/core/Token';
+import {Tooltip} from '@astryxdesign/core/Tooltip';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Icon} from '@astryxdesign/core/Icon';
 import {
   ArrowPathIcon,
   ArrowDownTrayIcon,
+  ArrowTrendingUpIcon,
+  BookOpenIcon,
   ChatBubbleLeftRightIcon,
   ClipboardDocumentIcon,
+  ClockIcon,
   CpuChipIcon,
+  DocumentTextIcon,
   EllipsisHorizontalIcon,
   MagnifyingGlassIcon,
   PlusIcon,
   PlayIcon,
+  SparklesIcon,
   StopIcon,
 } from '@heroicons/react/24/outline';
 
@@ -1160,7 +1166,7 @@ function renderMessageFooter(input: {
   onRegenerate: (message: ApiChatMessage, modelId?: string) => void | Promise<void>;
 }) {
   const {message, models, isActionDisabled, onRegenerate} = input;
-  const performance = formatChatPerformance(message.performance);
+  const hasPerformance = hasChatPerformance(message.performance);
   const modelLabel =
     message.role === 'assistant'
       ? (message.modelAliasSnapshot ??
@@ -1168,7 +1174,7 @@ function renderMessageFooter(input: {
         message.modelRuntimeId ??
         message.modelId)
       : undefined;
-  if (!performance && !modelLabel && message.role !== 'assistant') {
+  if (!hasPerformance && !modelLabel && message.role !== 'assistant') {
     return undefined;
   }
 
@@ -1189,11 +1195,7 @@ function renderMessageFooter(input: {
           }))}
         />
       )}
-      {performance && (
-        <Text type="supporting" color="secondary">
-          {performance}
-        </Text>
-      )}
+      {hasPerformance && <PerformanceStatistics performance={message.performance!} />}
       {message.role === 'assistant' && (
         <>
           <IconButton
@@ -1215,6 +1217,110 @@ function renderMessageFooter(input: {
           />
         </>
       )}
+    </HStack>
+  );
+}
+
+type StatisticsView = 'reading' | 'generation';
+
+function PerformanceStatistics({performance}: {performance: ChatPerformance}) {
+  const promptMetric = performance.prompt;
+  const generationMetric = getGenerationMetric(performance);
+  const hasPrompt = hasPerformanceMetric(promptMetric);
+  const hasGeneration = hasPerformanceMetric(generationMetric);
+  const [view, setView] = useState<StatisticsView>(() =>
+    hasGeneration && !hasPrompt ? 'generation' : 'reading',
+  );
+  const sawGeneration = useRef(hasGeneration);
+
+  useEffect(() => {
+    if (hasGeneration && !sawGeneration.current) {
+      setView('generation');
+    }
+    sawGeneration.current = hasGeneration;
+  }, [hasGeneration]);
+
+  useEffect(() => {
+    if (view === 'generation' && !hasGeneration) {
+      setView('reading');
+    }
+    if (view === 'reading' && !hasPrompt && hasGeneration) {
+      setView('generation');
+    }
+  }, [hasGeneration, hasPrompt, view]);
+
+  const metric = view === 'generation' ? generationMetric : promptMetric;
+  const metrics =
+    view === 'generation'
+      ? [
+          {
+            label: 'Generated tokens',
+            value: formatTokenCount(metric?.tokens),
+            icon: DocumentTextIcon,
+          },
+          {
+            label: 'Generation time',
+            value: formatMilliseconds(metric?.milliseconds),
+            icon: ClockIcon,
+          },
+          {
+            label: 'Generation speed',
+            value: formatTokensPerSecond(metric?.tokensPerSecond),
+            icon: ArrowTrendingUpIcon,
+          },
+        ]
+      : [
+          {
+            label: 'Prompt tokens',
+            value: formatTokenCount(metric?.tokens),
+            icon: DocumentTextIcon,
+          },
+          {
+            label: 'Prompt processing time',
+            value: formatMilliseconds(metric?.milliseconds),
+            icon: ClockIcon,
+          },
+          {
+            label: 'Prompt processing speed',
+            value: formatTokensPerSecond(metric?.tokensPerSecond),
+            icon: ArrowTrendingUpIcon,
+          },
+        ];
+
+  return (
+    <HStack gap={1} vAlign="center" wrap="wrap">
+      <HStack gap={0.5} vAlign="center">
+        <IconButton
+          label="Reading (prompt processing)"
+          tooltip="Reading (prompt processing)"
+          size="sm"
+          variant={view === 'reading' ? 'primary' : 'ghost'}
+          icon={<Icon icon={BookOpenIcon} size="sm" />}
+          isDisabled={!hasPrompt}
+          onClick={() => setView('reading')}
+        />
+        <IconButton
+          label="Generation (token output)"
+          tooltip="Generation (token output)"
+          size="sm"
+          variant={view === 'generation' ? 'primary' : 'ghost'}
+          icon={<Icon icon={SparklesIcon} size="sm" />}
+          isDisabled={!hasGeneration}
+          onClick={() => setView('generation')}
+        />
+      </HStack>
+      <HStack gap={0.5} vAlign="center" wrap="wrap">
+        {metrics.map(item => (
+          <Tooltip key={item.label} content={item.label}>
+            <Token
+              size="sm"
+              color="gray"
+              label={item.value}
+              icon={<Icon icon={item.icon} size="sm" />}
+            />
+          </Tooltip>
+        ))}
+      </HStack>
     </HStack>
   );
 }
@@ -1281,41 +1387,60 @@ function renderToolCallDetail(call: NonNullable<ApiChatMessage['toolCalls']>[num
   );
 }
 
-function formatChatPerformance(performance: ChatPerformance | undefined): string | undefined {
+function hasChatPerformance(performance: ChatPerformance | undefined): boolean {
   if (!performance) {
-    return undefined;
+    return false;
   }
-  const parts = [
-    formatPerformanceMetric('prompt', performance.prompt),
-    formatPerformanceMetric(
-      'gen',
-      performance.generation ??
-        (performance.tokensPerSecond == null
-          ? undefined
-          : {
-              tokens: performance.generatedTokens ?? 0,
-              tokensPerSecond: performance.tokensPerSecond,
-            }),
-    ),
-  ].filter(part => part != null);
-  return parts.length > 0 ? parts.join(' · ') : undefined;
+  return (
+    hasPerformanceMetric(performance.prompt) ||
+    hasPerformanceMetric(getGenerationMetric(performance))
+  );
 }
 
-function formatPerformanceMetric(
-  label: string,
-  metric: ChatPerformanceMetric | undefined,
-): string | undefined {
-  if (!metric || !Number.isFinite(metric.tokensPerSecond)) {
-    return undefined;
-  }
-  return `${label} ${formatTokensPerSecond(metric.tokensPerSecond)}`;
+function getGenerationMetric(performance: ChatPerformance): ChatPerformanceMetric | undefined {
+  return (
+    performance.generation ??
+    (performance.tokensPerSecond == null
+      ? undefined
+      : {
+          tokens: performance.generatedTokens ?? 0,
+          tokensPerSecond: performance.tokensPerSecond,
+        })
+  );
 }
 
-function formatTokensPerSecond(value: number): string {
+function hasPerformanceMetric(metric: ChatPerformanceMetric | undefined): boolean {
+  return Boolean(
+    metric &&
+    (Number.isFinite(metric.tokens) ||
+      Number.isFinite(metric.milliseconds) ||
+      Number.isFinite(metric.tokensPerSecond)),
+  );
+}
+
+function formatTokenCount(value: number | undefined): string {
   if (value == null || !Number.isFinite(value)) {
-    return '0 tok/s';
+    return '--';
   }
-  return `${value.toFixed(2)} tok/s`;
+  const rounded = Math.max(0, Math.round(value));
+  return `${rounded.toLocaleString()} ${rounded === 1 ? 'token' : 'tokens'}`;
+}
+
+function formatMilliseconds(value: number | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return '--';
+  }
+  if (value < 1000) {
+    return `${Math.max(0, value).toFixed(0)}ms`;
+  }
+  return `${(value / 1000).toFixed(2)}s`;
+}
+
+function formatTokensPerSecond(value: number | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return '--';
+  }
+  return `${value.toFixed(2)} t/s`;
 }
 
 function mergeChatPerformance(
