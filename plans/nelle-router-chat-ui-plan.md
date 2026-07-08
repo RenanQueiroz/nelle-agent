@@ -1658,8 +1658,9 @@ Exit criteria:
 - Use Pi session entries and leaf ids for active path and branch state. Do not
   duplicate Pi's tree as independent Nelle truth.
 - Done in current pane: add collapsible conversation sidebar rail with new chat,
-  search, pinned/recent section rows, TanStack-virtualized list, running status
-  indicators, and item overflow menus, all hosted in an Astryx `SideNav` shell.
+  search, pinned/recent section rows, TanStack-virtualized list,
+  spinner-backed running status indicators, and item overflow menus, all hosted
+  in an Astryx `SideNav` shell.
 - Done in current row actions: pin/unpin, rename, reset, duplicate, and delete.
 - Done: add conversation delete/pin/rename/duplicate.
 - Done: add message-level fork into a new conversation, backed by Pi
@@ -1675,8 +1676,10 @@ Exit criteria:
 - Done: multiple conversations persist and can be searched.
 - Done: large conversation lists are rendered through a virtualized sidebar
   window instead of mounting every row.
-- Active conversation can stream while another conversation is visible in the
-  list with a running indicator.
+- Done: active conversation run state is tracked per conversation. One
+  conversation can keep streaming with a running sidebar indicator while the
+  user selects and sends from another ready conversation, and inactive stream
+  deltas do not mutate the visible transcript.
 - Forking from a persisted user message creates a new Nelle conversation with a
   new Pi session file and leaves the source conversation unchanged.
 - Duplicating a conversation creates a new Nelle conversation from the active Pi
@@ -2040,7 +2043,8 @@ Playwright tests:
   projections, and sidecar UI metadata.
 - Multiple Pi conversation runtimes may be active simultaneously when Pi and the
   local router can support them. Nelle only forbids concurrent runs within the
-  same conversation.
+  same conversation; the browser mirrors this with conversation-scoped run
+  state and per-conversation abort controllers.
 - The v1 browser transport is REST for commands/snapshots and SSE for
   conversation, router, runtime, log-tail, and install/build events.
 - Conversation snapshots are the recovery source after stream disconnects; v1

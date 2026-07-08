@@ -285,11 +285,12 @@ Intentional POC limitations:
   projections, but is not yet the primary database for all app state.
 - The web UI uses an Astryx `SideNav` shell with a collapsible, virtualized
   conversation sidebar, new-chat, search, pin/rename/reset/duplicate/delete row
-  actions, pinned/recent sections, and running indicators. User-message fork
-  and conversation duplicate create new Pi session files, and local
-  `.nelle-chat.zip` export/import creates new conversations. Settings is
-  implemented as a right-side panel; full branch tree exploration is still
-  pending.
+  actions, pinned/recent sections, and spinner-backed running indicators.
+  User-message fork and conversation duplicate create new Pi session files, and local
+  `.nelle-chat.zip` export/import creates new conversations. Browser run state
+  is conversation-scoped, so one conversation can keep streaming with a sidebar
+  indicator while another ready conversation is active. Settings is implemented
+  as a right-side panel; full branch tree exploration is still pending.
 - Chat/regenerate streams now emit SSE envelopes with stable run ids, terminal
   run events, `message.assistant.completed` final assistant events, and
   first-turn title generation `title` run events. Manual compaction streams

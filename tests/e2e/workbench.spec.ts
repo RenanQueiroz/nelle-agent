@@ -820,6 +820,163 @@ test('surfaces llama slot abort warnings from the composer stop action', async (
   await expect(page.getByText(warning).first()).toBeVisible();
 });
 
+test('keeps per-conversation run state while another chat is active', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'Model One',
+    presetName: 'model-one',
+    source: 'huggingface',
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    logPath: '/tmp/llama.log',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    modelsMax: 1,
+    sleepIdleSeconds: 90,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  const conversations = [
+    {
+      id: 'poc-default',
+      title: 'Primary chat',
+      titleSource: 'fallback',
+      pinned: false,
+      status: 'ready',
+      updatedAt: '2026-07-07T12:00:00.000Z',
+    },
+    {
+      id: 'second-chat',
+      title: 'Second chat',
+      titleSource: 'fallback',
+      pinned: false,
+      status: 'ready',
+      updatedAt: '2026-07-07T11:59:00.000Z',
+    },
+  ] satisfies MockConversation[];
+  const streamCalls: string[] = [];
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: model.id,
+            routerModelId: model.id,
+            alias: model.name,
+            hfRepo: model.hfRef,
+            status: 'loaded',
+            aliases: [model.id],
+          },
+        ],
+      },
+    });
+  });
+  await mockConversationRoutes(page, {chat: [], conversations});
+  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+    streamCalls.push('poc-default');
+    conversations[0]!.status = 'running';
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: `data: ${JSON.stringify({
+        type: 'run.started',
+        runId: 'run-primary',
+        conversationId: 'poc-default',
+        kind: 'chat',
+        modelId: model.id,
+        status: 'running',
+        createdAt: '2026-07-07T12:01:00.000Z',
+      })}\n\n`,
+    });
+  });
+  await page.route('**/api/conversations/second-chat/chat/stream', async route => {
+    streamCalls.push('second-chat');
+    conversations[1]!.status = 'running';
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: [
+        {
+          type: 'run.started',
+          runId: 'run-second',
+          conversationId: 'second-chat',
+          kind: 'chat',
+          modelId: model.id,
+          status: 'running',
+          createdAt: '2026-07-07T12:02:00.000Z',
+        },
+        {
+          type: 'run.completed',
+          runId: 'run-second',
+          conversationId: 'second-chat',
+          status: 'completed',
+          createdAt: '2026-07-07T12:02:01.000Z',
+        },
+      ]
+        .map(event => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    });
+  });
+
+  await page.goto('/');
+  await page.getByLabel('Message input').fill('start primary run');
+  await page.getByLabel('Message input').press('Enter');
+  await expect.poll(() => streamCalls).toContainEqual('poc-default');
+  await expect(
+    page.getByTestId('conversation-row-poc-default').getByText('running', {exact: true}),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByTestId('conversation-row-poc-default')
+      .getByRole('status', {name: 'Conversation running in progress'}),
+  ).toBeVisible();
+
+  await page.getByRole('button', {name: 'Second chat', exact: true}).click();
+  await expect(page.getByLabel('Message input')).toBeEnabled();
+  await page.getByLabel('Message input').fill('start second run');
+  await page.getByLabel('Message input').press('Enter');
+
+  await expect.poll(() => streamCalls).toEqual(['poc-default', 'second-chat']);
+  await expect(
+    page.getByTestId('conversation-row-poc-default').getByText('running', {exact: true}),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByTestId('conversation-row-poc-default')
+      .getByRole('status', {name: 'Conversation running in progress'}),
+  ).toBeVisible();
+});
+
 test('renders llama.cpp prompt and generation throughput in chat message metadata', async ({
   page,
 }) => {
@@ -1930,6 +2087,11 @@ test('virtualizes and collapses the conversation sidebar', async ({page}) => {
   await expect(page.getByTestId('conversation-section-recent')).toBeVisible();
   await expect(
     page.getByTestId('conversation-row-poc-default').getByText('running', {exact: true}),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByTestId('conversation-row-poc-default')
+      .getByRole('status', {name: 'Conversation running in progress'}),
   ).toBeVisible();
   await expect
     .poll(() => page.locator('[data-testid^="conversation-row-"]').count())

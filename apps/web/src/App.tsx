@@ -41,6 +41,7 @@ import {Tooltip} from '@astryxdesign/core/Tooltip';
 import {useToast} from '@astryxdesign/core/Toast';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Icon} from '@astryxdesign/core/Icon';
+import {Spinner} from '@astryxdesign/core/Spinner';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {VisuallyHidden} from '@astryxdesign/core/VisuallyHidden';
 import {
@@ -154,6 +155,8 @@ type ComposerModelOptionDetail = {
 };
 
 type SettingsSection = 'runtime' | 'models' | 'global' | 'tools' | 'chats';
+
+type ActiveRunKind = Extract<ChatStreamEvent, {type: 'run.started'}>['kind'];
 
 type AppNotice = {
   type: 'info' | 'warning' | 'error' | 'success';
@@ -390,14 +393,15 @@ export function App() {
   const [modelParamRows, setModelParamRows] = useState<Record<string, ParamRow[]>>({});
   const [modelAliasDrafts, setModelAliasDrafts] = useState<Record<string, string>>({});
   const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [isCompacting, setIsCompacting] = useState(false);
   const [activeRunIds, setActiveRunIds] = useState<Record<string, string>>({});
+  const [activeRunKindsByConversation, setActiveRunKindsByConversation] = useState<
+    Record<string, ActiveRunKind>
+  >({});
   const [activeRunModelsById, setActiveRunModelsById] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const archiveInputRef = useRef<HTMLInputElement | null>(null);
-  const streamAbortController = useRef<AbortController | null>(null);
-  const compactAbortController = useRef<AbortController | null>(null);
+  const streamAbortControllers = useRef(new Map<string, AbortController>());
+  const compactAbortControllers = useRef(new Map<string, AbortController>());
   const activeConversationIdRef = useRef(activeConversationId);
   const [notice, setNotice] = useState<AppNotice | null>(null);
 
@@ -411,6 +415,10 @@ export function App() {
     () => commandRows.filter(row => row.conversationId === activeConversationId),
     [activeConversationId, commandRows],
   );
+  const activeRunKind = activeRunKindsByConversation[activeConversationId];
+  const isStreaming = activeRunKind === 'chat' || activeRunKind === 'regenerate';
+  const isCompacting = activeRunKind === 'compact';
+  const isActiveConversationBusy = isStreaming || isCompacting;
   const displayedContextUsage = useMemo(
     () =>
       mergeContextTotals(
@@ -901,6 +909,37 @@ export function App() {
     );
   }
 
+  function setConversationRunKind(conversationId: string, kind: ActiveRunKind) {
+    setActiveRunKindsByConversation(previous => ({...previous, [conversationId]: kind}));
+  }
+
+  function clearConversationRunKind(conversationId: string, expectedKind?: ActiveRunKind) {
+    setActiveRunKindsByConversation(previous => {
+      if (expectedKind && previous[conversationId] !== expectedKind) {
+        return previous;
+      }
+      if (!previous[conversationId]) {
+        return previous;
+      }
+      const next = {...previous};
+      delete next[conversationId];
+      return next;
+    });
+  }
+
+  function setConversationListStatus(
+    conversationId: string,
+    status: ConversationListItem['status'],
+  ) {
+    setConversations(previous =>
+      previous.map(conversation =>
+        conversation.id === conversationId
+          ? {...conversation, status, updatedAt: new Date().toISOString()}
+          : conversation,
+      ),
+    );
+  }
+
   async function handleToggleLogs() {
     await runAction('runtime-logs', async () => {
       if (!isLogVisible) {
@@ -1031,7 +1070,8 @@ export function App() {
 
   async function handleChatSubmit(value: string) {
     const prompt = normalizeComposerValue(value);
-    if (!prompt || isStreaming || isCompacting) {
+    const conversationId = activeConversationId;
+    if (!prompt || isActiveConversationBusy) {
       return;
     }
     const compactInstructions = parseCompactCommand(prompt);
@@ -1057,40 +1097,59 @@ export function App() {
       restoreComposerDraft(prompt, setComposerDraft);
       return;
     }
-    setIsStreaming(true);
+    setConversationRunKind(conversationId, 'chat');
+    setConversationListStatus(conversationId, 'running');
     setNotice(null);
     setComposerError(null);
     setComposerWarning(null);
     const abortController = new AbortController();
-    streamAbortController.current = abortController;
+    streamAbortControllers.current.set(conversationId, abortController);
+    let receivedRunStarted = false;
     try {
       await streamConversationChat(
-        activeConversationId,
+        conversationId,
         prompt,
-        applyChatEvent,
+        event => {
+          if (event.type === 'run.started') {
+            receivedRunStarted = true;
+          }
+          applyChatEvent(event, conversationId);
+        },
         abortController.signal,
         draftAttachments,
       );
-      setDraftAttachments([]);
+      if (conversationId === activeConversationIdRef.current) {
+        setDraftAttachments([]);
+      }
       setRuntime(await getRuntime());
-      await refreshConversations(activeConversationId);
+      await refreshConversations(activeConversationIdRef.current);
     } catch (error) {
       if (isAbortError(error)) {
         return;
       }
-      setComposerError(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (streamAbortController.current === abortController) {
-        streamAbortController.current = null;
+      if (conversationId === activeConversationIdRef.current) {
+        setComposerError(error instanceof Error ? error.message : String(error));
       }
-      setIsStreaming(false);
+    } finally {
+      if (streamAbortControllers.current.get(conversationId) === abortController) {
+        streamAbortControllers.current.delete(conversationId);
+      }
+      if (!receivedRunStarted) {
+        clearConversationRunKind(conversationId, 'chat');
+        setConversationListStatus(conversationId, 'ready');
+      }
     }
   }
 
   async function handleCompactConversation(instructions: string) {
-    const commandRow = createCompactCommandRow(activeConversationId, instructions);
+    const conversationId = activeConversationId;
+    if (isActiveConversationBusy) {
+      return;
+    }
+    const commandRow = createCompactCommandRow(conversationId, instructions);
     setCommandRows(prev => [...prev, commandRow]);
-    setIsCompacting(true);
+    setConversationRunKind(conversationId, 'compact');
+    setConversationListStatus(conversationId, 'compacting');
     setSlashCommandError(null);
     setComposerError(null);
     setComposerWarning(null);
@@ -1099,14 +1158,18 @@ export function App() {
       message: 'Compacting conversation context...',
     });
     const abortController = new AbortController();
-    compactAbortController.current = abortController;
+    compactAbortControllers.current.set(conversationId, abortController);
     let completed = false;
+    let receivedRunStarted = false;
     try {
       await streamCompactConversation(
-        activeConversationId,
+        conversationId,
         instructions || undefined,
         event => {
-          applyChatEvent(event);
+          if (event.type === 'run.started') {
+            receivedRunStarted = true;
+          }
+          applyChatEvent(event, conversationId);
           if (event.type === 'run.started' && event.kind === 'compact') {
             updateCommandRow(commandRow.id, {
               runId: event.runId,
@@ -1138,7 +1201,9 @@ export function App() {
               message: event.error.message,
               completedAt: event.createdAt,
             });
-            setComposerError(event.error.message);
+            if (conversationId === activeConversationIdRef.current) {
+              setComposerError(event.error.message);
+            }
           }
           if (event.type === 'run.aborted') {
             updateCommandRow(commandRow.id, {
@@ -1147,7 +1212,9 @@ export function App() {
               message: 'Compaction stopped.',
               completedAt: event.createdAt,
             });
-            setComposerWarning('Compaction stopped.');
+            if (conversationId === activeConversationIdRef.current) {
+              setComposerWarning('Compaction stopped.');
+            }
           }
           if (event.type === 'run.completed' && event.status === 'aborted') {
             updateCommandRow(commandRow.id, {
@@ -1168,9 +1235,11 @@ export function App() {
         abortController.signal,
       );
       if (completed) {
-        const snapshot = await getConversation(activeConversationId);
-        applyConversationSnapshot(snapshot, setMessages, setContextUsage);
-        await refreshConversations(activeConversationId);
+        if (conversationId === activeConversationIdRef.current) {
+          const snapshot = await getConversation(conversationId);
+          applyConversationSnapshot(snapshot, setMessages, setContextUsage);
+        }
+        await refreshConversations(activeConversationIdRef.current);
       }
     } catch (error) {
       if (isAbortError(error)) {
@@ -1187,12 +1256,17 @@ export function App() {
         message,
         completedAt: new Date().toISOString(),
       });
-      setComposerError(message);
-    } finally {
-      if (compactAbortController.current === abortController) {
-        compactAbortController.current = null;
+      if (conversationId === activeConversationIdRef.current) {
+        setComposerError(message);
       }
-      setIsCompacting(false);
+    } finally {
+      if (compactAbortControllers.current.get(conversationId) === abortController) {
+        compactAbortControllers.current.delete(conversationId);
+      }
+      if (!receivedRunStarted) {
+        clearConversationRunKind(conversationId, 'compact');
+        setConversationListStatus(conversationId, 'ready');
+      }
     }
   }
 
@@ -1304,7 +1378,7 @@ export function App() {
   }
 
   async function handleForkMessage(message: ApiChatMessage) {
-    if (message.role !== 'user' || isStreaming || isCompacting) {
+    if (message.role !== 'user' || isActiveConversationBusy) {
       return;
     }
     await runAction(`fork:${message.id}`, async () => {
@@ -1319,18 +1393,20 @@ export function App() {
 
   async function handleStopGeneration() {
     await runAction('abort-chat', async () => {
-      const runId = activeRunIds[activeConversationId];
+      const conversationId = activeConversationId;
+      const runId = activeRunIds[conversationId];
       const abortRequest = runId
-        ? abortConversationRun(activeConversationId, runId)
-        : abortConversation(activeConversationId);
-      streamAbortController.current?.abort();
-      setActiveRunIds(previous => removeActiveRunId(previous, activeConversationId, runId));
+        ? abortConversationRun(conversationId, runId)
+        : abortConversation(conversationId);
+      streamAbortControllers.current.get(conversationId)?.abort();
+      setActiveRunIds(previous => removeActiveRunId(previous, conversationId, runId));
+      clearConversationRunKind(conversationId);
+      setConversationListStatus(conversationId, 'ready');
       if (runId) {
         setActiveRunModelsById(previous => removeRunModel(previous, runId));
       }
-      setIsStreaming(false);
       const abortResult = await abortRequest;
-      await refreshConversations(activeConversationId);
+      await refreshConversations(activeConversationIdRef.current);
       const warning = getAbortWarningMessage(abortResult);
       if (warning) {
         setComposerWarning(warning);
@@ -1342,13 +1418,16 @@ export function App() {
   }
 
   async function handleStopCompaction() {
-    compactAbortController.current?.abort();
     await runAction('abort-compaction', async () => {
-      const runId = activeRunIds[activeConversationId];
+      const conversationId = activeConversationId;
+      const runId = activeRunIds[conversationId];
       const abortRequest = runId
-        ? abortConversationRun(activeConversationId, runId)
-        : abortConversationCompaction(activeConversationId);
-      setActiveRunIds(previous => removeActiveRunId(previous, activeConversationId, runId));
+        ? abortConversationRun(conversationId, runId)
+        : abortConversationCompaction(conversationId);
+      compactAbortControllers.current.get(conversationId)?.abort();
+      setActiveRunIds(previous => removeActiveRunId(previous, conversationId, runId));
+      clearConversationRunKind(conversationId);
+      setConversationListStatus(conversationId, 'ready');
       if (runId) {
         setActiveRunModelsById(previous => removeRunModel(previous, runId));
       }
@@ -1358,8 +1437,7 @@ export function App() {
         message: 'Compaction stopped.',
         completedAt: new Date().toISOString(),
       });
-      setIsCompacting(false);
-      await refreshConversations(activeConversationId);
+      await refreshConversations(activeConversationIdRef.current);
       const warning = getAbortWarningMessage(abortResult);
       if (warning) {
         setComposerWarning(warning);
@@ -1406,7 +1484,8 @@ export function App() {
   }
 
   async function handleRegenerateMessage(message: ApiChatMessage, modelId?: string) {
-    if (message.role !== 'assistant' || isStreaming || isCompacting) {
+    const conversationId = activeConversationId;
+    if (message.role !== 'assistant' || isActiveConversationBusy) {
       return;
     }
     const selectedModelId = modelId ?? message.modelId ?? activeModelId;
@@ -1415,33 +1494,45 @@ export function App() {
       return;
     }
 
-    setIsStreaming(true);
+    setConversationRunKind(conversationId, 'regenerate');
+    setConversationListStatus(conversationId, 'running');
     setNotice(null);
     setComposerError(null);
     setComposerWarning(null);
     const abortController = new AbortController();
-    streamAbortController.current = abortController;
+    streamAbortControllers.current.set(conversationId, abortController);
+    let receivedRunStarted = false;
     try {
       await ensureModelReadyForRun(selectedModelId);
       await streamRegenerateMessage(
-        activeConversationId,
+        conversationId,
         message.id,
         selectedModelId,
-        applyChatEvent,
+        event => {
+          if (event.type === 'run.started') {
+            receivedRunStarted = true;
+          }
+          applyChatEvent(event, conversationId);
+        },
         abortController.signal,
       );
       setRuntime(await getRuntime());
-      await refreshConversations(activeConversationId);
+      await refreshConversations(activeConversationIdRef.current);
     } catch (error) {
       if (isAbortError(error)) {
         return;
       }
-      setComposerError(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (streamAbortController.current === abortController) {
-        streamAbortController.current = null;
+      if (conversationId === activeConversationIdRef.current) {
+        setComposerError(error instanceof Error ? error.message : String(error));
       }
-      setIsStreaming(false);
+    } finally {
+      if (streamAbortControllers.current.get(conversationId) === abortController) {
+        streamAbortControllers.current.delete(conversationId);
+      }
+      if (!receivedRunStarted) {
+        clearConversationRunKind(conversationId, 'regenerate');
+        setConversationListStatus(conversationId, 'ready');
+      }
     }
   }
 
@@ -1465,9 +1556,16 @@ export function App() {
     }
   }
 
-  function applyChatEvent(event: ChatStreamEvent) {
+  function applyChatEvent(event: ChatStreamEvent, sourceConversationId?: string) {
+    const conversationId = getChatEventConversationId(event, sourceConversationId);
+    const isVisibleConversation = conversationId === activeConversationIdRef.current;
     if (event.type === 'run.started') {
       setActiveRunIds(previous => ({...previous, [event.conversationId]: event.runId}));
+      setConversationRunKind(event.conversationId, event.kind);
+      const status = conversationStatusForRunKind(event.kind);
+      if (status) {
+        setConversationListStatus(event.conversationId, status);
+      }
       const modelId = event.modelId;
       if (modelId) {
         setActiveRunModelsById(previous => ({...previous, [event.runId]: modelId}));
@@ -1475,11 +1573,17 @@ export function App() {
     }
     if (event.type === 'run.aborted') {
       setActiveRunIds(previous => removeActiveRunId(previous, event.conversationId, event.runId));
+      clearConversationRunKind(event.conversationId);
+      setConversationListStatus(event.conversationId, 'ready');
       setActiveRunModelsById(previous => removeRunModel(previous, event.runId));
-      setComposerWarning('Generation stopped.');
+      if (isVisibleConversation) {
+        setComposerWarning('Generation stopped.');
+      }
     }
     if (event.type === 'run.completed') {
       setActiveRunModelsById(previous => removeRunModel(previous, event.runId));
+      clearConversationRunKind(event.conversationId);
+      setConversationListStatus(event.conversationId, 'ready');
       setActiveRunIds(previous => {
         if (previous[event.conversationId] !== event.runId) {
           return previous;
@@ -1488,7 +1592,7 @@ export function App() {
         delete next[event.conversationId];
         return next;
       });
-      if (event.status === 'failed' && event.error?.message) {
+      if (isVisibleConversation && event.status === 'failed' && event.error?.message) {
         setComposerError(event.error.message);
       }
     }
@@ -1503,12 +1607,21 @@ export function App() {
       }
     }
     if (event.type === 'user_message') {
+      if (!isVisibleConversation) {
+        return;
+      }
       setMessages(prev => [...prev, event.message]);
     }
     if (event.type === 'assistant_start') {
+      if (!isVisibleConversation) {
+        return;
+      }
       setMessages(prev => [...prev, event.message]);
     }
     if (event.type === 'assistant_delta') {
+      if (!isVisibleConversation) {
+        return;
+      }
       setMessages(prev =>
         prev.map(message =>
           message.id === event.id ? {...message, content: message.content + event.delta} : message,
@@ -1516,6 +1629,9 @@ export function App() {
       );
     }
     if (event.type === 'assistant_metrics') {
+      if (!isVisibleConversation) {
+        return;
+      }
       const nextContext = contextUsageFromPerformance(
         event.performance,
         activeModelProps?.contextWindow ?? activeModel?.params.contextSize,
@@ -1535,6 +1651,9 @@ export function App() {
       );
     }
     if (event.type === 'tool') {
+      if (!isVisibleConversation) {
+        return;
+      }
       setMessages(prev => {
         let assistantIndex = -1;
         for (let index = prev.length - 1; index >= 0; index -= 1) {
@@ -1560,7 +1679,9 @@ export function App() {
       });
     }
     if (event.type === 'warning') {
-      setComposerWarning(event.message);
+      if (isVisibleConversation) {
+        setComposerWarning(event.message);
+      }
     }
     if (event.type === 'conversation_title') {
       setConversations(prev =>
@@ -1572,12 +1693,17 @@ export function App() {
       );
     }
     if (event.type === 'message.assistant.completed' || event.type === 'done') {
+      if (!isVisibleConversation) {
+        return;
+      }
       setMessages(prev =>
         prev.map(message => (message.id === event.message.id ? event.message : message)),
       );
     }
     if (event.type === 'error') {
-      setComposerError(event.message);
+      if (isVisibleConversation) {
+        setComposerError(event.message);
+      }
     }
   }
 
@@ -2772,6 +2898,23 @@ function getAbortWarningMessage(response: {warning?: {message?: string}}): strin
   return message || null;
 }
 
+function getChatEventConversationId(
+  event: ChatStreamEvent,
+  fallbackConversationId?: string,
+): string | undefined {
+  return 'conversationId' in event ? event.conversationId : fallbackConversationId;
+}
+
+function conversationStatusForRunKind(kind: ActiveRunKind): ConversationListItem['status'] | null {
+  if (kind === 'chat' || kind === 'regenerate') {
+    return 'running';
+  }
+  if (kind === 'compact') {
+    return 'compacting';
+  }
+  return null;
+}
+
 function getContextOverflowMessage(context: ConversationContextUsage): string | null {
   const ratio = contextUsageRatio(context);
   if (ratio == null || ratio < 1) {
@@ -3324,14 +3467,15 @@ function ConversationRow({
 function ConversationStatusIndicator({status}: {status: ConversationListItem['status']}) {
   const label = status.replace(/_/g, ' ');
   const variant = status === 'unavailable' ? 'error' : status === 'running' ? 'accent' : 'warning';
+  const isOngoing = status === 'running' || status === 'compacting' || status === 'aborting';
   return (
     <Tooltip content={`Conversation ${label}`}>
       <HStack gap={0.5} vAlign="center" className="nelle-conversation-status">
-        <StatusDot
-          label={`Conversation ${label}`}
-          variant={variant}
-          isPulsing={status === 'running' || status === 'compacting' || status === 'aborting'}
-        />
+        {isOngoing ? (
+          <Spinner size="sm" shade="subtle" aria-label={`Conversation ${label} in progress`} />
+        ) : (
+          <StatusDot label={`Conversation ${label}`} variant={variant} />
+        )}
         <Text type="supporting" color="secondary">
           {label}
         </Text>

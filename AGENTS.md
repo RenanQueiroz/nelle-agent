@@ -86,6 +86,12 @@ Project-specific guidance for AI coding agents.
   before activating them.
 - Settings rows for models with active runs must show an active-run token and
   keep unload/save/remove disabled until a terminal run event arrives.
+- Browser chat run state is conversation-scoped. Use per-conversation run-kind
+  state and abort controllers, keep inactive stream deltas out of the visible
+  transcript, and allow a ready conversation to send while another conversation
+  is still running.
+- Ongoing conversations in the sidebar use an Astryx `Spinner` plus status text,
+  not only a status dot, so users can spot running agents after switching chats.
 - New Hugging Face imports should use the stable canonical section id as the
   model id; route clients must URL-encode model ids because they may contain
   `/` and `:`.
