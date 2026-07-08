@@ -55,6 +55,7 @@ type ActiveRun = {
   kind: RunKind;
   modelId?: string;
   abortRequested: boolean;
+  abortController?: AbortController;
 };
 
 type PreparedPromptAttachment = {
@@ -113,6 +114,10 @@ export class PiHarness {
       return false;
     }
     run.abortRequested = true;
+    if (run.kind === 'title') {
+      run.abortController?.abort();
+      return true;
+    }
     const managed = this.#sessions.get(conversationId);
     if (!managed) {
       return false;
@@ -378,6 +383,7 @@ export class PiHarness {
     const toolCallStarts = new Map<string, number>();
     let thinkingText = '';
     let providerError: string | null = null;
+    let resourcesStopped = false;
     const unsubscribe = session.subscribe((event: any) => {
       if (event.type === 'message_update') {
         const assistantEvent = event.assistantMessageEvent;
@@ -461,6 +467,15 @@ export class PiHarness {
         queue.push({type: 'tool', call: {...call}});
       }
     });
+    const stopPromptResources = () => {
+      if (resourcesStopped) {
+        return;
+      }
+      resourcesStopped = true;
+      monitor.stop();
+      capture.stop();
+      unsubscribe();
+    };
 
     try {
       const promptAttachments = options.promptAttachments ?? emptyPreparedAttachments();
@@ -511,15 +526,11 @@ export class PiHarness {
       }
       queue.push({type: 'message.assistant.completed', message: assistantMessage});
       queue.push({type: 'done', message: assistantMessage});
-      const title = await this.maybeGenerateConversationTitle(
-        conversationId,
-        activeModel,
-        syncedEntries,
-      );
-      if (title) {
-        queue.push({type: 'conversation_title', conversationId, title});
-      }
       queue.push(createRunCompletedEvent(run, 'completed'));
+      this.finishRun(conversationId, run.runId);
+      this.conversations.setConversationStatus(conversationId, 'ready');
+      stopPromptResources();
+      await this.streamConversationTitleIfNeeded(conversationId, activeModel, syncedEntries, queue);
       queue.end();
     } catch (error) {
       if (run.abortRequested) {
@@ -537,15 +548,18 @@ export class PiHarness {
       );
       throw error;
     } finally {
-      monitor.stop();
-      capture.stop();
-      unsubscribe();
+      stopPromptResources();
       this.finishRun(conversationId, run.runId);
       this.conversations.setConversationStatus(conversationId, 'ready');
     }
   }
 
-  private beginRun(conversationId: string, kind: RunKind, modelId?: string): ActiveRun {
+  private beginRun(
+    conversationId: string,
+    kind: RunKind,
+    modelId?: string,
+    abortController?: AbortController,
+  ): ActiveRun {
     const existing = this.#activeRuns.get(conversationId);
     if (existing) {
       throw new Error('conversation_busy');
@@ -556,6 +570,7 @@ export class PiHarness {
       kind,
       modelId,
       abortRequested: false,
+      abortController,
     };
     this.#activeRuns.set(conversationId, run);
     return run;
@@ -565,6 +580,64 @@ export class PiHarness {
     const existing = this.#activeRuns.get(conversationId);
     if (existing?.runId === runId) {
       this.#activeRuns.delete(conversationId);
+    }
+  }
+
+  private async streamConversationTitleIfNeeded(
+    conversationId: string,
+    activeModel: ConfiguredModel,
+    entries: SyncConversationEntry[],
+    queue: ReturnType<typeof createAsyncQueue<ChatStreamEvent>>,
+  ): Promise<void> {
+    const titleInput = this.titleGenerationInput(conversationId, entries);
+    if (!titleInput) {
+      return;
+    }
+
+    const abortController = new AbortController();
+    let run: ActiveRun;
+    try {
+      run = this.beginRun(conversationId, 'title', activeModel.id, abortController);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'conversation_busy') {
+        return;
+      }
+      throw error;
+    }
+    queue.push(createRunStartedEvent(run));
+    try {
+      const title = await this.generateTitleWithLlama(
+        activeModel,
+        titleInput.userPrompt,
+        titleInput.assistantResponse,
+        abortController.signal,
+      );
+      if (run.abortRequested || abortController.signal.aborted) {
+        queue.push(createRunAbortedEvent(run, 'user'));
+        queue.push(createRunCompletedEvent(run, 'aborted'));
+        return;
+      }
+      if (title) {
+        this.conversations.setGeneratedTitle(conversationId, title);
+        queue.push({type: 'conversation_title', conversationId, title});
+      }
+      queue.push(createRunCompletedEvent(run, 'completed'));
+    } catch (error) {
+      if (run.abortRequested || abortController.signal.aborted) {
+        queue.push(createRunAbortedEvent(run, 'user'));
+        queue.push(createRunCompletedEvent(run, 'aborted'));
+        return;
+      }
+      queue.push(
+        createRunCompletedEvent(run, 'failed', {
+          code: 'title_generation_failed',
+          message: error instanceof Error ? error.message : String(error),
+          retryable: true,
+        }),
+      );
+    } finally {
+      this.finishRun(conversationId, run.runId);
+      this.conversations.setConversationStatus(conversationId, 'ready');
     }
   }
 
@@ -991,6 +1064,26 @@ export class PiHarness {
     activeModel: ConfiguredModel,
     entries: SyncConversationEntry[],
   ): Promise<string | null> {
+    const titleInput = this.titleGenerationInput(conversationId, entries);
+    if (!titleInput) {
+      return null;
+    }
+    const title = await this.generateTitleWithLlama(
+      activeModel,
+      titleInput.userPrompt,
+      titleInput.assistantResponse,
+    );
+    if (!title) {
+      return null;
+    }
+    this.conversations.setGeneratedTitle(conversationId, title);
+    return title;
+  }
+
+  private titleGenerationInput(
+    conversationId: string,
+    entries: SyncConversationEntry[],
+  ): {userPrompt: string; assistantResponse: string} | null {
     if (this.conversations.getTitleSource(conversationId) !== 'fallback') {
       return null;
     }
@@ -1001,25 +1094,26 @@ export class PiHarness {
     if (userMessages.length !== 1 || assistantMessages.length !== 1) {
       return null;
     }
-    const title = await this.generateTitleWithLlama(
-      activeModel,
-      userMessages[0]!.text,
-      assistantMessages[0]!.text,
-    );
-    if (!title) {
-      return null;
-    }
-    this.conversations.setGeneratedTitle(conversationId, title);
-    return title;
+    return {
+      userPrompt: userMessages[0]!.text,
+      assistantResponse: assistantMessages[0]!.text,
+    };
   }
 
   private async generateTitleWithLlama(
     activeModel: ConfiguredModel,
     userPrompt: string,
     assistantResponse: string,
+    signal?: AbortSignal,
   ): Promise<string | null> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
+    const abortTitleRequest = () => controller.abort();
+    if (signal?.aborted) {
+      controller.abort();
+    } else {
+      signal?.addEventListener('abort', abortTitleRequest, {once: true});
+    }
     try {
       const response = await fetch(`${localLlamaProxyBaseUrl()}/chat/completions`, {
         method: 'POST',
@@ -1063,6 +1157,7 @@ export class PiHarness {
       return null;
     } finally {
       clearTimeout(timeout);
+      signal?.removeEventListener('abort', abortTitleRequest);
     }
   }
 

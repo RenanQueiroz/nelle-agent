@@ -173,8 +173,9 @@ Nelle currently differs from the target in these ways:
   `AgentSession.abort()` for a cached conversation runtime. Chat/regenerate
   streams now emit SSE envelopes with stable run ids and terminal
   `run.completed` events, `message.assistant.completed` final assistant events,
-  and `run.aborted` clears UI run tracking/model locks. Compact/title run
-  streaming and llama.cpp slot-level verification are still pending.
+  first-turn title generation emits `title` run events, and `run.aborted` clears
+  UI run tracking/model locks. Compact run streaming and llama.cpp slot-level
+  verification are still pending.
 - Done in the current sidebar: reset/delete/pin/rename actions moved out of the
   composer footer and into each conversation row's action menu, and large lists
   use TanStack virtualization inside an Astryx `SideNav` shell.
@@ -1373,8 +1374,10 @@ Naming:
 Conversation and run state machine:
 
 - Conversation statuses:
-  - `ready`: no active run, Pi session is usable.
-  - `running`: chat, regenerate, or title run is active.
+  - `ready`: no active foreground run, Pi session is usable. Background title
+    generation may still have an active run id while the conversation remains
+    `ready`.
+  - `running`: chat or regenerate run is active.
   - `compacting`: manual compaction is active.
   - `aborting`: abort request accepted and Nelle is waiting for Pi/proxy idle.
   - `unavailable`: Pi session file or runtime dependency is missing/corrupt.
@@ -1393,24 +1396,27 @@ Conversation and run state machine:
   - `unavailable -> ready` only after explicit repair/reimport succeeds.
 - Active run ids are unique per conversation. A conversation may have at most
   one `pending`, `running`, or `aborting` run.
-- Starting a chat/regenerate/title run while the same conversation is not
-  `ready` returns `conversation_busy`.
+- Starting a chat/regenerate/title run while the same conversation already has
+  an active run returns `conversation_busy`. Starting chat/regenerate also
+  requires conversation status `ready`.
 - Starting `/compact` while the conversation is not `ready` returns
   `conversation_busy`.
-- A failed title-generation run must not move the conversation out of `ready`
-  once the chat run has already completed.
+- Failed or aborted title-generation runs must not move the conversation out of
+  `ready` once the chat run has already completed.
 
 ### Abort And Cancellation
 
 Abort behavior:
 
-- Done for chat/regenerate: add `POST /api/conversations/:id/runs/:runId/abort`
-  and keep the older conversation abort endpoint as a fallback. Pending:
-  compaction and title-generation run ids.
+- Done for chat/regenerate/title: add stable run ids and
+  `POST /api/conversations/:id/runs/:runId/abort` for active run aborts. Keep
+  the older conversation abort endpoint as a fallback. Pending: compaction run
+  stream ids because compaction still uses a request/response endpoint.
 - The server validates that the run belongs to the conversation and is still
   active. Repeated abort requests are idempotent.
-- For chat/regenerate/title runs, call `AgentSession.abort()` on that
-  conversation's Pi session and wait for Pi to become idle.
+- For chat/regenerate runs, call `AgentSession.abort()` on that conversation's
+  Pi session and wait for Pi to become idle. For title runs, abort the
+  non-persisted llama proxy request through its run controller.
 - For compaction runs, call `AgentSession.abortCompaction()` and then verify the
   session is idle.
 - If a Pi auto-retry delay is active, call `AgentSession.abortRetry()` before or
@@ -1467,8 +1473,10 @@ Implementation notes:
 - Current implementation: after a successful first Pi-backed assistant response,
   Nelle calls llama.cpp through `/api/llama-proxy/v1/chat/completions`, sanitizes
   the returned title, updates the conversation only while `title_source` is
-  still `fallback`, and emits a `conversation_title` stream event for the web
-  UI list.
+  still `fallback`, and emits `run.started`, `conversation_title`, and terminal
+  `run.completed` events for the web UI list. Aborted title requests emit
+  `run.aborted` plus `run.completed` with `status: "aborted"` and keep the
+  conversation in `ready` status.
 - Use the same active model after the first response completes.
 - Use direct llama.cpp chat-completions through Nelle's llama proxy, not Pi,
   because title generation should not invoke tools or alter Pi session state.
@@ -1785,6 +1793,9 @@ Exit criteria:
 - Done: add safeguards for user-edited/imported titles.
 - Done: add tests for success, failure fallback, skip conditions, and
   no-history pollution.
+- Done: emit title-generation run lifecycle events and route title-run aborts
+  through the run abort endpoint without changing foreground conversation
+  status.
 
 Exit criteria:
 

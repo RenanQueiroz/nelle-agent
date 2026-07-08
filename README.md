@@ -121,8 +121,8 @@ Not implemented yet:
   slash-command guidance, visible compaction status rows, and local
   `.nelle-chat.zip` export/import. Slot-level abort verification is still
   pending.
-- Complete REST/SSE run lifecycle coverage for compaction/title/background
-  events and llama.cpp slot-level abort verification.
+- Complete REST/SSE run lifecycle coverage for compaction/background events and
+  llama.cpp slot-level abort verification.
 - Host-tool sandboxing and per-tool permission prompts. The current v1 gate is
   acknowledgement plus a global enable/disable switch.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for

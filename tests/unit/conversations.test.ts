@@ -7,6 +7,7 @@ import test from 'node:test';
 import {SessionManager} from '@earendil-works/pi-coding-agent';
 import {strFromU8, unzipSync} from 'fflate';
 
+import {createAsyncQueue} from '../../apps/server/src/asyncQueue.ts';
 import {ConversationRepository, POC_CONVERSATION_ID} from '../../apps/server/src/conversations.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {HostToolRepository} from '../../apps/server/src/hostTools.ts';
@@ -14,7 +15,7 @@ import {PiHarness} from '../../apps/server/src/piHarness.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {createServer} from '../../apps/server/src/server.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
-import type {ChatMessage, ConfiguredModel} from '../../apps/server/src/types.ts';
+import type {ChatMessage, ChatStreamEvent, ConfiguredModel} from '../../apps/server/src/types.ts';
 import {
   assertConversationTransition,
   canTransitionConversation,
@@ -945,6 +946,124 @@ test('Pi title generation stores sanitized first-turn title without adding histo
   }
 });
 
+test('Pi title generation emits title run lifecycle events', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({choices: [{message: {content: 'Local Model Setup'}}]}), {
+      status: 200,
+      headers: {'content-type': 'application/json'},
+    })) as typeof fetch;
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'New chat'});
+    const harness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+    ) as unknown as TitleGenerationHarness;
+    const queue = createAsyncQueue<ChatStreamEvent>();
+    const eventsPromise = collectAsyncQueue(queue);
+
+    await harness.streamConversationTitleIfNeeded(
+      conversation.id,
+      createTestModel(),
+      createFirstTurnEntries(),
+      queue,
+    );
+    queue.end();
+    const events = await eventsPromise;
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+
+    assert.deepEqual(
+      events.map(event => event.type),
+      ['run.started', 'conversation_title', 'run.completed'],
+    );
+    assert.equal(events[0]?.type, 'run.started');
+    assert.equal(events[0]?.kind, 'title');
+    assert.equal(events[1]?.type, 'conversation_title');
+    assert.equal(events[1]?.title, 'Local Model Setup');
+    assert.equal(events[2]?.type, 'run.completed');
+    assert.equal(events[2]?.status, 'completed');
+    assert.equal(snapshot?.conversation.title, 'Local Model Setup');
+    assert.equal(snapshot?.conversation.titleSource, 'generated');
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test('Pi title generation abort emits aborted run lifecycle events', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    const signal = init?.signal as AbortSignal | undefined;
+    return await new Promise<Response>((_resolve, reject) => {
+      signal?.addEventListener(
+        'abort',
+        () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        },
+        {once: true},
+      );
+    });
+  }) as typeof fetch;
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'New chat'});
+    const harness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+    ) as unknown as TitleGenerationHarness;
+    const queue = createAsyncQueue<ChatStreamEvent>();
+    const iterator = queue[Symbol.asyncIterator]();
+    const events: ChatStreamEvent[] = [];
+
+    const titlePromise = harness.streamConversationTitleIfNeeded(
+      conversation.id,
+      createTestModel(),
+      createFirstTurnEntries(),
+      queue,
+    );
+    const first = await iterator.next();
+    assert.equal(first.done, false);
+    events.push(first.value);
+    assert.equal(first.value.type, 'run.started');
+    assert.equal(first.value.kind, 'title');
+
+    assert.equal(await harness.abortConversationRun(conversation.id, first.value.runId), true);
+    await titlePromise;
+    queue.end();
+    for (;;) {
+      const next = await iterator.next();
+      if (next.done) {
+        break;
+      }
+      events.push(next.value);
+    }
+
+    assert.deepEqual(
+      events.map(event => event.type),
+      ['run.started', 'run.aborted', 'run.completed'],
+    );
+    assert.equal(events[1]?.type, 'run.aborted');
+    assert.equal(events[2]?.type, 'run.completed');
+    assert.equal(events[2]?.status, 'aborted');
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
 test('Pi title generation falls back quietly when llama title request fails', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
@@ -1480,7 +1599,28 @@ type TitleGenerationHarness = {
       createdAt: string;
     }>,
   ) => Promise<string | null>;
+  streamConversationTitleIfNeeded: (
+    conversationId: string,
+    activeModel: ConfiguredModel,
+    entries: Array<{
+      piEntryId: string;
+      entryType: string;
+      role?: ChatMessage['role'] | null;
+      text: string;
+      createdAt: string;
+    }>,
+    queue: ReturnType<typeof createAsyncQueue<ChatStreamEvent>>,
+  ) => Promise<void>;
+  abortConversationRun: (conversationId: string, runId: string) => Promise<boolean>;
 };
+
+async function collectAsyncQueue<T>(queue: AsyncIterable<T>): Promise<T[]> {
+  const items: T[] = [];
+  for await (const item of queue) {
+    items.push(item);
+  }
+  return items;
+}
 
 function parseSseEnvelopes(body: string): Array<{
   id: string;
