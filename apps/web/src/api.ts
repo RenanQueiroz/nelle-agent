@@ -363,6 +363,29 @@ export async function deleteConversation(id: string): Promise<void> {
   await apiDelete(`/api/conversations/${encodeURIComponent(id)}`);
 }
 
+export async function exportConversationArchive(id: string): Promise<Blob> {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/export`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.blob();
+}
+
+export async function importConversationArchive(file: Blob): Promise<ConversationSnapshot> {
+  const response = await fetch('/api/conversations/import', {
+    method: 'POST',
+    headers: {'content-type': 'application/zip'},
+    body: file,
+  });
+  const payload = await parseJson<{
+    conversation: ConversationListItem;
+    snapshot: ConversationSnapshot;
+  }>(response);
+  return payload.snapshot;
+}
+
 export async function getConversation(id: string): Promise<ConversationSnapshot> {
   const response = await apiGet<{snapshot: ConversationSnapshot}>(
     `/api/conversations/${encodeURIComponent(id)}`,

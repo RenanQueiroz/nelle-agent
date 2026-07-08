@@ -13,6 +13,7 @@ import {PiHarness} from './piHarness';
 import {streamDirectLlama} from './directLlama';
 import {AppStore} from './store';
 import {AppDatabase} from './database';
+import {exportConversationArchive, importConversationArchive} from './conversationArchive';
 import {
   ConversationRepository,
   POC_CONVERSATION_ID,
@@ -91,6 +92,13 @@ export async function createServer(paths: AppPaths) {
       level: process.env.LOG_LEVEL ?? 'info',
     },
   });
+  app.addContentTypeParser(
+    ['application/zip', 'application/octet-stream'],
+    {parseAs: 'buffer'},
+    (_request, body, done) => {
+      done(null, body);
+    },
+  );
 
   await app.register(cors, {
     origin: true,
@@ -252,6 +260,42 @@ export async function createServer(paths: AppPaths) {
     return {ok: true, cleanup};
   });
 
+  app.post('/api/conversations/import', async (request, reply) => {
+    const bytes = archiveBodyToBytes(request.body);
+    if (!bytes) {
+      return reply.status(400).send({
+        error: {
+          code: 'invalid_archive_upload',
+          message: 'Upload a .nelle-chat.zip archive body.',
+        },
+      });
+    }
+    let imported: {conversationId: string};
+    try {
+      imported = await importConversationArchive({
+        paths,
+        store,
+        conversations,
+        bytes,
+      });
+    } catch (error) {
+      return reply.status(400).send({
+        error: {
+          code: 'invalid_archive',
+          message: error instanceof Error ? error.message : 'Archive import failed.',
+        },
+      });
+    }
+    const snapshot = conversations.getSnapshot(imported.conversationId, await store.getState());
+    if (!snapshot) {
+      throw new Error('Imported conversation snapshot was not available.');
+    }
+    return {
+      conversation: snapshot.conversation,
+      snapshot,
+    };
+  });
+
   app.get('/api/conversations/:id', async (request, reply) => {
     const id = (request.params as {id: string}).id;
     conversations.syncPocConversationFromState(await store.getState());
@@ -338,6 +382,30 @@ export async function createServer(paths: AppPaths) {
     }
     const cleanup = await deleteConversationResources(paths, resources);
     return {ok: true, cleanup};
+  });
+
+  app.post('/api/conversations/:id/export', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    const archive = await exportConversationArchive({
+      paths,
+      store,
+      conversations,
+      conversationId: id,
+    });
+    if (!archive) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    reply.header('content-type', 'application/zip');
+    reply.header(
+      'content-disposition',
+      `attachment; filename="${archive.filename.replace(/"/g, '')}"`,
+    );
+    return reply.send(Buffer.from(archive.bytes));
   });
 
   app.delete('/api/conversations/:id/messages', async (request, reply) => {
@@ -658,6 +726,16 @@ function sendLlamaError(
       retryable: true,
     },
   });
+}
+
+function archiveBodyToBytes(body: unknown): Uint8Array | null {
+  if (body instanceof Buffer) {
+    return new Uint8Array(body);
+  }
+  if (body instanceof Uint8Array) {
+    return body;
+  }
+  return null;
 }
 
 async function hasBuiltWeb(webDistDir: string): Promise<boolean> {

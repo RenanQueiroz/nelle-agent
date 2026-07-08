@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {SessionManager} from '@earendil-works/pi-coding-agent';
+import {strFromU8, unzipSync} from 'fflate';
 
 import {ConversationRepository, POC_CONVERSATION_ID} from '../../apps/server/src/conversations.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
@@ -638,6 +639,190 @@ test('conversation delete removes owned session files and unreferenced attachmen
     await app.close();
   }
 });
+
+test('conversation export and import round trip Pi history and attachments', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  const attachmentPath = path.join(paths.attachmentsDir, 'cc', 'export.bin');
+  let sourceId = '';
+  try {
+    await fs.mkdir(path.dirname(attachmentPath), {recursive: true});
+    await fs.writeFile(attachmentPath, 'archive attachment');
+
+    const repository = new ConversationRepository(database);
+    const source = repository.createConversation({title: 'Archive source'});
+    sourceId = source.id;
+    const sourceManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const userEntryId = sourceManager.appendMessage({
+      role: 'user',
+      content: 'Export this chat',
+    } as any);
+    const assistantEntryId = sourceManager.appendMessage({
+      role: 'assistant',
+      content: 'Archive ready.',
+    } as any);
+    const sourceSessionPath = sourceManager.getSessionFile();
+    assert.ok(sourceSessionPath);
+    repository.attachPiSession(source.id, {
+      piSessionPath: sourceSessionPath,
+      piSessionId: sourceManager.getSessionId(),
+      activeLeafPiEntryId: assistantEntryId,
+    });
+    repository.replaceConversationProjection(source.id, {
+      piSessionPath: sourceSessionPath,
+      piSessionId: sourceManager.getSessionId(),
+      activeLeafPiEntryId: assistantEntryId,
+      lastSyncedPiEntryId: assistantEntryId,
+      entries: [
+        {
+          piEntryId: userEntryId,
+          entryType: 'message',
+          role: 'user',
+          text: 'Export this chat',
+          createdAt: '2026-07-08T12:00:00.000Z',
+        },
+        {
+          piEntryId: assistantEntryId,
+          parentPiEntryId: userEntryId,
+          entryType: 'message',
+          role: 'assistant',
+          text: 'Archive ready.',
+          createdAt: '2026-07-08T12:00:01.000Z',
+          modelId: 'repo/model:Q4_K_M',
+          modelRuntimeId: 'repo/model:Q4_K_M',
+          modelAliasSnapshot: 'Model Q4',
+        },
+      ],
+    });
+    repository.createPendingAttachments(source.id, [
+      {
+        uploadId: 'archive-attachment',
+        kind: 'image',
+        name: 'export.bin',
+        storagePath: 'attachments/cc/export.bin',
+        processing: {status: 'ready'},
+      },
+    ]);
+    repository.bindAttachmentsToEntry(source.id, ['archive-attachment'], userEntryId);
+  } finally {
+    database.close();
+  }
+
+  const app = await createServer(paths);
+  try {
+    const exportResponse = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${sourceId}/export`,
+    });
+    assert.equal(exportResponse.statusCode, 200);
+    assert.match(exportResponse.headers['content-type'] as string, /application\/zip/);
+    const archiveBytes = exportResponse.rawPayload;
+    const archive = unzipSync(new Uint8Array(archiveBytes));
+    assert.ok(archive['manifest.json']);
+    assert.ok(archive['pi-session.jsonl']);
+    assert.ok(archive['nelle-conversation.json']);
+    const manifest = JSON.parse(strFromU8(archive['manifest.json']!)) as {
+      conversation: {id: string; title: string};
+      source: {platform: string};
+    };
+    assert.deepEqual(manifest.conversation, {id: sourceId, title: 'Archive source'});
+    assert.equal(manifest.source.platform, process.platform);
+    assert.equal(strFromU8(archive['attachments/cc/export.bin']!), 'archive attachment');
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/api/conversations/${sourceId}`,
+    });
+    assert.equal(deleteResponse.statusCode, 200);
+    await assert.rejects(() => fs.access(attachmentPath), {code: 'ENOENT'});
+
+    const importResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/import',
+      headers: {'content-type': 'application/zip'},
+      payload: Buffer.from(archiveBytes),
+    });
+    assert.equal(importResponse.statusCode, 200);
+    const imported = importResponse.json<{
+      snapshot: {
+        conversation: {id: string; title: string; titleSource: string};
+        entries: Array<{piEntryId: string; textPreview?: string; modelAliasSnapshot?: string}>;
+        attachments: Array<{piEntryId?: string; storagePath?: string; name: string}>;
+      };
+    }>().snapshot;
+
+    assert.notEqual(imported.conversation.id, sourceId);
+    assert.equal(imported.conversation.title, 'Archive source (import)');
+    assert.equal(imported.conversation.titleSource, 'imported');
+    assert.deepEqual(
+      imported.entries.map(entry => entry.textPreview),
+      ['Export this chat', 'Archive ready.'],
+    );
+    assert.equal(imported.entries[1]?.modelAliasSnapshot, 'Model Q4');
+    assert.equal(imported.attachments[0]?.name, 'export.bin');
+    assert.equal(imported.attachments[0]?.storagePath, 'attachments/cc/export.bin');
+    await fs.access(attachmentPath);
+
+    const duplicateArchiveResponse = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/import',
+      headers: {'content-type': 'application/zip'},
+      payload: Buffer.from(duplicateZipEntry(new Uint8Array(archiveBytes), 'manifest.json')),
+    });
+    assert.equal(duplicateArchiveResponse.statusCode, 400);
+    assert.match(duplicateArchiveResponse.json().error.message, /duplicate file entry/);
+  } finally {
+    await app.close();
+  }
+});
+
+function duplicateZipEntry(bytes: Uint8Array, filename: string): Uint8Array {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const eocdOffset = findZipEocd(view);
+  const entryCount = view.getUint16(eocdOffset + 10, true);
+  const centralDirectorySize = view.getUint32(eocdOffset + 12, true);
+  const centralDirectoryOffset = view.getUint32(eocdOffset + 16, true);
+  let offset = centralDirectoryOffset;
+  let duplicate: Uint8Array | null = null;
+  const decoder = new TextDecoder();
+  for (let index = 0; index < entryCount; index += 1) {
+    const filenameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const filenameStart = offset + 46;
+    const filenameEnd = filenameStart + filenameLength;
+    const recordEnd = filenameEnd + extraLength + commentLength;
+    if (decoder.decode(bytes.subarray(filenameStart, filenameEnd)) === filename) {
+      duplicate = bytes.slice(offset, recordEnd);
+      break;
+    }
+    offset = recordEnd;
+  }
+  assert.ok(duplicate);
+
+  const beforeEocd = bytes.subarray(0, eocdOffset);
+  const eocd = bytes.slice(eocdOffset);
+  const eocdView = new DataView(eocd.buffer, eocd.byteOffset, eocd.byteLength);
+  eocdView.setUint16(8, entryCount + 1, true);
+  eocdView.setUint16(10, entryCount + 1, true);
+  eocdView.setUint32(12, centralDirectorySize + duplicate.byteLength, true);
+
+  const mutated = new Uint8Array(beforeEocd.byteLength + duplicate.byteLength + eocd.byteLength);
+  mutated.set(beforeEocd, 0);
+  mutated.set(duplicate, beforeEocd.byteLength);
+  mutated.set(eocd, beforeEocd.byteLength + duplicate.byteLength);
+  return mutated;
+}
+
+function findZipEocd(view: DataView): number {
+  for (let offset = view.byteLength - 22; offset >= 0; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) {
+      return offset;
+    }
+  }
+  throw new Error('No zip central directory found.');
+}
 
 test('Pi title generation stores sanitized first-turn title without adding history', async () => {
   const paths = await createTempPaths();

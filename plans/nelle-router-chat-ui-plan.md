@@ -154,8 +154,7 @@ Nelle currently differs from the target in these ways:
 - The web UI has side panels for runtime/model setup plus a collapsible,
   virtualized conversation sidebar with search, pinned/recent groups,
   new-chat, running indicators, and row actions. The final Astryx SideNav
-  shell, dedicated Settings placement, and export/import actions are still
-  pending.
+  shell and dedicated Settings placement are still pending.
 - The server now exposes conversation snapshots and
   `/api/conversations/:id/chat/stream`. Each streamed conversation is bound to
   one Pi JSONL session file under `.nelle/pi/sessions`, and existing session
@@ -170,7 +169,7 @@ Nelle currently differs from the target in these ways:
 - Done in the current sidebar: reset/delete/pin/rename actions moved out of the
   composer footer and into each conversation row's action menu, and large lists
   use TanStack virtualization. Fork/duplicate actions are implemented. Final
-  SideNav styling plus export/import actions are still pending.
+  SideNav styling is still pending.
 - Model import/edit UX is split between app state and generated preset writes.
   The POC UI can call router model list/load/unload/reload APIs, but model
   editing has not moved into Settings yet.
@@ -178,7 +177,8 @@ Nelle currently differs from the target in these ways:
   SQLite metadata persistence, content-addressed image storage under
   `.nelle/attachments/`, and selected-model vision gating for images. Text files
   and PDFs are sent as extracted text. Direct hard-delete cleanup is
-  implemented. Optional PDF-as-image mode and export/import remain pending.
+  implemented. Local archive export/import is implemented. Optional
+  PDF-as-image mode remains pending.
 - Chat send-blocking errors and warnings now use composer-local Astryx status
   for the chat workflow. Runtime/setup notices outside chat can still appear in
   the page-level workbench notices.
@@ -1202,6 +1202,8 @@ Export/import format:
     known, router runtime ids, and context/modality metadata observed at export
     time.
   - `tool-audit.jsonl`: optional host-tool audit rows for the conversation.
+    Current implementation writes an empty placeholder until durable tool audit
+    persistence exists.
 - Do not include secrets, pairing tokens, app-wide settings, managed
   llama.cpp binaries, model weights, cache directories, or logs by default.
 - Validate import archives before writing: reject absolute paths, `..`
@@ -1519,8 +1521,8 @@ Future migration expectations:
   mapper, and conversation/run state machine.
 - Add the abort API and Pi/proxy abort propagation before expanding the UI.
 - Add lossless `models.ini` parser/writer and model id canonicalizer.
-- Add export/import archive schemas and validation helpers, even if the UI lands
-  in Phase 3.
+- Done: add export/import archive schemas and validation helpers, including
+  manifest checksum validation and safe-path checks.
 
 Exit criteria:
 
@@ -1597,13 +1599,14 @@ Exit criteria:
   search, pinned/recent section rows, TanStack-virtualized list, running status
   indicators, and item overflow menus.
 - Done in current row actions: pin/unpin, rename, reset, duplicate, and delete.
-  Dedicated Settings placement, export, and final SideNav shell styling remain
-  pending.
+  Dedicated Settings placement and final SideNav shell styling remain pending.
 - Done: add conversation delete/pin/rename/duplicate.
 - Done: add message-level fork into a new conversation, backed by Pi
   `SessionManager.createBranchedSession()`.
-- Implement local `.nelle-chat.zip` export/import for conversation snapshots,
-  Pi session files, attachments, model manifest snapshots, and tool audit rows.
+- Done: implement local `.nelle-chat.zip` export/import for conversation
+  snapshots, Pi session files, attachments, and model manifest snapshots.
+  `tool-audit.jsonl` is included as an empty placeholder until durable tool
+  audit persistence exists.
 - Keep the visible branch UX scoped to active-path timelines, regenerate
   variants, fork, and duplicate. Do not build a full Pi tree explorer in v1.
 
@@ -1618,9 +1621,10 @@ Exit criteria:
   new Pi session file and leaves the source conversation unchanged.
 - Duplicating a conversation creates a new Nelle conversation from the active Pi
   branch.
-- Exporting and importing a conversation round trips the Pi session file,
-  Nelle sidecar metadata, attachments, model manifest snapshots, and tool audit
-  rows without overwriting existing conversations.
+- Done: exporting and importing a conversation round trips the Pi session file,
+  Nelle sidecar metadata, attachments, and model manifest snapshots without
+  overwriting existing conversations. Tool audit archive rows are deferred until
+  durable tool audit persistence exists.
 - Inactive Pi branches are preserved in session files and are not dropped by
   projection rebuilds.
 - Done: conversation delete removes SQLite rows, the Pi session file, and
@@ -1670,8 +1674,9 @@ Exit criteria:
 - Done: add attachment size/count/text extraction limits and content-hash
   storage. No server temp upload API exists yet; unsent drafts are client-only.
 - Done: conversation hard delete removes the Pi session file and unreferenced
-  attachment files. Pending: export/import attachment integration and broader
-  orphan cleanup sweeps.
+  attachment files.
+- Done: export/import archives include referenced attachment files and restore
+  them on import. Pending: broader orphan cleanup sweeps.
 - Done for images: gate image attachments on selected-model vision support from
   `/api/llama/models/:id/props`. Pending: PDF-as-image mode.
 - Done: add composer `ProgressBar` for context-window usage with tooltip token
@@ -1777,8 +1782,8 @@ Unit tests:
 - Attachment file classification, size/count limits, content-hash storage,
   modality gating, PDF/text extraction fallback, temp cleanup, and
   context-progress formatting.
-- Export/import archive manifest validation, path traversal rejection, checksum
-  validation, and sidecar metadata overlay by Pi entry id.
+- Done: export/import archive manifest validation, path traversal rejection,
+  checksum validation, and sidecar metadata overlay by Pi entry id.
 - Migration runner backup creation, idempotent retry behavior, and failed
   migration repair state.
 - Tool audit event persistence and deletion/export behavior.

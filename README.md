@@ -68,6 +68,10 @@ Implemented:
   `SessionManager.createBranchedSession()`. Source conversations are left
   unchanged, and Nelle copies retained sidecar metadata such as attachment
   summaries, model snapshots, timings, and tool-call details.
+- Conversation export/import uses local `.nelle-chat.zip` archives with a
+  manifest, checksums, the Pi session JSONL, Nelle sidecar metadata, referenced
+  attachment files, and model snapshot metadata. Imports always create a new
+  conversation.
 - The composer stop action calls `/api/conversations/:id/abort`, aborts the
   active browser stream, and invokes Pi `AgentSession.abort()` for the cached
   conversation runtime when one is active.
@@ -89,18 +93,17 @@ Not implemented yet:
   duplicate, and delete. Assistant regeneration uses Pi branch replay with
   preserved visible answer variants, and user-message fork creates new
   conversations from persisted Pi entries. The composer has an Astryx
-  `/compact` typeahead, composer-local unsupported slash-command guidance, and
-  visible compaction status rows. Export/import, richer abort recovery, and the
-  final Settings/sidebar actions are still pending.
+  `/compact` typeahead, composer-local unsupported slash-command guidance,
+  visible compaction status rows, and local `.nelle-chat.zip` export/import.
+  Richer abort recovery and the final Settings/sidebar actions are still
+  pending.
 - Complete REST/SSE run lifecycle contracts with stable run ids, terminal
   run events, and richer recovery states. Conversation snapshot, stream, and
   basic abort endpoints exist.
-- Local `.nelle-chat.zip` conversation export/import, including Pi session
-  files, Nelle sidecar metadata, attachments, model manifest snapshots, and
-  tool audit rows.
-- Attachment export/import and broader garbage-collection flows. Direct hard
-  delete now removes the conversation's Pi session file and unreferenced
-  attachment files, while archive round trips are still pending.
+- Durable tool audit storage and archive inclusion. Export currently writes an
+  empty `tool-audit.jsonl` placeholder until tool audit persistence lands.
+- Broader orphan garbage-collection sweeps. Direct hard delete removes the
+  conversation's Pi session file and unreferenced attachment files.
 - Host-tool first-run acknowledgement, global disable switch, and durable tool
   audit storage. Sandboxing remains later.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for

@@ -37,6 +37,7 @@ import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {
   ArrowPathIcon,
   ArrowDownTrayIcon,
+  ArrowUpTrayIcon,
   ArrowTrendingUpIcon,
   BookOpenIcon,
   ChatBubbleLeftRightIcon,
@@ -66,6 +67,7 @@ import {
   compactConversation,
   createConversation,
   deleteConversation,
+  exportConversationArchive,
   forkConversation,
   getConversation,
   getConversations,
@@ -74,6 +76,7 @@ import {
   getRuntime,
   getRuntimeLogs,
   getState,
+  importConversationArchive,
   installRuntime,
   loadLlamaModel,
   reloadLlamaModels,
@@ -226,6 +229,7 @@ export function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const archiveInputRef = useRef<HTMLInputElement | null>(null);
   const streamAbortController = useRef<AbortController | null>(null);
   const compactAbortController = useRef<AbortController | null>(null);
   const [notice, setNotice] = useState<{
@@ -585,6 +589,14 @@ export function App() {
     }
   }
 
+  function handleArchivePickerChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (file) {
+      void handleImportConversationArchive(file);
+    }
+  }
+
   async function handleChatSubmit(value: string) {
     const prompt = normalizeComposerValue(value);
     if (!prompt || isStreaming || isCompacting) {
@@ -754,6 +766,25 @@ export function App() {
         setContextUsage({});
       }
       await refreshConversations(activeConversationId);
+    });
+  }
+
+  async function handleExportConversation(conversation: ConversationListItem) {
+    await runAction(`export:${conversation.id}`, async () => {
+      const blob = await exportConversationArchive(conversation.id);
+      downloadBlob(blob, archiveFilename(conversation.title));
+      setNotice({type: 'success', text: 'Conversation exported.'});
+    });
+  }
+
+  async function handleImportConversationArchive(file: File) {
+    await runAction('import-chat', async () => {
+      const snapshot = await importConversationArchive(file);
+      setActiveConversationId(snapshot.conversation.id);
+      applyConversationSnapshot(snapshot, setMessages, setContextUsage);
+      setDraftAttachments([]);
+      await refreshConversations(snapshot.conversation.id);
+      setNotice({type: 'success', text: 'Conversation imported.'});
     });
   }
 
@@ -1044,6 +1075,22 @@ export function App() {
                             isLoading={busyAction === 'new-chat'}
                             onClick={handleNewConversation}
                           />
+                          <Button
+                            label="Import"
+                            size="sm"
+                            variant="ghost"
+                            icon={<Icon icon={ArrowUpTrayIcon} size="sm" />}
+                            isLoading={busyAction === 'import-chat'}
+                            onClick={() => archiveInputRef.current?.click()}
+                          />
+                          <input
+                            ref={archiveInputRef}
+                            aria-label="Import conversation archive"
+                            className="nelle-hidden-file-input"
+                            type="file"
+                            accept=".nelle-chat.zip,application/zip"
+                            onChange={handleArchivePickerChange}
+                          />
                         </HStack>
                         <TextInput
                           label="Search conversations"
@@ -1059,6 +1106,7 @@ export function App() {
                           onTogglePin={handleToggleConversationPin}
                           onRename={handleRenameConversation}
                           onReset={handleResetConversation}
+                          onExport={handleExportConversation}
                           onClone={handleCloneConversation}
                           onDelete={handleDeleteConversation}
                         />
@@ -1739,6 +1787,7 @@ function ConversationVirtualList({
   onTogglePin,
   onRename,
   onReset,
+  onExport,
   onClone,
   onDelete,
 }: {
@@ -1749,6 +1798,7 @@ function ConversationVirtualList({
   onTogglePin: (conversation: ConversationListItem) => void | Promise<void>;
   onRename: (conversation: ConversationListItem) => void | Promise<void>;
   onReset: (conversationId: string) => void | Promise<void>;
+  onExport: (conversation: ConversationListItem) => void | Promise<void>;
   onClone: (conversation: ConversationListItem) => void | Promise<void>;
   onDelete: (conversation: ConversationListItem) => void | Promise<void>;
 }) {
@@ -1808,6 +1858,7 @@ function ConversationVirtualList({
                   onTogglePin={onTogglePin}
                   onRename={onRename}
                   onReset={onReset}
+                  onExport={onExport}
                   onClone={onClone}
                   onDelete={onDelete}
                 />
@@ -1843,6 +1894,7 @@ function ConversationRow({
   onTogglePin,
   onRename,
   onReset,
+  onExport,
   onClone,
   onDelete,
 }: {
@@ -1852,6 +1904,7 @@ function ConversationRow({
   onTogglePin: (conversation: ConversationListItem) => void | Promise<void>;
   onRename: (conversation: ConversationListItem) => void | Promise<void>;
   onReset: (conversationId: string) => void | Promise<void>;
+  onExport: (conversation: ConversationListItem) => void | Promise<void>;
   onClone: (conversation: ConversationListItem) => void | Promise<void>;
   onDelete: (conversation: ConversationListItem) => void | Promise<void>;
 }) {
@@ -1893,6 +1946,10 @@ function ConversationRow({
           {
             label: 'Reset',
             onClick: () => void onReset(conversation.id),
+          },
+          {
+            label: 'Export',
+            onClick: () => void onExport(conversation),
           },
           {
             label: 'Duplicate',
@@ -2731,6 +2788,27 @@ async function delay(milliseconds: number): Promise<void> {
   await new Promise(resolve => {
     setTimeout(resolve, milliseconds);
   });
+}
+
+function archiveFilename(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return `${slug || 'nelle-chat'}.nelle-chat.zip`;
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.style.display = 'none';
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function copyMessageText(value: string): Promise<void> {

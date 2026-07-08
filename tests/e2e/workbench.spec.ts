@@ -733,6 +733,69 @@ test('duplicates conversations and forks from a user message', async ({page}) =>
   await expect(page.getByText('Use llama.cpp router mode.')).toHaveCount(0);
 });
 
+test('exports and imports conversation archives from the sidebar', async ({page}) => {
+  const importPath = path.join(repoRoot, '.nelle-e2e', 'imported-chat.nelle-chat.zip');
+  await fs.mkdir(path.dirname(importPath), {recursive: true});
+  await fs.writeFile(importPath, 'mock archive');
+  let exportCalls = 0;
+  let importCalls = 0;
+
+  await mockConversationRoutes(page, {
+    chat: [
+      {
+        id: 'user-1',
+        role: 'user',
+        content: 'Export this',
+        createdAt: '2026-07-07T12:00:00.000Z',
+      },
+    ],
+    conversations: [
+      {
+        id: 'poc-default',
+        title: 'Exportable chat',
+        titleSource: 'fallback',
+        pinned: false,
+        status: 'ready',
+        updatedAt: '2026-07-07T12:00:00.000Z',
+      },
+    ],
+    importedChat: [
+      {
+        id: 'import-user',
+        role: 'user',
+        content: 'Imported prompt',
+        createdAt: '2026-07-07T12:05:00.000Z',
+      },
+      {
+        id: 'import-assistant',
+        role: 'assistant',
+        content: 'Imported answer.',
+        createdAt: '2026-07-07T12:06:00.000Z',
+      },
+    ],
+    onExport: () => {
+      exportCalls += 1;
+    },
+    onImport: () => {
+      importCalls += 1;
+    },
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', {name: 'Actions for Exportable chat'}).click();
+  await page.getByRole('menuitem', {name: 'Export'}).click();
+
+  await expect.poll(() => exportCalls).toBe(1);
+  await expect(page.getByText('Conversation exported.')).toBeVisible();
+
+  await page.locator('input[aria-label="Import conversation archive"]').setInputFiles(importPath);
+
+  await expect.poll(() => importCalls).toBe(1);
+  await expect(page.getByRole('button', {name: 'Imported chat', exact: true})).toBeVisible();
+  await expect(page.getByText('Imported answer.')).toBeVisible();
+  await expect(page.getByText('Conversation imported.')).toBeVisible();
+});
+
 test('updates streamed tool calls and shows expandable input and output', async ({page}) => {
   const model = {
     id: 'model-1',
@@ -1129,9 +1192,12 @@ async function mockConversationRoutes(
   input: {
     chat: MockChatMessage[];
     conversations?: MockConversation[];
+    importedChat?: MockChatMessage[];
     onCompact?: (instructions?: string) => void;
     onClone?: (conversationId: string, body: {entryId?: string; title?: string}) => void;
     onFork?: (conversationId: string, body: {entryId: string; title?: string}) => void;
+    onExport?: (conversationId: string) => void;
+    onImport?: () => void;
   },
 ): Promise<void> {
   let chat = input.chat;
@@ -1152,6 +1218,26 @@ async function mockConversationRoutes(
     const pathname = url.pathname;
     if (pathname.endsWith('/chat/stream') || pathname.endsWith('/regenerate')) {
       await route.fallback();
+      return;
+    }
+    if (pathname === '/api/conversations/import' && request.method() === 'POST') {
+      input.onImport?.();
+      chat = input.importedChat ?? [];
+      const conversation = {
+        id: 'imported-chat',
+        title: 'Imported chat',
+        titleSource: 'imported',
+        pinned: false,
+        status: 'ready',
+        updatedAt: '2026-07-07T12:05:00.000Z',
+      };
+      conversations = [conversation, ...conversations];
+      await route.fulfill({
+        json: {
+          conversation,
+          snapshot: conversationSnapshot(conversation.id, chat, conversation),
+        },
+      });
       return;
     }
     if (pathname === '/api/conversations/poc-default/compact' && request.method() === 'POST') {
@@ -1176,6 +1262,16 @@ async function mockConversationRoutes(
           aborted: false,
           snapshot: conversationSnapshot('poc-default', chat),
         },
+      });
+      return;
+    }
+    const exportMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/export$/);
+    if (exportMatch && request.method() === 'POST') {
+      input.onExport?.(decodeURIComponent(exportMatch[1]!));
+      await route.fulfill({
+        status: 200,
+        headers: {'content-type': 'application/zip'},
+        body: Buffer.from('mock archive'),
       });
       return;
     }

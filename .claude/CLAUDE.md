@@ -112,6 +112,11 @@ Project-specific guidance for AI coding agents.
 - Conversation hard delete removes the deleted conversation's Pi session file
   and only unreferenced attachment files. Keep file cleanup constrained to
   Nelle-owned data/session directories.
+- Conversation export/import uses local `.nelle-chat.zip` archives with
+  manifest checksums, the Pi session JSONL, Nelle sidecar metadata, referenced
+  attachment files, and model snapshots. Imports always create a new
+  conversation; `tool-audit.jsonl` remains a placeholder until durable tool
+  audit persistence exists.
 - Show context-window usage through the Astryx `ChatComposer` header
   `ProgressBar` with tooltip token counts. Use composer top status for
   send-blocking errors and bottom status for non-blocking warnings.

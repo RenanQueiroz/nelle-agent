@@ -122,6 +122,19 @@ export type StoredAttachment = AttachmentMetadata & {
   processing?: unknown;
 };
 
+export type ImportedAttachmentInput = {
+  piEntryId?: string | null;
+  uploadId?: string | null;
+  kind: ChatAttachmentKind;
+  name: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  storagePath?: string;
+  textContent?: string;
+  processing?: unknown;
+  createdAt?: string;
+};
+
 export type RegenerationSource = {
   assistantEntry: ConversationEntryProjection;
   userEntry: ConversationEntryProjection;
@@ -433,6 +446,71 @@ export class ConversationRepository {
 
   getStoredAttachmentsForEntry(conversationId: string, piEntryId: string): StoredAttachment[] {
     return this.getAttachmentsForEntry(conversationId, piEntryId);
+  }
+
+  getStoredAttachmentsForConversation(conversationId: string): StoredAttachment[] {
+    return this.getAttachments(conversationId);
+  }
+
+  createImportedAttachments(
+    conversationId: string,
+    attachments: ImportedAttachmentInput[],
+  ): AttachmentMetadata[] {
+    if (attachments.length === 0) {
+      return [];
+    }
+    const created: AttachmentMetadata[] = [];
+    const db = this.database.connection;
+    const insert = db.prepare(
+      `INSERT INTO message_attachments (
+         id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
+         size_bytes, storage_path, text_content, processing_json, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    db.exec('BEGIN');
+    try {
+      for (const attachment of attachments) {
+        const now = attachment.createdAt ?? new Date().toISOString();
+        const id = crypto.randomUUID();
+        insert.run(
+          id,
+          conversationId,
+          attachment.piEntryId ?? null,
+          attachment.uploadId ?? null,
+          attachment.kind,
+          attachment.name,
+          attachment.mimeType ?? null,
+          attachment.sizeBytes ?? null,
+          attachment.storagePath ?? null,
+          attachment.textContent ?? null,
+          jsonOrNull(attachment.processing),
+          now,
+        );
+        created.push({
+          id,
+          conversationId,
+          piEntryId: attachment.piEntryId ?? undefined,
+          uploadId: attachment.uploadId ?? undefined,
+          kind: attachment.kind,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          storagePath: attachment.storagePath,
+          textPreview: attachment.textContent?.slice(0, 240),
+          processing: attachment.processing,
+          createdAt: now,
+        });
+      }
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+
+    for (const piEntryId of new Set(attachments.map(item => item.piEntryId).filter(isString))) {
+      this.refreshAttachmentSummary(conversationId, piEntryId);
+    }
+    return created;
   }
 
   getSnapshot(id: string, state: AppState): ConversationSnapshot | null {
@@ -1149,6 +1227,10 @@ function positiveInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
     ? Math.round(value)
     : undefined;
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
 }
 
 function jsonOrNull(value: unknown): string | null {

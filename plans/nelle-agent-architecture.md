@@ -274,16 +274,17 @@ Intentional POC limitations:
 - The web UI has a collapsible, virtualized conversation sidebar with new-chat,
   search, pin/rename/reset/duplicate/delete row actions, pinned/recent sections,
   and running indicators. User-message fork and conversation duplicate create
-  new Pi session files. Dedicated Settings, export/import, and full branch tree
-  exploration are still pending.
-- Stable run ids/terminal run events, full branch tree exploration, and
-  export/import are still pending.
+  new Pi session files, and local `.nelle-chat.zip` export/import creates new
+  conversations. Dedicated Settings and full branch tree exploration are still
+  pending.
+- Stable run ids/terminal run events and full branch tree exploration are still
+  pending.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are enabled through Pi and remain unsandboxed.
-- Attachment export/import, PDF-as-image mode, and broader orphan cleanup sweeps
-  are still pending. Direct hard delete removes the conversation's Pi session
-  file and unreferenced attachment files.
+- PDF-as-image mode, durable tool audit archive rows, and broader orphan cleanup
+  sweeps are still pending. Direct hard delete removes the conversation's Pi
+  session file and unreferenced attachment files.
 - The UI is adapted from Astryx `ai-chat` and `ai-chat-landing` templates, but
   the raw generated template files are not kept in `src`.
 
