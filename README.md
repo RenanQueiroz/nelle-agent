@@ -44,6 +44,12 @@ Implemented:
 - Direct llama.cpp chat-completions fallback if Pi initialization fails.
 - Chat message metadata shows llama.cpp prompt-processing and generation
   throughput in tokens/sec when the server reports those timings.
+- The chat composer shows context-window usage in its header with an Astryx
+  progress bar and used/total token tooltip. The UI uses selected-model props
+  for `n_ctx` when available and updates live from streamed llama.cpp metrics.
+- Chat workflow errors and warnings render through Astryx `ChatComposer` status:
+  send-blocking errors appear above the composer, while near-full context and
+  other non-blocking chat warnings appear below it.
 - Assistant message footers show the model alias snapshot, copy action, and
   regenerate controls. The footer model menu can load another configured router
   model and call `/api/conversations/:id/messages/:messageId/regenerate` with a
@@ -61,10 +67,6 @@ Implemented:
 Not implemented yet:
 
 - Mobile LAN pairing and Expo push.
-- Collapsible, virtualized conversation sidebar. The current workbench has a
-  small searchable conversation list with new-chat and row actions, but the
-  planned large-history list uses TanStack Virtual with Astryx sidebar/list
-  styling.
 - Full router-aware model selector/settings UI. The current POC model panel
   shows router status and exposes reload/load/unload actions, but the final
   settings/sidebar design is not built yet.
@@ -85,11 +87,8 @@ Not implemented yet:
 - Local `.nelle-chat.zip` conversation export/import, including Pi session
   files, Nelle sidecar metadata, attachments, model manifest snapshots, and
   tool audit rows.
-- Composer attachments and context-window display. Planned attachment scope is
-  text files, PDFs, and images only; audio/video attachments are out of scope.
-- Slash-command typeahead and richer compaction status rows. `/compact` itself
-  is supported, but the Astryx typeahead and composer-local status treatment
-  are still pending.
+- Composer attachments. Planned attachment scope is text files, PDFs, and
+  images only; audio/video attachments are out of scope.
 - Host-tool first-run acknowledgement, global disable switch, and durable tool
   audit storage. Sandboxing remains later.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for
@@ -155,15 +154,15 @@ The chat composer uses Astryx's default up-arrow send/stop button. The footer is
 reserved for model selection so the composer exposes only one send affordance;
 conversation reset/delete/pin/rename live in the conversation row action menu.
 
-The planned composer overhaul will move chat warnings/errors into Astryx
-`ChatComposer` status, add a context-window progress bar with used/total token
-tooltip, support text/PDF/image attachments gated by the selected model's vision
-capability, and add Astryx slash-command typeahead for Nelle-supported commands.
-Audio/video attachments are intentionally excluded for now. Nelle supports
-`/compact [instructions]` by calling Pi `AgentSession.compact()` directly;
-commands such as `/new`, `/resume`, `/model`, `/login`, and `/logout` stay owned
-by Nelle UI controls. Composer stop calls `AgentSession.abortCompaction()` for
-an active compaction.
+The composer header shows context-window usage with a used/total token tooltip.
+Near-full context is shown as a bottom composer warning, and context overflow or
+other send-blocking chat errors appear above the composer. Nelle supports
+`/compact [instructions]` through Astryx slash-command typeahead by calling Pi
+`AgentSession.compact()` directly; commands such as `/new`, `/resume`, `/model`,
+`/login`, and `/logout` stay owned by Nelle UI controls. Composer stop calls
+`AgentSession.abortCompaction()` for an active compaction. The remaining planned
+composer work is text/PDF/image attachments gated by the selected model's vision
+capability. Audio/video attachments are intentionally excluded for now.
 
 Assistant message metadata shows the message time, the model alias that
 generated the assistant response, copy/regenerate actions, visible copy

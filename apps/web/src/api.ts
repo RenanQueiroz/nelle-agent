@@ -164,6 +164,13 @@ export type ConversationEntryProjection = {
   toolCalls?: unknown;
 };
 
+export type ConversationContextUsage = {
+  usedTokens?: number;
+  totalTokens?: number;
+  source?: 'estimate' | 'prompt_progress' | 'timings' | 'pi';
+  updatedAt?: string;
+};
+
 export type ConversationSnapshot = {
   conversation: ConversationListItem & {
     piSessionId?: string;
@@ -174,6 +181,18 @@ export type ConversationSnapshot = {
   };
   entries: ConversationEntryProjection[];
   activePathEntryIds: string[];
+  attachments: Array<{
+    id: string;
+    conversationId: string;
+    piEntryId?: string;
+    kind: string;
+    name: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    storagePath?: string;
+    createdAt: string;
+  }>;
+  context: ConversationContextUsage;
   models: {
     selectedModelId?: string;
     defaultModelId?: string;

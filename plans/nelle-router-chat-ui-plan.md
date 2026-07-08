@@ -148,9 +148,11 @@ Nelle currently differs from the target in these ways:
   Nelle-owned `/api/llama/*` router facade exists, and the POC model panel can
   show router status plus reload/load/unload actions. The final router-aware
   settings/model selector surface is not built yet.
-- The web UI has side panels for runtime/model setup plus a temporary searchable
-  conversation list with new-chat and row actions rather than the final
-  collapsible, virtualized conversation sidebar plus settings.
+- The web UI has side panels for runtime/model setup plus a collapsible,
+  virtualized conversation sidebar with search, pinned/recent groups,
+  new-chat, running indicators, and row actions. The final Astryx SideNav
+  shell, dedicated Settings placement, export, duplicate, and fork actions are
+  still pending.
 - The server now exposes conversation snapshots and
   `/api/conversations/:id/chat/stream`. Each streamed conversation is bound to
   one Pi JSONL session file under `.nelle/pi/sessions`, and existing session
@@ -162,21 +164,23 @@ Nelle currently differs from the target in these ways:
   browser stream, and invokes Pi `AgentSession.abort()` for a cached
   conversation runtime. Explicit run ids, terminal run events, abort recovery
   states, and llama.cpp slot-level verification are still pending.
-- Done in the temporary list: reset/delete/pin/rename actions moved out of the
-  composer footer and into each conversation row's action menu. The final
-  sidebar menu styling, virtualization, and export/fork/duplicate actions are
-  still pending.
+- Done in the current sidebar: reset/delete/pin/rename actions moved out of the
+  composer footer and into each conversation row's action menu, and large lists
+  use TanStack virtualization. Final SideNav styling plus export/fork/duplicate
+  actions are still pending.
 - Model import/edit UX is split between app state and generated preset writes.
   The POC UI can call router model list/load/unload/reload APIs, but model
   editing has not moved into Settings yet.
-- The composer has no attachment drawer, file picker, context-window bar, or
-  model-modality gating.
-- Chat warnings/errors still appear as page-level notices instead of
-  composer-local Astryx status messages.
-- The composer recognizes `/compact [instructions]` and routes it to Nelle's
-  compaction API instead of normal prompt submission. Astryx slash-command
-  typeahead and richer composer-local compaction progress/status rows are still
-  pending.
+- The composer has no attachment drawer, file picker, attachment persistence, or
+  attachment model-modality gating. Context-window usage now renders in the
+  Astryx composer header from llama.cpp prompt/generation metrics.
+- Chat send-blocking errors and warnings now use composer-local Astryx status
+  for the chat workflow. Runtime/setup notices outside chat can still appear in
+  the page-level workbench notices.
+- The composer recognizes `/compact [instructions]` through Astryx slash-command
+  typeahead, routes it to Nelle's compaction API instead of normal prompt
+  submission, blocks unsupported Pi slash commands, and renders local
+  compaction status rows.
 
 ## Target Data Ownership
 
@@ -1643,10 +1647,14 @@ Exit criteria:
   upload cleanup, and delete/export/import integration.
 - Gate image attachments and PDF-as-image mode on selected-model vision
   support from `/api/llama/models/:id/props`.
-- Add composer `ProgressBar` for context-window usage with tooltip token
-  counts.
-- Route chat send errors/warnings through `ChatComposer` status top/bottom
-  positions.
+- Done: add composer `ProgressBar` for context-window usage with tooltip token
+  counts. The UI fetches selected-model props for `n_ctx`, falls back to the
+  configured model context size when props are unavailable, updates live from
+  streamed llama.cpp performance metrics, and preserves last-known usage in
+  conversation snapshots.
+- Done for chat workflow: route chat send errors/warnings through
+  `ChatComposer` status top/bottom positions. Runtime/setup notices outside
+  chat can still use page-level notices.
 
 Exit criteria:
 
@@ -1656,12 +1664,14 @@ Exit criteria:
 - Image attachments and PDF-as-image are enabled only for vision-capable models.
 - Audio/video attachments are not exposed.
 - Switching models revalidates pending attachments.
-- The composer shows a live/last-known context progress bar with token-count
-  tooltip.
-- llama-server stopped and other send-blocking conditions appear as top
+- Done: the composer shows a live/last-known context progress bar with
+  token-count tooltip.
+- Done for chat workflow: llama-server stopped, no model selected, unsupported
+  slash commands, chat stream errors, and context overflow appear as top
   composer errors.
-- Near-full context and non-blocking attachment conversions appear as bottom
-  composer warnings.
+- Done for context usage: near-full context appears as a bottom composer
+  warning. Non-blocking attachment conversion warnings remain pending with the
+  attachment implementation.
 
 ### Phase 3D: Slash Commands And Manual Compaction
 
@@ -1684,8 +1694,10 @@ Exit criteria:
   active idle conversation and display visible progress/completion/failure rows.
 - Done: unsupported commands such as `/new`, `/resume`, `/model`, `/login`, and
   `/logout` are never sent to Pi as prompts and show actionable UI guidance.
-- Pending on Phase 3C context UI: compaction updates the context-window display
-  after completion.
+- Partially done: compaction completion re-applies the conversation snapshot so
+  the context-window display refreshes when snapshot context changes.
+  Authoritative post-compaction token recalculation remains pending until Nelle
+  adds a tokenize estimate or Pi/llama exposes compaction context metrics.
 - Done: manual compaction uses Pi `AgentSession.compact()` and stop uses
   `AgentSession.abortCompaction()`.
 

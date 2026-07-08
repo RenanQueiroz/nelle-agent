@@ -25,6 +25,7 @@ import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {createStaticSource, TypeaheadItem, type SearchableItem} from '@astryxdesign/core/Typeahead';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
+import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Token} from '@astryxdesign/core/Token';
 import {Tooltip} from '@astryxdesign/core/Tooltip';
@@ -63,6 +64,7 @@ import {
   deleteConversation,
   getConversation,
   getConversations,
+  getLlamaModelProps,
   getLlamaModels,
   getRuntime,
   getRuntimeLogs,
@@ -85,9 +87,11 @@ import {
   type ChatPerformanceMetric,
   type ChatStreamEvent,
   type ConfiguredModel,
+  type ConversationContextUsage,
   type ConversationListItem,
   type ConversationSnapshot,
   type HuggingFaceModelResult,
+  type LlamaModelProps,
   type LlamaRouterModel,
   type RuntimeStatus,
 } from './api';
@@ -180,13 +184,17 @@ export function App() {
   const [models, setModels] = useState<ConfiguredModel[]>([]);
   const [routerModels, setRouterModels] = useState<LlamaRouterModel[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
+  const [activeModelProps, setActiveModelProps] = useState<LlamaModelProps | null>(null);
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [activeConversationId, setActiveConversationId] = useState('poc-default');
   const [messages, setMessages] = useState<ApiChatMessage[]>([]);
   const [commandRows, setCommandRows] = useState<CommandStatusRow[]>([]);
+  const [contextUsage, setContextUsage] = useState<ConversationContextUsage>({});
   const [conversationSearch, setConversationSearch] = useState('');
   const [composerDraft, setComposerDraft] = useState('');
   const [slashCommandError, setSlashCommandError] = useState<string | null>(null);
+  const [composerError, setComposerError] = useState<string | null>(null);
+  const [composerWarning, setComposerWarning] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('qwen gguf');
   const [searchResults, setSearchResults] = useState<HuggingFaceModelResult[]>([]);
   const [modelsMaxInput, setModelsMaxInput] = useState('1');
@@ -213,18 +221,43 @@ export function App() {
     () => commandRows.filter(row => row.conversationId === activeConversationId),
     [activeConversationId, commandRows],
   );
-  const composerStatus = useMemo(() => {
+  const displayedContextUsage = useMemo(
+    () =>
+      mergeContextTotals(
+        contextUsage,
+        activeModelProps?.contextWindow ?? activeModel?.params.contextSize,
+      ),
+    [activeModel?.params.contextSize, activeModelProps?.contextWindow, contextUsage],
+  );
+  const composerBlockingMessage = useMemo(() => {
     if (slashCommandError) {
-      return {type: 'error' as const, message: slashCommandError};
+      return slashCommandError;
+    }
+    if (composerError) {
+      return composerError;
     }
     if (!runtime?.running) {
-      return {type: 'error' as const, message: 'Start llama.cpp before chatting.'};
+      return 'Start llama.cpp before chatting.';
     }
     if (!activeModel) {
-      return {type: 'error' as const, message: 'Select a GGUF model before chatting.'};
+      return 'Select a GGUF model before chatting.';
+    }
+    return getContextOverflowMessage(displayedContextUsage);
+  }, [activeModel, composerError, displayedContextUsage, runtime?.running, slashCommandError]);
+  const composerWarningMessage =
+    composerBlockingMessage == null
+      ? (composerWarning ?? getContextWarningMessage(displayedContextUsage))
+      : null;
+  const composerStatus = useMemo(() => {
+    if (composerBlockingMessage) {
+      return {type: 'error' as const, message: composerBlockingMessage};
+    }
+    if (composerWarningMessage) {
+      return {type: 'warning' as const, message: composerWarningMessage};
     }
     return undefined;
-  }, [activeModel, runtime?.running, slashCommandError]);
+  }, [composerBlockingMessage, composerWarningMessage]);
+  const composerStatusPosition = composerBlockingMessage ? 'top' : 'bottom';
   const routerModelsByConfiguredId = useMemo(() => {
     const entries = new Map<string, LlamaRouterModel>();
     for (const model of models) {
@@ -262,11 +295,12 @@ export function App() {
         setActiveConversationId(nextConversationId);
         const snapshot = await getConversation(nextConversationId);
         if (!isCancelled) {
-          setMessages(messagesFromSnapshot(snapshot));
+          applyConversationSnapshot(snapshot, setMessages, setContextUsage);
         }
       } catch {
         if (!isCancelled) {
           setMessages(response.state.chat);
+          setContextUsage({});
         }
       }
       if (response.runtime.running) {
@@ -288,6 +322,31 @@ export function App() {
       isCancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+    setActiveModelProps(null);
+    if (!activeModel || !runtime?.running) {
+      return () => {
+        isCancelled = true;
+      };
+    }
+    void (async () => {
+      try {
+        const props = await getLlamaModelProps(activeModel.id);
+        if (!isCancelled) {
+          setActiveModelProps(props);
+        }
+      } catch {
+        if (!isCancelled) {
+          setActiveModelProps(null);
+        }
+      }
+    })();
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeModel, runtime?.running]);
 
   async function refreshState() {
     const response = await getState();
@@ -319,9 +378,10 @@ export function App() {
         preferredConversationId;
       setActiveConversationId(nextConversationId);
       const snapshot = await getConversation(nextConversationId);
-      setMessages(messagesFromSnapshot(snapshot));
+      applyConversationSnapshot(snapshot, setMessages, setContextUsage);
     } catch {
       setMessages(fallbackMessages);
+      setContextUsage({});
     }
   }
 
@@ -454,6 +514,9 @@ export function App() {
     if (slashCommandError) {
       setSlashCommandError(null);
     }
+    if (composerError) {
+      setComposerError(null);
+    }
   }
 
   async function handleChatSubmit(value: string) {
@@ -472,8 +535,16 @@ export function App() {
       restoreComposerDraft(prompt, setComposerDraft);
       return;
     }
+    const contextOverflow = getContextOverflowMessage(displayedContextUsage);
+    if (contextOverflow) {
+      setComposerError(`${contextOverflow} Run /compact to make room before sending.`);
+      restoreComposerDraft(prompt, setComposerDraft);
+      return;
+    }
     setIsStreaming(true);
     setNotice(null);
+    setComposerError(null);
+    setComposerWarning(null);
     const abortController = new AbortController();
     streamAbortController.current = abortController;
     try {
@@ -489,10 +560,7 @@ export function App() {
       if (isAbortError(error)) {
         return;
       }
-      setNotice({
-        type: 'error',
-        text: error instanceof Error ? error.message : String(error),
-      });
+      setComposerError(error instanceof Error ? error.message : String(error));
     } finally {
       if (streamAbortController.current === abortController) {
         streamAbortController.current = null;
@@ -506,6 +574,8 @@ export function App() {
     setCommandRows(prev => [...prev, commandRow]);
     setIsCompacting(true);
     setSlashCommandError(null);
+    setComposerError(null);
+    setComposerWarning(null);
     updateCommandRow(commandRow.id, {
       status: 'compacting',
       message: 'Compacting conversation context...',
@@ -518,7 +588,7 @@ export function App() {
         instructions || undefined,
         abortController.signal,
       );
-      setMessages(messagesFromSnapshot(result.snapshot));
+      applyConversationSnapshot(result.snapshot, setMessages, setContextUsage);
       await refreshConversations(activeConversationId);
       updateCommandRow(commandRow.id, {
         status: 'completed',
@@ -540,7 +610,7 @@ export function App() {
         message,
         completedAt: new Date().toISOString(),
       });
-      setSlashCommandError(message);
+      setComposerError(message);
     } finally {
       if (compactAbortController.current === abortController) {
         compactAbortController.current = null;
@@ -554,6 +624,7 @@ export function App() {
       await clearConversation(conversationId);
       if (conversationId === activeConversationId) {
         setMessages([]);
+        setContextUsage({});
       }
       await refreshConversations(activeConversationId);
       setNotice({type: 'success', text: 'Conversation reset.'});
@@ -565,12 +636,15 @@ export function App() {
       const created = await createConversation({defaultModelId: activeModelId});
       setActiveConversationId(created.id);
       setMessages([]);
+      setContextUsage({});
       await refreshConversations(created.id);
     });
   }
 
   async function handleSelectConversation(conversationId: string) {
     setSlashCommandError(null);
+    setComposerError(null);
+    setComposerWarning(null);
     setActiveConversationId(conversationId);
     await refreshConversations(conversationId);
   }
@@ -601,6 +675,7 @@ export function App() {
       await deleteConversation(conversation.id);
       if (conversation.id === activeConversationId) {
         setMessages([]);
+        setContextUsage({});
       }
       await refreshConversations(activeConversationId);
     });
@@ -673,6 +748,8 @@ export function App() {
 
     setIsStreaming(true);
     setNotice(null);
+    setComposerError(null);
+    setComposerWarning(null);
     const abortController = new AbortController();
     streamAbortController.current = abortController;
     try {
@@ -690,10 +767,7 @@ export function App() {
       if (isAbortError(error)) {
         return;
       }
-      setNotice({
-        type: 'error',
-        text: error instanceof Error ? error.message : String(error),
-      });
+      setComposerError(error instanceof Error ? error.message : String(error));
     } finally {
       if (streamAbortController.current === abortController) {
         streamAbortController.current = null;
@@ -737,6 +811,13 @@ export function App() {
       );
     }
     if (event.type === 'assistant_metrics') {
+      const nextContext = contextUsageFromPerformance(
+        event.performance,
+        activeModelProps?.contextWindow ?? activeModel?.params.contextSize,
+      );
+      if (nextContext) {
+        setContextUsage(previous => mergeLiveContextUsage(previous, nextContext));
+      }
       setMessages(prev =>
         prev.map(message =>
           message.id === event.id
@@ -774,7 +855,7 @@ export function App() {
       });
     }
     if (event.type === 'warning') {
-      setNotice({type: 'warning', text: event.message});
+      setComposerWarning(event.message);
     }
     if (event.type === 'conversation_title') {
       setConversations(prev =>
@@ -791,7 +872,7 @@ export function App() {
       );
     }
     if (event.type === 'error') {
-      setNotice({type: 'error', text: event.message});
+      setComposerError(event.message);
     }
   }
 
@@ -1124,9 +1205,10 @@ export function App() {
                       onStop={() =>
                         void (isCompacting ? handleStopCompaction() : handleStopGeneration())
                       }
+                      headerContext={<ContextWindowUsage context={displayedContextUsage} />}
                       input={<ChatComposerInput triggers={[slashCommandTrigger]} />}
                       status={composerStatus}
-                      statusPosition="top"
+                      statusPosition={composerStatusPosition}
                       footerActions={
                         <HStack gap={1} vAlign="center" wrap="wrap">
                           <DropdownMenu
@@ -1262,6 +1344,124 @@ type CommandStatusRow = {
   createdAt: string;
   completedAt?: string;
 };
+
+function ContextWindowUsage({context}: {context: ConversationContextUsage}) {
+  const totalTokens = positiveTokenCount(context.totalTokens);
+  if (totalTokens == null) {
+    return null;
+  }
+  const usedTokens = positiveTokenCount(context.usedTokens) ?? 0;
+  const progressTokens = Math.min(usedTokens, totalTokens);
+  const tooltip = `Context: ${formatInteger(usedTokens)} / ${formatInteger(totalTokens)} tokens`;
+
+  return (
+    <Tooltip content={tooltip}>
+      <HStack
+        vAlign="center"
+        className="nelle-context-progress"
+        data-testid="composer-context-progress"
+      >
+        <ProgressBar
+          label="Context window usage"
+          value={progressTokens}
+          max={totalTokens}
+          isLabelHidden
+          variant={contextProgressVariant(context)}
+        />
+      </HStack>
+    </Tooltip>
+  );
+}
+
+function applyConversationSnapshot(
+  snapshot: ConversationSnapshot,
+  setMessages: (messages: ApiChatMessage[]) => void,
+  setContextUsage: (context: ConversationContextUsage) => void,
+) {
+  setMessages(messagesFromSnapshot(snapshot));
+  setContextUsage(snapshot.context ?? {});
+}
+
+function mergeContextTotals(
+  context: ConversationContextUsage,
+  totalTokens?: number,
+): ConversationContextUsage {
+  return {
+    ...context,
+    totalTokens: positiveTokenCount(totalTokens) ?? context.totalTokens,
+  };
+}
+
+function contextUsageFromPerformance(
+  performance: ChatPerformance,
+  totalTokens?: number,
+): ConversationContextUsage | null {
+  const promptTokens =
+    positiveTokenCount(performance.prompt?.totalTokens) ??
+    positiveTokenCount(performance.prompt?.tokens);
+  if (promptTokens == null) {
+    return null;
+  }
+  const generationTokens = positiveTokenCount(getGenerationMetric(performance)?.tokens) ?? 0;
+  return {
+    usedTokens: promptTokens + generationTokens,
+    totalTokens: positiveTokenCount(totalTokens),
+    source: performance.source === 'llamacpp-timings' ? 'timings' : 'prompt_progress',
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function mergeLiveContextUsage(
+  current: ConversationContextUsage,
+  next: ConversationContextUsage,
+): ConversationContextUsage {
+  return {
+    ...current,
+    ...next,
+    totalTokens: next.totalTokens ?? current.totalTokens,
+  };
+}
+
+function getContextOverflowMessage(context: ConversationContextUsage): string | null {
+  const ratio = contextUsageRatio(context);
+  if (ratio == null || ratio < 1) {
+    return null;
+  }
+  return 'The selected model context window is full.';
+}
+
+function getContextWarningMessage(context: ConversationContextUsage): string | null {
+  const ratio = contextUsageRatio(context);
+  if (ratio == null || ratio < 0.8 || ratio >= 1) {
+    return null;
+  }
+  return `Context is ${Math.round(ratio * 100)}% full.`;
+}
+
+function contextProgressVariant(context: ConversationContextUsage): 'accent' | 'warning' | 'error' {
+  const ratio = contextUsageRatio(context);
+  if (ratio == null || ratio < 0.8) {
+    return 'accent';
+  }
+  return ratio >= 1 ? 'error' : 'warning';
+}
+
+function contextUsageRatio(context: ConversationContextUsage): number | null {
+  const usedTokens = positiveTokenCount(context.usedTokens);
+  const totalTokens = positiveTokenCount(context.totalTokens);
+  if (usedTokens == null || totalTokens == null) {
+    return null;
+  }
+  return usedTokens / totalTokens;
+}
+
+function positiveTokenCount(value: number | undefined): number | undefined {
+  return value != null && Number.isFinite(value) && value > 0 ? Math.round(value) : undefined;
+}
+
+function formatInteger(value: number): string {
+  return value.toLocaleString();
+}
 
 function CommandStatusMessage({row}: {row: CommandStatusRow}) {
   const color =

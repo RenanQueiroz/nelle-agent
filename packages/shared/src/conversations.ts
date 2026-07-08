@@ -55,6 +55,15 @@ export const attachmentMetadataSchema = z.object({
 
 export type AttachmentMetadata = z.infer<typeof attachmentMetadataSchema>;
 
+export const conversationContextUsageSchema = z.object({
+  usedTokens: z.number().int().nonnegative().optional(),
+  totalTokens: z.number().int().positive().optional(),
+  source: z.enum(['estimate', 'prompt_progress', 'timings', 'pi']).optional(),
+  updatedAt: z.string().optional(),
+});
+
+export type ConversationContextUsage = z.infer<typeof conversationContextUsageSchema>;
+
 export const modelListItemSchema = z.object({
   id: z.string(),
   alias: z.string(),
@@ -91,12 +100,7 @@ export const conversationSnapshotSchema = z.object({
   entries: z.array(conversationEntryProjectionSchema),
   activePathEntryIds: z.array(z.string()),
   attachments: z.array(attachmentMetadataSchema),
-  context: z.object({
-    usedTokens: z.number().int().nonnegative().optional(),
-    totalTokens: z.number().int().positive().optional(),
-    source: z.enum(['estimate', 'prompt_progress', 'timings', 'pi']).optional(),
-    updatedAt: z.string().optional(),
-  }),
+  context: conversationContextUsageSchema,
   models: z.object({
     selectedModelId: z.string().optional(),
     defaultModelId: z.string().optional(),

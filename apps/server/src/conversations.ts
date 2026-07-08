@@ -3,6 +3,7 @@ import type {DatabaseSync} from 'node:sqlite';
 
 import type {
   AttachmentMetadata,
+  ConversationContextUsage,
   ConversationEntryProjection,
   ConversationSnapshot,
   ConversationStatus,
@@ -256,6 +257,7 @@ export class ConversationRepository {
     const models = buildModelList(state.models);
     const selectedModelId = state.activeModelId ?? undefined;
     const defaultModelId = row.default_model_id ?? selectedModelId;
+    const defaultModel = state.models.find(model => model.id === defaultModelId);
     const unavailable = row.status === 'unavailable';
 
     return conversationSnapshotSchema.parse({
@@ -277,7 +279,7 @@ export class ConversationRepository {
       entries,
       activePathEntryIds,
       attachments,
-      context: {},
+      context: buildContextUsage(entries, defaultModel?.params.contextSize),
       models: {
         selectedModelId,
         defaultModelId: defaultModelId ?? undefined,
@@ -788,6 +790,71 @@ function buildModelList(models: ConfiguredModel[]): ModelListItem[] {
     id: model.id,
     alias: model.name,
   }));
+}
+
+function buildContextUsage(
+  entries: ConversationEntryProjection[],
+  totalTokens?: number,
+): ConversationContextUsage {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry?.role !== 'assistant') {
+      continue;
+    }
+    const context = contextUsageFromPerformance(entry.performance, entry.createdAt);
+    if (context) {
+      return {
+        ...context,
+        totalTokens: positiveInteger(totalTokens) ?? context.totalTokens,
+      };
+    }
+  }
+
+  return {
+    totalTokens: positiveInteger(totalTokens),
+  };
+}
+
+function contextUsageFromPerformance(
+  performance: unknown,
+  updatedAt: string,
+): ConversationContextUsage | null {
+  if (!performance || typeof performance !== 'object') {
+    return null;
+  }
+  const data = performance as {
+    source?: unknown;
+    prompt?: unknown;
+    generation?: unknown;
+    generatedTokens?: unknown;
+  };
+  const prompt = metricObject(data.prompt);
+  const generation = metricObject(data.generation);
+  const promptTokens = positiveInteger(prompt?.totalTokens) ?? positiveInteger(prompt?.tokens);
+  if (promptTokens == null) {
+    return null;
+  }
+  const generationTokens =
+    positiveInteger(generation?.tokens) ?? positiveInteger(data.generatedTokens) ?? 0;
+
+  return {
+    usedTokens: promptTokens + generationTokens,
+    source: data.source === 'llamacpp-timings' ? 'timings' : 'prompt_progress',
+    updatedAt,
+  };
+}
+
+function metricObject(value: unknown): {
+  tokens?: unknown;
+  totalTokens?: unknown;
+} | null {
+  return value && typeof value === 'object' ? value : null;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : undefined;
 }
 
 function jsonOrNull(value: unknown): string | null {

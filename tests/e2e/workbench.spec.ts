@@ -262,6 +262,16 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
   await page.route('**/api/runtime', async route => {
     await route.fulfill({json: runtime});
   });
+  await page.route('**/api/llama/models/**/props', async route => {
+    await route.fulfill({
+      json: {
+        modelId: model.id,
+        modalities: {vision: false, audio: false, video: false},
+        contextWindow: 8192,
+        raw: {},
+      },
+    });
+  });
   const chat: Array<{id: string; role: string; content: string; createdAt: string}> = [];
   await mockConversationRoutes(page, {chat});
   await page.route('**/api/conversations/poc-default/chat/stream', async route => {
@@ -283,6 +293,7 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
         source: 'llamacpp-timings',
         prompt: {
           tokens: 44,
+          totalTokens: 128,
           milliseconds: 1362.23,
           tokensPerSecond: 32.3,
         },
@@ -332,6 +343,8 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
   await expect(page.getByText('44 tokens')).toBeVisible();
   await expect(page.getByText('1.36s')).toBeVisible();
   await expect(page.getByText('32.30 t/s')).toBeVisible();
+  await page.getByTestId('composer-context-progress').hover();
+  await expect(page.getByText('Context: 134 / 8,192 tokens')).toBeVisible();
 
   await page.getByText('32.30 t/s').hover();
   await expect(page.getByText('Prompt processing speed')).toBeVisible();
@@ -1033,7 +1046,7 @@ function conversationSnapshot(
     })),
     activePathEntryIds: chat.map(message => message.id),
     attachments: [],
-    context: {},
+    context: contextFromChat(chat),
     models: {available: []},
     capabilities: {
       canSend: true,
@@ -1045,6 +1058,28 @@ function conversationSnapshot(
     },
     errors: [],
   };
+}
+
+function contextFromChat(chat: MockChatMessage[]) {
+  for (let index = chat.length - 1; index >= 0; index -= 1) {
+    const message = chat[index];
+    const performance = message?.performance as
+      | {
+          prompt?: {tokens?: number; totalTokens?: number};
+          generation?: {tokens?: number};
+        }
+      | undefined;
+    const promptTokens = performance?.prompt?.totalTokens ?? performance?.prompt?.tokens;
+    if (message?.role === 'assistant' && promptTokens != null) {
+      return {
+        usedTokens: promptTokens + (performance?.generation?.tokens ?? 0),
+        totalTokens: 8192,
+        source: 'timings',
+        updatedAt: message.createdAt,
+      };
+    }
+  }
+  return {};
 }
 
 type MockChatMessage = {

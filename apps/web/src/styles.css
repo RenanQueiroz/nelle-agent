@@ -92,6 +92,11 @@ body {
   min-height: 0;
 }
 
+.nelle-context-progress {
+  width: calc(var(--spacing-10) * 4);
+  min-width: calc(var(--spacing-10) * 3);
+}
+
 .nelle-search-panel {
   width: 420px;
   min-width: 360px;

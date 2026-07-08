@@ -214,6 +214,67 @@ test('repository applies generated titles without overwriting user titles', asyn
   }
 });
 
+test('repository derives context usage from assistant performance metadata', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    await store.addHuggingFaceModel({
+      repoId: 'repo/model',
+      quant: 'UD-Q4_K_M',
+      name: 'Model Q4',
+    });
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Context chat'});
+
+    repository.replaceConversationProjection(conversation.id, {
+      activeLeafPiEntryId: 'assistant-1',
+      lastSyncedPiEntryId: 'assistant-1',
+      entries: [
+        {
+          piEntryId: 'user-1',
+          entryType: 'message',
+          role: 'user',
+          text: 'Use context',
+          createdAt: '2026-07-08T12:00:00.000Z',
+        },
+        {
+          piEntryId: 'assistant-1',
+          parentPiEntryId: 'user-1',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'Context used.',
+          createdAt: '2026-07-08T12:00:01.000Z',
+          performance: {
+            source: 'llamacpp-timings',
+            prompt: {
+              tokens: 100,
+              totalTokens: 128,
+              tokensPerSecond: 40,
+            },
+            generation: {
+              tokens: 6,
+              tokensPerSecond: 20,
+            },
+          },
+        },
+      ],
+    });
+
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+
+    assert.deepEqual(snapshot?.context, {
+      usedTokens: 134,
+      totalTokens: 8192,
+      source: 'timings',
+      updatedAt: '2026-07-08T12:00:01.000Z',
+    });
+  } finally {
+    database.close();
+  }
+});
+
 test('Pi title generation stores sanitized first-turn title without adding history', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);

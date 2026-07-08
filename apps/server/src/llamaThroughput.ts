@@ -142,7 +142,6 @@ export function performanceFromLlamaPromptProgress(progress: unknown): ChatPerfo
   }
 
   const actualTokens = Math.max(0, processed - cache);
-  const actualTotal = total == null ? undefined : Math.max(0, total - cache);
   if (actualTokens === 0) {
     return null;
   }
@@ -151,7 +150,7 @@ export function performanceFromLlamaPromptProgress(progress: unknown): ChatPerfo
     source: 'llamacpp-timings',
     prompt: {
       tokens: actualTokens,
-      totalTokens: actualTotal,
+      totalTokens: total == null ? undefined : Math.max(0, total),
       cacheTokens: cache,
       milliseconds,
       tokensPerSecond: (actualTokens / milliseconds) * 1000,
@@ -276,7 +275,7 @@ function promptMetricFromSlot(
 
   return {
     tokens: actualTokens,
-    totalTokens: total == null ? undefined : Math.max(0, total - cache),
+    totalTokens: total == null ? undefined : Math.max(0, total),
     cacheTokens: cache,
     milliseconds: elapsedMilliseconds,
     tokensPerSecond: (actualTokens / elapsedMilliseconds) * 1000,

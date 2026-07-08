@@ -66,6 +66,10 @@ Project-specific guidance for AI coding agents.
   `performance.generation` metrics. Pi calls go through Nelle's
   `/api/llama-proxy/v1` provider so streamed `prompt_progress` and `timings`
   chunks can update the UI; `/slots` is only a best-effort fallback.
+- Conversation snapshots derive last-known context usage from assistant
+  performance metadata. Keep `prompt.totalTokens` as the full llama.cpp prompt
+  total for context usage; `prompt.tokens` remains the processed-token count
+  shown in the Reading stats widget.
 - Assistant messages should persist the generating model id/runtime id and an
   alias snapshot. Footer model changes should regenerate through Pi-native
   branch replay with a model override, then group the new answer as a UI
