@@ -41,6 +41,18 @@ const regenerateMessageSchema = z
   })
   .optional();
 
+const forkConversationSchema = z.object({
+  entryId: z.string().min(1),
+  title: z.string().min(1).max(200).optional(),
+});
+
+const cloneConversationSchema = z
+  .object({
+    entryId: z.string().min(1).optional(),
+    title: z.string().min(1).max(200).optional(),
+  })
+  .optional();
+
 const listConversationsQuerySchema = z.object({
   search: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -382,6 +394,50 @@ export async function createServer(paths: AppPaths) {
       ok: true,
       aborted,
       snapshot: conversations.getSnapshot(id, await store.getState()),
+    };
+  });
+
+  app.post('/api/conversations/:id/fork', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    if (!conversations.getConversation(id)) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    const body = forkConversationSchema.parse(request.body);
+    const snapshot = await pi.forkConversation({
+      conversationId: id,
+      entryId: body.entryId,
+      title: body.title,
+    });
+    return {
+      conversation: snapshot.conversation,
+      snapshot,
+    };
+  });
+
+  app.post('/api/conversations/:id/clone', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    if (!conversations.getConversation(id)) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    const body = cloneConversationSchema.parse(request.body) ?? {};
+    const snapshot = await pi.cloneConversation({
+      conversationId: id,
+      entryId: body.entryId,
+      title: body.title,
+    });
+    return {
+      conversation: snapshot.conversation,
+      snapshot,
     };
   });
 

@@ -129,6 +129,9 @@ Relevant Pi SDK/session behavior:
 - `SessionManager` owns persistent JSONL session files and the session tree. It
   can create, open, list, fork, branch, append session info, build active
   context, and expose stable entry ids plus the current leaf id.
+- Nelle uses `SessionManager.createBranchedSession()` for fork/duplicate because
+  it creates the required new Pi session file without replacing the source
+  conversation runtime.
 - Pi RPC mode exposes the same important controls if the SDK path becomes too
   coupled: `abort`, `new_session`, `switch_session`, `fork`, `clone`,
   `get_entries`, and `get_tree`.
@@ -315,9 +318,10 @@ Runtime lifecycle:
   and show a repair/delete/export-diagnostics action instead of creating a new
   unrelated session under the same Nelle conversation id.
 - Forking or duplicating a conversation creates a new Pi session file through
-  Pi's runtime APIs and then creates a new Nelle conversation row that points to
-  that new file. Use an isolated temporary Pi runtime for fork/clone work so the
-  source conversation's live runtime and active stream are not replaced.
+  Pi's `SessionManager.createBranchedSession(leafId)` primitive and then
+  creates a new Nelle conversation row that points to that new file. Use
+  `SessionManager.open()` directly for this file-level operation so the source
+  conversation's live runtime and active stream are not replaced.
 - Hard-deleting a conversation deletes its SQLite rows, Pi session file, and
   attachment files.
 
@@ -580,13 +584,13 @@ Conversation item menu:
 
 Message/conversation branch actions:
 
-- User message overflow menu: fork from this message into a new Nelle
+- User message footer action: fork from this message into a new Nelle
   conversation.
 - Conversation item menu: duplicate the active branch into a new Nelle
   conversation.
-- Both actions use Pi's built-in fork/clone session logic and create a new Pi
-  session file plus a new Nelle conversation row. The source conversation is not
-  mutated.
+- Both actions use Pi's built-in session branching file logic and create a new
+  Pi session file plus a new Nelle conversation row. The source conversation is
+  not mutated.
 
 Composer:
 
@@ -754,7 +758,7 @@ UI-owned or unsupported initially:
   local llama.cpp provider remains app-managed.
 - `/settings`: use Nelle Settings.
 - `/fork` and `/clone`: use Nelle's message/conversation menus, backed by Pi
-  `AgentSessionRuntime.fork()` and clone-style fork-at-position support.
+  `SessionManager.createBranchedSession()` session-file branching.
 - `/name`, `/session`, `/tree`, `/export`, `/import`, and `/share`: use
   Nelle's conversation sidebar, branching, export/import, and sharing flows as
   those features are implemented.
@@ -990,15 +994,20 @@ Fork and duplicate behavior:
   that user entry. The source conversation remains open and unchanged.
 - Duplicate creates a new Nelle conversation from a Pi clone-style fork of the
   current active branch, defaulting to the source conversation's current leaf.
-- Use a temporary isolated Pi runtime for the operation:
+- Use Pi's session-file branching primitive for the operation:
   1. Open the source `pi_session_path`.
-  2. Call `AgentSessionRuntime.fork(entryId)` for fork, or fork-at-position for
-     clone.
-  3. Read the new runtime's `session.sessionFile` and `session.sessionId`.
-  4. Create a new Nelle `conversations` row with
+  2. Resolve the requested Pi entry id, or use the source
+     `active_leaf_pi_entry_id`/session leaf for duplicate.
+  3. Call `SessionManager.createBranchedSession(entryId)` to create a new
+     session file containing the root-to-entry path.
+  4. Open the new session file with `SessionManager.open()` and read its session
+     id and leaf.
+  5. Create a new Nelle `conversations` row with
      `parent_conversation_id`, `forked_from_pi_entry_id`, and `fork_kind`.
-  5. Sync the new conversation projection from the new Pi session file.
-  6. Dispose the temporary runtime.
+  6. Sync the new conversation projection from the new Pi session file.
+  7. Copy Nelle sidecar metadata that Pi does not own, including model
+     snapshots, performance metrics, tool-call details, attachment summaries,
+     and referenced attachment metadata.
 - If the source conversation is actively streaming, allow clone from the last
   durable `active_leaf_pi_entry_id` but reject fork from entries that are not yet
   persisted.
@@ -1149,8 +1158,9 @@ API shape:
 - `POST /api/conversations/:id/clone`
 - `DELETE /api/conversations`
 - `POST /api/conversations/:id/chat/stream`
-- `POST /api/conversations/:id/runs/:runId/abort`
+- `POST /api/conversations/:id/abort`
 - `POST /api/conversations/:id/compact`
+- `POST /api/conversations/:id/compact/abort`
 - `POST /api/conversations/:id/messages/:messageId/regenerate`
 
 Chat streaming should be conversation-scoped. The stream route appends the user
@@ -1162,15 +1172,18 @@ Fork/clone API:
 
 - `POST /api/conversations/:id/fork`
   - request: `{ "entryId": "<pi user entry id>", "title"?: string }`
-  - behavior: open the source Pi session in an isolated temporary runtime, call
-    Pi `AgentSessionRuntime.fork(entryId)`, create a Nelle conversation row for
-    the new Pi session file, sync its projection, and leave the source
+  - behavior: open the source Pi session file, validate that `entryId` is a
+    persisted user-message entry, call
+    `SessionManager.createBranchedSession(entryId)`, create a Nelle
+    conversation row for the new Pi session file, sync its projection, copy
+    Nelle sidecar metadata for retained entries, and leave the source
     conversation unchanged.
 - `POST /api/conversations/:id/clone`
   - request: `{ "entryId"?: "<pi entry id>", "title"?: string }`
   - behavior: duplicate the active branch through the supplied entry or current
-    leaf by using Pi's clone-style fork-at-position support, then create a new
-    Nelle conversation row for the new Pi session file.
+    leaf by calling `SessionManager.createBranchedSession(entryId)`, then create
+    a new Nelle conversation row for the new Pi session file and copy Nelle
+    sidecar metadata for retained entries.
 - Both routes return the new conversation snapshot and may optionally stream a
   `conversation.forked` event if the caller is subscribed.
 
@@ -1583,11 +1596,12 @@ Exit criteria:
 - Done in current pane: add collapsible conversation sidebar rail with new chat,
   search, pinned/recent section rows, TanStack-virtualized list, running status
   indicators, and item overflow menus.
-- Done in current row actions: pin/unpin, rename, reset, and delete. Dedicated
-  Settings placement, export, duplicate, fork, and final SideNav shell styling
-  remain pending.
-- Add conversation export/delete/pin/rename/duplicate.
-- Add message-level fork into a new conversation, backed by Pi fork.
+- Done in current row actions: pin/unpin, rename, reset, duplicate, and delete.
+  Dedicated Settings placement, export, and final SideNav shell styling remain
+  pending.
+- Done: add conversation delete/pin/rename/duplicate.
+- Done: add message-level fork into a new conversation, backed by Pi
+  `SessionManager.createBranchedSession()`.
 - Implement local `.nelle-chat.zip` export/import for conversation snapshots,
   Pi session files, attachments, model manifest snapshots, and tool audit rows.
 - Keep the visible branch UX scoped to active-path timelines, regenerate
@@ -1953,9 +1967,9 @@ Playwright tests:
   conversation, router, runtime, log-tail, and install/build events.
 - Conversation snapshots are the recovery source after stream disconnects; v1
   does not require durable event replay.
-- Fork and duplicate are in scope for the conversation UI. Both use Pi runtime
-  fork/clone behavior and create new Nelle conversations rather than mutating or
-  replacing the source conversation.
+- Fork and duplicate are in scope for the conversation UI. Both use Pi
+  `SessionManager.createBranchedSession()` to create new Nelle conversations
+  rather than mutating or replacing the source conversation.
 - The v1 branch UI shows the active Pi path, regenerate variants, fork, and
   duplicate. A full Pi tree explorer is deferred, but inactive Pi branches must
   remain preserved in session files.

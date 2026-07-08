@@ -24,6 +24,8 @@ import type {ConversationRepository, SyncConversationEntry} from './conversation
 import type {
   AttachmentMetadata,
   ConversationEntryProjection,
+  ConversationSnapshot,
+  ConversationStatus,
 } from '../../../packages/shared/src/conversations.ts';
 import type {ChatAttachmentInput} from '../../../packages/shared/src/contracts.ts';
 import type {
@@ -264,6 +266,32 @@ export class PiHarness {
     });
 
     return queue;
+  }
+
+  async forkConversation(input: {
+    conversationId: string;
+    entryId: string;
+    title?: string;
+  }): Promise<ConversationSnapshot> {
+    return this.createBranchedConversation({
+      conversationId: input.conversationId,
+      entryId: input.entryId,
+      title: input.title,
+      kind: 'fork',
+    });
+  }
+
+  async cloneConversation(input: {
+    conversationId: string;
+    entryId?: string;
+    title?: string;
+  }): Promise<ConversationSnapshot> {
+    return this.createBranchedConversation({
+      conversationId: input.conversationId,
+      entryId: input.entryId,
+      title: input.title,
+      kind: 'clone',
+    });
   }
 
   private async runPiPrompt(
@@ -651,25 +679,125 @@ export class PiHarness {
     return inputs;
   }
 
+  private async createBranchedConversation(input: {
+    conversationId: string;
+    entryId?: string;
+    title?: string;
+    kind: 'fork' | 'clone';
+  }): Promise<ConversationSnapshot> {
+    const source = this.conversations.getConversation(input.conversationId);
+    if (!source) {
+      throw new Error(`Conversation ${input.conversationId} was not found.`);
+    }
+    const binding = this.conversations.getPiSessionBinding(input.conversationId);
+    if (!binding?.piSessionPath) {
+      throw new Error('This conversation does not have a Pi session to branch.');
+    }
+
+    const sourceManager = SessionManager.open(
+      binding.piSessionPath,
+      this.paths.piSessionsDir,
+      this.paths.repoRoot,
+    );
+    const entryId = input.entryId ?? sourceManager.getLeafId();
+    if (!entryId) {
+      throw new Error('This conversation does not have a persisted entry to branch from.');
+    }
+    const entry = sourceManager.getEntry(entryId);
+    if (!entry) {
+      throw new Error(`Entry ${entryId} was not found in the Pi session.`);
+    }
+    if (input.kind === 'fork' && !isUserMessageEntry(entry)) {
+      throw new Error('Forking is only available from persisted user messages.');
+    }
+
+    const branchedSessionPath = sourceManager.createBranchedSession(entryId);
+    if (!branchedSessionPath) {
+      throw new Error('Pi did not create a branched session file.');
+    }
+    await ensureBranchedSessionFile(branchedSessionPath, sourceManager);
+    const branchedManager = SessionManager.open(
+      branchedSessionPath,
+      this.paths.piSessionsDir,
+      this.paths.repoRoot,
+    );
+    const conversation = this.conversations.createConversation({
+      title: input.title ?? `${source.title}${input.kind === 'fork' ? ' (fork)' : ' (copy)'}`,
+      titleSource: 'fallback',
+      defaultModelId: source.default_model_id,
+      parentConversationId: source.id,
+      forkedFromPiEntryId: entryId,
+      forkKind: input.kind,
+    });
+    this.conversations.attachPiSession(conversation.id, {
+      piSessionPath: branchedSessionPath,
+      piSessionId: branchedManager.getSessionId(),
+      activeLeafPiEntryId: branchedManager.getLeafId(),
+    });
+
+    const activeModel = await this.getProjectionModel();
+    const seedEntries = this.conversations.getConversationEntries(input.conversationId);
+    const fakeSession = {
+      sessionFile: branchedSessionPath,
+      sessionId: branchedManager.getSessionId(),
+      sessionManager: branchedManager,
+    };
+    const syncedEntries = this.syncPiConversation(
+      conversation.id,
+      fakeSession,
+      activeModel,
+      undefined,
+      'ready',
+      {seedEntries},
+    );
+    this.conversations.copyAttachmentsForEntries(
+      input.conversationId,
+      conversation.id,
+      syncedEntries.map(projection => projection.piEntryId),
+    );
+    const snapshot = this.conversations.getSnapshot(conversation.id, await this.store.getState());
+    if (!snapshot) {
+      throw new Error('Created conversation snapshot was not available.');
+    }
+    return snapshot;
+  }
+
+  private async getProjectionModel(): Promise<ConfiguredModel> {
+    const state = await this.store.getState();
+    const model = state.models.find(item => item.id === state.activeModelId) ?? state.models[0];
+    return (
+      model ?? {
+        id: 'unknown',
+        name: 'Unknown model',
+        presetName: 'unknown',
+        source: 'huggingface',
+        params: {contextSize: 8192},
+        createdAt: new Date().toISOString(),
+      }
+    );
+  }
+
   private syncPiConversation(
     conversationId: string,
     session: any,
     activeModel: ConfiguredModel,
     assistantMessage?: ChatMessage,
-    status: 'running' | 'compacting' = 'running',
+    status: ConversationStatus = 'running',
     metadata: {
       regeneratesPiEntryId?: string;
       displayGroupId?: string;
       userPromptText?: string;
       userAttachmentSummary?: unknown;
+      seedEntries?: ConversationEntryProjection[];
     } = {},
   ): SyncConversationEntry[] {
     const branch = session.sessionManager.getBranch() as any[];
-    const existingEntries = new Map(
-      this.conversations
+    const existingEntries = new Map([
+      ...(metadata.seedEntries ?? []).map(entry => [entry.piEntryId, entry] as const),
+      ...this.conversations
         .getConversationEntries(conversationId)
         .map(entry => [entry.piEntryId, entry] as const),
-    );
+    ]);
     const entries: SyncConversationEntry[] = [];
     let lastAssistantEntryId: string | null = null;
     for (const entry of branch) {
@@ -698,8 +826,13 @@ export class PiHarness {
         createdAt: String(entry.timestamp ?? new Date().toISOString()),
         displayGroupId: String(entry.id),
       };
+      const existingEntry = existingEntries.get(projection.piEntryId);
+      projection.performance = existingEntry?.performance;
+      projection.toolCalls = existingEntry?.toolCalls;
+      projection.attachmentSummary = existingEntry?.attachmentSummary;
+      projection.regeneratesPiEntryId = existingEntry?.regeneratesPiEntryId;
+      projection.displayGroupId = existingEntry?.displayGroupId ?? projection.displayGroupId;
       if (role === 'assistant') {
-        const existingEntry = existingEntries.get(projection.piEntryId);
         projection.modelId = existingEntry?.modelId ?? activeModel.id;
         projection.modelRuntimeId =
           existingEntry?.modelRuntimeId ?? llamaRuntimeModelId(activeModel);
@@ -1220,6 +1353,41 @@ function extractMessageText(message: unknown): string {
     })
     .filter(Boolean)
     .join('\n');
+}
+
+function isUserMessageEntry(entry: unknown): boolean {
+  if (!entry || typeof entry !== 'object') {
+    return false;
+  }
+  const data = entry as {type?: unknown; message?: {role?: unknown}};
+  return data.type === 'message' && data.message?.role === 'user';
+}
+
+async function ensureBranchedSessionFile(sessionPath: string, manager: any): Promise<void> {
+  try {
+    await fs.access(sessionPath);
+    return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  const header = manager.getHeader?.();
+  const entries = manager.getEntries?.();
+  if (!header || !Array.isArray(entries)) {
+    throw new Error('Pi created an in-memory branch without readable session entries.');
+  }
+
+  await fs.mkdir(path.dirname(sessionPath), {recursive: true});
+  const content = [header, ...entries].map(entry => JSON.stringify(entry)).join('\n');
+  try {
+    await fs.writeFile(sessionPath, `${content}\n`, {flag: 'wx'});
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      throw error;
+    }
+  }
 }
 
 function sanitizeGeneratedTitle(value: string): string | null {

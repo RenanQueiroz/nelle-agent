@@ -668,6 +668,71 @@ test('regenerates an assistant response from the footer model picker', async ({p
   await expect(page.getByText('Model B').first()).toBeVisible();
 });
 
+test('duplicates conversations and forks from a user message', async ({page}) => {
+  const chat: MockChatMessage[] = [
+    {
+      id: 'user-1',
+      role: 'user',
+      content: 'Plan router mode',
+      createdAt: '2026-07-07T12:00:00.000Z',
+    },
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Use llama.cpp router mode.',
+      createdAt: '2026-07-07T12:01:00.000Z',
+      modelId: 'model-1',
+      modelRuntimeId: 'model-1',
+      modelAliasSnapshot: 'Model One',
+    },
+  ];
+  let cloneCalls = 0;
+  let forkCalls = 0;
+  let forkEntryId: string | undefined;
+
+  await mockConversationRoutes(page, {
+    chat,
+    conversations: [
+      {
+        id: 'poc-default',
+        title: 'POC chat',
+        titleSource: 'fallback',
+        pinned: false,
+        status: 'ready',
+        updatedAt: '2026-07-07T12:00:00.000Z',
+      },
+    ],
+    onClone: () => {
+      cloneCalls += 1;
+    },
+    onFork: (_conversationId, body) => {
+      forkCalls += 1;
+      forkEntryId = body.entryId;
+    },
+  });
+
+  await page.goto('/');
+  await expect(page.getByText('Use llama.cpp router mode.')).toBeVisible();
+
+  await page.getByRole('button', {name: 'Actions for POC chat'}).click();
+  await page.getByRole('menuitem', {name: 'Duplicate'}).click();
+
+  await expect.poll(() => cloneCalls).toBe(1);
+  await expect(page.getByRole('button', {name: 'POC chat (copy)', exact: true})).toBeVisible();
+  await expect(page.getByText('Conversation duplicated.')).toBeVisible();
+
+  await page.getByRole('button', {name: 'Fork from here'}).click();
+
+  await expect.poll(() => forkCalls).toBe(1);
+  expect(forkEntryId).toBe('user-1');
+  await expect(
+    page.getByRole('button', {name: 'POC chat (copy) (fork)', exact: true}),
+  ).toBeVisible();
+  await expect(page.getByText('Conversation forked.')).toBeVisible();
+  await expect(page.getByText('Plan router mode')).toBeVisible();
+  await expect(page.getByText('Use llama.cpp router mode.')).toHaveCount(0);
+});
+
 test('updates streamed tool calls and shows expandable input and output', async ({page}) => {
   const model = {
     id: 'model-1',
@@ -1065,6 +1130,8 @@ async function mockConversationRoutes(
     chat: MockChatMessage[];
     conversations?: MockConversation[];
     onCompact?: (instructions?: string) => void;
+    onClone?: (conversationId: string, body: {entryId?: string; title?: string}) => void;
+    onFork?: (conversationId: string, body: {entryId: string; title?: string}) => void;
   },
 ): Promise<void> {
   let chat = input.chat;
@@ -1108,6 +1175,54 @@ async function mockConversationRoutes(
           ok: true,
           aborted: false,
           snapshot: conversationSnapshot('poc-default', chat),
+        },
+      });
+      return;
+    }
+    const cloneMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/clone$/);
+    if (cloneMatch && request.method() === 'POST') {
+      const sourceConversationId = decodeURIComponent(cloneMatch[1]!);
+      const body = (request.postDataJSON() ?? {}) as {entryId?: string; title?: string};
+      input.onClone?.(sourceConversationId, body);
+      const source = conversations.find(conversation => conversation.id === sourceConversationId);
+      const conversation = {
+        id: `${sourceConversationId}-copy`,
+        title: body.title ?? `${source?.title ?? 'POC chat'} (copy)`,
+        titleSource: 'fallback',
+        pinned: false,
+        status: 'ready',
+        updatedAt: '2026-07-07T12:02:00.000Z',
+      };
+      conversations = [conversation, ...conversations];
+      await route.fulfill({
+        json: {
+          conversation,
+          snapshot: conversationSnapshot(conversation.id, chat, conversation),
+        },
+      });
+      return;
+    }
+    const forkMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/fork$/);
+    if (forkMatch && request.method() === 'POST') {
+      const sourceConversationId = decodeURIComponent(forkMatch[1]!);
+      const body = request.postDataJSON() as {entryId: string; title?: string};
+      input.onFork?.(sourceConversationId, body);
+      const source = conversations.find(conversation => conversation.id === sourceConversationId);
+      const entryIndex = chat.findIndex(message => message.id === body.entryId);
+      chat = entryIndex >= 0 ? chat.slice(0, entryIndex + 1) : chat;
+      const conversation = {
+        id: `${sourceConversationId}-fork`,
+        title: body.title ?? `${source?.title ?? 'POC chat'} (fork)`,
+        titleSource: 'fallback',
+        pinned: false,
+        status: 'ready',
+        updatedAt: '2026-07-07T12:03:00.000Z',
+      };
+      conversations = [conversation, ...conversations];
+      await route.fulfill({
+        json: {
+          conversation,
+          snapshot: conversationSnapshot(conversation.id, chat, conversation),
         },
       });
       return;

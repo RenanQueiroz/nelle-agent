@@ -370,6 +370,30 @@ export async function getConversation(id: string): Promise<ConversationSnapshot>
   return response.snapshot;
 }
 
+export async function forkConversation(
+  id: string,
+  entryId: string,
+  title?: string,
+): Promise<ConversationSnapshot> {
+  const response = await apiPost<{
+    conversation: ConversationListItem;
+    snapshot: ConversationSnapshot;
+  }>(`/api/conversations/${encodeURIComponent(id)}/fork`, title ? {entryId, title} : {entryId});
+  return response.snapshot;
+}
+
+export async function cloneConversation(
+  id: string,
+  entryId?: string,
+  title?: string,
+): Promise<ConversationSnapshot> {
+  const response = await apiPost<{
+    conversation: ConversationListItem;
+    snapshot: ConversationSnapshot;
+  }>(`/api/conversations/${encodeURIComponent(id)}/clone`, {entryId, title});
+  return response.snapshot;
+}
+
 export async function clearConversation(id: string): Promise<void> {
   await apiDelete(`/api/conversations/${encodeURIComponent(id)}/messages`);
 }

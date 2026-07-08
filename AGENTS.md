@@ -49,9 +49,10 @@ Project-specific guidance for AI coding agents.
 - Chat UI streaming should use `/api/conversations/:id/chat/stream`; the legacy
   `/api/chat/stream` endpoint is only a default-conversation compatibility
   wrapper.
-- Implement conversation fork/duplicate through Pi runtime fork/clone behavior,
-  creating a new Nelle conversation for the new Pi session file and leaving the
-  source conversation unchanged.
+- Implement conversation fork/duplicate through Pi
+  `SessionManager.createBranchedSession()`, creating a new Nelle conversation
+  for the new Pi session file, copying retained Nelle sidecar metadata, and
+  leaving the source conversation unchanged.
 - Browser v1 uses REST for commands/snapshots and SSE streams with typed Nelle
   event envelopes. UI stop/abort calls Pi `AgentSession.abort()` and must
   propagate cancellation through Nelle's llama.cpp proxy request.

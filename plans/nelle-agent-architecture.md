@@ -103,8 +103,9 @@ The first product experience should be UI-driven:
   message history, compaction, and branch/tree state; SQLite owns Nelle's
   conversation index, projections, and sidecar UI metadata.
 - Forking and duplicating conversations are in scope for the conversation UI.
-  They should use Pi runtime fork/clone behavior and create new Nelle
-  conversations backed by new Pi session files.
+  They use Pi `SessionManager.createBranchedSession()` to create new Nelle
+  conversations backed by new Pi session files without mutating the source
+  conversation runtime.
 - Nelle should support multiple active Pi conversation runtimes when Pi and the
   local router can support them, while enforcing only one active run per
   conversation.
@@ -271,11 +272,12 @@ Intentional POC limitations:
   stores conversation rows and active-branch projections, but is not yet the
   primary database for all app state.
 - The web UI has a collapsible, virtualized conversation sidebar with new-chat,
-  search, pin/rename/reset/delete row actions, pinned/recent sections, and
-  running indicators. Dedicated Settings, export/import, duplicate, and fork
-  menus are still pending.
-- Stable run ids/terminal run events, fork/clone, full branch tree exploration,
-  and export/import are still pending.
+  search, pin/rename/reset/duplicate/delete row actions, pinned/recent sections,
+  and running indicators. User-message fork and conversation duplicate create
+  new Pi session files. Dedicated Settings, export/import, and full branch tree
+  exploration are still pending.
+- Stable run ids/terminal run events, full branch tree exploration, and
+  export/import are still pending.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are enabled through Pi and remain unsandboxed.
@@ -357,9 +359,10 @@ Responsibilities:
   conversation to one Pi session file.
 - Manage Pi sessions through `AgentSessionRuntime`/`SessionManager`, reopening
   existing session files on demand after Nelle server restarts.
-- Use Pi runtime fork/clone behavior for Nelle fork and duplicate actions.
-  Create a new Nelle conversation for the resulting Pi session file and keep the
-  source conversation unchanged.
+- Use Pi `SessionManager.createBranchedSession()` for Nelle fork and duplicate
+  actions. Create a new Nelle conversation for the resulting Pi session file,
+  copy Nelle-owned sidecar metadata for retained entries, and keep the source
+  conversation unchanged.
 - Maintain a lazy runtime pool keyed by conversation id so multiple
   conversations can be open or streaming without replacing a single global Pi
   session.

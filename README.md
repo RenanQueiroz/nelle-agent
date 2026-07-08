@@ -63,6 +63,11 @@ Implemented:
   model override.
 - Tool calls stream as a single status row per Pi `toolCallId` and can be
   expanded in the chat UI to inspect captured input and output.
+- Conversation duplicate and user-message fork actions create new Nelle
+  conversations backed by new Pi session files via
+  `SessionManager.createBranchedSession()`. Source conversations are left
+  unchanged, and Nelle copies retained sidecar metadata such as attachment
+  summaries, model snapshots, timings, and tool-call details.
 - The composer stop action calls `/api/conversations/:id/abort`, aborts the
   active browser stream, and invokes Pi `AgentSession.abort()` for the cached
   conversation runtime when one is active.
@@ -81,13 +86,12 @@ Not implemented yet:
   conversation to one Pi session file and reopens that file on demand. The web
   UI has a collapsible virtualized conversation sidebar with search, pinned and
   recent sections, running indicators, and row actions for pin, rename, reset,
-  and delete. Assistant regeneration uses Pi branch replay with preserved
-  visible answer variants. The composer has an Astryx `/compact` typeahead,
-  composer-local unsupported slash-command guidance, and visible compaction
-  status rows. Fork/clone, export/import, richer abort recovery, and the final
-  Settings/sidebar actions are still pending.
-- Fork/duplicate conversation actions backed by Pi's runtime fork/clone
-  behavior, creating new Nelle conversations without mutating the source.
+  duplicate, and delete. Assistant regeneration uses Pi branch replay with
+  preserved visible answer variants, and user-message fork creates new
+  conversations from persisted Pi entries. The composer has an Astryx
+  `/compact` typeahead, composer-local unsupported slash-command guidance, and
+  visible compaction status rows. Export/import, richer abort recovery, and the
+  final Settings/sidebar actions are still pending.
 - Complete REST/SSE run lifecycle contracts with stable run ids, terminal
   run events, and richer recovery states. Conversation snapshot, stream, and
   basic abort endpoints exist.

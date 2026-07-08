@@ -143,6 +143,9 @@ export class ConversationRepository {
       title?: string;
       defaultModelId?: string | null;
       titleSource?: ConversationSnapshot['conversation']['titleSource'];
+      parentConversationId?: string | null;
+      forkedFromPiEntryId?: string | null;
+      forkKind?: 'fork' | 'clone' | null;
     } = {},
   ): ConversationListItem {
     const now = new Date().toISOString();
@@ -157,9 +160,9 @@ export class ConversationRepository {
       active_leaf_pi_entry_id: null,
       last_synced_pi_entry_id: null,
       default_model_id: input.defaultModelId ?? null,
-      parent_conversation_id: null,
-      forked_from_pi_entry_id: null,
-      fork_kind: null,
+      parent_conversation_id: input.parentConversationId ?? null,
+      forked_from_pi_entry_id: input.forkedFromPiEntryId ?? null,
+      fork_kind: input.forkKind ?? null,
       status: 'ready',
       created_at: now,
       updated_at: now,
@@ -322,6 +325,87 @@ export class ConversationRepository {
     return created;
   }
 
+  copyAttachmentsForEntries(
+    sourceConversationId: string,
+    targetConversationId: string,
+    piEntryIds: string[],
+  ): AttachmentMetadata[] {
+    if (piEntryIds.length === 0) {
+      return [];
+    }
+    const placeholders = piEntryIds.map(() => '?').join(', ');
+    const rows = this.database.connection
+      .prepare(
+        `SELECT id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
+                size_bytes, storage_path, text_content, processing_json, created_at
+         FROM message_attachments
+         WHERE conversation_id = ? AND pi_entry_id IN (${placeholders})
+         ORDER BY created_at ASC`,
+      )
+      .all(sourceConversationId, ...piEntryIds) as AttachmentRow[];
+    if (rows.length === 0) {
+      return [];
+    }
+
+    const now = new Date().toISOString();
+    const copied: AttachmentMetadata[] = [];
+    const db = this.database.connection;
+    const insert = db.prepare(
+      `INSERT INTO message_attachments (
+         id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
+         size_bytes, storage_path, text_content, processing_json, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    db.exec('BEGIN');
+    try {
+      for (const row of rows) {
+        const id = crypto.randomUUID();
+        insert.run(
+          id,
+          targetConversationId,
+          row.pi_entry_id,
+          row.upload_id,
+          row.kind,
+          row.name,
+          row.mime_type,
+          row.size_bytes,
+          row.storage_path,
+          row.text_content,
+          row.processing_json,
+          now,
+        );
+        copied.push({
+          ...mapAttachmentRow({
+            ...row,
+            id,
+            conversation_id: targetConversationId,
+            created_at: now,
+          }),
+        });
+      }
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+
+    for (const piEntryId of new Set(rows.map(row => row.pi_entry_id).filter(id => id != null))) {
+      this.refreshAttachmentSummary(targetConversationId, piEntryId);
+    }
+    return copied;
+  }
+
+  refreshAttachmentSummary(conversationId: string, piEntryId: string): void {
+    const attachments = this.getAttachmentsForEntry(conversationId, piEntryId);
+    this.database.connection
+      .prepare(
+        `UPDATE conversation_entry_projection
+         SET attachment_summary_json = ?
+         WHERE conversation_id = ? AND pi_entry_id = ?`,
+      )
+      .run(jsonOrNull(summarizeAttachments(attachments)), conversationId, piEntryId);
+  }
+
   bindAttachmentsToEntry(
     conversationId: string,
     uploadIds: string[],
@@ -338,13 +422,8 @@ export class ConversationRepository {
        WHERE conversation_id = ? AND upload_id IN (${placeholders})`,
     ).run(piEntryId, conversationId, ...uploadIds);
 
-    const attachments = this.getAttachmentsForEntry(conversationId, piEntryId);
-    db.prepare(
-      `UPDATE conversation_entry_projection
-       SET attachment_summary_json = ?
-       WHERE conversation_id = ? AND pi_entry_id = ?`,
-    ).run(jsonOrNull(summarizeAttachments(attachments)), conversationId, piEntryId);
-    return attachments;
+    this.refreshAttachmentSummary(conversationId, piEntryId);
+    return this.getAttachmentsForEntry(conversationId, piEntryId);
   }
 
   getStoredAttachmentsForEntry(conversationId: string, piEntryId: string): StoredAttachment[] {

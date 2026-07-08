@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import {SessionManager} from '@earendil-works/pi-coding-agent';
+
 import {ConversationRepository, POC_CONVERSATION_ID} from '../../apps/server/src/conversations.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {PiHarness} from '../../apps/server/src/piHarness.ts';
@@ -383,6 +385,161 @@ test('repository persists and binds message attachments to Pi entries', async ()
         },
       ],
     });
+  } finally {
+    database.close();
+  }
+});
+
+test('repository stores fork metadata and copies attachment summaries between conversations', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    const source = repository.createConversation({title: 'Source chat'});
+    repository.replaceConversationProjection(source.id, {
+      activeLeafPiEntryId: 'user-1',
+      lastSyncedPiEntryId: 'user-1',
+      entries: [
+        {
+          piEntryId: 'user-1',
+          entryType: 'message',
+          role: 'user',
+          text: 'Read the attached plan',
+          createdAt: '2026-07-08T12:00:00.000Z',
+        },
+      ],
+    });
+    repository.createPendingAttachments(source.id, [
+      {
+        uploadId: 'draft-1',
+        kind: 'text',
+        name: 'plan.md',
+        mimeType: 'text/markdown',
+        sizeBytes: 18,
+        textContent: 'Implementation plan',
+        processing: {status: 'ready'},
+      },
+    ]);
+    repository.bindAttachmentsToEntry(source.id, ['draft-1'], 'user-1');
+
+    const target = repository.createConversation({
+      title: 'Source chat (fork)',
+      parentConversationId: source.id,
+      forkedFromPiEntryId: 'user-1',
+      forkKind: 'fork',
+    });
+    repository.replaceConversationProjection(target.id, {
+      activeLeafPiEntryId: 'user-1',
+      lastSyncedPiEntryId: 'user-1',
+      entries: [
+        {
+          piEntryId: 'user-1',
+          entryType: 'message',
+          role: 'user',
+          text: 'Read the attached plan',
+          createdAt: '2026-07-08T12:00:00.000Z',
+        },
+      ],
+    });
+
+    const copied = repository.copyAttachmentsForEntries(source.id, target.id, ['user-1']);
+    const snapshot = repository.getSnapshot(target.id, await store.getState());
+
+    assert.equal(snapshot?.conversation.parentConversationId, source.id);
+    assert.equal(snapshot?.conversation.forkedFromPiEntryId, 'user-1');
+    assert.equal(snapshot?.conversation.forkKind, 'fork');
+    assert.equal(copied.length, 1);
+    assert.equal(snapshot?.attachments[0]?.conversationId, target.id);
+    assert.equal(snapshot?.attachments[0]?.piEntryId, 'user-1');
+    assert.equal(snapshot?.attachments[0]?.textPreview, 'Implementation plan');
+    assert.deepEqual(snapshot?.entries[0]?.attachmentSummary, {
+      count: 1,
+      items: [
+        {
+          id: snapshot.attachments[0]?.id,
+          kind: 'text',
+          name: 'plan.md',
+          mimeType: 'text/markdown',
+          sizeBytes: 18,
+        },
+      ],
+    });
+  } finally {
+    database.close();
+  }
+});
+
+test('Pi fork from a user entry creates a durable new session file', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    const source = repository.createConversation({title: 'Source chat'});
+    const sourceManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const userEntryId = sourceManager.appendMessage({
+      role: 'user',
+      content: 'Fork from this prompt',
+    } as any);
+    const assistantEntryId = sourceManager.appendMessage({
+      role: 'assistant',
+      content: 'Existing answer',
+    } as any);
+    const sourceSessionPath = sourceManager.getSessionFile();
+    assert.ok(sourceSessionPath);
+    repository.attachPiSession(source.id, {
+      piSessionPath: sourceSessionPath,
+      piSessionId: sourceManager.getSessionId(),
+      activeLeafPiEntryId: assistantEntryId,
+    });
+    repository.replaceConversationProjection(source.id, {
+      piSessionPath: sourceSessionPath,
+      piSessionId: sourceManager.getSessionId(),
+      activeLeafPiEntryId: assistantEntryId,
+      lastSyncedPiEntryId: assistantEntryId,
+      entries: [
+        {
+          piEntryId: userEntryId,
+          entryType: 'message',
+          role: 'user',
+          text: 'Fork from this prompt',
+          createdAt: '2026-07-08T12:00:00.000Z',
+        },
+        {
+          piEntryId: assistantEntryId,
+          parentPiEntryId: userEntryId,
+          entryType: 'message',
+          role: 'assistant',
+          text: 'Existing answer',
+          createdAt: '2026-07-08T12:00:01.000Z',
+          modelId: 'repo/model:Q4_K_M',
+          modelRuntimeId: 'repo/model:Q4_K_M',
+          modelAliasSnapshot: 'Model Q4',
+        },
+      ],
+    });
+
+    const harness = new PiHarness(paths, store, repository);
+    const forked = await harness.forkConversation({
+      conversationId: source.id,
+      entryId: userEntryId,
+    });
+    const binding = repository.getPiSessionBinding(forked.conversation.id);
+
+    assert.equal(forked.conversation.parentConversationId, source.id);
+    assert.equal(forked.conversation.forkedFromPiEntryId, userEntryId);
+    assert.equal(forked.conversation.forkKind, 'fork');
+    assert.equal(forked.entries.length, 1);
+    assert.equal(forked.entries[0]?.piEntryId, userEntryId);
+    assert.ok(binding?.piSessionPath);
+    await fs.access(binding.piSessionPath);
+    assert.deepEqual(
+      repository.getConversationEntries(source.id).map(entry => entry.piEntryId),
+      [userEntryId, assistantEntryId],
+    );
   } finally {
     database.close();
   }

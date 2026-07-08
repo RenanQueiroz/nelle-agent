@@ -62,9 +62,11 @@ import {
   abortConversation,
   activateModel,
   clearConversation,
+  cloneConversation,
   compactConversation,
   createConversation,
   deleteConversation,
+  forkConversation,
   getConversation,
   getConversations,
   getLlamaModelProps,
@@ -755,6 +757,31 @@ export function App() {
     });
   }
 
+  async function handleCloneConversation(conversation: ConversationListItem) {
+    await runAction(`clone:${conversation.id}`, async () => {
+      const snapshot = await cloneConversation(conversation.id);
+      setActiveConversationId(snapshot.conversation.id);
+      applyConversationSnapshot(snapshot, setMessages, setContextUsage);
+      setDraftAttachments([]);
+      await refreshConversations(snapshot.conversation.id);
+      setNotice({type: 'success', text: 'Conversation duplicated.'});
+    });
+  }
+
+  async function handleForkMessage(message: ApiChatMessage) {
+    if (message.role !== 'user' || isStreaming || isCompacting) {
+      return;
+    }
+    await runAction(`fork:${message.id}`, async () => {
+      const snapshot = await forkConversation(activeConversationId, message.id);
+      setActiveConversationId(snapshot.conversation.id);
+      applyConversationSnapshot(snapshot, setMessages, setContextUsage);
+      setDraftAttachments([]);
+      await refreshConversations(snapshot.conversation.id);
+      setNotice({type: 'success', text: 'Conversation forked.'});
+    });
+  }
+
   async function handleStopGeneration() {
     streamAbortController.current?.abort();
     await runAction('abort-chat', async () => {
@@ -1032,6 +1059,7 @@ export function App() {
                           onTogglePin={handleToggleConversationPin}
                           onRename={handleRenameConversation}
                           onReset={handleResetConversation}
+                          onClone={handleCloneConversation}
                           onDelete={handleDeleteConversation}
                         />
                       </VStack>
@@ -1359,6 +1387,7 @@ export function App() {
                         isActionDisabled={isStreaming || isCompacting}
                         onRegenerate={handleRegenerateMessage}
                         onCopy={handleCopyMessage}
+                        onFork={handleForkMessage}
                       />
                     ))}
                     {activeCommandRows.map(row => (
@@ -1710,6 +1739,7 @@ function ConversationVirtualList({
   onTogglePin,
   onRename,
   onReset,
+  onClone,
   onDelete,
 }: {
   conversations: ConversationListItem[];
@@ -1719,6 +1749,7 @@ function ConversationVirtualList({
   onTogglePin: (conversation: ConversationListItem) => void | Promise<void>;
   onRename: (conversation: ConversationListItem) => void | Promise<void>;
   onReset: (conversationId: string) => void | Promise<void>;
+  onClone: (conversation: ConversationListItem) => void | Promise<void>;
   onDelete: (conversation: ConversationListItem) => void | Promise<void>;
 }) {
   const rows = useMemo(() => buildConversationRows(conversations, query), [conversations, query]);
@@ -1777,6 +1808,7 @@ function ConversationVirtualList({
                   onTogglePin={onTogglePin}
                   onRename={onRename}
                   onReset={onReset}
+                  onClone={onClone}
                   onDelete={onDelete}
                 />
               )}
@@ -1811,6 +1843,7 @@ function ConversationRow({
   onTogglePin,
   onRename,
   onReset,
+  onClone,
   onDelete,
 }: {
   conversation: ConversationListItem;
@@ -1819,6 +1852,7 @@ function ConversationRow({
   onTogglePin: (conversation: ConversationListItem) => void | Promise<void>;
   onRename: (conversation: ConversationListItem) => void | Promise<void>;
   onReset: (conversationId: string) => void | Promise<void>;
+  onClone: (conversation: ConversationListItem) => void | Promise<void>;
   onDelete: (conversation: ConversationListItem) => void | Promise<void>;
 }) {
   return (
@@ -1859,6 +1893,10 @@ function ConversationRow({
           {
             label: 'Reset',
             onClick: () => void onReset(conversation.id),
+          },
+          {
+            label: 'Duplicate',
+            onClick: () => void onClone(conversation),
           },
           {
             label: 'Delete',
@@ -1928,12 +1966,14 @@ function RenderedMessage({
   isActionDisabled,
   onRegenerate,
   onCopy,
+  onFork,
 }: {
   message: ApiChatMessage;
   models: ConfiguredModel[];
   isActionDisabled: boolean;
   onRegenerate: (message: ApiChatMessage, modelId?: string) => void | Promise<void>;
   onCopy: (message: ApiChatMessage) => void | Promise<void>;
+  onFork: (message: ApiChatMessage) => void | Promise<void>;
 }) {
   if (message.role === 'system') {
     return <ChatSystemMessage>{message.content}</ChatSystemMessage>;
@@ -1959,6 +1999,7 @@ function RenderedMessage({
               isActionDisabled,
               onRegenerate,
               onCopy,
+              onFork,
             })}
           />
         }
@@ -2000,8 +2041,9 @@ function renderMessageFooter(input: {
   isActionDisabled: boolean;
   onRegenerate: (message: ApiChatMessage, modelId?: string) => void | Promise<void>;
   onCopy: (message: ApiChatMessage) => void | Promise<void>;
+  onFork: (message: ApiChatMessage) => void | Promise<void>;
 }) {
-  const {message, models, isActionDisabled, onRegenerate, onCopy} = input;
+  const {message, models, isActionDisabled, onRegenerate, onCopy, onFork} = input;
   const hasPerformance = hasChatPerformance(message.performance);
   const modelLabel =
     message.role === 'assistant'
@@ -2010,12 +2052,24 @@ function renderMessageFooter(input: {
         message.modelRuntimeId ??
         message.modelId)
       : undefined;
-  if (!hasPerformance && !modelLabel && message.role !== 'assistant') {
+  const canForkFromMessage = message.role === 'user';
+  if (!hasPerformance && !modelLabel && message.role !== 'assistant' && !canForkFromMessage) {
     return undefined;
   }
 
   return (
     <HStack gap={1} vAlign="center" wrap="wrap">
+      {canForkFromMessage && (
+        <IconButton
+          label="Fork from here"
+          tooltip="Fork from here"
+          size="sm"
+          variant="ghost"
+          icon={<Icon icon={ChatBubbleLeftRightIcon} size="sm" />}
+          isDisabled={isActionDisabled}
+          onClick={() => void onFork(message)}
+        />
+      )}
       {message.role === 'assistant' && (
         <DropdownMenu
           button={{
