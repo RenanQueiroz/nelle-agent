@@ -1568,28 +1568,28 @@ Future migration expectations:
 
 ### Phase 0: Contracts, Persistence, And Pi Runtime Foundation
 
-- Add shared TypeScript/Zod schemas for `NelleEventEnvelope`, `NelleError`,
-  chat content parts, attachments, performance metrics, model cache records, and
-  conversation snapshots.
-- Add SQLite migrations for conversations, entry projections, attachments,
-  model cache, tool audit events, settings, schema migrations, and FTS title
-  search.
+- Done: add shared TypeScript/Zod schemas for `NelleEventEnvelope`,
+  `NelleError`, chat content parts, attachments, performance metrics, model
+  cache records, and conversation snapshots.
+- Done: add SQLite migrations for conversations, entry projections,
+  attachments, model cache, tool audit events, settings, schema migrations, and
+  FTS title search.
 - Done for SQLite schema migrations: existing `settings.sqlite` files are
   backed up under `.nelle/backups/` before missing migrations, checksum-mismatch
   repair paths, or migration-record repairs run. The broader POC
   `.nelle/state.json` to SQLite migration path remains limited to the current
   default-conversation compatibility bridge.
-- Add `PiConversationRuntimePool`:
+- Done: add `PiConversationRuntimePool`:
   create/open/dispose runtimes by conversation id, map each conversation to one
   Pi session file, resubscribe after runtime replacement, and support multiple
   active conversation runtimes.
 - Done: add Pi session projection sync from `SessionManager` entries into
   SQLite, using Pi entry ids and leaf id as durable cursors.
-- Add the Nelle SSE event envelope helper, transport policy helpers, Pi event
-  mapper, and conversation/run state machine.
+- Done: add the Nelle SSE event envelope helper, transport policy helpers, Pi
+  event mapper, and conversation/run state machine.
 - Done: add the abort API and Pi/proxy abort propagation before expanding the
   UI.
-- Add lossless `models.ini` parser/writer and model id canonicalizer.
+- Done: add lossless `models.ini` parser/writer and model id canonicalizer.
 - Done: add export/import archive schemas and validation helpers, including
   manifest checksum validation and safe-path checks.
 
@@ -1601,9 +1601,9 @@ Exit criteria:
   conversation after server restart validates the same Pi session file; missing
   or malformed files become `unavailable` instead of being replaced. Snapshot
   reads rebuild the active timeline projection from the bound Pi session file.
-- Multiple conversation runtimes can exist, while each conversation allows only
-  one active run.
-- Conversation streams emit typed envelopes with stable `runId`s.
+- Done: multiple conversation runtimes can exist, while each conversation
+  allows only one active run.
+- Done: conversation streams emit typed envelopes with stable `runId`s.
 - Done: conversation snapshots rebuild the active timeline from Pi plus SQLite
   sidecar metadata.
 - Done: invalid state transitions and same-conversation active-run conflicts are
@@ -1612,8 +1612,8 @@ Exit criteria:
   `session_unavailable` instead of sending message-only payloads.
 - Done: aborting an active chat/regenerate run calls Pi abort, closes the llama
   proxy request, and emits `run.aborted`.
-- `models.ini` can be parsed and written without dropping comments, unknown
-  keys, or ordering in untouched sections.
+- Done: `models.ini` can be parsed and written without dropping comments,
+  unknown keys, or ordering in untouched sections.
 - Done for SQLite schema migrations: existing `settings.sqlite` files are
   backed up before schema migrations or migration-record repairs, and already
   applied schema changes can be marked complete on retry. Broader
@@ -1689,15 +1689,15 @@ Exit criteria:
 
 ### Phase 3: Conversations And Sidebar
 
-- Extend the existing SQLite conversation/index/projection storage and
+- Done: extend the existing SQLite conversation/index/projection storage and
   Pi-session binding into the final sidebar workflow.
 - Replace legacy default-chat compatibility with conversation-scoped APIs
   throughout the UI and server. Done for the browser UI and normal Pi-enabled
   startup: legacy `poc-default` state chat is migrated into a Pi session. The
   legacy `/api/chat/stream` and direct-fallback state projection remain as
   compatibility wrappers only.
-- Use Pi session entries and leaf ids for active path and branch state. Do not
-  duplicate Pi's tree as independent Nelle truth.
+- Done: use Pi session entries and leaf ids for active path and branch state.
+  Do not duplicate Pi's tree as independent Nelle truth.
 - Done in current pane: add collapsible conversation sidebar rail with new chat,
   search, pinned/recent section rows, TanStack-virtualized list,
   spinner-backed running status indicators, and item overflow menus, all hosted
@@ -1709,7 +1709,7 @@ Exit criteria:
 - Done: implement local `.nelle-chat.zip` export/import for conversation
   snapshots, Pi session files, attachments, and model manifest snapshots.
   `tool-audit.jsonl` includes persisted audit rows when host tools were used.
-- Keep the visible branch UX scoped to active-path timelines, regenerate
+- Done: keep the visible branch UX scoped to active-path timelines, regenerate
   variants, fork, and duplicate. Do not build a full Pi tree explorer in v1.
 
 Exit criteria:
@@ -1721,10 +1721,10 @@ Exit criteria:
   conversation can keep streaming with a running sidebar indicator while the
   user selects and sends from another ready conversation, and inactive stream
   deltas do not mutate the visible transcript.
-- Forking from a persisted user message creates a new Nelle conversation with a
-  new Pi session file and leaves the source conversation unchanged.
-- Duplicating a conversation creates a new Nelle conversation from the active Pi
-  branch.
+- Done: forking from a persisted user message creates a new Nelle conversation
+  with a new Pi session file and leaves the source conversation unchanged.
+- Done: duplicating a conversation creates a new Nelle conversation from the
+  active Pi branch.
 - Done: exporting and importing a conversation round trips the Pi session file,
   Nelle sidecar metadata, attachments, and model manifest snapshots without
   overwriting existing conversations. Tool audit rows are exported when present;
