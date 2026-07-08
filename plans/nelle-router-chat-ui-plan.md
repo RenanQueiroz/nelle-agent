@@ -433,19 +433,36 @@ Regenerate behavior:
 ### Virtualized List
 
 Use real virtualization for conversation rows once conversation count can grow.
-Implementation options:
+Decision:
 
-- Prefer a lightweight virtualizer if the repo already has a suitable dependency
-  by implementation time.
-- Otherwise implement a fixed-row-height virtual list for the first pass:
-  `scrollTop`, `rowHeight`, overscan, and absolute-positioned rows.
+- Astryx v0.1.3 provides `SideNav`, `List`, chat scroll containers, and
+  infinite-message loading primitives, but does not expose a clean reusable
+  virtual list/listbox for arbitrary sidebar rows.
+- Use Astryx for the visual shell, row styling, tokens, menus, and tooltips.
+- Use `@tanstack/react-virtual` for sidebar conversation virtualization.
 
 Constraints:
 
-- Pinned and unpinned groups can be separate virtual lists, or one flattened
-  list with section rows.
+- Build one flattened row model with section rows and conversation rows instead
+  of nested virtualizers.
+- `useVirtualizer` should target the sidebar scroll element owned by the
+  `SideNav`/sidebar content region.
+- Provide stable `getItemKey` values such as `section:pinned` and
+  `conversation:<conversation_id>` so search, pinning, deletion, and prepended
+  rows do not reuse DOM state incorrectly.
+- Start with fixed estimated row heights and measure only if row content needs
+  dynamic height later.
+- Use a small overscan buffer, roughly 8-12 rows, to keep wheel/trackpad
+  scrolling smooth without mounting the full history.
+- Keep active-conversation navigation working with `scrollToIndex` when search
+  or routing activates a row outside the visible range.
+- Pinned and unpinned groups should be modeled as section rows in the flattened
+  list.
 - Search results should virtualize too.
 - Keyboard focus and overflow menus must remain stable when rows mount/unmount.
+- Overflow menus and tooltips should use portal/top-layer behavior when
+  available, so a menu opened from a virtual row is not clipped by the scroll
+  container or unexpectedly tied to row-local layout state.
 
 ### Conversation Persistence
 
@@ -616,6 +633,7 @@ Unit tests:
   validation.
 - Performance statistics view selection, formatting, and live auto-switching.
 - Clipboard text formatting.
+- Sidebar row flattening, stable virtual keys, and search/pinned grouping.
 
 Integration tests:
 
@@ -636,7 +654,10 @@ Playwright tests:
 - Selecting an unloaded model shows loading progress then selected loaded model.
 - Sidebar creates, searches, pins, renames, exports, and deletes conversations.
 - Composer stays docked while message list scrolls.
-- Virtualized list remains responsive with thousands of conversations.
+- Virtualized list remains responsive with thousands of conversations and keeps
+  the mounted sidebar row count bounded.
+- Virtualized sidebar overflow menus, keyboard focus, and active-row scrolling
+  keep working after large scroll jumps.
 - Assistant footer shows timestamp, model label/dropdown, Reading/Generation
   statistics, copy, and regenerate.
 - Statistics toggles switch between prompt tokens/time/speed and generated

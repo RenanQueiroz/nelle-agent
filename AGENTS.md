@@ -51,6 +51,9 @@ Project-specific guidance for AI coding agents.
 - Keep the workbench viewport-bounded. Do not reintroduce document-level
   scrolling; side panels and the chat history should scroll internally while
   the composer stays docked.
+- Sidebar conversation history virtualization uses `@tanstack/react-virtual`
+  with an Astryx-styled `SideNav`/`List` row surface. Keep row keys stable and
+  model pinned/search/group headers as one flattened virtual list.
 - Let Astryx `ChatComposer` render its default `ChatSendButton` unless you are
   deliberately replacing it through `sendButton`; `sendActions` is only for
   auxiliary controls and must not create a second send affordance.

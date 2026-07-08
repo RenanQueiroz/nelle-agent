@@ -38,6 +38,8 @@ Implemented:
 Not implemented yet:
 
 - Mobile LAN pairing and Expo push.
+- Collapsible conversation sidebar and persistence. The planned large-history
+  list uses TanStack Virtual with Astryx sidebar/list styling.
 - Sandboxing for host tools.
 - SQLite persistence. The POC uses `.nelle/state.json`.
 - Progress streaming for long installs/builds.

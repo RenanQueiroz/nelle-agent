@@ -153,6 +153,10 @@ import {neutralTheme} from '@astryxdesign/theme-neutral/built';
 - Let Astryx `ChatComposer` render its default `ChatSendButton` unless the UI is
   intentionally replacing it via `sendButton`; `sendActions` is for auxiliary
   controls to the left of send and should not render another send affordance.
+- Astryx does not currently provide a reusable virtual sidebar list primitive
+  for conversation history. Use `@tanstack/react-virtual` for the conversation
+  sidebar's flattened row model, while keeping Astryx `SideNav`/`List` styling,
+  tokens, menus, and tooltips around those rows.
 - Do not introduce Tailwind, StyleX, or custom styling systems unless a concrete
   Astryx limitation forces that decision.
 
