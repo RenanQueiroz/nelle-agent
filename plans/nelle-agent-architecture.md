@@ -179,6 +179,7 @@ packages/
   launcher/             Open-browser helper and host integration utilities
 plans/
   nelle-agent-architecture.md
+  nelle-router-chat-ui-plan.md
 AGENTS.md               Astryx-generated Codex agent UI guidance
 .claude/CLAUDE.md       Astryx-generated Claude Code UI guidance
 ```
@@ -186,6 +187,12 @@ AGENTS.md               Astryx-generated Codex agent UI guidance
 This repo owns the local server, browser UI, launcher, and host runtime
 management. `nelle-client` should consume a generated API client and shared
 protocol docs, but should remain a separate repo.
+
+Companion implementation plans:
+
+- [Router and chat UI plan](nelle-router-chat-ui-plan.md): router-mode model
+  lifecycle, `models.ini` ownership, settings, sidebar, conversations, and
+  generated chat titles.
 
 ## Current POC Status
 

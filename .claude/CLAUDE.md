@@ -44,6 +44,9 @@ Project-specific guidance for AI coding agents.
 - Let Astryx `ChatComposer` render its default `ChatSendButton` unless you are
   deliberately replacing it through `sendButton`; `sendActions` is only for
   auxiliary controls and must not create a second send affordance.
+- Use `plans/nelle-router-chat-ui-plan.md` as the source of truth for the
+  router-mode model lifecycle, `models.ini` ownership, sidebar, settings, and
+  conversation UI overhaul.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components

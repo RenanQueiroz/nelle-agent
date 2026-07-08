@@ -204,3 +204,4 @@ curl -fsS 'http://127.0.0.1:8787/api/huggingface/search?q=tiny%20gguf'
 Current planning source of truth:
 
 - [Architecture plan](plans/nelle-agent-architecture.md)
+- [Router and chat UI plan](plans/nelle-router-chat-ui-plan.md)
