@@ -145,6 +145,7 @@ export type ChatStreamEvent =
   | {type: 'assistant_delta'; id: string; delta: string}
   | {type: 'assistant_metrics'; id: string; performance: ChatPerformance}
   | {type: 'tool'; call: ToolCallEvent}
+  | {type: 'conversation_title'; conversationId: string; title: string}
   | {type: 'warning'; message: string}
   | {type: 'done'; message: ChatMessage}
   | {type: 'error'; message: string};

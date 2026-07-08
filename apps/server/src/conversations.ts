@@ -191,6 +191,10 @@ export class ConversationRepository {
     };
   }
 
+  getTitleSource(id: string): ConversationSnapshot['conversation']['titleSource'] | null {
+    return this.getConversation(id)?.title_source ?? null;
+  }
+
   getSnapshot(id: string, state: AppState): ConversationSnapshot | null {
     const row = this.getConversation(id);
     if (!row) {
@@ -290,6 +294,28 @@ export class ConversationRepository {
         id,
       );
     this.upsertSearch(id, next.title);
+    return mapConversationListItem(next);
+  }
+
+  setGeneratedTitle(id: string, title: string): ConversationListItem | null {
+    const row = this.getConversation(id);
+    if (!row || row.title_source !== 'fallback') {
+      return null;
+    }
+    const next: ConversationRow = {
+      ...row,
+      title,
+      title_source: 'generated',
+      updated_at: new Date().toISOString(),
+    };
+    this.database.connection
+      .prepare(
+        `UPDATE conversations
+         SET title = ?, title_source = ?, updated_at = ?
+         WHERE id = ? AND title_source = 'fallback'`,
+      )
+      .run(next.title, next.title_source, next.updated_at, id);
+    this.upsertSearch(id, title);
     return mapConversationListItem(next);
   }
 

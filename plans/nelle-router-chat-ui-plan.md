@@ -1404,6 +1404,11 @@ Assistant: <first assistant response>
 
 Implementation notes:
 
+- Current implementation: after a successful first Pi-backed assistant response,
+  Nelle calls llama.cpp through `/api/llama-proxy/v1/chat/completions`, sanitizes
+  the returned title, updates the conversation only while `title_source` is
+  still `fallback`, and emits a `conversation_title` stream event for the web
+  UI list.
 - Use the same active model after the first response completes.
 - Use direct llama.cpp chat-completions through Nelle's llama proxy, not Pi,
   because title generation should not invoke tools or alter Pi session state.
@@ -1667,8 +1672,8 @@ Exit criteria:
 
 ### Phase 4: Title Generation
 
-- Add non-persisted title-generation request after first response.
-- Add safeguards for user-edited/imported titles.
+- Done: add non-persisted title-generation request after first response.
+- Done: add safeguards for user-edited/imported titles.
 - Add tests for success, failure fallback, and no-history pollution.
 
 Exit criteria:

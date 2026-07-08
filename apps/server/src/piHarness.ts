@@ -16,7 +16,7 @@ import {
   startLlamaThroughputMonitor,
 } from './llamaThroughput';
 import {localLlamaProxyBaseUrl} from './llamaProxy';
-import {isQwenFamilyModel, llamaRuntimeModelId} from './modelCompat';
+import {chatTemplateKwargsForModel, isQwenFamilyModel, llamaRuntimeModelId} from './modelCompat';
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
 import type {ConversationRepository, SyncConversationEntry} from './conversations';
@@ -233,8 +233,21 @@ export class PiHarness {
       if (conversationId === 'poc-default') {
         await this.store.appendChatMessage(assistantMessage);
       }
-      this.syncPiConversation(conversationId, session, activeModel, assistantMessage);
+      const syncedEntries = this.syncPiConversation(
+        conversationId,
+        session,
+        activeModel,
+        assistantMessage,
+      );
       queue.push({type: 'done', message: assistantMessage});
+      const title = await this.maybeGenerateConversationTitle(
+        conversationId,
+        activeModel,
+        syncedEntries,
+      );
+      if (title) {
+        queue.push({type: 'conversation_title', conversationId, title});
+      }
       queue.end();
     } finally {
       monitor.stop();
@@ -313,7 +326,7 @@ export class PiHarness {
     session: any,
     activeModel: ConfiguredModel,
     assistantMessage: ChatMessage,
-  ): void {
+  ): SyncConversationEntry[] {
     const branch = session.sessionManager.getBranch() as any[];
     const entries: SyncConversationEntry[] = [];
     let lastAssistantEntryId: string | null = null;
@@ -357,6 +370,87 @@ export class PiHarness {
       status: 'running',
       entries,
     });
+    return entries;
+  }
+
+  private async maybeGenerateConversationTitle(
+    conversationId: string,
+    activeModel: ConfiguredModel,
+    entries: SyncConversationEntry[],
+  ): Promise<string | null> {
+    if (this.conversations.getTitleSource(conversationId) !== 'fallback') {
+      return null;
+    }
+    const userMessages = entries.filter(entry => entry.role === 'user' && entry.text.trim());
+    const assistantMessages = entries.filter(
+      entry => entry.role === 'assistant' && entry.text.trim(),
+    );
+    if (userMessages.length !== 1 || assistantMessages.length !== 1) {
+      return null;
+    }
+    const title = await this.generateTitleWithLlama(
+      activeModel,
+      userMessages[0]!.text,
+      assistantMessages[0]!.text,
+    );
+    if (!title) {
+      return null;
+    }
+    this.conversations.setGeneratedTitle(conversationId, title);
+    return title;
+  }
+
+  private async generateTitleWithLlama(
+    activeModel: ConfiguredModel,
+    userPrompt: string,
+    assistantResponse: string,
+  ): Promise<string | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(`${localLlamaProxyBaseUrl()}/chat/completions`, {
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: llamaRuntimeModelId(activeModel),
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Create concise conversation titles. Return only the title, with no quotes, markdown, punctuation suffix, or explanation.',
+            },
+            {
+              role: 'user',
+              content: [
+                'Create a concise title for this conversation.',
+                'Limit it to 6 words.',
+                '',
+                `User: ${userPrompt}`,
+                `Assistant: ${assistantResponse}`,
+              ].join('\n'),
+            },
+          ],
+          stream: false,
+          max_tokens: 24,
+          temperature: 0.2,
+          ...chatTemplateKwargsForModel(activeModel),
+        }),
+      });
+      if (!response.ok) {
+        return null;
+      }
+      const parsed = (await response.json()) as {
+        choices?: Array<{message?: {content?: string}; text?: string}>;
+      };
+      return sanitizeGeneratedTitle(
+        parsed.choices?.[0]?.message?.content ?? parsed.choices?.[0]?.text ?? '',
+      );
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async writePiModels(activeModel: ConfiguredModel): Promise<void> {
@@ -531,6 +625,19 @@ function extractMessageText(message: unknown): string {
     })
     .filter(Boolean)
     .join('\n');
+}
+
+function sanitizeGeneratedTitle(value: string): string | null {
+  const title = value
+    .split(/\r?\n/)[0]
+    ?.replace(/^["'`*_#\s]+|["'`*_\s]+$/g, '')
+    .replace(/[.!?:;,]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!title) {
+    return null;
+  }
+  return title.slice(0, 80);
 }
 
 function formatDuration(durationMs: number): string {

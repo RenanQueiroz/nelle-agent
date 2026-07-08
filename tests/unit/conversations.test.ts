@@ -137,6 +137,31 @@ test('repository stores Pi session bindings and replaces active branch projectio
   }
 });
 
+test('repository applies generated titles without overwriting user titles', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    const generated = repository.createConversation({title: 'New chat'});
+    const updated = repository.setGeneratedTitle(generated.id, 'Local Model Setup');
+
+    assert.equal(updated?.title, 'Local Model Setup');
+    assert.equal(updated?.titleSource, 'generated');
+    assert.equal(repository.getTitleSource(generated.id), 'generated');
+
+    const userNamed = repository.createConversation({title: 'Pinned name', titleSource: 'user'});
+    assert.equal(repository.setGeneratedTitle(userNamed.id, 'Ignored title'), null);
+    assert.equal(
+      repository.getSnapshot(userNamed.id, await new AppStore(paths).getState())?.conversation
+        .title,
+      'Pinned name',
+    );
+  } finally {
+    database.close();
+  }
+});
+
 test('conversation API exposes list, snapshot, create, patch, pin, and delete routes', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);

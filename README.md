@@ -49,6 +49,9 @@ Implemented:
 - The composer stop action calls `/api/conversations/:id/abort`, aborts the
   active browser stream, and invokes Pi `AgentSession.abort()` for the cached
   conversation runtime when one is active.
+- After the first assistant response in a fallback-titled conversation, Nelle
+  asks llama.cpp for a concise title through the local proxy without persisting
+  that prompt in Pi history.
 - Playwright e2e test harness for the browser UI.
 
 Not implemented yet:
@@ -62,7 +65,7 @@ Not implemented yet:
   settings/sidebar design is not built yet.
 - Full Pi-backed conversation UI and lifecycle. The server now maps each Nelle
   conversation to one Pi session file and reopens that file on demand, but
-  fork/clone, title generation, branch variants, abort, export/import, and the
+  fork/clone, branch variants, export/import, richer abort recovery, and the
   final sidebar actions are still pending.
 - Fork/duplicate conversation actions backed by Pi's runtime fork/clone
   behavior, creating new Nelle conversations without mutating the source.

@@ -475,6 +475,15 @@ export function App() {
     if (event.type === 'warning') {
       setNotice({type: 'warning', text: event.message});
     }
+    if (event.type === 'conversation_title') {
+      setConversations(prev =>
+        prev.map(conversation =>
+          conversation.id === event.conversationId
+            ? {...conversation, title: event.title, titleSource: 'generated'}
+            : conversation,
+        ),
+      );
+    }
     if (event.type === 'done') {
       setMessages(prev =>
         prev.map(message => (message.id === event.message.id ? event.message : message)),
