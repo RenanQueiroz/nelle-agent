@@ -909,6 +909,152 @@ test('attaches text files and blocks images for text-only models', async ({page}
   await expect(page.getByText('attachment-note.txt')).toBeVisible();
 });
 
+test('renders PDFs as image attachments for vision models', async ({page}) => {
+  const model = {
+    id: 'vision-model',
+    name: 'Vision Model',
+    presetName: 'vision-model',
+    source: 'huggingface',
+    hfRef: 'repo/vision:Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  const chat: MockChatMessage[] = [];
+  let streamCalls = 0;
+  let requestBody: {message?: string; attachments?: MockAttachmentRequest[]} | null = null;
+  const pdfPath = path.join(repoRoot, '.nelle-e2e', 'vision-attachment.pdf');
+  await fs.mkdir(path.dirname(pdfPath), {recursive: true});
+  await fs.writeFile(pdfPath, simplePdfBuffer('Render this PDF as an image'));
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: model.id,
+            routerModelId: model.id,
+            alias: model.name,
+            hfRepo: model.hfRef,
+            status: 'loaded',
+            aliases: [model.id],
+          },
+        ],
+      },
+    });
+  });
+  await page.route('**/api/llama/models/**/props', async route => {
+    await route.fulfill({
+      json: {
+        modelId: model.id,
+        modalities: {vision: true, audio: false, video: false},
+        contextWindow: 8192,
+        raw: {},
+      },
+    });
+  });
+  await mockConversationRoutes(page, {chat});
+  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+    streamCalls += 1;
+    requestBody = route.request().postDataJSON() as {
+      message?: string;
+      attachments?: MockAttachmentRequest[];
+    };
+    const userAttachments = (requestBody.attachments ?? []).map((attachment, index) => ({
+      id: `attachment-${index}`,
+      conversationId: 'poc-default',
+      piEntryId: 'user-1',
+      uploadId: attachment.id,
+      kind: attachment.kind,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      createdAt: '2026-07-07T12:01:00.000Z',
+    }));
+    const userMessage = {
+      id: 'user-1',
+      role: 'user',
+      content: requestBody.message ?? '',
+      createdAt: '2026-07-07T12:01:00.000Z',
+      attachments: userAttachments,
+    };
+    const assistantMessage = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'I can see the rendered PDF page.',
+      createdAt: '2026-07-07T12:01:01.000Z',
+      modelId: model.id,
+      modelRuntimeId: model.id,
+      modelAliasSnapshot: model.name,
+    };
+    chat.push(userMessage, assistantMessage);
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: [
+        {type: 'user_message', message: userMessage},
+        {
+          type: 'assistant_start',
+          harness: 'pi',
+          message: {...assistantMessage, content: ''},
+        },
+        {type: 'assistant_delta', id: assistantMessage.id, delta: assistantMessage.content},
+        {type: 'done', message: assistantMessage},
+      ]
+        .map(event => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    });
+  });
+
+  await page.goto('/');
+  await expect(page.getByLabel('Render PDFs as images')).toBeVisible();
+  await page.getByLabel('Render PDFs as images').check();
+  await page.locator('input[aria-label="Attach files"]').setInputFiles(pdfPath);
+
+  await expect(page.getByTestId('attachment-drawer')).toContainText('vision-attachment page 1.png');
+  await page.getByLabel('Message input').fill('describe this PDF');
+  await page.getByLabel('Message input').press('Enter');
+
+  await expect.poll(() => streamCalls).toBe(1);
+  expect(requestBody?.attachments).toHaveLength(1);
+  expect(requestBody?.attachments?.[0]?.kind).toBe('image');
+  expect(requestBody?.attachments?.[0]?.name).toBe('vision-attachment page 1.png');
+  expect(requestBody?.attachments?.[0]?.mimeType).toBe('image/png');
+  expect(requestBody?.attachments?.[0]?.data).toContain('data:image/png;base64,');
+  expect(requestBody?.attachments?.[0]?.text).toBeUndefined();
+  await expect(page.getByText('I can see the rendered PDF page.')).toBeVisible();
+});
+
 test('regenerates an assistant response from the footer model picker', async ({page}) => {
   const modelA = {
     id: 'model-a',
@@ -1849,6 +1995,31 @@ function contextFromChat(chat: MockChatMessage[]) {
     }
   }
   return {};
+}
+
+function simplePdfBuffer(text: string): Buffer {
+  const escapedText = text.replace(/[()\\]/g, value => `\\${value}`);
+  const stream = `BT /F1 18 Tf 32 90 Td (${escapedText}) Tj ET`;
+  const objects = [
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 360 180] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n',
+    `4 0 obj\n<< /Length ${Buffer.byteLength(stream, 'ascii')} >>\nstream\n${stream}\nendstream\nendobj\n`,
+    '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets: number[] = [];
+  for (const object of objects) {
+    offsets.push(Buffer.byteLength(pdf, 'ascii'));
+    pdf += object;
+  }
+  const xrefOffset = Buffer.byteLength(pdf, 'ascii');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(pdf, 'ascii');
 }
 
 type MockChatMessage = {

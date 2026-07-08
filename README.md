@@ -67,12 +67,13 @@ Implemented:
   send-blocking errors appear above the composer, while near-full context and
   other non-blocking chat warnings appear below it.
 - Composer attachments for text files, PDFs, and images:
-  - Text files and PDFs are extracted client-side and sent to Pi as text.
-  - Images are sent through Pi's structured image input only when the selected
-    llama.cpp model reports vision support.
+  - Text files and PDFs are extracted client-side and sent to Pi as text by
+    default.
+  - Images, and PDFs rendered as page images, are sent through Pi's structured
+    image input only when the selected llama.cpp model reports vision support.
   - Sent image payloads are stored content-addressed under `.nelle/attachments/`;
     attachment metadata is stored in SQLite and shown on user messages.
-  - Audio/video attachments and PDF-as-image mode are not exposed yet.
+  - Audio/video attachments are not exposed yet.
 - Assistant message footers show the model alias snapshot, copy action, and
   regenerate controls. The footer model menu can load another configured router
   model and call `/api/conversations/:id/messages/:messageId/regenerate` with a
@@ -194,9 +195,10 @@ other send-blocking chat errors appear above the composer. Nelle supports
 `/login`, and `/logout` stay owned by Nelle UI controls. Composer stop calls
 `AgentSession.abortCompaction()` for an active compaction. The composer
 attachment drawer accepts text files, PDFs, and images. Text/PDF attachments are
-sent as extracted text; images require selected-model vision support from
-llama.cpp model props. Audio/video attachments are intentionally excluded for
-now.
+sent as extracted text by default; vision-capable models expose a PDF-as-image
+toggle that renders pages as image attachments. Images require selected-model
+vision support from llama.cpp model props. Audio/video attachments are
+intentionally excluded for now.
 
 Assistant message metadata shows the message time, the model alias that
 generated the assistant response, copy/regenerate actions, visible copy

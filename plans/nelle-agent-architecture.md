@@ -294,7 +294,8 @@ Intentional POC limitations:
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are gated through a Settings acknowledgement/global disable switch
   and remain unsandboxed.
-- PDF-as-image mode is still pending.
+- Vision-capable selected models expose PDF-as-image conversion in the composer;
+  rendered PDF pages use the same image attachment path as normal images.
   Direct hard delete removes the conversation's Pi session file and
   unreferenced attachment files, and server startup sweeps orphan attachment
   files absent from SQLite metadata.
@@ -563,10 +564,11 @@ Initial implementation:
   generated tokens, generation time, and generation speed. Use icon controls and
   tooltips rather than long visible labels.
 - Composer attachments support text files, PDFs, and images only. Text and PDFs
-  are sent as extracted text; images use Pi's structured image input. Use
-  model-specific `/props?model=<id>&autoload=false` metadata to gate images and
-  future PDF-as-image mode on `modalities.vision`; keep audio/video out of
-  scope while Pi's structured input path is text plus image.
+  are sent as extracted text by default; images and PDF-as-image rendered pages
+  use Pi's structured image input. Use model-specific
+  `/props?model=<id>&autoload=false` metadata to gate images and PDF-as-image
+  mode on `modalities.vision`; keep audio/video out of scope while Pi's
+  structured input path is text plus image.
 - Show context-window usage in the Astryx `ChatComposer` header with a
   `ProgressBar` and hover/focus tooltip containing used/total token counts.
   Treat streamed llama.cpp `prompt_progress` and `timings` as authoritative;
@@ -740,9 +742,9 @@ Exit criteria:
 - llama-server download/cache errors are visible through status and logs.
 - New model records update Pi `models.json` and llama `models.ini`.
 - User can switch active model from UI.
-- User can attach text files, PDFs, and images. Images are gated by selected
-  model vision support; future PDF-as-image controls should use the same gate.
-  Audio/video attachments are not shown.
+- User can attach text files, PDFs, and images. Images and PDF-as-image controls
+  are gated by selected model vision support. Audio/video attachments are not
+  shown.
 - Composer shows context-window usage with used/total token tooltip.
 
 ### Milestone 5: Mobile LAN API

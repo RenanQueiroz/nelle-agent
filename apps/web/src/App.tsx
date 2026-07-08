@@ -130,10 +130,11 @@ import {
 } from './api';
 
 const ATTACHMENT_LIMITS = {
-  maxFiles: 10,
+  maxFiles: 20,
   maxFileBytes: 25 * 1024 * 1024,
   maxDraftBytes: 100 * 1024 * 1024,
   maxTextCharacters: 200_000,
+  maxRenderedPdfPages: 20,
 };
 const FAVORITE_MODEL_IDS_STORAGE_KEY = 'nelle.favoriteModelIds';
 
@@ -347,6 +348,7 @@ export function App() {
   const [conversationSearch, setConversationSearch] = useState('');
   const [composerDraft, setComposerDraft] = useState('');
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
+  const [pdfImageModeEnabled, setPdfImageModeEnabled] = useState(false);
   const [slashCommandError, setSlashCommandError] = useState<string | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [composerWarning, setComposerWarning] = useState<string | null>(null);
@@ -384,6 +386,7 @@ export function App() {
     () => models.find(model => model.id === activeModelId) ?? null,
     [activeModelId, models],
   );
+  const activeModelSupportsVision = activeModelProps?.modalities.vision === true;
   const favoriteModelIdSet = useMemo(() => new Set(favoriteModelIds), [favoriteModelIds]);
   const activeCommandRows = useMemo(
     () => commandRows.filter(row => row.conversationId === activeConversationId),
@@ -597,6 +600,12 @@ export function App() {
       isCancelled = true;
     };
   }, [activeComposerRouterStatus, activeModel, runtime?.running]);
+
+  useEffect(() => {
+    if (!activeModelSupportsVision) {
+      setPdfImageModeEnabled(false);
+    }
+  }, [activeModelSupportsVision]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -960,7 +969,8 @@ export function App() {
     try {
       const result = await prepareDraftAttachments(files, {
         existing: draftAttachments,
-        canAttachImages: activeModelProps?.modalities.vision === true,
+        canAttachImages: activeModelSupportsVision,
+        renderPdfImages: pdfImageModeEnabled && activeModelSupportsVision,
       });
       if (result.attachments.length > 0) {
         setDraftAttachments(prev => [...prev, ...result.attachments]);
@@ -1618,10 +1628,13 @@ export function App() {
                       }
                       headerContext={<ContextWindowUsage context={displayedContextUsage} />}
                       drawer={
-                        draftAttachments.length > 0 ? (
+                        draftAttachments.length > 0 || activeModelSupportsVision ? (
                           <AttachmentDrawer
                             attachments={draftAttachments}
+                            canRenderPdfImages={activeModelSupportsVision}
+                            pdfImageModeEnabled={pdfImageModeEnabled}
                             onRemove={handleRemoveDraftAttachment}
+                            onPdfImageModeChange={setPdfImageModeEnabled}
                           />
                         ) : undefined
                       }
@@ -2610,10 +2623,16 @@ function ContextWindowUsage({context}: {context: ConversationContextUsage}) {
 
 function AttachmentDrawer({
   attachments,
+  canRenderPdfImages,
+  pdfImageModeEnabled,
   onRemove,
+  onPdfImageModeChange,
 }: {
   attachments: DraftAttachment[];
+  canRenderPdfImages: boolean;
+  pdfImageModeEnabled: boolean;
   onRemove: (id: string) => void;
+  onPdfImageModeChange: (enabled: boolean) => void;
 }) {
   return (
     <ChatComposerDrawer
@@ -2621,23 +2640,42 @@ function AttachmentDrawer({
       label="Attachments"
       data-testid="attachment-drawer"
     >
-      <HStack gap={1} vAlign="center" wrap="wrap">
-        {attachments.map(attachment => (
-          <Tooltip key={attachment.id} content={attachmentTooltip(attachment)}>
-            <Token
-              size="sm"
-              color={
-                attachment.kind === 'image' ? 'blue' : attachment.kind === 'pdf' ? 'red' : 'gray'
-              }
-              label={attachment.name}
-              icon={
-                <Icon icon={attachment.kind === 'image' ? PhotoIcon : DocumentTextIcon} size="sm" />
-              }
-              onRemove={() => onRemove(attachment.id)}
-            />
-          </Tooltip>
-        ))}
-      </HStack>
+      <VStack gap={2}>
+        {canRenderPdfImages && (
+          <Switch
+            label="Render PDFs as images"
+            description={`Converts up to ${ATTACHMENT_LIMITS.maxRenderedPdfPages.toLocaleString()} PDF pages into image attachments for vision models.`}
+            value={pdfImageModeEnabled}
+            changeAction={onPdfImageModeChange}
+          />
+        )}
+        {attachments.length > 0 && (
+          <HStack gap={1} vAlign="center" wrap="wrap">
+            {attachments.map(attachment => (
+              <Tooltip key={attachment.id} content={attachmentTooltip(attachment)}>
+                <Token
+                  size="sm"
+                  color={
+                    attachment.kind === 'image'
+                      ? 'blue'
+                      : attachment.kind === 'pdf'
+                        ? 'red'
+                        : 'gray'
+                  }
+                  label={attachment.name}
+                  icon={
+                    <Icon
+                      icon={attachment.kind === 'image' ? PhotoIcon : DocumentTextIcon}
+                      size="sm"
+                    />
+                  }
+                  onRemove={() => onRemove(attachment.id)}
+                />
+              </Tooltip>
+            ))}
+          </HStack>
+        )}
+      </VStack>
     </ChatComposerDrawer>
   );
 }
@@ -3659,11 +3697,8 @@ const SLASH_COMMAND_GUIDANCE: Record<string, string> = {
 
 async function prepareDraftAttachments(
   files: File[],
-  input: {existing: DraftAttachment[]; canAttachImages: boolean},
+  input: {existing: DraftAttachment[]; canAttachImages: boolean; renderPdfImages: boolean},
 ): Promise<{attachments: DraftAttachment[]; warning?: string}> {
-  if (input.existing.length + files.length > ATTACHMENT_LIMITS.maxFiles) {
-    throw new Error(`Attach at most ${ATTACHMENT_LIMITS.maxFiles} files per message.`);
-  }
   const existingBytes = input.existing.reduce(
     (sum, attachment) => sum + (attachment.sizeBytes ?? 0),
     0,
@@ -3672,60 +3707,89 @@ async function prepareDraftAttachments(
   const attachments: DraftAttachment[] = [];
   const warnings: string[] = [];
   for (const file of files) {
+    const remainingSlots = ATTACHMENT_LIMITS.maxFiles - input.existing.length - attachments.length;
+    if (remainingSlots <= 0) {
+      throw new Error(`Attach at most ${ATTACHMENT_LIMITS.maxFiles} files per message.`);
+    }
     if (file.size > ATTACHMENT_LIMITS.maxFileBytes) {
       throw new Error(
         `${file.name} is larger than ${formatBytes(ATTACHMENT_LIMITS.maxFileBytes)}.`,
       );
     }
-    nextBytes += file.size;
+    const result = await prepareDraftAttachment(file, {
+      canAttachImages: input.canAttachImages,
+      renderPdfImages: input.renderPdfImages,
+      remainingSlots,
+    });
+    const oversizedAttachment = result.attachments.find(
+      attachment => (attachment.sizeBytes ?? 0) > ATTACHMENT_LIMITS.maxFileBytes,
+    );
+    if (oversizedAttachment) {
+      throw new Error(
+        `${oversizedAttachment.name} is larger than ${formatBytes(ATTACHMENT_LIMITS.maxFileBytes)}.`,
+      );
+    }
+    nextBytes += result.attachments.reduce(
+      (sum, attachment) => sum + (attachment.sizeBytes ?? 0),
+      0,
+    );
     if (nextBytes > ATTACHMENT_LIMITS.maxDraftBytes) {
       throw new Error(
         `Attachments are limited to ${formatBytes(ATTACHMENT_LIMITS.maxDraftBytes)} per message.`,
       );
     }
-    const result = await prepareDraftAttachment(file, input.canAttachImages);
     if (result.warning) {
       warnings.push(result.warning);
     }
-    attachments.push(result.attachment);
+    attachments.push(...result.attachments);
   }
   return {attachments, warning: warnings.join(' ') || undefined};
 }
 
 async function prepareDraftAttachment(
   file: File,
-  canAttachImages: boolean,
-): Promise<{attachment: DraftAttachment; warning?: string}> {
+  input: {canAttachImages: boolean; renderPdfImages: boolean; remainingSlots: number},
+): Promise<{attachments: DraftAttachment[]; warning?: string}> {
   if (isImageFile(file)) {
-    if (!canAttachImages) {
+    if (!input.canAttachImages) {
       throw new Error('Image attachments require a selected model with vision support.');
     }
     return {
-      attachment: {
-        id: crypto.randomUUID(),
-        kind: 'image',
-        name: file.name,
-        mimeType: file.type || mimeTypeFromName(file.name) || 'image/jpeg',
-        sizeBytes: file.size,
-        data: await readFileAsBase64(file),
-      },
+      attachments: [
+        {
+          id: crypto.randomUUID(),
+          kind: 'image',
+          name: file.name,
+          mimeType: file.type || mimeTypeFromName(file.name) || 'image/jpeg',
+          sizeBytes: file.size,
+          data: await readFileAsBase64(file),
+        },
+      ],
     };
   }
 
   if (isPdfFile(file)) {
+    if (input.renderPdfImages) {
+      if (!input.canAttachImages) {
+        throw new Error('PDF image attachments require a selected model with vision support.');
+      }
+      return renderPdfPageAttachments(file, input.remainingSlots);
+    }
     const extracted = await extractPdfText(file);
     if (!extracted.text.trim()) {
       throw new Error(`${file.name} did not contain extractable text.`);
     }
     return {
-      attachment: {
-        id: crypto.randomUUID(),
-        kind: 'pdf',
-        name: file.name,
-        mimeType: file.type || 'application/pdf',
-        sizeBytes: file.size,
-        text: extracted.text,
-      },
+      attachments: [
+        {
+          id: crypto.randomUUID(),
+          kind: 'pdf',
+          name: file.name,
+          mimeType: file.type || 'application/pdf',
+          sizeBytes: file.size,
+          text: extracted.text,
+        },
+      ],
       warning: extracted.truncated
         ? `${file.name} was truncated to ${ATTACHMENT_LIMITS.maxTextCharacters.toLocaleString()} characters.`
         : undefined,
@@ -3747,14 +3811,16 @@ async function prepareDraftAttachment(
     throw new Error(`${file.name} is empty.`);
   }
   return {
-    attachment: {
-      id: crypto.randomUUID(),
-      kind: 'text',
-      name: file.name,
-      mimeType: file.type || mimeTypeFromName(file.name) || 'text/plain',
-      sizeBytes: file.size,
-      text,
-    },
+    attachments: [
+      {
+        id: crypto.randomUUID(),
+        kind: 'text',
+        name: file.name,
+        mimeType: file.type || mimeTypeFromName(file.name) || 'text/plain',
+        sizeBytes: file.size,
+        text,
+      },
+    ],
     warning:
       rawText.length > text.length
         ? `${file.name} was truncated to ${ATTACHMENT_LIMITS.maxTextCharacters.toLocaleString()} characters.`
@@ -3763,6 +3829,61 @@ async function prepareDraftAttachment(
 }
 
 let pdfJsPromise: Promise<typeof import('pdfjs-dist')> | null = null;
+
+async function renderPdfPageAttachments(
+  file: File,
+  remainingSlots: number,
+): Promise<{attachments: DraftAttachment[]; warning?: string}> {
+  const pdfjs = await loadPdfJs();
+  const task = pdfjs.getDocument({data: new Uint8Array(await file.arrayBuffer())});
+  const pdfDocument = await task.promise;
+  const attachments: DraftAttachment[] = [];
+  try {
+    const pageLimit = Math.min(
+      pdfDocument.numPages,
+      remainingSlots,
+      ATTACHMENT_LIMITS.maxRenderedPdfPages,
+    );
+    if (pageLimit <= 0) {
+      throw new Error(`Attach at most ${ATTACHMENT_LIMITS.maxFiles} files per message.`);
+    }
+    for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
+      const page = await pdfDocument.getPage(pageNumber);
+      const baseViewport = page.getViewport({scale: 1});
+      const scale = Math.min(2, 1600 / Math.max(baseViewport.width, baseViewport.height));
+      const viewport = page.getViewport({scale});
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      const canvasContext = canvas.getContext('2d');
+      if (!canvasContext) {
+        throw new Error('Could not create a canvas for PDF rendering.');
+      }
+      await page.render({canvasContext, canvas, viewport}).promise;
+      const dataUrl = canvas.toDataURL('image/png');
+      attachments.push({
+        id: crypto.randomUUID(),
+        kind: 'image',
+        name: renderedPdfPageName(file.name, pageNumber),
+        mimeType: 'image/png',
+        sizeBytes: dataUrlByteLength(dataUrl),
+        data: dataUrl,
+      });
+      page.cleanup();
+    }
+    const skippedPages = pdfDocument.numPages - pageLimit;
+    return {
+      attachments,
+      warning:
+        skippedPages > 0
+          ? `${file.name} was rendered as ${pageLimit.toLocaleString()} page image${pageLimit === 1 ? '' : 's'}; ${skippedPages.toLocaleString()} remaining page${skippedPages === 1 ? '' : 's'} skipped by attachment limits.`
+          : undefined,
+    };
+  } finally {
+    await pdfDocument.cleanup();
+    await task.destroy();
+  }
+}
 
 async function loadPdfJs(): Promise<typeof import('pdfjs-dist')> {
   pdfJsPromise ??= import('pdfjs-dist').then(module => {
@@ -3826,6 +3947,17 @@ async function readFileAsBase64(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
   return dataUrl.split(',')[1] ?? '';
+}
+
+function renderedPdfPageName(fileName: string, pageNumber: number): string {
+  const baseName = fileName.replace(/\.pdf$/i, '') || 'PDF';
+  return `${baseName} page ${pageNumber}.png`;
+}
+
+function dataUrlByteLength(dataUrl: string): number {
+  const base64 = dataUrl.split(',')[1] ?? dataUrl;
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
 }
 
 function getDraftAttachmentError(

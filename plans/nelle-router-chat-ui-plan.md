@@ -185,10 +185,10 @@ Nelle currently differs from the target in these ways:
 - Done: the composer has an attachment drawer, file picker, paste/drop handling,
   SQLite metadata persistence, content-addressed image storage under
   `.nelle/attachments/`, and selected-model vision gating for images. Text files
-  and PDFs are sent as extracted text. Direct hard-delete cleanup and startup
-  orphan attachment sweeps are implemented. Local archive export/import is
-  implemented. Optional
-  PDF-as-image mode remains pending.
+  and PDFs are sent as extracted text by default; vision-capable models expose
+  PDF-as-image mode that renders pages as image attachments. Direct hard-delete
+  cleanup and startup orphan attachment sweeps are implemented. Local archive
+  export/import is implemented.
 - Chat send-blocking errors and warnings now use composer-local Astryx status
   for the chat workflow. Runtime/setup notices outside chat can still appear in
   the page-level workbench notices.
@@ -652,7 +652,8 @@ Attachment storage and limits:
   (recommended default: 256 KiB). Larger extracted text should be stored as a
   sidecar file with a relative path in `message_attachments.storage_path`.
 - Enforce conservative first-pass limits:
-  - 10 files per draft message.
+  - 20 attachment items per draft message. Rendered PDF pages count as
+    attachment items.
   - 25 MiB per file.
   - 100 MiB total pending attachment payload per draft message.
   - 200,000 extracted characters per text/PDF attachment before truncation with
@@ -1710,8 +1711,8 @@ Exit criteria:
 - Done: add Astryx `ChatComposerDrawer` attachment chips/previews.
 - Done: add file picker, drag/drop, and paste handling for text, PDF, and image
   files.
-- Done: add PDF text extraction with `pdfjs-dist`. Pending: optional
-  PDF-as-image conversion for vision models.
+- Done: add PDF text extraction with `pdfjs-dist` and optional PDF-as-image
+  conversion for vision models.
 - Done: add attachment size/count/text extraction limits and content-hash
   storage. No server temp upload API exists yet; unsent drafts are client-only.
 - Done: conversation hard delete removes the Pi session file and unreferenced
@@ -1720,8 +1721,8 @@ Exit criteria:
   them on import.
 - Done: server startup sweeps orphan files under `.nelle/attachments/` when no
   SQLite attachment metadata references their `attachments/...` storage path.
-- Done for images: gate image attachments on selected-model vision support from
-  `/api/llama/models/:id/props`. Pending: PDF-as-image mode.
+- Done: gate image attachments and PDF-as-image mode on selected-model vision
+  support from `/api/llama/models/:id/props`.
 - Done: add composer `ProgressBar` for context-window usage with tooltip token
   counts. The UI fetches selected-model props for `n_ctx`, falls back to the
   configured model context size when props are unavailable, updates live from
@@ -1737,8 +1738,8 @@ Exit criteria:
 - Done: attachment limits are enforced with composer status messages. No
   abandoned server temp uploads exist in this implementation because drafts stay
   client-only until send.
-- Done for images: image attachments are enabled only for vision-capable models.
-  Pending: optional PDF-as-image mode.
+- Done: image attachments and PDF-as-image mode are enabled only for
+  vision-capable models.
 - Done: audio/video attachments are not exposed.
 - Done: switching models revalidates pending image attachments through composer
   status before send.
