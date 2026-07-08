@@ -720,6 +720,106 @@ test('clears model locks when a run is aborted', async ({page}) => {
   await expect(page.getByRole('button', {name: 'Remove model'})).toBeEnabled();
 });
 
+test('surfaces llama slot abort warnings from the composer stop action', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'Model One',
+    presetName: 'model-one',
+    source: 'huggingface',
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    logPath: '/tmp/llama.log',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    modelsMax: 1,
+    sleepIdleSeconds: 90,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  const warning =
+    'llama.cpp still reports an active generation after stop. Open Settings > Runtime to stop or restart llama.cpp if it does not settle.';
+  let releaseStream: () => void = () => {};
+  const streamReleased = new Promise<void>(resolve => {
+    releaseStream = resolve;
+  });
+  let abortCalls = 0;
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: model.id,
+            routerModelId: model.id,
+            alias: model.name,
+            hfRepo: model.hfRef,
+            status: 'loaded',
+            aliases: [model.id],
+          },
+        ],
+      },
+    });
+  });
+  await mockConversationRoutes(page, {
+    chat: [],
+    abortWarning: {code: 'llama_slot_still_processing', message: warning},
+    onAbort: () => {
+      abortCalls += 1;
+      releaseStream();
+    },
+  });
+  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+    await streamReleased;
+    await route
+      .fulfill({
+        headers: {'content-type': 'text/event-stream; charset=utf-8'},
+        body: '',
+      })
+      .catch(() => undefined);
+  });
+
+  await page.goto('/');
+  await page.getByLabel('Message input').fill('stop this run');
+  await page.getByLabel('Message input').press('Enter');
+  const stopButton = page.getByRole('button', {name: 'Stop'});
+  await expect(stopButton).toBeEnabled();
+  await stopButton.evaluate((element: HTMLElement) => element.click());
+
+  await expect.poll(() => abortCalls).toBe(1);
+  await expect(page.getByText(warning).first()).toBeVisible();
+});
+
 test('renders llama.cpp prompt and generation throughput in chat message metadata', async ({
   page,
 }) => {
@@ -1861,6 +1961,8 @@ async function mockConversationRoutes(
     onFork?: (conversationId: string, body: {entryId: string; title?: string}) => void;
     onExport?: (conversationId: string) => void;
     onImport?: () => void;
+    abortWarning?: {code: string; message: string};
+    onAbort?: () => void;
   },
 ): Promise<void> {
   let chat = input.chat;
@@ -1882,6 +1984,34 @@ async function mockConversationRoutes(
     const pathname = url.pathname;
     if (pathname.endsWith('/chat/stream') || pathname.endsWith('/regenerate')) {
       await route.fallback();
+      return;
+    }
+    if (pathname === '/api/conversations/poc-default/abort' && request.method() === 'POST') {
+      input.onAbort?.();
+      await route.fulfill({
+        json: {
+          ok: true,
+          aborted: true,
+          warning: input.abortWarning,
+          snapshot: conversationSnapshot('poc-default', chat),
+        },
+      });
+      return;
+    }
+    const runAbortMatch = pathname.match(
+      /^\/api\/conversations\/poc-default\/runs\/([^/]+)\/abort$/,
+    );
+    if (runAbortMatch && request.method() === 'POST') {
+      input.onAbort?.();
+      await route.fulfill({
+        json: {
+          ok: true,
+          aborted: true,
+          runId: decodeURIComponent(runAbortMatch[1]!),
+          warning: input.abortWarning,
+          snapshot: conversationSnapshot('poc-default', chat),
+        },
+      });
       return;
     }
     if (pathname === '/api/conversations/import' && request.method() === 'POST') {

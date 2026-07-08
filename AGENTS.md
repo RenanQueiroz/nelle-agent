@@ -94,6 +94,10 @@ Project-specific guidance for AI coding agents.
   `/api/llama-proxy/v1` provider so streamed `prompt_progress` and `timings`
   chunks can update the UI and aborts can close the upstream llama.cpp fetch;
   `/slots` is only a best-effort fallback.
+- Chat/regenerate/compact abort endpoints return `{aborted, warning?}`. When
+  llama.cpp `/slots` still reports a processing slot after the grace window,
+  surface the `llama_slot_still_processing` warning instead of killing
+  llama.cpp automatically.
 - Conversation snapshots derive last-known context usage from assistant
   performance metadata. Keep `prompt.totalTokens` as the full llama.cpp prompt
   total for context usage; `prompt.tokens` remains the processed-token count

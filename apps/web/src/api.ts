@@ -223,6 +223,22 @@ export type ChatStreamEvent =
   | {type: 'done'; message: ChatMessage}
   | {type: 'error'; message: string};
 
+export type NelleWarning = {
+  code: string;
+  message: string;
+  detail?: string;
+  retryable?: boolean;
+  logRef?: string;
+};
+
+export type AbortConversationResponse = {
+  ok: boolean;
+  aborted: boolean;
+  warning?: NelleWarning;
+  runId?: string;
+  snapshot?: ConversationSnapshot;
+};
+
 export type ConversationListItem = {
   id: string;
   title: string;
@@ -695,14 +711,14 @@ export async function clearConversation(id: string): Promise<void> {
   await apiDelete(`/api/conversations/${encodeURIComponent(id)}/messages`);
 }
 
-export async function abortConversation(id: string): Promise<{ok: boolean; aborted: boolean}> {
+export async function abortConversation(id: string): Promise<AbortConversationResponse> {
   return apiPost(`/api/conversations/${encodeURIComponent(id)}/abort`);
 }
 
 export async function abortConversationRun(
   id: string,
   runId: string,
-): Promise<{ok: boolean; aborted: boolean; runId: string}> {
+): Promise<AbortConversationResponse & {runId: string}> {
   return apiPost(
     `/api/conversations/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/abort`,
   );
@@ -743,7 +759,7 @@ export async function streamCompactConversation(
 
 export async function abortConversationCompaction(
   id: string,
-): Promise<{ok: boolean; aborted: boolean; snapshot: ConversationSnapshot}> {
+): Promise<AbortConversationResponse & {snapshot: ConversationSnapshot}> {
   return apiPost(`/api/conversations/${encodeURIComponent(id)}/compact/abort`);
 }
 

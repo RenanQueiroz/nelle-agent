@@ -1329,9 +1329,15 @@ export function App() {
         setActiveRunModelsById(previous => removeRunModel(previous, runId));
       }
       setIsStreaming(false);
-      await abortRequest;
+      const abortResult = await abortRequest;
       await refreshConversations(activeConversationId);
-      setNotice({type: 'info', text: 'Generation stopped.'});
+      const warning = getAbortWarningMessage(abortResult);
+      if (warning) {
+        setComposerWarning(warning);
+        setNotice({type: 'warning', text: warning});
+      } else {
+        setNotice({type: 'info', text: 'Generation stopped.'});
+      }
     });
   }
 
@@ -1346,7 +1352,7 @@ export function App() {
       if (runId) {
         setActiveRunModelsById(previous => removeRunModel(previous, runId));
       }
-      await abortRequest;
+      const abortResult = await abortRequest;
       updateActiveCompactionRows({
         status: 'aborted',
         message: 'Compaction stopped.',
@@ -1354,7 +1360,13 @@ export function App() {
       });
       setIsCompacting(false);
       await refreshConversations(activeConversationId);
-      setNotice({type: 'info', text: 'Compaction stopped.'});
+      const warning = getAbortWarningMessage(abortResult);
+      if (warning) {
+        setComposerWarning(warning);
+        setNotice({type: 'warning', text: warning});
+      } else {
+        setNotice({type: 'info', text: 'Compaction stopped.'});
+      }
     });
   }
 
@@ -2753,6 +2765,11 @@ function mergeLiveContextUsage(
     ...next,
     totalTokens: next.totalTokens ?? current.totalTokens,
   };
+}
+
+function getAbortWarningMessage(response: {warning?: {message?: string}}): string | null {
+  const message = response.warning?.message?.trim();
+  return message || null;
 }
 
 function getContextOverflowMessage(context: ConversationContextUsage): string | null {

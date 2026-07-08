@@ -119,9 +119,7 @@ Not implemented yet:
   and user-message fork creates new conversations from persisted Pi entries.
   The composer has an Astryx `/compact` typeahead, composer-local unsupported
   slash-command guidance, visible compaction status rows, and local
-  `.nelle-chat.zip` export/import. Slot-level abort verification is still
-  pending.
-- Llama.cpp slot-level abort verification.
+  `.nelle-chat.zip` export/import.
 - Host-tool sandboxing and per-tool permission prompts. The current v1 gate is
   acknowledgement plus a global enable/disable switch.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for
@@ -219,7 +217,11 @@ observes llama.cpp `prompt_progress` and `timings` chunks so the UI can mirror
 llama.cpp's own prompt-processing and token-generation speed calculations. The
 proxy also forwards request/response close events as an upstream `AbortSignal`.
 The router `/slots?model=...` monitor remains a best-effort fallback and does
-not overwrite exact streamed timings.
+not overwrite exact streamed timings. After a user stop, Nelle also checks
+`/slots` for up to five seconds; if llama.cpp still reports an active
+generation, the abort response includes a `llama_slot_still_processing` warning
+that the composer surfaces with guidance to use Settings > Runtime stop/restart
+controls.
 Pi tool execution events are correlated by `toolCallId`, so a running tool row
 updates in place when progress or completion arrives instead of rendering
 separate running and complete rows. Expand the tool row to inspect the captured

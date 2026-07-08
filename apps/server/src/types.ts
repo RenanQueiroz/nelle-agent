@@ -3,7 +3,7 @@ import type {
   ConversationContextUsage,
 } from '../../../packages/shared/src/conversations.ts';
 import type {RunKind, TerminalRunStatus} from '../../../packages/shared/src/conversations.ts';
-import type {ChatAttachmentInput} from '../../../packages/shared/src/contracts.ts';
+import type {ChatAttachmentInput, NelleError} from '../../../packages/shared/src/contracts.ts';
 
 export type {ChatAttachmentInput};
 
@@ -68,6 +68,17 @@ export type LlamaModelProps = {
 export type LlamaTokenizeResult = {
   tokens: number;
   raw: unknown;
+};
+
+export type LlamaAbortVerificationResult = {
+  checked: boolean;
+  idle: boolean;
+  warning?: NelleError;
+};
+
+export type AbortConversationResult = {
+  aborted: boolean;
+  warning?: NelleError;
 };
 
 export type ModelParams = {

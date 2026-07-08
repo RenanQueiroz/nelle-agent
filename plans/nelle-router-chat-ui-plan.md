@@ -176,8 +176,9 @@ Nelle currently differs from the target in these ways:
   first-turn title generation emits `title` run events, and `run.aborted` clears
   UI run tracking/model locks. Manual compaction now streams `compact` run
   lifecycle plus command-status events and persists a post-compaction
-  `/api/llama/tokenize` context estimate. Llama.cpp slot-level abort
-  verification is still pending.
+  `/api/llama/tokenize` context estimate. Abort endpoints now run a best-effort
+  llama.cpp `/slots` grace check and surface a `llama_slot_still_processing`
+  warning when the slot remains active.
 - Done in the current sidebar: reset/delete/pin/rename actions moved out of the
   composer footer and into each conversation row's action menu, and large lists
   use TanStack virtualization inside an Astryx `SideNav` shell.
@@ -1447,12 +1448,13 @@ Queueing policy:
 
 llama.cpp verification and fallback:
 
-- Add an integration test with a long-running llama.cpp response that aborts
-  from the UI/API and confirms Pi reports idle and the Nelle proxy closes the
-  downstream request.
-- Best-effort check `/slots` after abort when the router exposes it. If the
-  slot continues generating for more than `abortGraceMs` (default 5000 ms),
-  surface a warning and a Runtime Settings action to stop/restart llama.cpp.
+- Done: the llama proxy forwards abort signals to upstream chat-completions
+  requests, and unit coverage verifies the upstream `AbortSignal` is passed.
+- Done: after chat/regenerate/compact run aborts, Nelle best-effort checks
+  `/slots?model=...` when the router exposes it. If the slot continues
+  processing for more than the default 5000 ms grace window, the abort response
+  includes a `llama_slot_still_processing` warning. The composer surfaces that
+  warning and points the user to Settings > Runtime stop/restart controls.
 - Do not auto-kill llama.cpp on abort because it can affect other conversations
   and model-load state.
 
@@ -1987,9 +1989,8 @@ Playwright tests:
   concurrency is allowed, but same-conversation sends/compactions fail with
   `conversation_busy`.
 - Done: abort propagation preserves close/abort signals through the llama proxy.
-  Pending verification: llama.cpp disconnect behavior should be verified per
-  release; if a slot keeps generating after abort, show a warning and a manual
-  stop/restart action rather than killing automatically.
+  Abort endpoints also run a best-effort `/slots` grace check and warn if a slot
+  keeps generating rather than killing llama.cpp automatically.
 - Attachment token estimates: text-only `/tokenize` estimates are useful for
   draft UI but not authoritative for multimodal prompts or full chat history.
   Streamed `prompt_progress` and final `timings` remain authoritative.

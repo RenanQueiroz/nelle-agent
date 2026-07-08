@@ -580,10 +580,10 @@ export async function createServer(paths: AppPaths) {
         },
       });
     }
-    const aborted = await pi.abortConversation(id);
+    const result = await pi.abortConversation(id);
     return {
       ok: true,
-      aborted,
+      ...result,
       snapshot: conversations.getSnapshot(id, await store.getState()),
     };
   });
@@ -598,10 +598,10 @@ export async function createServer(paths: AppPaths) {
         },
       });
     }
-    const aborted = await pi.abortConversationRun(id, runId);
+    const result = await pi.abortConversationRun(id, runId);
     return {
       ok: true,
-      aborted,
+      ...result,
       runId,
       snapshot: conversations.getSnapshot(id, await store.getState()),
     };

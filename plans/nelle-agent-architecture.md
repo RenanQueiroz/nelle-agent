@@ -294,8 +294,10 @@ Intentional POC limitations:
   run events, `message.assistant.completed` final assistant events, and
   first-turn title generation `title` run events. Manual compaction streams
   `compact` run lifecycle and command-status events. Aborted run events clear UI
-  run tracking and model locks. Full branch tree exploration and slot-level
-  abort verification are still pending.
+  run tracking and model locks. After chat/regenerate/compact aborts, Nelle
+  best-effort checks llama.cpp `/slots` for a five-second grace window and
+  surfaces a `llama_slot_still_processing` warning if the slot is still active.
+  Full branch tree exploration is still pending.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are gated through a Settings acknowledgement/global disable switch
@@ -561,6 +563,9 @@ Initial implementation:
   streamed `prompt_progress` and `timings` values observed by Nelle's llama
   proxy or direct fallback path; use router `/slots?model=...` decoded-token
   counters only as best-effort fallback data.
+- Abort endpoints may also use router `/slots?model=...` as a best-effort
+  post-stop probe. If a slot remains active after the grace window, return a
+  warning rather than killing llama.cpp automatically.
 - Persist the model that generated each assistant message, including a display
   alias snapshot and llama.cpp runtime model id. Assistant footers should show
   timestamp, model selector, a toggleable Reading/Generation performance stats

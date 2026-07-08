@@ -110,6 +110,43 @@ test('llama router facade normalizes props, models, model props, actions, and ev
   }
 });
 
+test('llama abort verifier warns when slots keep processing after grace window', async () => {
+  const processingSlot = {
+    id: 2,
+    id_task: 91,
+    is_processing: true,
+    next_token: [{has_next_token: true, n_decoded: 128}],
+  };
+  const router = await createMockRouter({slots: [[processingSlot], []]});
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const llama = new LlamaCppManager(paths, store);
+
+  try {
+    const stuck = await llama.verifyAbortIdle({
+      modelId: 'repo/model:Q4_K_M',
+      graceMs: 0,
+      pollMs: 50,
+    });
+    assert.equal(stuck.checked, true);
+    assert.equal(stuck.idle, false);
+    assert.equal(stuck.warning?.code, 'llama_slot_still_processing');
+    assert.match(stuck.warning?.detail ?? '', /slot 2 task 91/);
+
+    const idle = await llama.verifyAbortIdle({
+      modelId: 'repo/model:Q4_K_M',
+      graceMs: 0,
+      pollMs: 50,
+    });
+    assert.equal(idle.checked, true);
+    assert.equal(idle.idle, true);
+    assert.equal(idle.warning, undefined);
+  } finally {
+    await router.close();
+  }
+});
+
 test('llama router facade returns stable 502 errors for upstream failures', async () => {
   const router = await createMockRouter({failModels: true});
   const paths = await createTempPaths();
@@ -197,12 +234,13 @@ test('model settings endpoints edit params, duplicate, and remove sections', asy
   }
 });
 
-async function createMockRouter(input: {failModels?: boolean} = {}): Promise<{
+async function createMockRouter(input: {failModels?: boolean; slots?: unknown[][]} = {}): Promise<{
   port: number;
   calls: Array<{method: string; url: string; body: unknown}>;
   close: () => Promise<void>;
 }> {
   const calls: Array<{method: string; url: string; body: unknown}> = [];
+  let slotCallCount = 0;
   const server = http.createServer(async (request, response) => {
     const url = request.url ?? '/';
     const body = await readJsonBody(request);
@@ -226,6 +264,13 @@ async function createMockRouter(input: {failModels?: boolean} = {}): Promise<{
     }
     if (url === '/tokenize') {
       sendJson(response, {tokens: [1, 2, 3]});
+      return;
+    }
+    if (url.startsWith('/slots')) {
+      const slots =
+        input.slots?.[Math.min(slotCallCount, Math.max(0, input.slots.length - 1))] ?? [];
+      slotCallCount += 1;
+      sendJson(response, slots);
       return;
     }
     if (url === '/models/sse') {

@@ -33,12 +33,14 @@ import type {
 } from '../../../packages/shared/src/conversations.ts';
 import type {ChatAttachmentInput} from '../../../packages/shared/src/contracts.ts';
 import type {
+  AbortConversationResult,
   ChatMessage,
   ChatPerformance,
   ChatStreamEvent,
   ConfiguredModel,
   ToolCallEvent,
 } from './types';
+import type {NelleError} from '../../../packages/shared/src/contracts.ts';
 
 const PROVIDER_ID = 'nelle-llamacpp';
 const TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
@@ -57,10 +59,14 @@ type ActiveRun = {
   modelId?: string;
   abortRequested: boolean;
   abortController?: AbortController;
+  abortWarning?: NelleError;
 };
 
-type ContextTokenizer = {
-  tokenize: (content: string) => Promise<{tokens: number}>;
+type LlamaRuntimeServices = {
+  tokenize?: (content: string) => Promise<{tokens: number}>;
+  verifyAbortIdle?: (input: {modelId?: string; graceMs?: number}) => Promise<{
+    warning?: NelleError;
+  }>;
 };
 
 type PreparedPromptAttachment = {
@@ -89,7 +95,7 @@ export class PiHarness {
     private readonly store: AppStore,
     private readonly conversations: ConversationRepository,
     private readonly hostTools: HostToolRepository,
-    private readonly contextTokenizer?: ContextTokenizer,
+    private readonly llamaRuntime?: LlamaRuntimeServices,
   ) {}
 
   resetSession(conversationId?: string): void {
@@ -106,35 +112,45 @@ export class PiHarness {
     this.#activeRuns.clear();
   }
 
-  async abortConversation(conversationId: string): Promise<boolean> {
+  async abortConversation(conversationId: string): Promise<AbortConversationResult> {
     const run = this.#activeRuns.get(conversationId);
     if (run) {
       return this.abortConversationRun(conversationId, run.runId);
     }
-    return false;
+    return {aborted: false};
   }
 
-  async abortConversationRun(conversationId: string, runId: string): Promise<boolean> {
+  async abortConversationRun(
+    conversationId: string,
+    runId: string,
+  ): Promise<AbortConversationResult> {
     const run = this.#activeRuns.get(conversationId);
     if (!run || run.runId !== runId) {
-      return false;
+      return {aborted: false};
     }
     run.abortRequested = true;
     if (run.kind === 'title') {
       run.abortController?.abort();
-      return true;
+      return {aborted: true};
     }
     const managed = this.#sessions.get(conversationId);
     if (!managed) {
-      return run.kind === 'compact';
+      this.conversations.setConversationStatus(conversationId, 'aborting');
+      return {aborted: true};
     }
     this.conversations.setConversationStatus(conversationId, 'aborting');
+    await managed.session.abortRetry?.().catch(() => undefined);
     if (run.kind === 'compact') {
       managed.session.abortCompaction?.();
     } else {
       await managed.session.abort?.();
     }
-    return true;
+    await managed.session.abortRetry?.().catch(() => undefined);
+    run.abortWarning = await this.verifyLlamaAbortIdle(run);
+    return {
+      aborted: true,
+      warning: run.abortWarning,
+    };
   }
 
   async compactConversation(
@@ -188,8 +204,7 @@ export class PiHarness {
     try {
       const session = await this.ensureSession(conversationId, activeModel);
       if (run.abortRequested) {
-        queue?.push(createRunAbortedEvent(run, 'user'));
-        queue?.push(createRunCompletedEvent(run, 'aborted'));
+        pushRunAbortedEvents(queue, run);
         return {compacted: false};
       }
       if ((session.messages?.length ?? 0) === 0) {
@@ -204,8 +219,7 @@ export class PiHarness {
         'compacting',
       );
       if (run.abortRequested) {
-        queue?.push(createRunAbortedEvent(run, 'user'));
-        queue?.push(createRunCompletedEvent(run, 'aborted'));
+        pushRunAbortedEvents(queue, run);
         return {compacted: false};
       }
       const context = await this.updateCompactedContextUsage(
@@ -221,8 +235,7 @@ export class PiHarness {
       return {compacted: true};
     } catch (error) {
       if (run.abortRequested) {
-        queue?.push(createRunAbortedEvent(run, 'user'));
-        queue?.push(createRunCompletedEvent(run, 'aborted'));
+        pushRunAbortedEvents(queue, run);
         return {compacted: false};
       }
       const runError = {
@@ -244,7 +257,7 @@ export class PiHarness {
     entries: SyncConversationEntry[],
     activeModel: ConfiguredModel,
   ): Promise<ConversationContextUsage | null> {
-    if (!this.contextTokenizer) {
+    if (!this.llamaRuntime?.tokenize) {
       return null;
     }
     const content = renderContextEstimateInput(entries);
@@ -252,7 +265,7 @@ export class PiHarness {
       return null;
     }
     try {
-      const result = await this.contextTokenizer.tokenize(content);
+      const result = await this.llamaRuntime.tokenize(content);
       const context: ConversationContextUsage = {
         usedTokens: result.tokens,
         totalTokens: activeModel.params.contextSize,
@@ -278,6 +291,17 @@ export class PiHarness {
     managed.session.abortCompaction?.();
     this.conversations.setConversationStatus(conversationId, 'ready');
     return true;
+  }
+
+  private async verifyLlamaAbortIdle(run: ActiveRun): Promise<NelleError | undefined> {
+    if (!this.llamaRuntime?.verifyAbortIdle || !run.modelId) {
+      return undefined;
+    }
+    try {
+      return (await this.llamaRuntime.verifyAbortIdle({modelId: run.modelId})).warning;
+    } catch {
+      return undefined;
+    }
   }
 
   async streamPrompt(
@@ -467,6 +491,13 @@ export class PiHarness {
   ): Promise<void> {
     const run = options.run;
     const session = await this.ensureSession(conversationId, activeModel);
+    if (run.abortRequested) {
+      pushRunAbortedEvents(queue, run);
+      this.finishRun(conversationId, run.runId);
+      this.conversations.setConversationStatus(conversationId, 'ready');
+      queue.end();
+      return;
+    }
     if (options.branchFromPiEntryId !== undefined) {
       if (options.branchFromPiEntryId === null) {
         session.sessionManager.resetLeaf();
@@ -647,8 +678,7 @@ export class PiHarness {
       queue.end();
     } catch (error) {
       if (run.abortRequested) {
-        queue.push(createRunAbortedEvent(run, 'user'));
-        queue.push(createRunCompletedEvent(run, 'aborted'));
+        pushRunAbortedEvents(queue, run);
         queue.end();
         return;
       }
@@ -1354,6 +1384,17 @@ function createRunAbortedEvent(
     reason,
     createdAt: new Date().toISOString(),
   };
+}
+
+function pushRunAbortedEvents(
+  queue: ReturnType<typeof createAsyncQueue<ChatStreamEvent>> | undefined,
+  run: ActiveRun,
+): void {
+  queue?.push(createRunAbortedEvent(run, 'user'));
+  if (run.abortWarning) {
+    queue?.push({type: 'warning', message: run.abortWarning.message});
+  }
+  queue?.push(createRunCompletedEvent(run, 'aborted'));
 }
 
 function createRunCompletedEvent(

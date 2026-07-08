@@ -7,6 +7,7 @@ import {spawn, type ChildProcess} from 'node:child_process';
 import type {AppPaths} from './paths';
 import type {
   ConfiguredModel,
+  LlamaAbortVerificationResult,
   LlamaModelProps,
   LlamaRouterModel,
   LlamaRouterProps,
@@ -46,6 +47,16 @@ type ManagedProcessRecord = {
   port: number;
   presetPath: string;
   startedAt: string;
+};
+
+type LlamaSlotSnapshot = {
+  id?: number;
+  id_task?: number;
+  is_processing?: boolean;
+  next_token?: Array<{
+    has_next_token?: boolean;
+    n_decoded?: number;
+  }>;
 };
 
 export class LlamaCppManager {
@@ -206,6 +217,44 @@ export class LlamaCppManager {
       tokens: tokens.length,
       raw,
     };
+  }
+
+  async verifyAbortIdle(
+    input: {modelId?: string; graceMs?: number; pollMs?: number} = {},
+  ): Promise<LlamaAbortVerificationResult> {
+    const graceMs = Math.max(0, input.graceMs ?? 5000);
+    const pollMs = Math.min(Math.max(input.pollMs ?? 250, 50), 1000);
+    const deadline = Date.now() + graceMs;
+    let lastSlot: LlamaSlotSnapshot | null = null;
+
+    for (;;) {
+      const result = await this.fetchProcessingSlot(input.modelId);
+      if (!result.checked) {
+        return {checked: false, idle: true};
+      }
+      if (!result.slot) {
+        return {checked: true, idle: true};
+      }
+
+      lastSlot = result.slot;
+      if (Date.now() >= deadline) {
+        const slotLabel = lastSlot.id == null ? 'unknown slot' : `slot ${lastSlot.id}`;
+        const taskLabel = lastSlot.id_task == null ? '' : ` task ${lastSlot.id_task}`;
+        return {
+          checked: true,
+          idle: false,
+          warning: {
+            code: 'llama_slot_still_processing',
+            message:
+              'llama.cpp still reports an active generation after stop. Open Settings > Runtime to stop or restart llama.cpp if it does not settle.',
+            detail: `${input.modelId ?? 'selected model'} still has ${slotLabel}${taskLabel} processing after ${graceMs} ms.`,
+            retryable: true,
+          },
+        };
+      }
+
+      await delay(Math.min(pollMs, Math.max(0, deadline - Date.now())));
+    }
   }
 
   async getRouterModels(input: {reload?: boolean} = {}): Promise<{
@@ -506,6 +555,31 @@ export class LlamaCppManager {
       signal: input.signal,
     });
     return response;
+  }
+
+  private async fetchProcessingSlot(
+    modelId?: string,
+  ): Promise<{checked: boolean; slot: LlamaSlotSnapshot | null}> {
+    const pathname = modelId ? `/slots?model=${encodeURIComponent(modelId)}` : '/slots';
+    try {
+      const response = await this.fetchRouter(pathname);
+      if (response.status === 404 || response.status === 405) {
+        return {checked: false, slot: null};
+      }
+      if (!response.ok) {
+        return {checked: false, slot: null};
+      }
+      const slots = (await response.json()) as unknown;
+      if (!Array.isArray(slots)) {
+        return {checked: false, slot: null};
+      }
+      return {
+        checked: true,
+        slot: findProcessingSlot(slots),
+      };
+    } catch {
+      return {checked: false, slot: null};
+    }
   }
 
   private async buildLinuxFromMaster(): Promise<void> {
@@ -995,6 +1069,18 @@ function findConfiguredSectionId(
   return null;
 }
 
+function findProcessingSlot(slots: unknown[]): LlamaSlotSnapshot | null {
+  return (
+    (slots.find(slot => {
+      const item = slot as LlamaSlotSnapshot;
+      return (
+        item.is_processing === true ||
+        item.next_token?.some(token => token.has_next_token === true) === true
+      );
+    }) as LlamaSlotSnapshot | undefined) ?? null
+  );
+}
+
 function getProp(value: unknown, key: string): unknown {
   if (value == null || typeof value !== 'object') {
     return undefined;
@@ -1027,6 +1113,10 @@ function arrayOfStrings(value: unknown): string[] {
     return [];
   }
   return value.filter(item => typeof item === 'string');
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
 function modelSourceValues(model: ConfiguredModel): Record<string, string> {

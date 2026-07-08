@@ -1050,7 +1050,8 @@ test('Pi title generation abort emits aborted run lifecycle events', async () =>
     assert.equal(first.value.type, 'run.started');
     assert.equal(first.value.kind, 'title');
 
-    assert.equal(await harness.abortConversationRun(conversation.id, first.value.runId), true);
+    const abortResult = await harness.abortConversationRun(conversation.id, first.value.runId);
+    assert.equal(abortResult.aborted, true);
     await titlePromise;
     queue.end();
     for (;;) {
@@ -1712,7 +1713,10 @@ type TitleGenerationHarness = {
     }>,
     queue: ReturnType<typeof createAsyncQueue<ChatStreamEvent>>,
   ) => Promise<void>;
-  abortConversationRun: (conversationId: string, runId: string) => Promise<boolean>;
+  abortConversationRun: (
+    conversationId: string,
+    runId: string,
+  ) => Promise<{aborted: boolean; warning?: {code: string; message: string}}>;
 };
 
 type CompactStreamHarness = {
