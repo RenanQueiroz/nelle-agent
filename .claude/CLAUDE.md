@@ -40,6 +40,9 @@ Project-specific guidance for AI coding agents.
   files as authoritative for message history, compaction, and branch state;
   SQLite stores conversation indexes, projections, and Nelle-only sidecar
   metadata.
+- Implement conversation fork/duplicate through Pi runtime fork/clone behavior,
+  creating a new Nelle conversation for the new Pi session file and leaving the
+  source conversation unchanged.
 - Chat/run streams use typed Nelle event envelopes. UI stop/abort calls Pi
   `AgentSession.abort()` and must propagate cancellation through Nelle's
   llama.cpp proxy request.

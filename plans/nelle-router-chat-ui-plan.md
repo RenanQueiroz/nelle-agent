@@ -289,6 +289,10 @@ sessionDir)`.
 - If a Pi session file is missing or corrupt, mark the conversation unavailable
   and show a repair/delete/export-diagnostics action instead of creating a new
   unrelated session under the same Nelle conversation id.
+- Forking or duplicating a conversation creates a new Pi session file through
+  Pi's runtime APIs and then creates a new Nelle conversation row that points to
+  that new file. Use an isolated temporary Pi runtime for fork/clone work so the
+  source conversation's live runtime and active stream are not replaced.
 - Hard-deleting a conversation deletes its SQLite rows, Pi session file, and
   attachment files.
 
@@ -297,7 +301,8 @@ Core tables:
 - `conversations`: `id`, `title`, `title_source` (`generated`, `user`,
   `imported`, `fallback`), `pinned`, `pi_session_path`, `pi_session_id`,
   `active_leaf_pi_entry_id`, `last_synced_pi_entry_id`, `default_model_id`,
-  `status`, `created_at`, `updated_at`, `deleted_at?`.
+  `parent_conversation_id?`, `forked_from_pi_entry_id?`, `fork_kind?`
+  (`fork`, `clone`), `status`, `created_at`, `updated_at`, `deleted_at?`.
 - `conversation_entry_projection`: `conversation_id`, `pi_entry_id`,
   `parent_pi_entry_id`, `entry_type`, `role?`, `text_preview?`, `created_at`,
   `model_id?`, `model_runtime_id?`, `model_alias_snapshot?`,
@@ -511,8 +516,18 @@ Conversation item menu:
 - Pin/unpin.
 - Rename.
 - Export.
+- Duplicate active branch.
 - Delete.
-- Future: duplicate/fork.
+
+Message/conversation branch actions:
+
+- User message overflow menu: fork from this message into a new Nelle
+  conversation.
+- Conversation item menu: duplicate the active branch into a new Nelle
+  conversation.
+- Both actions use Pi's built-in fork/clone session logic and create a new Pi
+  session file plus a new Nelle conversation row. The source conversation is not
+  mutated.
 
 Composer:
 
@@ -649,9 +664,11 @@ UI-owned or unsupported initially:
 - `/login` and `/logout`: use future Settings auth/provider flows. Nelle's
   local llama.cpp provider remains app-managed.
 - `/settings`: use Nelle Settings.
-- `/name`, `/session`, `/tree`, `/fork`, `/clone`, `/export`, `/import`, and
-  `/share`: use Nelle's conversation sidebar, branching, export/import, and
-  sharing flows as those features are implemented.
+- `/fork` and `/clone`: use Nelle's message/conversation menus, backed by Pi
+  `AgentSessionRuntime.fork()` and clone-style fork-at-position support.
+- `/name`, `/session`, `/tree`, `/export`, `/import`, and `/share`: use
+  Nelle's conversation sidebar, branching, export/import, and sharing flows as
+  those features are implemented.
 - `/copy`: use the assistant message copy button.
 - `/trust`, `/reload`, `/hotkeys`, `/changelog`, and `/quit`: keep out of the
   chat composer unless Nelle implements explicit equivalents later.
@@ -833,6 +850,31 @@ Regenerate behavior:
 - If model loading fails, keep the old active branch and surface the router
   error/log link.
 
+Fork and duplicate behavior:
+
+- Fork from a user message creates a new Nelle conversation from a Pi fork of
+  that user entry. The source conversation remains open and unchanged.
+- Duplicate creates a new Nelle conversation from a Pi clone-style fork of the
+  current active branch, defaulting to the source conversation's current leaf.
+- Use a temporary isolated Pi runtime for the operation:
+  1. Open the source `pi_session_path`.
+  2. Call `AgentSessionRuntime.fork(entryId)` for fork, or fork-at-position for
+     clone.
+  3. Read the new runtime's `session.sessionFile` and `session.sessionId`.
+  4. Create a new Nelle `conversations` row with
+     `parent_conversation_id`, `forked_from_pi_entry_id`, and `fork_kind`.
+  5. Sync the new conversation projection from the new Pi session file.
+  6. Dispose the temporary runtime.
+- If the source conversation is actively streaming, allow clone from the last
+  durable `active_leaf_pi_entry_id` but reject fork from entries that are not yet
+  persisted.
+- Default titles:
+  - fork: copy the source title with ` (fork)` until title generation or user
+    rename changes it;
+  - clone: copy the source title with ` (copy)`.
+- Export/import/sharing should continue to operate on the selected Nelle
+  conversation's Pi session file.
+
 ### Virtualized List
 
 Use real virtualization for conversation rows once conversation count can grow.
@@ -878,6 +920,8 @@ API shape:
 - `DELETE /api/conversations/:id`
 - `POST /api/conversations/:id/pin`
 - `POST /api/conversations/:id/export`
+- `POST /api/conversations/:id/fork`
+- `POST /api/conversations/:id/clone`
 - `DELETE /api/conversations`
 - `POST /api/conversations/:id/chat/stream`
 - `POST /api/conversations/:id/runs/:runId/abort`
@@ -888,6 +932,22 @@ Chat streaming should be conversation-scoped. The stream route appends the user
 message, streams assistant deltas/tool calls/timing metadata, persists the final
 assistant message, records model metadata, and updates
 `conversations.updated_at`.
+
+Fork/clone API:
+
+- `POST /api/conversations/:id/fork`
+  - request: `{ "entryId": "<pi user entry id>", "title"?: string }`
+  - behavior: open the source Pi session in an isolated temporary runtime, call
+    Pi `AgentSessionRuntime.fork(entryId)`, create a Nelle conversation row for
+    the new Pi session file, sync its projection, and leave the source
+    conversation unchanged.
+- `POST /api/conversations/:id/clone`
+  - request: `{ "entryId"?: "<pi entry id>", "title"?: string }`
+  - behavior: duplicate the active branch through the supplied entry or current
+    leaf by using Pi's clone-style fork-at-position support, then create a new
+    Nelle conversation row for the new Pi session file.
+- Both routes return the new conversation snapshot and may optionally stream a
+  `conversation.forked` event if the caller is subscribed.
 
 ### Streaming And Event Contract
 
@@ -937,6 +997,7 @@ Core conversation events:
 - `compact.completed`: `{ piEntryId?: string, tokensBefore?: number, firstKeptEntryId?: string, summaryPreview?: string }`
 - `compact.failed`: `{ error: NelleError }`
 - `conversation.updated`: `{ title?, titleSource?, activeLeafPiEntryId?, updatedAt }`
+- `conversation.forked`: `{ sourceConversationId, newConversationId, sourcePiEntryId?, kind: "fork" | "clone" }`
 - `error`: `NelleError`
 
 Core llama/router events:
@@ -1137,7 +1198,8 @@ Exit criteria:
 - Add collapsible sidebar with new chat, settings, search, virtualized list, and
   item overflow menus.
 - Move reset/delete behavior to sidebar actions.
-- Add conversation export/delete/pin/rename.
+- Add conversation export/delete/pin/rename/duplicate.
+- Add message-level fork into a new conversation, backed by Pi fork.
 
 Exit criteria:
 
@@ -1145,6 +1207,10 @@ Exit criteria:
 - Large conversation lists do not cause sidebar lag.
 - Active conversation can stream while another conversation is visible in the
   list with a running indicator.
+- Forking from a persisted user message creates a new Nelle conversation with a
+  new Pi session file and leaves the source conversation unchanged.
+- Duplicating a conversation creates a new Nelle conversation from the active Pi
+  branch.
 - Conversation delete removes SQLite rows, the Pi session file, and attachment
   files.
 
@@ -1247,6 +1313,8 @@ Unit tests:
   session-file handling.
 - Conversation title sanitization/fallback.
 - Message model metadata selection and alias snapshot fallback.
+- Fork/clone request validation, source entry eligibility, new conversation
+  metadata, and default title generation.
 - Regenerate request path construction, branch creation, and model override
   validation.
 - Performance statistics view selection, formatting, and live auto-switching.
@@ -1262,6 +1330,11 @@ Integration tests:
 - Create a conversation, verify a Pi session file is created, restart the Nelle
   server, reopen the conversation, and verify the same Pi session file/id is
   used.
+- Fork a conversation from a persisted Pi user entry and verify a new Pi session
+  file plus Nelle conversation row are created while the source conversation is
+  unchanged.
+- Duplicate a conversation active branch and verify the new conversation points
+  to a new Pi session file with cloned active-path content.
 - Open two conversations and stream one request in each, verifying Nelle permits
   multiple conversation runtimes but rejects a second active run in the same
   conversation.
@@ -1299,6 +1372,9 @@ Playwright tests:
 - Settings HF import writes `models.ini` and model appears in selector.
 - Selecting an unloaded model shows loading progress then selected loaded model.
 - Sidebar creates, searches, pins, renames, exports, and deletes conversations.
+- Sidebar duplicate creates a copied conversation without mutating the source.
+- User message fork action creates a new forked conversation and opens/selects
+  it according to the current UI routing decision.
 - Composer stays docked while message list scrolls.
 - Virtualized list remains responsive with thousands of conversations and keeps
   the mounted sidebar row count bounded.
@@ -1338,6 +1414,9 @@ Playwright tests:
 - Regeneration semantics: use Pi-native branching by replaying the original user
   content on a new branch. The UI groups regenerated answers as variants, so
   users do not need to understand the duplicated Pi user entry.
+- Fork/clone semantics: Nelle implements these as new conversations backed by
+  new Pi session files. Use an isolated temporary runtime so source conversation
+  state is not replaced by Pi's runtime-level fork operation.
 - Running router reload: changing or removing a loaded section can trigger
   unload. The UI must warn before destructive model edits.
 - Local path migration: local path model entries are removed from active state,
@@ -1388,6 +1467,9 @@ Playwright tests:
 - Multiple Pi conversation runtimes may be active simultaneously when Pi and the
   local router can support them. Nelle only forbids concurrent runs within the
   same conversation.
+- Fork and duplicate are in scope for the conversation UI. Both use Pi runtime
+  fork/clone behavior and create new Nelle conversations rather than mutating or
+  replacing the source conversation.
 - UI stop/abort calls Pi `AgentSession.abort()` and propagates abort to the
   llama.cpp proxy request. Nelle does not auto-kill llama.cpp unless the user
   explicitly chooses a runtime stop/restart action.

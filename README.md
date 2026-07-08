@@ -43,6 +43,8 @@ Not implemented yet:
 - Pi-backed conversation storage. The planned architecture maps each Nelle
   conversation to one Pi session file and uses SQLite for indexes, projections,
   and Nelle-only metadata.
+- Fork/duplicate conversation actions backed by Pi's runtime fork/clone
+  behavior, creating new Nelle conversations without mutating the source.
 - Typed stream/abort contracts for chat runs. Planned stop behavior calls Pi
   abort and propagates cancellation through Nelle's llama.cpp proxy.
 - Composer attachments and context-window display. Planned attachment scope is

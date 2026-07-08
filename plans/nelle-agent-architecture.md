@@ -100,6 +100,9 @@ The first product experience should be UI-driven:
 - Each Nelle conversation maps to exactly one Pi session JSONL file. Pi owns
   message history, compaction, and branch/tree state; SQLite owns Nelle's
   conversation index, projections, and sidecar UI metadata.
+- Forking and duplicating conversations are in scope for the conversation UI.
+  They should use Pi runtime fork/clone behavior and create new Nelle
+  conversations backed by new Pi session files.
 - Nelle should support multiple active Pi conversation runtimes when Pi and the
   local router can support them, while enforcing only one active run per
   conversation.
@@ -319,6 +322,9 @@ Responsibilities:
   conversation to one Pi session file.
 - Manage Pi sessions through `AgentSessionRuntime`/`SessionManager`, reopening
   existing session files on demand after Nelle server restarts.
+- Use Pi runtime fork/clone behavior for Nelle fork and duplicate actions.
+  Create a new Nelle conversation for the resulting Pi session file and keep the
+  source conversation unchanged.
 - Maintain a lazy runtime pool keyed by conversation id so multiple
   conversations can be open or streaming without replacing a single global Pi
   session.
