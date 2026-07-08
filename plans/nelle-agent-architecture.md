@@ -250,7 +250,9 @@ basic conversation abort via Pi `AgentSession.abort()`,
 manual `/compact [instructions]` through Pi `AgentSession.compact()` plus
 `abortCompaction()`,
 first-turn generated conversation titles through a non-Pi llama.cpp prompt,
-assistant message model snapshots plus footer copy actions,
+assistant message model snapshots plus footer copy/regenerate actions,
+Pi-native assistant regeneration through branch replay with optional model
+override,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for
 startup and configuration diagnostics, and the POC model panel can show router
@@ -264,8 +266,8 @@ Intentional POC limitations:
 - The web UI only has a small searchable conversation list with new-chat and row
   actions. The full collapsible, virtualized sidebar and richer conversation
   menus are still pending.
-- Stable run ids/terminal run events, fork/clone, branch variants, and
-  export/import are still pending.
+- Stable run ids/terminal run events, fork/clone, visible branch variant
+  grouping, and export/import are still pending.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are enabled through Pi and remain unsandboxed.
@@ -689,8 +691,8 @@ Exit criteria:
 - Pi SDK uses Nelle's local llama.cpp proxy provider.
 - Web UI can create a session and stream assistant output.
 - Web UI displays llama.cpp prompt-processing and generation throughput beside
-  assistant message timestamps when the server reports it, using a toggleable
-  Reading/Generation stats view with icon tooltips.
+  assistant message timestamps when the server reports it. The final toggleable
+  Reading/Generation stats view with icon tooltips is still planned.
 - Web UI shows composer-local errors and warnings through Astryx
   `ChatComposer.status` rather than page-level chat notices.
 - Web UI displays which model generated each assistant message and supports

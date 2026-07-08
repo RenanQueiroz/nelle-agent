@@ -93,6 +93,8 @@ export type ChatMessage = {
   modelId?: string;
   modelRuntimeId?: string;
   modelAliasSnapshot?: string;
+  regeneratesPiEntryId?: string;
+  displayGroupId?: string;
   performance?: ChatPerformance;
   toolCalls?: Array<{
     id: string;
@@ -154,6 +156,8 @@ export type ConversationEntryProjection = {
   modelId?: string;
   modelRuntimeId?: string;
   modelAliasSnapshot?: string;
+  regeneratesPiEntryId?: string;
+  displayGroupId?: string;
   performance?: unknown;
   toolCalls?: unknown;
 };
@@ -384,6 +388,31 @@ export async function streamConversationChat(
   );
   if (!response.ok || !response.body) {
     throw new Error(`Chat request failed: ${response.status}`);
+  }
+
+  await readEventStream(response, onEvent);
+}
+
+export async function streamRegenerateMessage(
+  conversationId: string,
+  messageId: string,
+  modelId: string | undefined,
+  onEvent: (event: ChatStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(
+    `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(
+      messageId,
+    )}/regenerate`,
+    {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify(modelId ? {modelId} : {}),
+      signal,
+    },
+  );
+  if (!response.ok || !response.body) {
+    throw new Error(`Regenerate request failed: ${response.status}`);
   }
 
   await readEventStream(response, onEvent);

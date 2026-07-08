@@ -76,6 +76,11 @@ export class AppStore {
     return state.models.find(model => model.id === state.activeModelId) ?? null;
   }
 
+  async getModel(id: string): Promise<ConfiguredModel | null> {
+    const state = await this.load();
+    return state.models.find(model => model.id === id) ?? null;
+  }
+
   async setActiveModel(id: string): Promise<ConfiguredModel> {
     const state = await this.load();
     const model = state.models.find(item => item.id === id);

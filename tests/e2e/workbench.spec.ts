@@ -316,6 +316,173 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
   await expect(page.getByText('prompt 32.30 tok/s · gen 21.53 tok/s')).toBeVisible();
 });
 
+test('regenerates an assistant response from the footer model picker', async ({page}) => {
+  const modelA = {
+    id: 'model-a',
+    name: 'Model A',
+    presetName: 'model-a',
+    source: 'huggingface',
+    repoId: 'repo/model-a',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model-a:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const modelB = {
+    id: 'model-b',
+    name: 'Model B',
+    presetName: 'model-b',
+    source: 'huggingface',
+    repoId: 'repo/model-b',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model-b:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    logPath: '/tmp/llama.log',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    modelsMax: 1,
+    sleepIdleSeconds: 90,
+    activeModelId: modelA.id,
+    lastError: null,
+  };
+  const chat: MockChatMessage[] = [
+    {
+      id: 'user-1',
+      role: 'user',
+      content: 'Explain router mode',
+      createdAt: '2026-07-07T12:00:00.000Z',
+    },
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Original answer.',
+      createdAt: '2026-07-07T12:01:00.000Z',
+      modelId: modelA.id,
+      modelRuntimeId: modelA.id,
+      modelAliasSnapshot: modelA.name,
+    },
+  ];
+  let modelBStatus = 'unloaded';
+  let loadCalls = 0;
+  let regenerateCalls = 0;
+  let regenerateModelId: string | undefined;
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: modelA.id,
+          models: [modelA, modelB],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await mockConversationRoutes(page, {chat});
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: modelA.id,
+            routerModelId: modelA.id,
+            alias: modelA.name,
+            hfRepo: modelA.hfRef,
+            status: 'loaded',
+            aliases: [modelA.id],
+          },
+          {
+            sectionId: modelB.id,
+            routerModelId: modelB.id,
+            alias: modelB.name,
+            hfRepo: modelB.hfRef,
+            status: modelBStatus,
+            aliases: [modelB.id],
+          },
+        ],
+      },
+    });
+  });
+  await page.route(/\/api\/llama\/models\/model-b\/load$/, async route => {
+    loadCalls += 1;
+    modelBStatus = 'loaded';
+    await route.fulfill({json: {ok: true}});
+  });
+  await page.route(
+    '**/api/conversations/poc-default/messages/assistant-1/regenerate',
+    async route => {
+      regenerateCalls += 1;
+      regenerateModelId = (route.request().postDataJSON() as {modelId?: string}).modelId;
+      const regeneratedUser = {
+        id: 'user-2',
+        role: 'user',
+        content: 'Explain router mode',
+        createdAt: '2026-07-07T12:02:00.000Z',
+      };
+      const regeneratedAssistant = {
+        id: 'assistant-2',
+        role: 'assistant',
+        content: 'Regenerated with Model B.',
+        createdAt: '2026-07-07T12:02:01.000Z',
+        modelId: modelB.id,
+        modelRuntimeId: modelB.id,
+        modelAliasSnapshot: modelB.name,
+        regeneratesPiEntryId: 'assistant-1',
+        displayGroupId: 'assistant-1',
+      };
+      chat.push(regeneratedUser, regeneratedAssistant);
+      await route.fulfill({
+        headers: {'content-type': 'text/event-stream; charset=utf-8'},
+        body: [
+          {type: 'user_message', message: regeneratedUser},
+          {
+            type: 'assistant_start',
+            harness: 'pi',
+            message: {...regeneratedAssistant, content: ''},
+          },
+          {
+            type: 'assistant_delta',
+            id: regeneratedAssistant.id,
+            delta: regeneratedAssistant.content,
+          },
+          {type: 'done', message: regeneratedAssistant},
+        ]
+          .map(event => `data: ${JSON.stringify(event)}\n\n`)
+          .join(''),
+      });
+    },
+  );
+
+  await page.goto('/');
+  await expect(page.getByText('Original answer.')).toBeVisible();
+  await page.getByRole('button', {name: /Regenerate model: Model A/}).click();
+  await page.getByRole('menuitem', {name: 'Model B'}).click();
+
+  await expect.poll(() => loadCalls).toBe(1);
+  await expect.poll(() => regenerateCalls).toBe(1);
+  expect(regenerateModelId).toBe(modelB.id);
+  await expect(page.getByText('Regenerated with Model B.')).toBeVisible();
+  await expect(page.getByText('Model B').first()).toBeVisible();
+});
+
 test('updates streamed tool calls and shows expandable input and output', async ({page}) => {
   const model = {
     id: 'model-1',
@@ -619,7 +786,7 @@ async function mockConversationRoutes(
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname;
-    if (pathname.endsWith('/chat/stream')) {
+    if (pathname.endsWith('/chat/stream') || pathname.endsWith('/regenerate')) {
       await route.fallback();
       return;
     }

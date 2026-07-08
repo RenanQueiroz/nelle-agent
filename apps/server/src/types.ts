@@ -106,6 +106,8 @@ export type ChatMessage = {
   modelId?: string;
   modelRuntimeId?: string;
   modelAliasSnapshot?: string;
+  regeneratesPiEntryId?: string;
+  displayGroupId?: string;
   performance?: ChatPerformance;
   toolCalls?: ToolCallEvent[];
 };

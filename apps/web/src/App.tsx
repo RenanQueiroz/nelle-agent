@@ -4,6 +4,7 @@ import {AppShell} from '@astryxdesign/core/AppShell';
 import {HStack, VStack, StackItem, Layout, LayoutContent} from '@astryxdesign/core/Layout';
 import {Text, Heading} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
+import {IconButton} from '@astryxdesign/core/IconButton';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Card} from '@astryxdesign/core/Card';
 import {
@@ -60,6 +61,7 @@ import {
   startRuntime,
   stopRuntime,
   streamConversationChat,
+  streamRegenerateMessage,
   unloadLlamaModel,
   updateConversation,
   updateRuntimeSettings,
@@ -515,6 +517,77 @@ export function App() {
     });
   }
 
+  async function ensureModelReadyForRun(modelId: string): Promise<void> {
+    const model = models.find(item => item.id === modelId);
+    if (!model) {
+      throw new Error(`Unknown model: ${modelId}`);
+    }
+    if (!runtime?.running) {
+      throw new Error('Start llama.cpp before regenerating a response.');
+    }
+
+    const currentRouterModel = findRouterModelForConfiguredModel(model, routerModels);
+    if (currentRouterModel?.status === 'loaded' || currentRouterModel?.status === 'sleeping') {
+      return;
+    }
+
+    await loadLlamaModel(model.id);
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const nextRouterModels = await getLlamaModels();
+      setRouterModels(nextRouterModels);
+      const nextRouterModel = findRouterModelForConfiguredModel(model, nextRouterModels);
+      if (nextRouterModel?.status === 'loaded' || nextRouterModel?.status === 'sleeping') {
+        return;
+      }
+      if (nextRouterModel?.status === 'failed') {
+        throw new Error(`${model.name} failed to load. Check the llama.cpp logs.`);
+      }
+      await delay(500);
+    }
+    throw new Error(`${model.name} did not finish loading before regeneration timed out.`);
+  }
+
+  async function handleRegenerateMessage(message: ApiChatMessage, modelId?: string) {
+    if (message.role !== 'assistant' || isStreaming || isCompacting) {
+      return;
+    }
+    const selectedModelId = modelId ?? message.modelId ?? activeModelId;
+    if (!selectedModelId) {
+      setNotice({type: 'error', text: 'Select a model before regenerating a response.'});
+      return;
+    }
+
+    setIsStreaming(true);
+    setNotice(null);
+    const abortController = new AbortController();
+    streamAbortController.current = abortController;
+    try {
+      await ensureModelReadyForRun(selectedModelId);
+      await streamRegenerateMessage(
+        activeConversationId,
+        message.id,
+        selectedModelId,
+        applyChatEvent,
+        abortController.signal,
+      );
+      setRuntime(await getRuntime());
+      await refreshConversations(activeConversationId);
+    } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
+      setNotice({
+        type: 'error',
+        text: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      if (streamAbortController.current === abortController) {
+        streamAbortController.current = null;
+      }
+      setIsStreaming(false);
+    }
+  }
+
   function applyChatEvent(event: ChatStreamEvent) {
     if (event.type === 'user_message') {
       setMessages(prev => [...prev, event.message]);
@@ -948,7 +1021,13 @@ export function App() {
                       </ChatSystemMessage>
                     )}
                     {messages.map(message => (
-                      <RenderedMessage key={message.id} message={message} />
+                      <RenderedMessage
+                        key={message.id}
+                        message={message}
+                        models={models}
+                        isActionDisabled={isStreaming || isCompacting}
+                        onRegenerate={handleRegenerateMessage}
+                      />
                     ))}
                   </ChatMessageList>
                 </ChatLayout>
@@ -1029,7 +1108,17 @@ export function App() {
   );
 }
 
-function RenderedMessage({message}: {message: ApiChatMessage}) {
+function RenderedMessage({
+  message,
+  models,
+  isActionDisabled,
+  onRegenerate,
+}: {
+  message: ApiChatMessage;
+  models: ConfiguredModel[];
+  isActionDisabled: boolean;
+  onRegenerate: (message: ApiChatMessage, modelId?: string) => void | Promise<void>;
+}) {
   if (message.role === 'system') {
     return <ChatSystemMessage>{message.content}</ChatSystemMessage>;
   }
@@ -1045,7 +1134,12 @@ function RenderedMessage({message}: {message: ApiChatMessage}) {
         metadata={
           <ChatMessageMetadata
             timestamp={<Timestamp value={message.createdAt} format="time" />}
-            footer={renderMessageFooter(message)}
+            footer={renderMessageFooter({
+              message,
+              models,
+              isActionDisabled,
+              onRegenerate,
+            })}
           />
         }
       >
@@ -1059,19 +1153,41 @@ function RenderedMessage({message}: {message: ApiChatMessage}) {
   );
 }
 
-function renderMessageFooter(message: ApiChatMessage) {
+function renderMessageFooter(input: {
+  message: ApiChatMessage;
+  models: ConfiguredModel[];
+  isActionDisabled: boolean;
+  onRegenerate: (message: ApiChatMessage, modelId?: string) => void | Promise<void>;
+}) {
+  const {message, models, isActionDisabled, onRegenerate} = input;
   const performance = formatChatPerformance(message.performance);
-  const model = message.role === 'assistant' ? message.modelAliasSnapshot : undefined;
-  if (!performance && !model && message.role !== 'assistant') {
+  const modelLabel =
+    message.role === 'assistant'
+      ? (message.modelAliasSnapshot ??
+        models.find(model => model.id === message.modelId)?.name ??
+        message.modelRuntimeId ??
+        message.modelId)
+      : undefined;
+  if (!performance && !modelLabel && message.role !== 'assistant') {
     return undefined;
   }
 
   return (
     <HStack gap={1} vAlign="center" wrap="wrap">
-      {model && (
-        <Text type="supporting" color="secondary">
-          {model}
-        </Text>
+      {message.role === 'assistant' && (
+        <DropdownMenu
+          button={{
+            label: `Regenerate model: ${modelLabel ?? 'Unknown model'}`,
+            variant: 'ghost',
+            size: 'sm',
+            children: modelLabel ?? 'Unknown model',
+          }}
+          items={models.map(model => ({
+            label: model.id === message.modelId ? `Regenerate with ${model.name}` : `${model.name}`,
+            onClick: () => void onRegenerate(message, model.id),
+            isDisabled: isActionDisabled,
+          }))}
+        />
       )}
       {performance && (
         <Text type="supporting" color="secondary">
@@ -1079,13 +1195,25 @@ function renderMessageFooter(message: ApiChatMessage) {
         </Text>
       )}
       {message.role === 'assistant' && (
-        <Button
-          label="Copy response"
-          size="sm"
-          variant="ghost"
-          icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-          onClick={() => void copyMessageText(message.content)}
-        />
+        <>
+          <IconButton
+            label="Regenerate response"
+            tooltip="Regenerate response"
+            size="sm"
+            variant="ghost"
+            icon={<Icon icon={ArrowPathIcon} size="sm" />}
+            isDisabled={isActionDisabled}
+            onClick={() => void onRegenerate(message, message.modelId)}
+          />
+          <IconButton
+            label="Copy response"
+            tooltip="Copy response"
+            size="sm"
+            variant="ghost"
+            icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+            onClick={() => void copyMessageText(message.content)}
+          />
+        </>
       )}
     </HStack>
   );
@@ -1102,6 +1230,8 @@ function messagesFromSnapshot(snapshot: ConversationSnapshot): ApiChatMessage[] 
       modelId: entry.modelId,
       modelRuntimeId: entry.modelRuntimeId,
       modelAliasSnapshot: entry.modelAliasSnapshot,
+      regeneratesPiEntryId: entry.regeneratesPiEntryId,
+      displayGroupId: entry.displayGroupId,
       performance: entry.performance as ChatPerformance | undefined,
       toolCalls: entry.toolCalls as ApiChatMessage['toolCalls'],
     }));
@@ -1246,6 +1376,12 @@ function parseCompactCommand(value: string): string | null {
     return value.slice('/compact '.length).trim();
   }
   return null;
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise(resolve => {
+    setTimeout(resolve, milliseconds);
+  });
 }
 
 async function copyMessageText(value: string): Promise<void> {

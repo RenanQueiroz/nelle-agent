@@ -38,6 +38,12 @@ const compactConversationSchema = z
   })
   .optional();
 
+const regenerateMessageSchema = z
+  .object({
+    modelId: z.string().min(1).optional(),
+  })
+  .optional();
+
 const listConversationsQuerySchema = z.object({
   search: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -424,6 +430,41 @@ export async function createServer(paths: AppPaths) {
       if (streamResult.syncLegacyState) {
         conversations.syncPocConversationFromState(await store.getState());
       }
+    } catch (error) {
+      writeChatError(reply.raw, error);
+    } finally {
+      reply.raw.end();
+    }
+  });
+
+  app.post('/api/conversations/:id/messages/:messageId/regenerate', async (request, reply) => {
+    const {id, messageId} = request.params as {id: string; messageId: string};
+    if (!conversations.getConversation(id)) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    const body = regenerateMessageSchema.parse(request.body) ?? {};
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+
+    try {
+      if (process.env.NELLE_PI_DISABLED === '1') {
+        throw new Error('Regeneration requires the Pi harness.');
+      }
+      const stream = await pi.regenerateMessage({
+        conversationId: id,
+        assistantMessageId: messageId,
+        modelId: body.modelId,
+      });
+      await writeChatStream(reply.raw, stream);
     } catch (error) {
       writeChatError(reply.raw, error);
     } finally {

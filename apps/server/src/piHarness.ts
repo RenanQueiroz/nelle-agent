@@ -145,6 +145,7 @@ export class PiHarness {
 
     void this.runPiPrompt(activeModel, conversationId, prompt, assistantMessage, queue).catch(
       error => {
+        this.conversations.setConversationStatus(conversationId, 'ready');
         queue.push({
           type: 'error',
           message: error instanceof Error ? error.message : String(error),
@@ -156,14 +157,92 @@ export class PiHarness {
     return queue;
   }
 
+  async regenerateMessage(input: {
+    conversationId: string;
+    assistantMessageId: string;
+    modelId?: string;
+  }): Promise<AsyncIterable<ChatStreamEvent>> {
+    const activeModel = input.modelId
+      ? await this.store.getModel(input.modelId)
+      : await this.store.getActiveModel();
+    if (!activeModel) {
+      throw new Error(
+        input.modelId ? `Unknown model: ${input.modelId}` : 'Select a model before regenerating.',
+      );
+    }
+
+    const source = this.conversations.getRegenerationSource(
+      input.conversationId,
+      input.assistantMessageId,
+    );
+    if (!source) {
+      throw new Error('Could not find the assistant response to regenerate.');
+    }
+    const prompt = source.userEntry.textPreview?.trim();
+    if (!prompt) {
+      throw new Error('The source user message is empty and cannot be regenerated.');
+    }
+
+    this.conversations.setConversationStatus(input.conversationId, 'running');
+    const queue = createAsyncQueue<ChatStreamEvent>();
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: prompt,
+      createdAt: new Date().toISOString(),
+    };
+    const assistantMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+      modelId: activeModel.id,
+      modelRuntimeId: llamaRuntimeModelId(activeModel),
+      modelAliasSnapshot: activeModel.name,
+      toolCalls: [],
+    };
+
+    queue.push({type: 'user_message', message: userMessage});
+    queue.push({type: 'assistant_start', message: assistantMessage, harness: 'pi'});
+
+    void this.runPiPrompt(activeModel, input.conversationId, prompt, assistantMessage, queue, {
+      branchFromPiEntryId: source.branchFromPiEntryId,
+      regeneratesPiEntryId: source.regeneratesPiEntryId,
+      displayGroupId: source.displayGroupId,
+      appendLegacyState: false,
+    }).catch(error => {
+      this.conversations.setConversationStatus(input.conversationId, 'ready');
+      queue.push({
+        type: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      });
+      queue.end();
+    });
+
+    return queue;
+  }
+
   private async runPiPrompt(
     activeModel: ConfiguredModel,
     conversationId: string,
     prompt: string,
     assistantMessage: ChatMessage,
     queue: ReturnType<typeof createAsyncQueue<ChatStreamEvent>>,
+    options: {
+      branchFromPiEntryId?: string | null;
+      regeneratesPiEntryId?: string;
+      displayGroupId?: string;
+      appendLegacyState?: boolean;
+    } = {},
   ): Promise<void> {
     const session = await this.ensureSession(conversationId, activeModel);
+    if (options.branchFromPiEntryId !== undefined) {
+      if (options.branchFromPiEntryId === null) {
+        session.sessionManager.resetLeaf();
+      } else {
+        session.sessionManager.branch(options.branchFromPiEntryId);
+      }
+    }
     const state = await this.store.getState();
     const pushPerformance = (performance: ChatPerformance) => {
       assistantMessage.performance = mergeChatPerformance(
@@ -269,7 +348,7 @@ export class PiHarness {
           );
         }
       }
-      if (conversationId === 'poc-default') {
+      if (conversationId === 'poc-default' && options.appendLegacyState !== false) {
         await this.store.appendChatMessage(assistantMessage);
       }
       const syncedEntries = this.syncPiConversation(
@@ -277,6 +356,11 @@ export class PiHarness {
         session,
         activeModel,
         assistantMessage,
+        'running',
+        {
+          regeneratesPiEntryId: options.regeneratesPiEntryId,
+          displayGroupId: options.displayGroupId,
+        },
       );
       queue.push({type: 'done', message: assistantMessage});
       const title = await this.maybeGenerateConversationTitle(
@@ -366,8 +450,17 @@ export class PiHarness {
     activeModel: ConfiguredModel,
     assistantMessage?: ChatMessage,
     status: 'running' | 'compacting' = 'running',
+    metadata: {
+      regeneratesPiEntryId?: string;
+      displayGroupId?: string;
+    } = {},
   ): SyncConversationEntry[] {
     const branch = session.sessionManager.getBranch() as any[];
+    const existingEntries = new Map(
+      this.conversations
+        .getConversationEntries(conversationId)
+        .map(entry => [entry.piEntryId, entry] as const),
+    );
     const entries: SyncConversationEntry[] = [];
     let lastAssistantEntryId: string | null = null;
     for (const entry of branch) {
@@ -397,9 +490,11 @@ export class PiHarness {
         displayGroupId: String(entry.id),
       };
       if (role === 'assistant') {
-        projection.modelId = activeModel.id;
-        projection.modelRuntimeId = llamaRuntimeModelId(activeModel);
-        projection.modelAliasSnapshot = activeModel.name;
+        const existingEntry = existingEntries.get(projection.piEntryId);
+        projection.modelId = existingEntry?.modelId ?? activeModel.id;
+        projection.modelRuntimeId =
+          existingEntry?.modelRuntimeId ?? llamaRuntimeModelId(activeModel);
+        projection.modelAliasSnapshot = existingEntry?.modelAliasSnapshot ?? activeModel.name;
         lastAssistantEntryId = projection.piEntryId;
       }
       entries.push(projection);
@@ -408,8 +503,13 @@ export class PiHarness {
     if (assistantMessage && lastAssistantEntryId) {
       const lastAssistant = entries.find(entry => entry.piEntryId === lastAssistantEntryId);
       if (lastAssistant) {
+        lastAssistant.modelId = assistantMessage.modelId;
+        lastAssistant.modelRuntimeId = assistantMessage.modelRuntimeId;
+        lastAssistant.modelAliasSnapshot = assistantMessage.modelAliasSnapshot;
         lastAssistant.performance = assistantMessage.performance;
         lastAssistant.toolCalls = assistantMessage.toolCalls;
+        lastAssistant.regeneratesPiEntryId = metadata.regeneratesPiEntryId;
+        lastAssistant.displayGroupId = metadata.displayGroupId ?? metadata.regeneratesPiEntryId;
       }
     }
 

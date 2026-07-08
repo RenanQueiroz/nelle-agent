@@ -1604,20 +1604,24 @@ Exit criteria:
 - Done: persist `model_id`, `model_runtime_id`, and `model_alias_snapshot` on
   assistant messages.
 - Partially done: replace the metadata footer string with a composed footer row
-  containing timestamp, model alias text, performance statistics, and copy.
-  Model dropdown regeneration is still pending.
+  containing timestamp, model dropdown, plain performance text, copy, and
+  regenerate controls. The Reading/Generation statistics widget is still
+  pending.
 - Replace the old throughput text with a Reading/Generation statistics widget
   that shows tokens, elapsed time, and speed for the active view.
-- Add Pi-native model override regeneration through the router-aware selector.
+- Done: add Pi-native model override regeneration through the assistant footer
+  model selector. The current POC polls `/api/llama/models` after requesting a
+  load; the final router-aware selector should use the router SSE store.
 - Done: add clipboard copy behavior for assistant messages.
 
 Exit criteria:
 
 - Done: every new assistant message shows the model that generated it.
-- Selecting a different model from an assistant footer loads that model if
+- Done: selecting a different model from an assistant footer loads that model if
   needed and regenerates the answer in one action.
-- Regeneration creates a Pi-native branch by replaying the original user content
-  on a new branch, while Nelle groups the answer as a variant in the UI.
+- Partially done: regeneration creates a Pi-native branch by replaying the
+  original user content on a new branch and stores `regenerates_pi_entry_id` /
+  `display_group_id` metadata. Visible grouped variant UI is still pending.
 - Copy writes the assistant text to the clipboard. Visible toast/status feedback
   is still pending.
 - Timing metrics render as a toggleable Reading/Generation widget with icon

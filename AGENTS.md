@@ -70,6 +70,11 @@ Project-specific guidance for AI coding agents.
   alias snapshot. Footer model changes should regenerate through Pi-native
   branch replay with a model override, then group the new answer as a UI
   variant instead of overwriting the prior answer.
+- The current POC exposes regeneration at
+  `/api/conversations/:id/messages/:messageId/regenerate`, branches the Pi
+  session before the original user entry, replays that user text, and stores
+  `regenerates_pi_entry_id` / `display_group_id` sidecar metadata. Visible
+  grouped variant UI is still pending.
 - Assistant performance metadata should render as a toggleable Reading
   (prompt processing) / Generation (token output) stats widget with icon
   controls and Astryx tooltips, not as a plain text throughput string.

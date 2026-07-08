@@ -44,6 +44,10 @@ Implemented:
 - Direct llama.cpp chat-completions fallback if Pi initialization fails.
 - Chat message metadata shows llama.cpp prompt-processing and generation
   throughput in tokens/sec when the server reports those timings.
+- Assistant message footers show the model alias snapshot, copy action, and
+  regenerate controls. The footer model menu can load another configured router
+  model and call `/api/conversations/:id/messages/:messageId/regenerate` with a
+  model override.
 - Tool calls stream as a single status row per Pi `toolCallId` and can be
   expanded in the chat UI to inspect captured input and output.
 - The composer stop action calls `/api/conversations/:id/abort`, aborts the
@@ -65,9 +69,10 @@ Not implemented yet:
   shows router status and exposes reload/load/unload actions, but the final
   settings/sidebar design is not built yet.
 - Full Pi-backed conversation UI and lifecycle. The server now maps each Nelle
-  conversation to one Pi session file and reopens that file on demand, but
-  fork/clone, branch variants, export/import, richer abort recovery, and the
-  final sidebar actions are still pending.
+  conversation to one Pi session file and reopens that file on demand, and
+  assistant regeneration uses Pi branch replay. Fork/clone, visible branch
+  variant grouping, export/import, richer abort recovery, and the final sidebar
+  actions are still pending.
 - Fork/duplicate conversation actions backed by Pi's runtime fork/clone
   behavior, creating new Nelle conversations without mutating the source.
 - Complete REST/SSE run lifecycle contracts with stable run ids, terminal
@@ -157,8 +162,10 @@ by Nelle UI controls. Composer stop calls `AgentSession.abortCompaction()` for
 an active compaction.
 
 Assistant message metadata shows the message time, the model alias that
-generated the assistant response, a copy action, and llama.cpp throughput, for
-example `prompt 32.30 tok/s · gen 21.53 tok/s`.
+generated the assistant response, copy/regenerate actions, and llama.cpp
+throughput, for example `prompt 32.30 tok/s · gen 21.53 tok/s`. The footer model
+menu regenerates that answer with a selected configured model without changing
+the composer model.
 Nelle points Pi at an internal `/api/llama-proxy/v1` provider, which forwards
 requests to llama.cpp unchanged except for enabling `return_progress`,
 `sse_ping_interval`, and `timings_per_token` on streamed requests. The proxy

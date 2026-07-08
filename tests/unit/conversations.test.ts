@@ -176,6 +176,12 @@ test('repository stores Pi session bindings and replaces active branch projectio
       generation: {tokens: 3, tokensPerSecond: 12},
     });
     assert.equal(snapshot?.entries[2]?.entryType, 'compaction');
+
+    const source = repository.getRegenerationSource(conversation.id, 'entry-assistant');
+    assert.equal(source?.userEntry.piEntryId, 'entry-user');
+    assert.equal(source?.branchFromPiEntryId, null);
+    assert.equal(source?.regeneratesPiEntryId, 'entry-assistant');
+    assert.equal(source?.displayGroupId, 'entry-assistant');
   } finally {
     database.close();
   }

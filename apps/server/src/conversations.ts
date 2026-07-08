@@ -99,6 +99,14 @@ export type SyncConversationEntry = {
   displayGroupId?: string | null;
 };
 
+export type RegenerationSource = {
+  assistantEntry: ConversationEntryProjection;
+  userEntry: ConversationEntryProjection;
+  branchFromPiEntryId: string | null;
+  regeneratesPiEntryId: string;
+  displayGroupId: string;
+};
+
 export class ConversationRepository {
   constructor(private readonly database: AppDatabase) {}
 
@@ -193,6 +201,47 @@ export class ConversationRepository {
 
   getTitleSource(id: string): ConversationSnapshot['conversation']['titleSource'] | null {
     return this.getConversation(id)?.title_source ?? null;
+  }
+
+  getConversationEntries(id: string): ConversationEntryProjection[] {
+    return this.getEntries(id);
+  }
+
+  getRegenerationSource(
+    conversationId: string,
+    assistantPiEntryId: string,
+  ): RegenerationSource | null {
+    const entries = this.getEntries(conversationId);
+    const byId = new Map(entries.map(entry => [entry.piEntryId, entry] as const));
+    const assistantEntry = byId.get(assistantPiEntryId);
+    if (!assistantEntry || assistantEntry.role !== 'assistant') {
+      return null;
+    }
+
+    const directParent =
+      assistantEntry.parentPiEntryId == null ? undefined : byId.get(assistantEntry.parentPiEntryId);
+    let userEntry = directParent?.role === 'user' ? directParent : undefined;
+    if (!userEntry) {
+      const assistantIndex = entries.findIndex(entry => entry.piEntryId === assistantPiEntryId);
+      for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+        const candidate = entries[index];
+        if (candidate?.role === 'user') {
+          userEntry = candidate;
+          break;
+        }
+      }
+    }
+    if (!userEntry) {
+      return null;
+    }
+
+    return {
+      assistantEntry,
+      userEntry,
+      branchFromPiEntryId: userEntry.parentPiEntryId ?? null,
+      regeneratesPiEntryId: assistantEntry.regeneratesPiEntryId ?? assistantEntry.piEntryId,
+      displayGroupId: assistantEntry.displayGroupId ?? assistantEntry.piEntryId,
+    };
   }
 
   getSnapshot(id: string, state: AppState): ConversationSnapshot | null {
@@ -556,7 +605,8 @@ export class ConversationRepository {
       modelAliasSnapshot: message.modelAliasSnapshot,
       performance: message.performance,
       toolCalls: message.toolCalls,
-      displayGroupId: message.id,
+      regeneratesPiEntryId: message.regeneratesPiEntryId,
+      displayGroupId: message.displayGroupId ?? message.id,
     });
   }
 
