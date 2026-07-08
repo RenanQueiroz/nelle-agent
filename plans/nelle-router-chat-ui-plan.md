@@ -1665,25 +1665,28 @@ Exit criteria:
 
 ### Phase 3D: Slash Commands And Manual Compaction
 
-- Add an Astryx `ChatComposerInput` slash-command trigger backed by Nelle's
-  command allowlist.
+- Done: add an Astryx `ChatComposerInput` slash-command trigger backed by
+  Nelle's command allowlist.
 - Done: support `/compact [instructions]` for the active conversation.
 - Done: add the conversation-scoped compaction API and Pi bridge adapter.
-- Add command/status rows for compaction progress, completion, and failure.
-- Reject unsupported Pi slash commands with composer errors that point to the
-  Nelle UI equivalent.
-- Add a small command help surface that describes supported commands and
-  explains why UI-owned Pi commands are not forwarded.
+- Done: add command/status rows for compaction progress, completion, abort, and
+  failure. These rows are local UI rows and are not persisted as normal
+  user/assistant messages.
+- Done: reject unsupported Pi slash commands with composer errors that point to
+  the Nelle UI equivalent and preserve the submitted draft.
+- Done: add a small command help surface in the composer footer for `/compact`.
+  Unsupported UI-owned Pi commands are explained through composer errors.
 
 Exit criteria:
 
-- Typing `/` opens an Astryx-styled command typeahead showing `/compact`.
-- `/compact` and `/compact <instructions>` run manual compaction for the active
-  idle conversation and display visible progress.
-- Unsupported commands such as `/new`, `/resume`, `/model`, `/login`, and
+- Done: typing `/` opens an Astryx-styled command typeahead showing `/compact`.
+- Done: `/compact` and `/compact <instructions>` run manual compaction for the
+  active idle conversation and display visible progress/completion/failure rows.
+- Done: unsupported commands such as `/new`, `/resume`, `/model`, `/login`, and
   `/logout` are never sent to Pi as prompts and show actionable UI guidance.
-- Compaction updates the context-window display after completion.
-- Manual compaction uses Pi `AgentSession.compact()` and stop uses
+- Pending on Phase 3C context UI: compaction updates the context-window display
+  after completion.
+- Done: manual compaction uses Pi `AgentSession.compact()` and stop uses
   `AgentSession.abortCompaction()`.
 
 ### Phase 4: Title Generation

@@ -79,6 +79,9 @@ Project-specific guidance for AI coding agents.
 - The web UI conversation pane is collapsible and uses `@tanstack/react-virtual`
   for pinned/recent conversation sections. Keep row actions and e2e tests aligned
   when changing the sidebar.
+- The composer slash-command allowlist currently exposes only `/compact`.
+  Unsupported slash commands must be blocked client-side with composer status
+  guidance and must not be sent to Pi as prompts.
 - Assistant performance metadata should render as a toggleable Reading
   (prompt processing) / Generation (token output) stats widget with icon
   controls and Astryx tooltips, not as a plain text throughput string.

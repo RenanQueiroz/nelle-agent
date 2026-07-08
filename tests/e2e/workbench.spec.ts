@@ -700,12 +700,82 @@ test('routes compact slash command outside normal chat streaming', async ({page}
   });
 
   await page.goto('/');
+  await page.getByLabel('Message input').fill('/');
+  await expect(
+    page.getByRole('option', {name: /compact Compact this conversation context/}),
+  ).toBeVisible();
   await page.getByLabel('Message input').fill('/compact keep file names');
   await page.getByLabel('Message input').press('Enter');
 
   await expect.poll(() => compactCalls).toBe(1);
   expect(streamCalls).toBe(0);
+  await expect(page.getByText('completed')).toBeVisible();
   await expect(page.getByText('Conversation compacted.')).toBeVisible();
+});
+
+test('rejects unsupported slash commands before they reach chat streaming', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'Model One',
+    presetName: 'model-one',
+    source: 'huggingface',
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  let streamCalls = 0;
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await mockConversationRoutes(page, {chat: []});
+  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+    streamCalls += 1;
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: '',
+    });
+  });
+
+  await page.goto('/');
+  await page.getByLabel('Message input').fill('/model qwen');
+  await page.getByLabel('Message input').press('Enter');
+
+  expect(streamCalls).toBe(0);
+  await expect(page.getByRole('alert')).toContainText('/model is handled by Nelle UI');
+  await expect(page.getByRole('alert')).toContainText('Use the model selector');
+  await expect(page.getByLabel('Message input')).toContainText('/model qwen');
 });
 
 test('keeps the page frame fixed while only the chat region scrolls', async ({page}) => {

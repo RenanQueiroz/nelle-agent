@@ -73,8 +73,10 @@ Not implemented yet:
   UI has a collapsible virtualized conversation sidebar with search, pinned and
   recent sections, running indicators, and row actions for pin, rename, reset,
   and delete. Assistant regeneration uses Pi branch replay with preserved
-  visible answer variants. Fork/clone, export/import, richer abort recovery,
-  and the final Settings/sidebar actions are still pending.
+  visible answer variants. The composer has an Astryx `/compact` typeahead,
+  composer-local unsupported slash-command guidance, and visible compaction
+  status rows. Fork/clone, export/import, richer abort recovery, and the final
+  Settings/sidebar actions are still pending.
 - Fork/duplicate conversation actions backed by Pi's runtime fork/clone
   behavior, creating new Nelle conversations without mutating the source.
 - Complete REST/SSE run lifecycle contracts with stable run ids, terminal

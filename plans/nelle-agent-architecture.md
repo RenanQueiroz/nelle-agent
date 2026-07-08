@@ -255,7 +255,8 @@ Pi-native assistant regeneration through branch replay with optional model
 override, preserved regenerated-answer variants, and a toggleable
 Reading/Generation assistant performance stats widget, plus a collapsible
 virtualized conversation sidebar with pinned/recent sections and running
-indicators,
+indicators and an Astryx `/compact` slash-command composer flow with visible
+compaction status rows,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for
 startup and configuration diagnostics, and the POC model panel can show router
@@ -275,6 +276,8 @@ Intentional POC limitations:
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are enabled through Pi and remain unsandboxed.
+- Context-window usage UI is not built yet, so manual compaction cannot update a
+  visible context meter yet.
 - The UI is adapted from Astryx `ai-chat` and `ai-chat-landing` templates, but
   the raw generated template files are not kept in `src`.
 

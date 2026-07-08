@@ -18,10 +18,12 @@ import {
   ChatMessageMetadata,
   ChatSystemMessage,
   ChatToolCalls,
+  type ChatComposerTrigger,
 } from '@astryxdesign/core/Chat';
 import {Markdown} from '@astryxdesign/core/Markdown';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {TextInput} from '@astryxdesign/core/TextInput';
+import {createStaticSource, TypeaheadItem, type SearchableItem} from '@astryxdesign/core/Typeahead';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Token} from '@astryxdesign/core/Token';
@@ -104,6 +106,40 @@ const formatBytes = (value: number | null) => {
   return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 };
 
+type SlashCommandData = {
+  description: string;
+};
+
+const SUPPORTED_SLASH_COMMANDS: SearchableItem<SlashCommandData>[] = [
+  {
+    id: 'compact',
+    label: 'compact',
+    auxiliaryData: {
+      description: 'Compact this conversation context',
+    },
+  },
+];
+
+const slashCommandSource = createStaticSource(SUPPORTED_SLASH_COMMANDS);
+
+const slashCommandTrigger: ChatComposerTrigger = {
+  character: '/',
+  searchSource: slashCommandSource,
+  renderItem: item => (
+    <TypeaheadItem
+      item={item}
+      description={(item.auxiliaryData as SlashCommandData | undefined)?.description}
+    />
+  ),
+  onSelect: item => ({
+    value: `/${item.label}`,
+    label: `/${item.label}`,
+    variant: 'yellow' as const,
+  }),
+  emptySearchResultsText: 'Only /compact is supported in Nelle chat.',
+  menuLabel: 'Nelle slash commands',
+};
+
 function findRouterModelForConfiguredModel(
   model: ConfiguredModel,
   routerModels: LlamaRouterModel[],
@@ -147,7 +183,10 @@ export function App() {
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [activeConversationId, setActiveConversationId] = useState('poc-default');
   const [messages, setMessages] = useState<ApiChatMessage[]>([]);
+  const [commandRows, setCommandRows] = useState<CommandStatusRow[]>([]);
   const [conversationSearch, setConversationSearch] = useState('');
+  const [composerDraft, setComposerDraft] = useState('');
+  const [slashCommandError, setSlashCommandError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('qwen gguf');
   const [searchResults, setSearchResults] = useState<HuggingFaceModelResult[]>([]);
   const [modelsMaxInput, setModelsMaxInput] = useState('1');
@@ -170,6 +209,22 @@ export function App() {
     () => models.find(model => model.id === activeModelId) ?? null,
     [activeModelId, models],
   );
+  const activeCommandRows = useMemo(
+    () => commandRows.filter(row => row.conversationId === activeConversationId),
+    [activeConversationId, commandRows],
+  );
+  const composerStatus = useMemo(() => {
+    if (slashCommandError) {
+      return {type: 'error' as const, message: slashCommandError};
+    }
+    if (!runtime?.running) {
+      return {type: 'error' as const, message: 'Start llama.cpp before chatting.'};
+    }
+    if (!activeModel) {
+      return {type: 'error' as const, message: 'Select a GGUF model before chatting.'};
+    }
+    return undefined;
+  }, [activeModel, runtime?.running, slashCommandError]);
   const routerModelsByConfiguredId = useMemo(() => {
     const entries = new Map<string, LlamaRouterModel>();
     for (const model of models) {
@@ -337,6 +392,22 @@ export function App() {
     });
   }
 
+  function updateCommandRow(id: string, patch: Partial<CommandStatusRow>) {
+    setCommandRows(prev => prev.map(row => (row.id === id ? {...row, ...patch} : row)));
+  }
+
+  function updateActiveCompactionRows(patch: Partial<CommandStatusRow>) {
+    setCommandRows(prev =>
+      prev.map(row =>
+        row.conversationId === activeConversationId &&
+        row.kind === 'compact' &&
+        (row.status === 'pending' || row.status === 'compacting')
+          ? {...row, ...patch}
+          : row,
+      ),
+    );
+  }
+
   async function handleToggleLogs() {
     await runAction('runtime-logs', async () => {
       if (!isLogVisible) {
@@ -378,14 +449,27 @@ export function App() {
     });
   }
 
+  function handleComposerDraftChange(value: string) {
+    setComposerDraft(value);
+    if (slashCommandError) {
+      setSlashCommandError(null);
+    }
+  }
+
   async function handleChatSubmit(value: string) {
-    const prompt = value.trim();
+    const prompt = normalizeComposerValue(value);
     if (!prompt || isStreaming || isCompacting) {
       return;
     }
     const compactInstructions = parseCompactCommand(prompt);
     if (compactInstructions != null) {
       await handleCompactConversation(compactInstructions);
+      return;
+    }
+    const unsupportedSlashCommand = getUnsupportedSlashCommandMessage(prompt);
+    if (unsupportedSlashCommand) {
+      setSlashCommandError(unsupportedSlashCommand);
+      restoreComposerDraft(prompt, setComposerDraft);
       return;
     }
     setIsStreaming(true);
@@ -418,8 +502,14 @@ export function App() {
   }
 
   async function handleCompactConversation(instructions: string) {
+    const commandRow = createCompactCommandRow(activeConversationId, instructions);
+    setCommandRows(prev => [...prev, commandRow]);
     setIsCompacting(true);
-    setNotice({type: 'info', text: 'Compacting conversation context...'});
+    setSlashCommandError(null);
+    updateCommandRow(commandRow.id, {
+      status: 'compacting',
+      message: 'Compacting conversation context...',
+    });
     const abortController = new AbortController();
     compactAbortController.current = abortController;
     try {
@@ -430,15 +520,27 @@ export function App() {
       );
       setMessages(messagesFromSnapshot(result.snapshot));
       await refreshConversations(activeConversationId);
-      setNotice({type: 'success', text: 'Conversation compacted.'});
+      updateCommandRow(commandRow.id, {
+        status: 'completed',
+        message: 'Conversation compacted.',
+        completedAt: new Date().toISOString(),
+      });
     } catch (error) {
       if (isAbortError(error)) {
+        updateCommandRow(commandRow.id, {
+          status: 'aborted',
+          message: 'Compaction stopped.',
+          completedAt: new Date().toISOString(),
+        });
         return;
       }
-      setNotice({
-        type: 'error',
-        text: error instanceof Error ? error.message : String(error),
+      const message = error instanceof Error ? error.message : String(error);
+      updateCommandRow(commandRow.id, {
+        status: 'failed',
+        message,
+        completedAt: new Date().toISOString(),
       });
+      setSlashCommandError(message);
     } finally {
       if (compactAbortController.current === abortController) {
         compactAbortController.current = null;
@@ -468,6 +570,7 @@ export function App() {
   }
 
   async function handleSelectConversation(conversationId: string) {
+    setSlashCommandError(null);
     setActiveConversationId(conversationId);
     await refreshConversations(conversationId);
   }
@@ -517,6 +620,11 @@ export function App() {
     compactAbortController.current?.abort();
     await runAction('abort-compaction', async () => {
       await abortConversationCompaction(activeConversationId);
+      updateActiveCompactionRows({
+        status: 'aborted',
+        message: 'Compaction stopped.',
+        completedAt: new Date().toISOString(),
+      });
       setIsCompacting(false);
       await refreshConversations(activeConversationId);
       setNotice({type: 'info', text: 'Compaction stopped.'});
@@ -1004,6 +1112,8 @@ export function App() {
                   composer={
                     <ChatComposer
                       onSubmit={handleChatSubmit}
+                      value={composerDraft}
+                      onChange={handleComposerDraftChange}
                       placeholder={
                         activeModel
                           ? 'Ask Nelle to inspect files, run shell commands, or reason about the project'
@@ -1014,7 +1124,9 @@ export function App() {
                       onStop={() =>
                         void (isCompacting ? handleStopCompaction() : handleStopGeneration())
                       }
-                      input={<ChatComposerInput />}
+                      input={<ChatComposerInput triggers={[slashCommandTrigger]} />}
+                      status={composerStatus}
+                      statusPosition="top"
                       footerActions={
                         <HStack gap={1} vAlign="center" wrap="wrap">
                           <DropdownMenu
@@ -1033,6 +1145,9 @@ export function App() {
                                 }),
                             }))}
                           />
+                          <Tooltip content="Supported command: compact this conversation context">
+                            <Token size="sm" color="yellow" label="/compact" />
+                          </Tooltip>
                         </HStack>
                       }
                     />
@@ -1054,6 +1169,9 @@ export function App() {
                         onRegenerate={handleRegenerateMessage}
                         onCopy={handleCopyMessage}
                       />
+                    ))}
+                    {activeCommandRows.map(row => (
+                      <CommandStatusMessage key={row.id} row={row} />
                     ))}
                   </ChatMessageList>
                 </ChatLayout>
@@ -1132,6 +1250,60 @@ export function App() {
       />
     </AppShell>
   );
+}
+
+type CommandStatusRow = {
+  id: string;
+  conversationId: string;
+  kind: 'compact';
+  status: 'pending' | 'compacting' | 'completed' | 'failed' | 'aborted';
+  instructions: string;
+  message: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+function CommandStatusMessage({row}: {row: CommandStatusRow}) {
+  const color =
+    row.status === 'completed'
+      ? 'green'
+      : row.status === 'failed'
+        ? 'red'
+        : row.status === 'aborted'
+          ? 'yellow'
+          : 'blue';
+  return (
+    <ChatSystemMessage>
+      <HStack gap={2} vAlign="center" wrap="wrap">
+        <Token size="sm" color={color} label={formatCommandStatus(row.status)} />
+        <Text type="supporting" color="secondary">
+          /compact
+        </Text>
+        <Text type="supporting">{row.message}</Text>
+        {row.instructions && (
+          <Tooltip content="Compaction instructions">
+            <Token size="sm" color="gray" label={row.instructions} />
+          </Tooltip>
+        )}
+      </HStack>
+    </ChatSystemMessage>
+  );
+}
+
+function formatCommandStatus(status: CommandStatusRow['status']): string {
+  if (status === 'compacting') {
+    return 'compacting';
+  }
+  if (status === 'completed') {
+    return 'completed';
+  }
+  if (status === 'failed') {
+    return 'failed';
+  }
+  if (status === 'aborted') {
+    return 'aborted';
+  }
+  return 'pending';
 }
 
 type ConversationListRow =
@@ -1830,6 +2002,70 @@ function parseCompactCommand(value: string): string | null {
     return value.slice('/compact '.length).trim();
   }
   return null;
+}
+
+function normalizeComposerValue(value: string): string {
+  return value.replace(/\u00a0/g, ' ').trim();
+}
+
+function getUnsupportedSlashCommandMessage(value: string): string | null {
+  const command = parseSlashCommandName(value);
+  if (!command || command === '/compact') {
+    return null;
+  }
+  const guidance = SLASH_COMMAND_GUIDANCE[command];
+  if (guidance) {
+    return `${command} is handled by Nelle UI. ${guidance}`;
+  }
+  return `${command} is not supported in Nelle chat. Use /compact for manual context compaction.`;
+}
+
+function parseSlashCommandName(value: string): string | null {
+  const match = value.trim().match(/^\/[^\s]+/);
+  return match?.[0]?.toLowerCase() ?? null;
+}
+
+const SLASH_COMMAND_GUIDANCE: Record<string, string> = {
+  '/new': 'Use the New chat button in the conversation sidebar.',
+  '/resume': 'Use the conversation sidebar and search to resume a chat.',
+  '/model': 'Use the model selector in the composer or assistant footer.',
+  '/scoped-models': 'Use Nelle model selectors and Settings instead.',
+  '/login': 'Nelle manages the local llama.cpp provider through Settings.',
+  '/logout': 'Nelle manages the local llama.cpp provider through Settings.',
+  '/settings': 'Use the Settings controls in the sidebar.',
+  '/fork': 'Use message and conversation menus for fork actions.',
+  '/clone': 'Use the conversation menu duplicate action.',
+  '/name': 'Use the conversation row rename action.',
+  '/session': 'Use the conversation sidebar.',
+  '/tree': 'Nelle does not expose the full Pi tree explorer in v1.',
+  '/export': 'Use the conversation export action when it is available.',
+  '/import': 'Use the conversation import action when it is available.',
+  '/share': 'Sharing is not exposed in this local-first version yet.',
+  '/copy': 'Use assistant message copy buttons.',
+  '/trust': 'Host tool trust is managed by Nelle settings.',
+  '/reload': 'Use the runtime and router refresh controls.',
+  '/hotkeys': 'Keyboard help is not exposed in the chat composer yet.',
+  '/changelog': 'Release notes are not exposed in the chat composer.',
+  '/quit': 'Stop the server from the host process or runtime controls.',
+};
+
+function restoreComposerDraft(value: string, setDraft: (value: string) => void) {
+  window.setTimeout(() => {
+    setDraft(value);
+  }, 0);
+}
+
+function createCompactCommandRow(conversationId: string, instructions: string): CommandStatusRow {
+  const now = new Date().toISOString();
+  return {
+    id: `compact:${now}:${Math.random().toString(36).slice(2)}`,
+    conversationId,
+    kind: 'compact',
+    status: 'pending',
+    instructions,
+    message: 'Queued context compaction.',
+    createdAt: now,
+  };
 }
 
 async function delay(milliseconds: number): Promise<void> {
