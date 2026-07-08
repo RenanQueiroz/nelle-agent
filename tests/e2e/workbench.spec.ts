@@ -375,6 +375,131 @@ test('loads an unloaded router model from the composer selector', async ({page})
   await expect(page.getByText('loaded', {exact: true}).last()).toBeVisible();
 });
 
+test('loads an unloaded selected model before sending chat', async ({page}) => {
+  const model = {
+    id: 'model-a',
+    name: 'Model A',
+    presetName: 'model-a',
+    source: 'huggingface',
+    repoId: 'repo/model-a',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model-a:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    logPath: '/tmp/llama.log',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    modelsMax: 1,
+    sleepIdleSeconds: 90,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  const chat: MockChatMessage[] = [];
+  let modelStatus = 'unloaded';
+  let loadCalls = 0;
+  let streamCalls = 0;
+  let streamSawLoadedModel = false;
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: model.id,
+            routerModelId: model.id,
+            alias: model.name,
+            hfRepo: model.hfRef,
+            status: modelStatus,
+            aliases: [model.id],
+          },
+        ],
+      },
+    });
+  });
+  await page.route(/\/api\/llama\/models\/model-a\/load$/, async route => {
+    loadCalls += 1;
+    modelStatus = 'loaded';
+    await route.fulfill({json: {ok: true}});
+  });
+  await mockConversationRoutes(page, {chat});
+  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+    streamCalls += 1;
+    streamSawLoadedModel = modelStatus === 'loaded';
+    const userMessage = {
+      id: 'user-1',
+      role: 'user',
+      content: 'hello after eviction',
+      createdAt: '2026-07-07T12:01:00.000Z',
+    };
+    const assistantMessage = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Loaded before chat.',
+      createdAt: '2026-07-07T12:01:01.000Z',
+      modelId: model.id,
+      modelRuntimeId: model.id,
+      modelAliasSnapshot: model.name,
+    };
+    chat.push(userMessage, assistantMessage);
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: [
+        {type: 'user_message', message: userMessage},
+        {
+          type: 'assistant_start',
+          harness: 'pi',
+          message: {...assistantMessage, content: ''},
+        },
+        {type: 'assistant_delta', id: assistantMessage.id, delta: assistantMessage.content},
+        {type: 'done', message: assistantMessage},
+      ]
+        .map(event => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    });
+  });
+
+  await page.goto('/');
+  const composerModelButton = page.getByRole('button', {name: 'Model', exact: true});
+  await expect(composerModelButton).toContainText('Model A');
+  await expect(page.getByText('unloaded', {exact: true}).last()).toBeVisible();
+
+  await page.getByLabel('Message input').fill('hello after eviction');
+  await page.getByLabel('Message input').press('Enter');
+
+  await expect.poll(() => loadCalls).toBe(1);
+  await expect.poll(() => streamCalls).toBe(1);
+  expect(streamSawLoadedModel).toBe(true);
+  await expect(page.getByText('Loaded before chat.')).toBeVisible();
+});
+
 test('requires acknowledgement before enabling host tools', async ({page}) => {
   let hostTools = {
     enabled: false,

@@ -109,6 +109,9 @@ Project-specific guidance for AI coding agents.
   groups browser-local favorites first, shows selected/row router
   status/progress from router SSE updates, and loads unloaded router models
   before activating them.
+- Chat submit and assistant regeneration must load the selected/requested model
+  first when router status says it is unloaded, loading, or otherwise not
+  runnable.
 - Settings rows for models with active runs must show an active-run token and
   keep unload/save/remove disabled until a terminal run event arrives.
 - Browser chat run state is conversation-scoped. Use per-conversation run-kind

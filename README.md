@@ -63,7 +63,8 @@ Implemented:
 - The compact composer model selector is searchable, groups browser-local
   favorites first, shows router status/progress and loaded-model metadata, and
   subscribes to router SSE updates while loading an unloaded router model before
-  activating it for the next chat turn.
+  activating it for the next chat turn. If the router later unloads the active
+  selected model, chat submit loads it again before sending the prompt.
 - Settings marks models used by active runs and disables unload/save/remove for
   those rows until the run emits a terminal event.
 - Pi SDK chat harness configured against the local OpenAI-compatible

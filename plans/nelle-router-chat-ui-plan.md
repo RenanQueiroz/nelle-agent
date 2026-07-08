@@ -1877,8 +1877,9 @@ Unit tests:
   `UD-` quant normalization and collision hash suffixes.
 - Global and per-model param validation.
 - Router event normalization.
-- Router/model race policy reducers for selected-model removal, LRU unload,
-  reload after edit, and active-run model immutability.
+- Done for current UI/server policy: router/model race coverage includes
+  selected-model LRU unload load-before-chat behavior, reload after edit,
+  load/unload status updates, and active-run model immutability.
 - Pi event mapping into Nelle stream events, including unknown-event tolerance.
 - Done: conversation/run state machine transitions and `conversation_busy`
   stream errors.

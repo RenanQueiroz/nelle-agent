@@ -1119,6 +1119,18 @@ export function App() {
       restoreComposerDraft(prompt, setComposerDraft);
       return;
     }
+    if (!activeModel) {
+      setComposerError('Select a GGUF model before chatting.');
+      restoreComposerDraft(prompt, setComposerDraft);
+      return;
+    }
+    try {
+      await ensureModelReadyForRun(activeModel.id);
+    } catch (error) {
+      setComposerError(error instanceof Error ? error.message : String(error));
+      restoreComposerDraft(prompt, setComposerDraft);
+      return;
+    }
     setConversationRunKind(conversationId, 'chat');
     setConversationListStatus(conversationId, 'running');
     setNotice(null);
@@ -1476,14 +1488,14 @@ export function App() {
       throw new Error(`Unknown model: ${modelId}`);
     }
     if (!runtime?.running) {
-      throw new Error('Start llama.cpp before regenerating a response.');
+      throw new Error('Start llama.cpp before sending a request.');
     }
     await waitForRouterModelReady(model);
   }
 
   async function waitForRouterModelReady(model: ConfiguredModel): Promise<void> {
     const currentRouterModel = findRouterModelForConfiguredModel(model, routerModels);
-    if (isRunnableRouterStatus(currentRouterModel?.status)) {
+    if (!currentRouterModel || isRunnableRouterStatus(currentRouterModel.status)) {
       return;
     }
 

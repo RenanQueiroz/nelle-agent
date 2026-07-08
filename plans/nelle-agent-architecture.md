@@ -534,6 +534,9 @@ Model concurrency:
 - Let llama.cpp enforce capacity and LRU unload behavior. Nelle should surface
   router status and router-reported loaded/maximum capacity from
   `/api/llama/props`, not duplicate the router's scheduling policy.
+- If the active selected model becomes unloaded because of router LRU or manual
+  unload, keep it selected and load it again before the next chat or regenerate
+  request.
 
 `models.ini` example:
 
