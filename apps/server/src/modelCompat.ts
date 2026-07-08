@@ -1,4 +1,5 @@
 import type {ConfiguredModel} from './types';
+import {canonicalizeHuggingFaceRef} from '../../../packages/shared/src/modelsIni.ts';
 
 export function llamaRuntimeModelId(model: ConfiguredModel): string {
   return model.hfRef ? canonicalizeHuggingFaceRef(model.hfRef) : model.presetName;
@@ -22,16 +23,4 @@ export function chatTemplateKwargsForModel(model: ConfiguredModel): Record<strin
       preserve_thinking: true,
     },
   };
-}
-
-function canonicalizeHuggingFaceRef(ref: string): string {
-  const tagSeparator = ref.lastIndexOf(':');
-  if (tagSeparator < 0) {
-    return ref;
-  }
-
-  const base = ref.slice(0, tagSeparator + 1);
-  const tag = ref.slice(tagSeparator + 1);
-  const suffix = tag.match(/[-.]([a-z0-9_]+)$/i)?.[1];
-  return `${base}${(suffix ?? tag).toUpperCase()}`;
 }

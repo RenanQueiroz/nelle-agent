@@ -26,6 +26,9 @@ Implemented:
     diagnostics.
 - Hugging Face GGUF search and quant selection that lets `llama-server`
   download/cache the model via `hf-repo`.
+- Stable llama.cpp/OpenAI model ids for new Hugging Face imports, plus a
+  lossless `models.ini` writer that preserves comments and unknown keys while
+  updating Nelle-managed fields.
 - Pi SDK chat harness configured against the local OpenAI-compatible
   Nelle llama.cpp proxy with v1 host file/shell tools enabled.
 - Direct llama.cpp chat-completions fallback if Pi initialization fails.
@@ -188,14 +191,16 @@ tooling. It is intentionally user-triggered because it can take several minutes.
 npm run format:check
 npm run lint
 npm run check
+npm run test:unit
 npm run build:web
 npm run test:e2e
 npm test
 ```
 
 Formatting and linting use Oxfmt and Oxlint with repo-local config files:
-`.oxfmtrc.json` and `.oxlintrc.json`. `npm test` runs format check, lint,
-TypeScript, and the web build. Playwright e2e remains a separate explicit check.
+`.oxfmtrc.json` and `.oxlintrc.json`. `npm test` runs format check, lint, unit
+tests, TypeScript, and the web build. Playwright e2e remains a separate
+explicit check.
 
 Useful Oxc commands:
 

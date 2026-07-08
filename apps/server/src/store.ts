@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 
 import type {AppState, ChatMessage, ConfiguredModel, ModelParams} from './types';
 import type {AppPaths} from './paths';
+import {sectionIdForHuggingFaceRef} from '../../../packages/shared/src/modelsIni.ts';
 
 const DEFAULT_STATE: AppState = {
   version: 1,
@@ -101,14 +102,14 @@ export class AppStore {
       return existing;
     }
 
-    const id = crypto.randomUUID();
+    const id = sectionIdForHuggingFaceRef(
+      hfRef,
+      state.models.map(model => ({sectionId: model.id, hfRepo: model.hfRef})),
+    );
     const model: ConfiguredModel = {
       id,
       name: input.name ?? hfRef,
-      presetName: uniquePresetName(
-        hfRef,
-        state.models.map(item => item.presetName),
-      ),
+      presetName: id,
       source: 'huggingface',
       repoId: input.repoId,
       quant: input.quant,
@@ -201,16 +202,4 @@ export function slugify(value: string): string {
       .replace(/^-+|-+$/g, '')
       .slice(0, 64) || 'model'
   );
-}
-
-function uniquePresetName(base: string, existing: string[]): string {
-  if (!existing.includes(base)) {
-    return base;
-  }
-  for (let index = 2; ; index += 1) {
-    const candidate = `${base}-${index}`;
-    if (!existing.includes(candidate)) {
-      return candidate;
-    }
-  }
 }

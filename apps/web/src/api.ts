@@ -161,7 +161,9 @@ export async function useHuggingFaceModel(input: {
 }
 
 export async function activateModel(id: string): Promise<ConfiguredModel> {
-  const response = await apiPost<{model: ConfiguredModel}>(`/api/models/${id}/activate`);
+  const response = await apiPost<{model: ConfiguredModel}>(
+    `/api/models/${encodeURIComponent(id)}/activate`,
+  );
   return response.model;
 }
 

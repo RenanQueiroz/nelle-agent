@@ -9,6 +9,12 @@ import type {ConfiguredModel, RuntimeStatus} from './types';
 import {AppStore} from './store';
 import {llamaRuntimeModelId} from './modelCompat';
 import {commandExists, runCommand} from './process';
+import {
+  parseModelsIni,
+  removeModelsIniKeys,
+  upsertModelsIniValues,
+  writeModelsIniAtomic,
+} from '../../../packages/shared/src/modelsIni.ts';
 
 const LLAMA_REPO = 'ggml-org/llama.cpp';
 const LLAMA_REPO_URL = `https://github.com/${LLAMA_REPO}.git`;
@@ -247,30 +253,32 @@ export class LlamaCppManager {
     const state = await this.store.getState();
     const selectedModel =
       activeModel ?? state.models.find(model => model.id === state.activeModelId) ?? null;
-    await fs.mkdir(path.dirname(this.paths.llamaPresetPath), {recursive: true});
     const globalParams = selectedModel?.params ?? {contextSize: 8192};
-    const lines = [
-      'version = 1',
-      '',
-      '[*]',
-      `c = ${globalParams.contextSize}`,
-      ...(globalParams.gpuLayers != null ? [`n-gpu-layers = ${globalParams.gpuLayers}`] : []),
-      ...(globalParams.threads ? [`threads = ${globalParams.threads}`] : []),
-      ...(globalParams.batchSize ? [`b = ${globalParams.batchSize}`] : []),
-      '',
-    ];
+    const existing = await fs.readFile(this.paths.llamaPresetPath, 'utf8').catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return '';
+      }
+      throw error;
+    });
+    let document = parseModelsIni(existing);
+    document = upsertModelsIniValues(document, null, {version: 1});
+    document = upsertModelsIniValues(document, '*', {
+      c: globalParams.contextSize,
+      ...(globalParams.gpuLayers != null ? {'n-gpu-layers': globalParams.gpuLayers} : {}),
+      ...(globalParams.threads ? {threads: globalParams.threads} : {}),
+      ...(globalParams.batchSize ? {b: globalParams.batchSize} : {}),
+    });
 
     for (const model of state.models) {
-      lines.push(
-        `[${llamaRuntimeModelId(model)}]`,
-        ...modelSourceLines(model),
-        `load-on-startup = ${model.id === selectedModel?.id ? 'true' : 'false'}`,
-        'stop-timeout = 10',
-        '',
+      document = upsertModelsIniValues(
+        document,
+        llamaRuntimeModelId(model),
+        modelSourceValues(model),
       );
+      document = removeModelsIniKeys(document, llamaRuntimeModelId(model), ['load-on-startup']);
     }
 
-    await fs.writeFile(this.paths.llamaPresetPath, lines.join('\n'));
+    await writeModelsIniAtomic(this.paths.llamaPresetPath, document);
   }
 
   private async buildLinuxFromMaster(): Promise<void> {
@@ -698,9 +706,13 @@ async function collectFiles(root: string, predicate: (file: string) => boolean):
   return found;
 }
 
-function modelSourceLines(model: ConfiguredModel): string[] {
+function modelSourceValues(model: ConfiguredModel): Record<string, string> {
   if (model.hfRef) {
-    return [`hf-repo = ${model.hfRef}`, `alias = ${model.hfRef}`];
+    return {
+      'hf-repo': model.hfRef,
+      alias: model.name || model.hfRef,
+      'stop-timeout': '10',
+    };
   }
   throw new Error(`Model ${model.name} has no Hugging Face reference.`);
 }

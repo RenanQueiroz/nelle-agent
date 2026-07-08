@@ -140,10 +140,10 @@ Relevant Pi SDK/session behavior:
 
 Nelle currently differs from the target in these ways:
 
-- App state owns `models[]` and `activeModelId`; `models.ini` is generated from
-  app state instead of being the source.
-- Presets are still generated from app state instead of edited as durable
-  structured INI.
+- App state still owns `models[]` and `activeModelId`; `models.ini` is updated
+  through the lossless AST writer, but it is not yet the source of truth.
+- New Hugging Face imports use stable canonical section ids, but the full
+  Settings-based durable `models.ini` editor is not built yet.
 - Runtime settings for `modelsMax` and `sleepIdleSeconds` exist, but the final
   settings surface is not built yet.
 - The web UI has side panels for runtime/model setup rather than a durable

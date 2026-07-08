@@ -271,6 +271,7 @@ npm run format:check
 npm run lint
 npm run format
 npm run lint:fix
+npm run test:unit
 npm run test:e2e
 npm run test:e2e:headed
 npm run test:e2e:ui
@@ -278,8 +279,8 @@ npm run test:e2e:report
 ```
 
 Oxfmt and Oxlint are configured with `.oxfmtrc.json` and `.oxlintrc.json`.
-`npm test` runs format check, lint, TypeScript, and the web build. Playwright
-e2e remains separate because it starts a browser-backed server.
+`npm test` runs format check, lint, unit tests, TypeScript, and the web build.
+Playwright e2e remains separate because it starts a browser-backed server.
 
 Codex has a local Playwright MCP server configured through
 `~/.codex/config.toml` so future Codex sessions can inspect and drive the UI.

@@ -11,7 +11,8 @@ Project-specific guidance for AI coding agents.
 - Use a Node version matching `package.json` `engines` before running npm
   commands.
 - Primary checks are `npm run format:check`, `npm run lint`, `npm run check`,
-  `npm run build:web`, `npm run test:e2e`, and `npm test`.
+  `npm run test:unit`, `npm run build:web`, `npm run test:e2e`, and
+  `npm test`.
 - Formatting and linting use Oxfmt and Oxlint. Run `npm run format` for
   formatter writes and `npm run lint:fix` for safe lint fixes.
 - Run Playwright e2e tests for UI behavior changes when possible. The e2e
@@ -50,6 +51,9 @@ Project-specific guidance for AI coding agents.
   comments, ordering, unknown keys, and untouched user edits. Keep exact
   `hf-repo` refs while deriving stable canonical section ids for router/OpenAI
   model ids.
+- New Hugging Face imports should use the stable canonical section id as the
+  model id; route clients must URL-encode model ids because they may contain
+  `/` and `:`.
 - Chat messages carry llama.cpp-style `performance.prompt` and
   `performance.generation` metrics. Pi calls go through Nelle's
   `/api/llama-proxy/v1` provider so streamed `prompt_progress` and `timings`
