@@ -1418,7 +1418,8 @@ Abort behavior:
   after `abort()` so the UI does not resume unexpectedly.
 - Because all Pi model calls go through Nelle's llama proxy, propagate abort to
   the downstream llama.cpp fetch with `AbortSignal` and close the SSE/body
-  stream.
+  stream. Done: the proxy forwards request/response close events to the
+  upstream llama.cpp fetch signal.
 - When abort completes, emit `run.aborted` and `run.completed` with
   `status: "aborted"`, then refresh the conversation projection from Pi.
 
@@ -1550,7 +1551,8 @@ Future migration expectations:
   using Pi entry ids and leaf id as durable cursors.
 - Add the Nelle SSE event envelope helper, transport policy helpers, Pi event
   mapper, and conversation/run state machine.
-- Add the abort API and Pi/proxy abort propagation before expanding the UI.
+- Done: add the abort API and Pi/proxy abort propagation before expanding the
+  UI.
 - Add lossless `models.ini` parser/writer and model id canonicalizer.
 - Done: add export/import archive schemas and validation helpers, including
   manifest checksum validation and safe-path checks.
@@ -1566,8 +1568,8 @@ Exit criteria:
 - Conversation snapshots can rebuild the active timeline from Pi plus SQLite
   sidecar metadata.
 - Invalid state transitions are rejected with stable `NelleError` codes.
-- Aborting an active run calls Pi abort, closes the llama proxy request, and
-  emits `run.aborted`.
+- Done: aborting an active chat/regenerate run calls Pi abort, closes the llama
+  proxy request, and emits `run.aborted`.
 - `models.ini` can be parsed and written without dropping comments, unknown
   keys, or ordering in untouched sections.
 - Migrations create backups before rewriting app data and fail into a repairable
@@ -1963,10 +1965,10 @@ Playwright tests:
 - State machine: each conversation has at most one active run. Cross-conversation
   concurrency is allowed, but same-conversation sends/compactions fail with
   `conversation_busy`.
-- Abort propagation: Pi exposes `AgentSession.abort()`, but Nelle must also
-  preserve abort signals through the llama proxy. llama.cpp disconnect behavior
-  should be verified per release; if a slot keeps generating after abort, show a
-  warning and a manual stop/restart action rather than killing automatically.
+- Done: abort propagation preserves close/abort signals through the llama proxy.
+  Pending verification: llama.cpp disconnect behavior should be verified per
+  release; if a slot keeps generating after abort, show a warning and a manual
+  stop/restart action rather than killing automatically.
 - Attachment token estimates: text-only `/tokenize` estimates are useful for
   draft UI but not authoritative for multimodal prompts or full chat history.
   Streamed `prompt_progress` and final `timings` remain authoritative.

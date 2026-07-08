@@ -15,55 +15,73 @@ export function registerLlamaProxy(app: FastifyInstance, store: AppStore): void 
   app.post('/api/llama-proxy/v1/chat/completions', async (request, reply) => {
     const state = await store.getState();
     const body = injectTimingOptions(parseJsonObject(request.body));
-    const upstream = await fetch(`http://127.0.0.1:${state.runtime.port}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {'content-type': 'application/json'},
-      body: JSON.stringify(body),
-    });
-
-    const contentType = upstream.headers.get('content-type') ?? '';
-    if (!upstream.body) {
-      reply.status(upstream.status);
-      return reply.send(await upstream.text());
-    }
-
-    if (!contentType.toLowerCase().includes('text/event-stream')) {
-      const text = await upstream.text();
-      observeJsonResponse(text);
-      reply.status(upstream.status);
-      reply.header('content-type', contentType || 'application/json');
-      return reply.send(text);
-    }
-
-    reply.raw.writeHead(upstream.status, {
-      'content-type': contentType || 'text/event-stream; charset=utf-8',
-      'cache-control': upstream.headers.get('cache-control') ?? 'no-cache',
-      connection: upstream.headers.get('connection') ?? 'keep-alive',
-      'x-accel-buffering': 'no',
-    });
-
-    const reader = upstream.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+    const controller = new AbortController();
+    const abortUpstream = () => controller.abort();
+    request.raw.on('close', abortUpstream);
+    reply.raw.on('close', abortUpstream);
 
     try {
-      while (true) {
-        const {value, done} = await reader.read();
-        if (done) {
-          break;
+      const upstream = await fetch(`http://127.0.0.1:${state.runtime.port}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      const contentType = upstream.headers.get('content-type') ?? '';
+      if (!upstream.body) {
+        reply.status(upstream.status);
+        return reply.send(await upstream.text());
+      }
+
+      if (!contentType.toLowerCase().includes('text/event-stream')) {
+        const text = await upstream.text();
+        observeJsonResponse(text);
+        reply.status(upstream.status);
+        reply.header('content-type', contentType || 'application/json');
+        return reply.send(text);
+      }
+
+      reply.raw.writeHead(upstream.status, {
+        'content-type': contentType || 'text/event-stream; charset=utf-8',
+        'cache-control': upstream.headers.get('cache-control') ?? 'no-cache',
+        connection: upstream.headers.get('connection') ?? 'keep-alive',
+        'x-accel-buffering': 'no',
+      });
+
+      const reader = upstream.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const {value, done} = await reader.read();
+          if (done || controller.signal.aborted) {
+            break;
+          }
+          buffer += decoder.decode(value, {stream: true});
+          observeSseBuffer(buffer, nextBuffer => {
+            buffer = nextBuffer;
+          });
+          reply.raw.write(Buffer.from(value));
         }
-        buffer += decoder.decode(value, {stream: true});
-        observeSseBuffer(buffer, nextBuffer => {
-          buffer = nextBuffer;
-        });
-        reply.raw.write(Buffer.from(value));
+      } finally {
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+          observeSseEvent(buffer);
+        }
+        if (!reply.raw.destroyed) {
+          reply.raw.end();
+        }
       }
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return undefined;
+      }
+      throw error;
     } finally {
-      buffer += decoder.decode();
-      if (buffer.trim()) {
-        observeSseEvent(buffer);
-      }
-      reply.raw.end();
+      request.raw.off('close', abortUpstream);
+      reply.raw.off('close', abortUpstream);
     }
   });
 }

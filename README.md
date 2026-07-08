@@ -99,7 +99,8 @@ Implemented:
   removes the conversation's Pi session file and unreferenced attachments.
 - The composer stop action calls `/api/conversations/:id/abort`, aborts the
   active browser stream, and invokes Pi `AgentSession.abort()` for the cached
-  conversation runtime when one is active.
+  conversation runtime when one is active. The internal llama.cpp proxy forwards
+  close/abort signals to the downstream llama.cpp fetch.
 - After the first assistant response in a fallback-titled conversation, Nelle
   asks llama.cpp for a concise title through the local proxy without persisting
   that prompt in Pi history.
@@ -212,8 +213,9 @@ requests to llama.cpp unchanged except for enabling `return_progress`,
 `sse_ping_interval`, and `timings_per_token` on streamed requests. The proxy
 observes llama.cpp `prompt_progress` and `timings` chunks so the UI can mirror
 llama.cpp's own prompt-processing and token-generation speed calculations. The
-router `/slots?model=...` monitor remains a best-effort fallback and does not
-overwrite exact streamed timings.
+proxy also forwards request/response close events as an upstream `AbortSignal`.
+The router `/slots?model=...` monitor remains a best-effort fallback and does
+not overwrite exact streamed timings.
 Pi tool execution events are correlated by `toolCallId`, so a running tool row
 updates in place when progress or completion arrives instead of rendering
 separate running and complete rows. Expand the tool row to inspect the captured

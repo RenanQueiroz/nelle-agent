@@ -1432,6 +1432,36 @@ test('chat stream emits SSE envelopes with run lifecycle events', async () => {
   }
 });
 
+test('llama proxy forwards an abort signal to upstream chat completions', async () => {
+  const paths = await createTempPaths();
+  const originalFetch = globalThis.fetch;
+  let upstreamSignal: AbortSignal | undefined;
+  let upstreamSignalWasAbortedAtFetch: boolean | undefined;
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    upstreamSignal = init?.signal ?? undefined;
+    upstreamSignalWasAbortedAtFetch = upstreamSignal?.aborted;
+    return new Response(JSON.stringify({choices: [], timings: {}}), {
+      status: 200,
+      headers: {'content-type': 'application/json'},
+    });
+  }) as typeof fetch;
+
+  const app = await createServer(paths);
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/llama-proxy/v1/chat/completions',
+      payload: {model: 'local-model', messages: [], stream: false},
+    });
+    assert.equal(response.statusCode, 200);
+    assert.ok(upstreamSignal instanceof AbortSignal);
+    assert.equal(upstreamSignalWasAbortedAtFetch, false);
+  } finally {
+    await app.close();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 type TitleGenerationHarness = {
   maybeGenerateConversationTitle: (
     conversationId: string,

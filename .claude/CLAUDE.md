@@ -54,8 +54,9 @@ Project-specific guidance for AI coding agents.
   for the new Pi session file, copying retained Nelle sidecar metadata, and
   leaving the source conversation unchanged.
 - Browser v1 uses REST for commands/snapshots and SSE streams with typed Nelle
-  event envelopes. UI stop/abort calls Pi `AgentSession.abort()` and must
-  propagate cancellation through Nelle's llama.cpp proxy request.
+  event envelopes. UI stop/abort calls Pi `AgentSession.abort()`; Nelle's
+  llama.cpp proxy forwards request/response close events to the upstream fetch
+  `AbortSignal`.
 - Chat/regenerate streams are serialized as Nelle SSE envelopes. Preserve the
   envelope reader's backward compatibility with older raw test events, and use
   stable `runId` values plus `run.started` / `run.completed` events when adding
@@ -87,7 +88,8 @@ Project-specific guidance for AI coding agents.
 - Chat messages carry llama.cpp-style `performance.prompt` and
   `performance.generation` metrics. Pi calls go through Nelle's
   `/api/llama-proxy/v1` provider so streamed `prompt_progress` and `timings`
-  chunks can update the UI; `/slots` is only a best-effort fallback.
+  chunks can update the UI and aborts can close the upstream llama.cpp fetch;
+  `/slots` is only a best-effort fallback.
 - Conversation snapshots derive last-known context usage from assistant
   performance metadata. Keep `prompt.totalTokens` as the full llama.cpp prompt
   total for context usage; `prompt.tokens` remains the processed-token count

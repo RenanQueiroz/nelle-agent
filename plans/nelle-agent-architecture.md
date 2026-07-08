@@ -109,9 +109,10 @@ The first product experience should be UI-driven:
 - Nelle should support multiple active Pi conversation runtimes when Pi and the
   local router can support them, while enforcing only one active run per
   conversation.
-- UI stop/abort calls Pi `AgentSession.abort()` and propagates cancellation
-  through Nelle's llama.cpp proxy request. If llama.cpp keeps a slot generating,
-  Nelle warns and exposes a manual runtime stop/restart action.
+- UI stop/abort calls Pi `AgentSession.abort()` and Nelle's llama.cpp proxy
+  forwards request/response close events to the downstream llama.cpp fetch with
+  `AbortSignal`. If llama.cpp keeps a slot generating, Nelle warns and exposes
+  a manual runtime stop/restart action.
 - `models.ini` editing uses a lossless AST parser/writer that preserves
   comments, ordering, unknown keys, and untouched user edits. Hugging Face
   imports keep exact `hf-repo` refs while using stable canonical section ids.
@@ -684,8 +685,8 @@ Exit criteria:
   `models.json`.
 - Implement the one-Nelle-conversation-to-one-Pi-session lifecycle and typed
   stream envelope contracts from the router/chat plan.
-- Implement UI abort through Pi `AgentSession.abort()` and Nelle llama proxy
-  abort propagation.
+- Implement UI abort through Pi `AgentSession.abort()`, Nelle llama proxy abort
+  propagation, and post-abort slot-idle verification.
 - Implement the lossless `models.ini` parser/writer and HF model id
   canonicalizer.
 - Confirm `llama-server` router mode with Nelle-owned `models.ini` on this
