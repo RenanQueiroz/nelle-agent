@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {expect, test} from '@playwright/test';
+import {expect, test, type Page} from '@playwright/test';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -54,6 +54,7 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
       },
     });
   });
+  await mockConversationRoutes(page, {chat: []});
 
   await page.goto('/');
 
@@ -141,6 +142,7 @@ test('shows router model status and load/unload controls', async ({page}) => {
   await page.route('**/api/runtime', async route => {
     await route.fulfill({json: runtime});
   });
+  await mockConversationRoutes(page, {chat: []});
   await page.route('**/api/llama/models', async route => {
     await route.fulfill({
       json: {
@@ -249,7 +251,9 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
   await page.route('**/api/runtime', async route => {
     await route.fulfill({json: runtime});
   });
-  await page.route('**/api/chat/stream', async route => {
+  const chat: Array<{id: string; role: string; content: string; createdAt: string}> = [];
+  await mockConversationRoutes(page, {chat});
+  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
     const userMessage = {
       id: 'user-1',
       role: 'user',
@@ -275,6 +279,7 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
         },
       },
     };
+    chat.push(userMessage, assistantMessage);
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
       body: [
@@ -350,7 +355,9 @@ test('updates streamed tool calls and shows expandable input and output', async 
   await page.route('**/api/runtime', async route => {
     await route.fulfill({json: runtime});
   });
-  await page.route('**/api/chat/stream', async route => {
+  const chat: Array<{id: string; role: string; content: string; createdAt: string}> = [];
+  await mockConversationRoutes(page, {chat});
+  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
     const userMessage = {
       id: 'user-1',
       role: 'user',
@@ -377,6 +384,7 @@ test('updates streamed tool calls and shows expandable input and output', async 
       createdAt: '2026-07-07T12:01:01.000Z',
       toolCalls: [completedCall],
     };
+    chat.push(userMessage, assistantMessage);
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
       body: [
@@ -460,6 +468,7 @@ test('keeps the page frame fixed while only the chat region scrolls', async ({pa
   await page.route('**/api/runtime', async route => {
     await route.fulfill({json: runtime});
   });
+  await mockConversationRoutes(page, {chat});
 
   await page.goto('/');
   const chatLayout = page.getByTestId('chat-layout');
@@ -497,3 +506,106 @@ test('keeps the page frame fixed while only the chat region scrolls', async ({pa
   expect(composerBoxAfter).not.toBeNull();
   expect(Math.abs((composerBoxBefore?.y ?? 0) - (composerBoxAfter?.y ?? 0))).toBeLessThan(2);
 });
+
+async function mockConversationRoutes(page: Page, input: {chat: MockChatMessage[]}): Promise<void> {
+  let chat = input.chat;
+  let conversations = [
+    {
+      id: 'poc-default',
+      title: chat[0]?.content.slice(0, 80) || 'POC chat',
+      titleSource: 'fallback',
+      pinned: false,
+      status: 'ready',
+      updatedAt: '2026-07-07T12:00:00.000Z',
+    },
+  ];
+
+  await page.route('**/api/conversations**', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const pathname = url.pathname;
+    if (pathname.endsWith('/chat/stream')) {
+      await route.fallback();
+      return;
+    }
+    if (pathname === '/api/conversations' && request.method() === 'GET') {
+      await route.fulfill({json: {conversations}});
+      return;
+    }
+    if (pathname === '/api/conversations' && request.method() === 'POST') {
+      const conversation = {
+        id: 'new-chat',
+        title: 'New chat',
+        titleSource: 'fallback',
+        pinned: false,
+        status: 'ready',
+        updatedAt: '2026-07-07T12:00:00.000Z',
+      };
+      conversations = [conversation, ...conversations];
+      chat = [];
+      await route.fulfill({json: {conversation}});
+      return;
+    }
+    if (pathname === '/api/conversations/poc-default' && request.method() === 'GET') {
+      await route.fulfill({json: {snapshot: conversationSnapshot('poc-default', chat)}});
+      return;
+    }
+    if (pathname === '/api/conversations/new-chat' && request.method() === 'GET') {
+      await route.fulfill({json: {snapshot: conversationSnapshot('new-chat', chat)}});
+      return;
+    }
+    if (pathname.endsWith('/messages') && request.method() === 'DELETE') {
+      chat = [];
+      await route.fulfill({json: {ok: true}});
+      return;
+    }
+    await route.fallback();
+  });
+}
+
+function conversationSnapshot(id: string, chat: MockChatMessage[]) {
+  return {
+    conversation: {
+      id,
+      title: chat[0]?.content.slice(0, 80) || 'POC chat',
+      titleSource: 'fallback',
+      pinned: false,
+      status: 'ready',
+      createdAt: '2026-07-07T12:00:00.000Z',
+      updatedAt: '2026-07-07T12:00:00.000Z',
+    },
+    entries: chat.map((message, index) => ({
+      conversationId: id,
+      piEntryId: message.id,
+      parentPiEntryId: index > 0 ? chat[index - 1]?.id : undefined,
+      entryType: 'message',
+      role: message.role,
+      textPreview: message.content,
+      createdAt: message.createdAt,
+      performance: message.performance,
+      toolCalls: message.toolCalls,
+    })),
+    activePathEntryIds: chat.map(message => message.id),
+    attachments: [],
+    context: {},
+    models: {available: []},
+    capabilities: {
+      canSend: true,
+      canAbort: false,
+      canCompact: chat.length > 0,
+      canFork: chat.length > 0,
+      canAttachImages: false,
+      canAttachText: true,
+    },
+    errors: [],
+  };
+}
+
+type MockChatMessage = {
+  id: string;
+  role: string;
+  content: string;
+  createdAt: string;
+  performance?: unknown;
+  toolCalls?: unknown;
+};

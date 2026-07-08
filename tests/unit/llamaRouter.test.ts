@@ -223,6 +223,7 @@ async function createTempPaths(): Promise<AppPaths> {
     llamaPidPath: path.join(llamaDir, 'llama-server.pid.json'),
     llamaLogPath: path.join(dataDir, 'logs', 'llama-server.log'),
     piDir,
+    piSessionsDir: path.join(piDir, 'sessions'),
     piAuthPath: path.join(piDir, 'auth.json'),
     piModelsPath: path.join(piDir, 'models.json'),
     settingsDbPath: path.join(dataDir, 'settings.sqlite'),

@@ -84,6 +84,59 @@ test('repository mirrors current POC chat into a conversation snapshot', async (
   }
 });
 
+test('repository stores Pi session bindings and replaces active branch projections', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Durable Pi chat'});
+    repository.attachPiSession(conversation.id, {
+      piSessionPath: path.join(paths.piSessionsDir, 'session.jsonl'),
+      piSessionId: 'pi-session-1',
+      activeLeafPiEntryId: 'entry-user',
+    });
+    repository.replaceConversationProjection(conversation.id, {
+      piSessionPath: path.join(paths.piSessionsDir, 'session.jsonl'),
+      piSessionId: 'pi-session-1',
+      activeLeafPiEntryId: 'entry-assistant',
+      lastSyncedPiEntryId: 'entry-assistant',
+      entries: [
+        {
+          piEntryId: 'entry-user',
+          entryType: 'message',
+          role: 'user',
+          text: 'Hello from Pi',
+          createdAt: '2026-07-08T12:00:00.000Z',
+        },
+        {
+          piEntryId: 'entry-assistant',
+          parentPiEntryId: 'entry-user',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'Hello from Nelle',
+          createdAt: '2026-07-08T12:00:01.000Z',
+          modelId: 'repo/model:Q4_K_M',
+          modelRuntimeId: 'repo/model:Q4_K_M',
+          modelAliasSnapshot: 'Model Q4',
+        },
+      ],
+    });
+
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+
+    assert.equal(repository.getPiSessionBinding(conversation.id)?.piSessionId, 'pi-session-1');
+    assert.equal(snapshot?.conversation.piSessionId, 'pi-session-1');
+    assert.equal(snapshot?.conversation.activeLeafPiEntryId, 'entry-assistant');
+    assert.deepEqual(snapshot?.activePathEntryIds, ['entry-user', 'entry-assistant']);
+    assert.equal(snapshot?.entries[1]?.textPreview, 'Hello from Nelle');
+    assert.equal(snapshot?.entries[1]?.modelAliasSnapshot, 'Model Q4');
+  } finally {
+    database.close();
+  }
+});
+
 test('conversation API exposes list, snapshot, create, patch, pin, and delete routes', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
@@ -170,6 +223,7 @@ async function createTempPaths(): Promise<AppPaths> {
     llamaPidPath: path.join(llamaDir, 'llama-server.pid.json'),
     llamaLogPath: path.join(dataDir, 'logs', 'llama-server.log'),
     piDir,
+    piSessionsDir: path.join(piDir, 'sessions'),
     piAuthPath: path.join(piDir, 'auth.json'),
     piModelsPath: path.join(piDir, 'models.json'),
     settingsDbPath: path.join(dataDir, 'settings.sqlite'),

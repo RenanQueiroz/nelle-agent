@@ -148,14 +148,18 @@ Nelle currently differs from the target in these ways:
   Nelle-owned `/api/llama/*` router facade exists, and the POC model panel can
   show router status plus reload/load/unload actions. The final router-aware
   settings/model selector surface is not built yet.
-- The web UI has side panels for runtime/model setup rather than a durable
-  conversation sidebar plus settings.
-- Chat storage is still one global `chat` array for the POC UI. It is now
-  mirrored into a default SQLite conversation snapshot, but Pi-backed
-  conversation ownership is not complete yet.
-- Pi session lifecycle and abort semantics are not yet implemented as explicit
-  contracts. Shared Nelle event envelope and conversation snapshot contracts
-  now exist.
+- The web UI has side panels for runtime/model setup plus a temporary
+  conversation list/new-chat selector rather than the final collapsible,
+  searchable, virtualized conversation sidebar plus settings.
+- The server now exposes conversation snapshots and
+  `/api/conversations/:id/chat/stream`. Each streamed conversation is bound to
+  one Pi JSONL session file under `.nelle/pi/sessions`, and existing session
+  files are reopened on demand after a Nelle server restart.
+- SQLite stores conversation rows and active-branch projections, but model and
+  runtime setup state still live in `.nelle/state.json`, with the default
+  `poc-default` chat kept for legacy compatibility.
+- Pi abort/stop semantics are not yet implemented as explicit run contracts.
+  Shared Nelle event envelope and conversation snapshot contracts now exist.
 - Reset conversation is a composer footer action rather than a conversation
   action.
 - Model import/edit UX is split between app state and generated preset writes.
@@ -1549,8 +1553,10 @@ Exit criteria:
 
 ### Phase 3: Conversations And Sidebar
 
-- Add SQLite conversation/index/projection storage backed by Pi session files.
-- Replace global chat state with conversation-scoped APIs.
+- Extend the existing SQLite conversation/index/projection storage and
+  Pi-session binding into the final sidebar workflow.
+- Complete replacement of legacy default-chat compatibility with
+  conversation-scoped APIs throughout the UI and server.
 - Use Pi session entries and leaf ids for active path and branch state. Do not
   duplicate Pi's tree as independent Nelle truth.
 - Add collapsible sidebar with new chat, settings, search, virtualized list, and

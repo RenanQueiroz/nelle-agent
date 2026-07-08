@@ -19,6 +19,7 @@ import {localLlamaProxyBaseUrl} from './llamaProxy';
 import {isQwenFamilyModel, llamaRuntimeModelId} from './modelCompat';
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
+import type {ConversationRepository, SyncConversationEntry} from './conversations';
 import type {
   ChatMessage,
   ChatPerformance,
@@ -30,26 +31,47 @@ import type {
 const PROVIDER_ID = 'nelle-llamacpp';
 const TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
 
+type ManagedSession = {
+  conversationId: string;
+  modelId: string;
+  session: any;
+};
+
 export class PiHarness {
-  #session: any = null;
-  #sessionModelId: string | null = null;
+  #sessions = new Map<string, ManagedSession>();
 
   constructor(
     private readonly paths: AppPaths,
     private readonly store: AppStore,
+    private readonly conversations: ConversationRepository,
   ) {}
 
-  resetSession(): void {
-    this.#session?.dispose?.();
-    this.#session = null;
-    this.#sessionModelId = null;
+  resetSession(conversationId?: string): void {
+    if (conversationId) {
+      this.#sessions.get(conversationId)?.session.dispose?.();
+      this.#sessions.delete(conversationId);
+      return;
+    }
+    for (const managed of this.#sessions.values()) {
+      managed.session.dispose?.();
+    }
+    this.#sessions.clear();
   }
 
-  async streamPrompt(prompt: string): Promise<AsyncIterable<ChatStreamEvent>> {
+  async streamPrompt(
+    prompt: string,
+    conversationId = 'poc-default',
+  ): Promise<AsyncIterable<ChatStreamEvent>> {
     const activeModel = await this.store.getActiveModel();
     if (!activeModel) {
       throw new Error('Select a model before chatting.');
     }
+
+    this.conversations.ensureConversation(conversationId, {
+      title: prompt.slice(0, 80) || 'New chat',
+      defaultModelId: activeModel.id,
+    });
+    this.conversations.setConversationStatus(conversationId, 'running');
 
     const queue = createAsyncQueue<ChatStreamEvent>();
     const userMessage: ChatMessage = {
@@ -66,28 +88,33 @@ export class PiHarness {
       toolCalls: [],
     };
 
-    await this.store.appendChatMessage(userMessage);
+    if (conversationId === 'poc-default') {
+      await this.store.appendChatMessage(userMessage);
+    }
     queue.push({type: 'user_message', message: userMessage});
     queue.push({type: 'assistant_start', message: assistantMessage, harness: 'pi'});
 
-    void this.runPiPrompt(activeModel, prompt, assistantMessage, queue).catch(error => {
-      queue.push({
-        type: 'error',
-        message: error instanceof Error ? error.message : String(error),
-      });
-      queue.end();
-    });
+    void this.runPiPrompt(activeModel, conversationId, prompt, assistantMessage, queue).catch(
+      error => {
+        queue.push({
+          type: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        });
+        queue.end();
+      },
+    );
 
     return queue;
   }
 
   private async runPiPrompt(
     activeModel: ConfiguredModel,
+    conversationId: string,
     prompt: string,
     assistantMessage: ChatMessage,
     queue: ReturnType<typeof createAsyncQueue<ChatStreamEvent>>,
   ): Promise<void> {
-    const session = await this.ensureSession(activeModel);
+    const session = await this.ensureSession(conversationId, activeModel);
     const state = await this.store.getState();
     const pushPerformance = (performance: ChatPerformance) => {
       assistantMessage.performance = mergeChatPerformance(
@@ -193,22 +220,27 @@ export class PiHarness {
           );
         }
       }
-      await this.store.appendChatMessage(assistantMessage);
+      if (conversationId === 'poc-default') {
+        await this.store.appendChatMessage(assistantMessage);
+      }
+      this.syncPiConversation(conversationId, session, activeModel, assistantMessage);
       queue.push({type: 'done', message: assistantMessage});
       queue.end();
     } finally {
       monitor.stop();
       capture.stop();
       unsubscribe();
+      this.conversations.setConversationStatus(conversationId, 'ready');
     }
   }
 
-  private async ensureSession(activeModel: ConfiguredModel): Promise<any> {
-    if (this.#session && this.#sessionModelId === activeModel.id) {
-      return this.#session;
+  private async ensureSession(conversationId: string, activeModel: ConfiguredModel): Promise<any> {
+    const cached = this.#sessions.get(conversationId);
+    if (cached && cached.modelId === activeModel.id) {
+      return cached.session;
     }
 
-    this.#session?.dispose?.();
+    cached?.session.dispose?.();
     await this.writePiModels(activeModel);
 
     const authStorage = AuthStorage.create(this.paths.piAuthPath);
@@ -232,6 +264,12 @@ export class PiHarness {
     });
     await resourceLoader.reload();
 
+    await fs.mkdir(this.paths.piSessionsDir, {recursive: true});
+    const binding = this.conversations.getPiSessionBinding(conversationId);
+    const sessionManager = binding?.piSessionPath
+      ? SessionManager.open(binding.piSessionPath, this.paths.piSessionsDir, this.paths.repoRoot)
+      : SessionManager.create(this.paths.repoRoot, this.paths.piSessionsDir);
+
     const {session} = await createAgentSession({
       agentDir: this.paths.piDir,
       cwd: this.paths.repoRoot,
@@ -241,12 +279,74 @@ export class PiHarness {
       authStorage,
       modelRegistry,
       resourceLoader,
-      sessionManager: SessionManager.inMemory(),
+      sessionManager,
     } as any);
 
-    this.#session = session;
-    this.#sessionModelId = activeModel.id;
+    const sessionFile = session.sessionFile ?? sessionManager.getSessionFile();
+    if (sessionFile) {
+      this.conversations.attachPiSession(conversationId, {
+        piSessionPath: sessionFile,
+        piSessionId: session.sessionId ?? sessionManager.getSessionId(),
+        activeLeafPiEntryId: sessionManager.getLeafId(),
+      });
+    }
+    this.#sessions.set(conversationId, {
+      conversationId,
+      modelId: activeModel.id,
+      session,
+    });
     return session;
+  }
+
+  private syncPiConversation(
+    conversationId: string,
+    session: any,
+    activeModel: ConfiguredModel,
+    assistantMessage: ChatMessage,
+  ): void {
+    const branch = session.sessionManager.getBranch() as any[];
+    const entries: SyncConversationEntry[] = [];
+    let lastAssistantEntryId: string | null = null;
+    for (const entry of branch) {
+      if (entry.type !== 'message') {
+        continue;
+      }
+      const role = normalizeChatRole(entry.message?.role);
+      const text = extractMessageText(entry.message);
+      const projection: SyncConversationEntry = {
+        piEntryId: String(entry.id),
+        parentPiEntryId: entry.parentId ?? null,
+        entryType: entry.type,
+        role,
+        text,
+        createdAt: String(entry.timestamp ?? new Date().toISOString()),
+        displayGroupId: String(entry.id),
+      };
+      if (role === 'assistant') {
+        projection.modelId = activeModel.id;
+        projection.modelRuntimeId = llamaRuntimeModelId(activeModel);
+        projection.modelAliasSnapshot = activeModel.name;
+        lastAssistantEntryId = projection.piEntryId;
+      }
+      entries.push(projection);
+    }
+
+    if (lastAssistantEntryId) {
+      const lastAssistant = entries.find(entry => entry.piEntryId === lastAssistantEntryId);
+      if (lastAssistant) {
+        lastAssistant.performance = assistantMessage.performance;
+        lastAssistant.toolCalls = assistantMessage.toolCalls;
+      }
+    }
+
+    this.conversations.replaceConversationProjection(conversationId, {
+      piSessionPath: session.sessionFile,
+      piSessionId: session.sessionId,
+      activeLeafPiEntryId: session.sessionManager.getLeafId(),
+      lastSyncedPiEntryId: session.sessionManager.getLeafId(),
+      status: 'running',
+      entries,
+    });
   }
 
   private async writePiModels(activeModel: ConfiguredModel): Promise<void> {
@@ -382,6 +482,45 @@ function extractTextContent(value: unknown): string | undefined {
     .filter(item => item != null)
     .join('\n');
   return text || undefined;
+}
+
+function normalizeChatRole(role: unknown): ChatMessage['role'] | undefined {
+  if (role === 'user' || role === 'assistant' || role === 'system') {
+    return role;
+  }
+  return undefined;
+}
+
+function extractMessageText(message: unknown): string {
+  if (!message || typeof message !== 'object') {
+    return '';
+  }
+  const content = (message as {content?: unknown}).content;
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return '';
+  }
+  return content
+    .map(item => {
+      if (typeof item === 'string') {
+        return item;
+      }
+      if (!item || typeof item !== 'object') {
+        return '';
+      }
+      const type = (item as {type?: unknown}).type;
+      if (type === 'text' && typeof (item as {text?: unknown}).text === 'string') {
+        return (item as {text: string}).text;
+      }
+      if (type === 'toolCall' && typeof (item as {name?: unknown}).name === 'string') {
+        return `[tool call: ${(item as {name: string}).name}]`;
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
 }
 
 function formatDuration(durationMs: number): string {

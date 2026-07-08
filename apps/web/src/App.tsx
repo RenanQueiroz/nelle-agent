@@ -31,6 +31,7 @@ import {
   ChatBubbleLeftRightIcon,
   CpuChipIcon,
   MagnifyingGlassIcon,
+  PlusIcon,
   PlayIcon,
   StopIcon,
   TrashIcon,
@@ -38,7 +39,10 @@ import {
 
 import {
   activateModel,
-  clearChat,
+  clearConversation,
+  createConversation,
+  getConversation,
+  getConversations,
   getLlamaModels,
   getRuntime,
   getRuntimeLogs,
@@ -49,7 +53,7 @@ import {
   searchHuggingFace,
   startRuntime,
   stopRuntime,
-  streamChat,
+  streamConversationChat,
   unloadLlamaModel,
   updateRuntimeSettings,
   useHuggingFaceModel,
@@ -58,6 +62,8 @@ import {
   type ChatPerformanceMetric,
   type ChatStreamEvent,
   type ConfiguredModel,
+  type ConversationListItem,
+  type ConversationSnapshot,
   type HuggingFaceModelResult,
   type LlamaRouterModel,
   type RuntimeStatus,
@@ -116,6 +122,8 @@ export function App() {
   const [models, setModels] = useState<ConfiguredModel[]>([]);
   const [routerModels, setRouterModels] = useState<LlamaRouterModel[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState('poc-default');
   const [messages, setMessages] = useState<ApiChatMessage[]>([]);
   const [searchQuery, setSearchQuery] = useState('qwen gguf');
   const [searchResults, setSearchResults] = useState<HuggingFaceModelResult[]>([]);
@@ -147,7 +155,57 @@ export function App() {
   }, [models, routerModels]);
 
   useEffect(() => {
-    void refreshState();
+    let isCancelled = false;
+    void (async () => {
+      const response = await getState();
+      if (isCancelled) {
+        return;
+      }
+      setRuntime(response.runtime);
+      setModelsMaxInput(
+        String(response.runtime.modelsMax ?? response.state.runtime?.modelsMax ?? 1),
+      );
+      setSleepIdleInput(
+        String(response.runtime.sleepIdleSeconds ?? response.state.runtime?.sleepIdleSeconds ?? 90),
+      );
+      setModels(response.state.models);
+      setActiveModelId(response.state.activeModelId);
+      try {
+        const list = await getConversations();
+        if (isCancelled) {
+          return;
+        }
+        setConversations(list);
+        const conversationId = list.find(conversation => conversation.id === 'poc-default')?.id;
+        const nextConversationId = conversationId ?? list[0]?.id ?? 'poc-default';
+        setActiveConversationId(nextConversationId);
+        const snapshot = await getConversation(nextConversationId);
+        if (!isCancelled) {
+          setMessages(messagesFromSnapshot(snapshot));
+        }
+      } catch {
+        if (!isCancelled) {
+          setMessages(response.state.chat);
+        }
+      }
+      if (response.runtime.running) {
+        try {
+          const nextRouterModels = await getLlamaModels();
+          if (!isCancelled) {
+            setRouterModels(nextRouterModels);
+          }
+        } catch {
+          if (!isCancelled) {
+            setRouterModels([]);
+          }
+        }
+      } else {
+        setRouterModels([]);
+      }
+    })();
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   async function refreshState() {
@@ -159,11 +217,30 @@ export function App() {
     );
     setModels(response.state.models);
     setActiveModelId(response.state.activeModelId);
-    setMessages(response.state.chat);
+    await refreshConversations(activeConversationId, response.state.chat);
     if (response.runtime.running) {
       await refreshRouterModels({silent: true});
     } else {
       setRouterModels([]);
+    }
+  }
+
+  async function refreshConversations(
+    preferredConversationId = activeConversationId,
+    fallbackMessages: ApiChatMessage[] = [],
+  ): Promise<void> {
+    try {
+      const list = await getConversations();
+      setConversations(list);
+      const nextConversationId =
+        list.find(conversation => conversation.id === preferredConversationId)?.id ??
+        list[0]?.id ??
+        preferredConversationId;
+      setActiveConversationId(nextConversationId);
+      const snapshot = await getConversation(nextConversationId);
+      setMessages(messagesFromSnapshot(snapshot));
+    } catch {
+      setMessages(fallbackMessages);
     }
   }
 
@@ -283,8 +360,9 @@ export function App() {
     setIsStreaming(true);
     setNotice(null);
     try {
-      await streamChat(prompt, applyChatEvent);
+      await streamConversationChat(activeConversationId, prompt, applyChatEvent);
       setRuntime(await getRuntime());
+      await refreshConversations(activeConversationId);
     } catch (error) {
       setNotice({
         type: 'error',
@@ -297,11 +375,25 @@ export function App() {
 
   async function handleResetConversation() {
     await runAction('reset-chat', async () => {
-      await clearChat();
+      await clearConversation(activeConversationId);
       setMessages([]);
-      await refreshState();
+      await refreshConversations(activeConversationId);
       setNotice({type: 'success', text: 'Conversation reset.'});
     });
+  }
+
+  async function handleNewConversation() {
+    await runAction('new-chat', async () => {
+      const created = await createConversation({defaultModelId: activeModelId});
+      setActiveConversationId(created.id);
+      setMessages([]);
+      await refreshConversations(created.id);
+    });
+  }
+
+  async function handleSelectConversation(conversationId: string) {
+    setActiveConversationId(conversationId);
+    await refreshConversations(conversationId);
   }
 
   function applyChatEvent(event: ChatStreamEvent) {
@@ -396,6 +488,35 @@ export function App() {
                     onDismiss={() => setNotice(null)}
                   />
                 )}
+
+                <Card padding={3}>
+                  <VStack gap={3}>
+                    <HStack gap={2} vAlign="center">
+                      <StackItem size="fill">
+                        <Heading level={3}>Conversations</Heading>
+                      </StackItem>
+                      <Button
+                        label="New chat"
+                        size="sm"
+                        variant="secondary"
+                        icon={<Icon icon={PlusIcon} size="sm" />}
+                        isLoading={busyAction === 'new-chat'}
+                        onClick={handleNewConversation}
+                      />
+                    </HStack>
+                    <VStack gap={1}>
+                      {conversations.map(conversation => (
+                        <Button
+                          key={conversation.id}
+                          label={conversation.title}
+                          size="sm"
+                          variant={conversation.id === activeConversationId ? 'primary' : 'ghost'}
+                          onClick={() => void handleSelectConversation(conversation.id)}
+                        />
+                      ))}
+                    </VStack>
+                  </VStack>
+                </Card>
 
                 <Card padding={3}>
                   <VStack gap={3}>
@@ -779,6 +900,19 @@ function RenderedMessage({message}: {message: ApiChatMessage}) {
       </ChatMessageBubble>
     </ChatMessage>
   );
+}
+
+function messagesFromSnapshot(snapshot: ConversationSnapshot): ApiChatMessage[] {
+  return snapshot.entries
+    .filter(entry => entry.entryType === 'message' && entry.role != null)
+    .map(entry => ({
+      id: entry.piEntryId,
+      role: entry.role!,
+      content: entry.textPreview ?? '',
+      createdAt: entry.createdAt,
+      performance: entry.performance as ChatPerformance | undefined,
+      toolCalls: entry.toolCalls as ApiChatMessage['toolCalls'],
+    }));
 }
 
 function ToolCalls({calls}: {calls: NonNullable<ApiChatMessage['toolCalls']>}) {

@@ -15,7 +15,7 @@ import {
 import type {AppDatabase} from './database';
 import type {AppState, ChatMessage, ConfiguredModel} from './types';
 
-const POC_CONVERSATION_ID = 'poc-default';
+export const POC_CONVERSATION_ID = 'poc-default';
 
 type ConversationRow = {
   id: string;
@@ -76,6 +76,29 @@ export type ConversationListItem = {
   defaultModelId?: string;
 };
 
+export type PiSessionBinding = {
+  piSessionPath: string;
+  piSessionId: string;
+  activeLeafPiEntryId?: string | null;
+};
+
+export type SyncConversationEntry = {
+  piEntryId: string;
+  parentPiEntryId?: string | null;
+  entryType: string;
+  role?: ChatMessage['role'] | null;
+  text: string;
+  createdAt: string;
+  modelId?: string | null;
+  modelRuntimeId?: string | null;
+  modelAliasSnapshot?: string | null;
+  performance?: unknown;
+  toolCalls?: unknown;
+  attachmentSummary?: unknown;
+  regeneratesPiEntryId?: string | null;
+  displayGroupId?: string | null;
+};
+
 export class ConversationRepository {
   constructor(private readonly database: AppDatabase) {}
 
@@ -85,13 +108,14 @@ export class ConversationRepository {
 
   createConversation(
     input: {
+      id?: string;
       title?: string;
       defaultModelId?: string | null;
       titleSource?: ConversationSnapshot['conversation']['titleSource'];
     } = {},
   ): ConversationListItem {
     const now = new Date().toISOString();
-    const id = crypto.randomUUID();
+    const id = input.id ?? crypto.randomUUID();
     const row: ConversationRow = {
       id,
       title: input.title ?? 'New chat',
@@ -113,6 +137,21 @@ export class ConversationRepository {
     this.insertConversation(row);
     this.upsertSearch(row.id, row.title);
     return mapConversationListItem(row);
+  }
+
+  ensureConversation(
+    id: string,
+    input: {
+      title?: string;
+      defaultModelId?: string | null;
+      titleSource?: ConversationSnapshot['conversation']['titleSource'];
+    } = {},
+  ): ConversationListItem {
+    const existing = this.getConversation(id);
+    if (existing) {
+      return mapConversationListItem(existing);
+    }
+    return this.createConversation({...input, id});
   }
 
   listConversations(input: {search?: string; limit?: number} = {}): ConversationListItem[] {
@@ -138,6 +177,18 @@ export class ConversationRepository {
         .prepare('SELECT * FROM conversations WHERE id = ? AND deleted_at IS NULL')
         .get(id) as ConversationRow | undefined) ?? null
     );
+  }
+
+  getPiSessionBinding(id: string): PiSessionBinding | null {
+    const row = this.getConversation(id);
+    if (!row?.pi_session_path || !row.pi_session_id) {
+      return null;
+    }
+    return {
+      piSessionPath: row.pi_session_path,
+      piSessionId: row.pi_session_id,
+      activeLeafPiEntryId: row.active_leaf_pi_entry_id,
+    };
   }
 
   getSnapshot(id: string, state: AppState): ConversationSnapshot | null {
@@ -242,6 +293,108 @@ export class ConversationRepository {
     return mapConversationListItem(next);
   }
 
+  setConversationStatus(id: string, status: ConversationStatus): ConversationListItem | null {
+    return this.patchConversation(id, {status});
+  }
+
+  attachPiSession(id: string, binding: PiSessionBinding): ConversationListItem | null {
+    const row = this.getConversation(id);
+    if (!row) {
+      return null;
+    }
+    const next: ConversationRow = {
+      ...row,
+      pi_session_path: binding.piSessionPath,
+      pi_session_id: binding.piSessionId,
+      active_leaf_pi_entry_id: binding.activeLeafPiEntryId ?? row.active_leaf_pi_entry_id,
+      updated_at: new Date().toISOString(),
+    };
+    this.database.connection
+      .prepare(
+        `UPDATE conversations
+         SET pi_session_path = ?, pi_session_id = ?, active_leaf_pi_entry_id = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        next.pi_session_path,
+        next.pi_session_id,
+        next.active_leaf_pi_entry_id,
+        next.updated_at,
+        id,
+      );
+    return mapConversationListItem(next);
+  }
+
+  replaceConversationProjection(
+    id: string,
+    input: {
+      piSessionPath?: string;
+      piSessionId?: string;
+      activeLeafPiEntryId?: string | null;
+      lastSyncedPiEntryId?: string | null;
+      status?: ConversationStatus;
+      entries: SyncConversationEntry[];
+    },
+  ): ConversationListItem | null {
+    const row = this.getConversation(id);
+    if (!row) {
+      return null;
+    }
+    const nextStatus = input.status ?? row.status;
+    assertConversationTransition(row.status, nextStatus);
+    const now = new Date().toISOString();
+    const next: ConversationRow = {
+      ...row,
+      pi_session_path: input.piSessionPath ?? row.pi_session_path,
+      pi_session_id: input.piSessionId ?? row.pi_session_id,
+      active_leaf_pi_entry_id: input.activeLeafPiEntryId ?? row.active_leaf_pi_entry_id,
+      last_synced_pi_entry_id: input.lastSyncedPiEntryId ?? row.last_synced_pi_entry_id,
+      status: nextStatus,
+      updated_at: now,
+    };
+
+    const db = this.database.connection;
+    db.exec('BEGIN');
+    try {
+      db.prepare(
+        `UPDATE conversations
+         SET pi_session_path = ?, pi_session_id = ?, active_leaf_pi_entry_id = ?,
+             last_synced_pi_entry_id = ?, status = ?, updated_at = ?
+         WHERE id = ?`,
+      ).run(
+        next.pi_session_path,
+        next.pi_session_id,
+        next.active_leaf_pi_entry_id,
+        next.last_synced_pi_entry_id,
+        next.status,
+        next.updated_at,
+        id,
+      );
+      db.prepare('DELETE FROM conversation_entry_projection WHERE conversation_id = ?').run(id);
+      for (const entry of input.entries) {
+        this.upsertProjection(id, entry);
+      }
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+    return mapConversationListItem(next);
+  }
+
+  clearConversationProjection(id: string): void {
+    const db = this.database.connection;
+    db.prepare('DELETE FROM conversation_entry_projection WHERE conversation_id = ?').run(id);
+    db.prepare(
+      `UPDATE conversations
+       SET active_leaf_pi_entry_id = NULL, last_synced_pi_entry_id = NULL,
+           pi_session_path = NULL, pi_session_id = NULL, status = 'ready',
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(new Date().toISOString(), id);
+  }
+
   hardDeleteConversation(id: string): boolean {
     const result = this.database.connection
       .prepare('DELETE FROM conversations WHERE id = ?')
@@ -313,7 +466,7 @@ export class ConversationRepository {
       .prepare('DELETE FROM conversation_entry_projection WHERE conversation_id = ?')
       .run(POC_CONVERSATION_ID);
     for (let index = 0; index < state.chat.length; index += 1) {
-      this.upsertEntry(POC_CONVERSATION_ID, state.chat[index]!, state.chat[index - 1]?.id);
+      this.upsertChatMessage(POC_CONVERSATION_ID, state.chat[index]!, state.chat[index - 1]?.id);
     }
     this.upsertSearch(row.id, row.title);
     return mapConversationListItem(row);
@@ -349,39 +502,64 @@ export class ConversationRepository {
       );
   }
 
-  private upsertEntry(
+  private upsertChatMessage(
     conversationId: string,
     message: ChatMessage,
     parentPiEntryId?: string,
   ): void {
+    this.upsertProjection(conversationId, {
+      piEntryId: message.id,
+      parentPiEntryId,
+      entryType: 'message',
+      role: message.role,
+      text: message.content,
+      createdAt: message.createdAt,
+      performance: message.performance,
+      toolCalls: message.toolCalls,
+      displayGroupId: message.id,
+    });
+  }
+
+  private upsertProjection(conversationId: string, entry: SyncConversationEntry): void {
     this.database.connection
       .prepare(
         `INSERT INTO conversation_entry_projection (
            conversation_id, pi_entry_id, parent_pi_entry_id, entry_type, role,
-           text_preview, created_at, performance_json, tool_calls_json,
-           display_group_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           text_preview, created_at, model_id, model_runtime_id, model_alias_snapshot,
+           performance_json, tool_calls_json, attachment_summary_json,
+           regenerates_pi_entry_id, display_group_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(conversation_id, pi_entry_id) DO UPDATE SET
            parent_pi_entry_id = excluded.parent_pi_entry_id,
            entry_type = excluded.entry_type,
            role = excluded.role,
            text_preview = excluded.text_preview,
            created_at = excluded.created_at,
+           model_id = excluded.model_id,
+           model_runtime_id = excluded.model_runtime_id,
+           model_alias_snapshot = excluded.model_alias_snapshot,
            performance_json = excluded.performance_json,
            tool_calls_json = excluded.tool_calls_json,
+           attachment_summary_json = excluded.attachment_summary_json,
+           regenerates_pi_entry_id = excluded.regenerates_pi_entry_id,
            display_group_id = excluded.display_group_id`,
       )
       .run(
         conversationId,
-        message.id,
-        parentPiEntryId ?? null,
-        'message',
-        message.role,
-        message.content.slice(0, 500),
-        message.createdAt,
-        jsonOrNull(message.performance),
-        jsonOrNull(message.toolCalls),
-        message.id,
+        entry.piEntryId,
+        entry.parentPiEntryId ?? null,
+        entry.entryType,
+        entry.role ?? null,
+        entry.text,
+        entry.createdAt,
+        entry.modelId ?? null,
+        entry.modelRuntimeId ?? null,
+        entry.modelAliasSnapshot ?? null,
+        jsonOrNull(entry.performance),
+        jsonOrNull(entry.toolCalls),
+        jsonOrNull(entry.attachmentSummary),
+        entry.regeneratesPiEntryId ?? null,
+        entry.displayGroupId ?? entry.piEntryId,
       );
   }
 

@@ -30,8 +30,12 @@ Implemented:
   lossless `models.ini` writer that preserves comments and unknown keys while
   updating Nelle-managed fields.
 - SQLite schema/migration foundation in `.nelle/settings.sqlite`, plus
-  conversation list/snapshot APIs that mirror the current POC chat into a
-  default conversation.
+  conversation list/snapshot APIs. Each active conversation is bound to a
+  Nelle-owned Pi JSONL session file under `.nelle/pi/sessions`, and SQLite
+  stores the UI projection for the active Pi branch.
+- Conversation-scoped chat streaming through
+  `/api/conversations/:id/chat/stream`, with the legacy `/api/chat/stream`
+  route kept as a default-conversation compatibility wrapper.
 - Nelle-owned llama.cpp router facade endpoints under `/api/llama/*` for router
   props, model list/reload, model load/unload, per-model props, and model SSE
   events.
@@ -47,19 +51,21 @@ Implemented:
 Not implemented yet:
 
 - Mobile LAN pairing and Expo push.
-- Collapsible conversation sidebar and persistence. The planned large-history
-  list uses TanStack Virtual with Astryx sidebar/list styling.
+- Collapsible, virtualized conversation sidebar. The current workbench has a
+  small conversation list/new-chat selector, but the planned large-history list
+  uses TanStack Virtual with Astryx sidebar/list styling.
 - Full router-aware model selector/settings UI. The current POC model panel
   shows router status and exposes reload/load/unload actions, but the final
   settings/sidebar design is not built yet.
-- Full Pi-backed conversation storage. The current SQLite foundation mirrors
-  the POC chat into a default conversation; the planned architecture maps each
-  Nelle conversation to one Pi session file and uses SQLite for indexes,
-  projections, and Nelle-only metadata.
+- Full Pi-backed conversation UI and lifecycle. The server now maps each Nelle
+  conversation to one Pi session file and reopens that file on demand, but
+  fork/clone, title generation, branch variants, abort, export/import, and the
+  final sidebar actions are still pending.
 - Fork/duplicate conversation actions backed by Pi's runtime fork/clone
   behavior, creating new Nelle conversations without mutating the source.
-- REST/SSE snapshot and stream contracts for chat runs. Planned stop behavior
-  calls Pi abort and propagates cancellation through Nelle's llama.cpp proxy.
+- Complete REST/SSE run lifecycle contracts. Conversation snapshot and stream
+  endpoints exist, but planned stop behavior still needs to call Pi abort and
+  propagate cancellation through Nelle's llama.cpp proxy.
 - Local `.nelle-chat.zip` conversation export/import, including Pi session
   files, Nelle sidecar metadata, attachments, model manifest snapshots, and
   tool audit rows.
@@ -71,8 +77,8 @@ Not implemented yet:
 - Host-tool first-run acknowledgement, global disable switch, and durable tool
   audit storage. Sandboxing remains later.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for
-  model/chat state while conversation projection data is mirrored into
-  `.nelle/settings.sqlite`.
+  model/runtime settings and default-conversation compatibility, while
+  conversation projections live in `.nelle/settings.sqlite`.
 - Progress streaming for long installs/builds.
 
 ## Setup
@@ -126,8 +132,9 @@ Set these environment variables when needed:
 4. Click `Start` to launch `llama-server` with the generated
    `.nelle/llama/models.ini`.
 5. Chat with Nelle through the browser UI.
-6. Use `Reset conversation` in the chat footer to clear chat history and reset
-   the in-memory Pi session.
+6. Use `New chat` to create a separate Pi-backed conversation, or use
+   `Reset conversation` in the chat footer to clear the active conversation and
+   detach its Pi session file.
 
 The chat composer uses Astryx's default up-arrow send/stop button. The footer is
 reserved for model selection and reset controls so the composer exposes only one

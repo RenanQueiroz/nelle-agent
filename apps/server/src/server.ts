@@ -13,7 +13,7 @@ import {PiHarness} from './piHarness';
 import {streamDirectLlama} from './directLlama';
 import {AppStore} from './store';
 import {AppDatabase} from './database';
-import {ConversationRepository} from './conversations';
+import {ConversationRepository, POC_CONVERSATION_ID} from './conversations';
 import type {AppPaths} from './paths';
 import type {ChatStreamEvent} from './types';
 
@@ -59,7 +59,7 @@ export async function createServer(paths: AppPaths) {
   conversations.syncPocConversationFromState(await store.getState());
   const llama = new LlamaCppManager(paths, store);
   const hf = new HuggingFaceService(store);
-  const pi = new PiHarness(paths, store);
+  const pi = new PiHarness(paths, store, conversations);
 
   const app = Fastify({
     logger: {
@@ -296,9 +296,27 @@ export async function createServer(paths: AppPaths) {
         },
       });
     }
-    if (id === 'poc-default') {
+    pi.resetSession(id);
+    if (id === POC_CONVERSATION_ID) {
       await store.clearChat();
-      pi.resetSession();
+    }
+    return {ok: true};
+  });
+
+  app.delete('/api/conversations/:id/messages', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    if (!conversations.getConversation(id)) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    pi.resetSession(id);
+    conversations.clearConversationProjection(id);
+    if (id === POC_CONVERSATION_ID) {
+      await store.clearChat();
     }
     return {ok: true};
   });
@@ -309,10 +327,47 @@ export async function createServer(paths: AppPaths) {
   });
 
   app.delete('/api/chat/messages', async () => {
-    pi.resetSession();
+    pi.resetSession(POC_CONVERSATION_ID);
     await store.clearChat();
     conversations.syncPocConversationFromState(await store.getState());
     return {ok: true};
+  });
+
+  app.post('/api/conversations/:id/chat/stream', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    if (!conversations.getConversation(id)) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    const body = chatSchema.parse(request.body);
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+
+    try {
+      const streamResult = await createChatStream({
+        app,
+        store,
+        pi,
+        conversationId: id,
+        message: body.message,
+      });
+      await writeChatStream(reply.raw, streamResult.stream);
+      if (streamResult.syncLegacyState) {
+        conversations.syncPocConversationFromState(await store.getState());
+      }
+    } catch (error) {
+      writeChatError(reply.raw, error);
+    } finally {
+      reply.raw.end();
+    }
   });
 
   app.post('/api/chat/stream', async (request, reply) => {
@@ -324,30 +379,20 @@ export async function createServer(paths: AppPaths) {
       'x-accel-buffering': 'no',
     });
 
-    let stream: AsyncIterable<ChatStreamEvent>;
     try {
-      if (process.env.NELLE_PI_DISABLED === '1') {
-        stream = await streamDirectLlama(store, body.message);
-      } else {
-        try {
-          stream = await pi.streamPrompt(body.message);
-        } catch (error) {
-          app.log.warn({err: error}, 'Pi harness failed before streaming');
-          stream = await streamDirectLlama(store, body.message);
-        }
+      const streamResult = await createChatStream({
+        app,
+        store,
+        pi,
+        conversationId: POC_CONVERSATION_ID,
+        message: body.message,
+      });
+      await writeChatStream(reply.raw, streamResult.stream);
+      if (streamResult.syncLegacyState) {
+        conversations.syncPocConversationFromState(await store.getState());
       }
-
-      for await (const event of stream) {
-        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
-      }
-      conversations.syncPocConversationFromState(await store.getState());
     } catch (error) {
-      reply.raw.write(
-        `data: ${JSON.stringify({
-          type: 'error',
-          message: error instanceof Error ? error.message : String(error),
-        })}\n\n`,
-      );
+      writeChatError(reply.raw, error);
     } finally {
       reply.raw.end();
     }
@@ -364,6 +409,57 @@ export async function createServer(paths: AppPaths) {
   }
 
   return app;
+}
+
+async function createChatStream(input: {
+  app: {log: {warn: (input: unknown, message?: string) => void}};
+  store: AppStore;
+  pi: PiHarness;
+  conversationId: string;
+  message: string;
+}): Promise<{stream: AsyncIterable<ChatStreamEvent>; syncLegacyState: boolean}> {
+  if (process.env.NELLE_PI_DISABLED === '1') {
+    if (input.conversationId !== POC_CONVERSATION_ID) {
+      throw new Error('Direct llama.cpp fallback only supports the default POC conversation.');
+    }
+    return {
+      stream: await streamDirectLlama(input.store, input.message),
+      syncLegacyState: true,
+    };
+  }
+  try {
+    return {
+      stream: await input.pi.streamPrompt(input.message, input.conversationId),
+      syncLegacyState: false,
+    };
+  } catch (error) {
+    input.app.log.warn({err: error}, 'Pi harness failed before streaming');
+    if (input.conversationId !== POC_CONVERSATION_ID) {
+      throw error;
+    }
+    return {
+      stream: await streamDirectLlama(input.store, input.message),
+      syncLegacyState: true,
+    };
+  }
+}
+
+async function writeChatStream(
+  raw: {write: (chunk: string) => void},
+  stream: AsyncIterable<ChatStreamEvent>,
+): Promise<void> {
+  for await (const event of stream) {
+    raw.write(`data: ${JSON.stringify(event)}\n\n`);
+  }
+}
+
+function writeChatError(raw: {write: (chunk: string) => void}, error: unknown): void {
+  raw.write(
+    `data: ${JSON.stringify({
+      type: 'error',
+      message: error instanceof Error ? error.message : String(error),
+    })}\n\n`,
+  );
 }
 
 async function handleLlamaRoute<T>(

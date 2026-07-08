@@ -129,6 +129,57 @@ export type ChatStreamEvent =
   | {type: 'done'; message: ChatMessage}
   | {type: 'error'; message: string};
 
+export type ConversationListItem = {
+  id: string;
+  title: string;
+  titleSource: 'generated' | 'user' | 'imported' | 'fallback';
+  pinned: boolean;
+  status: 'ready' | 'running' | 'compacting' | 'aborting' | 'unavailable';
+  updatedAt: string;
+  defaultModelId?: string;
+};
+
+export type ConversationEntryProjection = {
+  conversationId: string;
+  piEntryId: string;
+  parentPiEntryId?: string;
+  entryType: string;
+  role?: ChatMessage['role'];
+  textPreview?: string;
+  createdAt: string;
+  modelId?: string;
+  modelRuntimeId?: string;
+  modelAliasSnapshot?: string;
+  performance?: unknown;
+  toolCalls?: unknown;
+};
+
+export type ConversationSnapshot = {
+  conversation: ConversationListItem & {
+    piSessionId?: string;
+    activeLeafPiEntryId?: string;
+    parentConversationId?: string;
+    forkedFromPiEntryId?: string;
+    forkKind?: 'fork' | 'clone';
+  };
+  entries: ConversationEntryProjection[];
+  activePathEntryIds: string[];
+  models: {
+    selectedModelId?: string;
+    defaultModelId?: string;
+    available: Array<{id: string; alias: string; status?: string}>;
+  };
+  capabilities: {
+    canSend: boolean;
+    canAbort: boolean;
+    canCompact: boolean;
+    canFork: boolean;
+    canAttachImages: boolean;
+    canAttachText: boolean;
+  };
+  errors: Array<{code: string; message: string; retryable?: boolean}>;
+};
+
 export type AppStateResponse = {
   state: {
     activeModelId: string | null;
@@ -228,6 +279,30 @@ export async function activateModel(id: string): Promise<ConfiguredModel> {
   return response.model;
 }
 
+export async function getConversations(): Promise<ConversationListItem[]> {
+  const response = await apiGet<{conversations: ConversationListItem[]}>('/api/conversations');
+  return response.conversations;
+}
+
+export async function createConversation(input: {
+  title?: string;
+  defaultModelId?: string | null;
+}): Promise<ConversationListItem> {
+  const response = await apiPost<{conversation: ConversationListItem}>('/api/conversations', input);
+  return response.conversation;
+}
+
+export async function getConversation(id: string): Promise<ConversationSnapshot> {
+  const response = await apiGet<{snapshot: ConversationSnapshot}>(
+    `/api/conversations/${encodeURIComponent(id)}`,
+  );
+  return response.snapshot;
+}
+
+export async function clearConversation(id: string): Promise<void> {
+  await apiDelete(`/api/conversations/${encodeURIComponent(id)}/messages`);
+}
+
 export async function clearChat(): Promise<void> {
   await apiDelete('/api/chat/messages');
 }
@@ -236,16 +311,37 @@ export async function streamChat(
   message: string,
   onEvent: (event: ChatStreamEvent) => void,
 ): Promise<void> {
-  const response = await fetch('/api/chat/stream', {
-    method: 'POST',
-    headers: {'content-type': 'application/json'},
-    body: JSON.stringify({message}),
-  });
+  await streamConversationChat('poc-default', message, onEvent);
+}
+
+export async function streamConversationChat(
+  conversationId: string,
+  message: string,
+  onEvent: (event: ChatStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch(
+    `/api/conversations/${encodeURIComponent(conversationId)}/chat/stream`,
+    {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({message}),
+    },
+  );
   if (!response.ok || !response.body) {
     throw new Error(`Chat request failed: ${response.status}`);
   }
 
-  const reader = response.body.getReader();
+  await readEventStream(response, onEvent);
+}
+
+async function readEventStream(
+  response: Response,
+  onEvent: (event: ChatStreamEvent) => void,
+): Promise<void> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('Chat request did not return a response body.');
+  }
   const decoder = new TextDecoder();
   let buffer = '';
   while (true) {
@@ -264,6 +360,22 @@ export async function streamChat(
       onEvent(JSON.parse(line.slice(5).trim()) as ChatStreamEvent);
     }
   }
+}
+
+export async function streamLegacyChat(
+  message: string,
+  onEvent: (event: ChatStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch('/api/chat/stream', {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({message}),
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`Chat request failed: ${response.status}`);
+  }
+
+  await readEventStream(response, onEvent);
 }
 
 async function apiGet<T>(url: string): Promise<T> {
