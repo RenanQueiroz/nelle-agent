@@ -64,6 +64,13 @@ The first product experience should be UI-driven:
   primitives or magic styling values.
   References: https://astryx.atmeta.com/docs/getting-started and
   https://astryx.atmeta.com/docs/working-with-ai
+- Pi slash commands include model, session, auth, settings, history, and
+  compaction commands. Nelle should not forward arbitrary Pi slash commands
+  from chat input because several of them conflict with Nelle-owned UI flows.
+  `/compact [prompt]` is the only Pi slash command planned for direct composer
+  support initially.
+  References: https://pi.dev/docs/latest/usage#slash-commands and
+  https://pi.dev/docs/latest/compaction
 
 ## Settled Decisions
 
@@ -85,6 +92,9 @@ The first product experience should be UI-driven:
   limited to text files, PDFs, and images for the router/chat UI plan.
 - One model runs at a time. Multi-model concurrency is deferred.
 - The web UI uses Meta's Astryx components and design tokens.
+- Chat slash commands are Nelle allowlisted. Support `/compact [instructions]`
+  first, and route session, model, auth, settings, export, and copy workflows
+  through Nelle UI controls instead of Pi's interactive slash commands.
 - This directory should be initialized as a real Git repo with origin
   `git@github.com:RenanQueiroz/nelle-server.git`.
 
@@ -151,6 +161,9 @@ import {neutralTheme} from '@astryxdesign/theme-neutral/built';
   then inspect the recommended template and component docs.
 - Prefer Astryx layout/components over raw HTML structure for app UI.
 - Use Astryx tokens for spacing, color, radius, and typography.
+- For slash-command UI, use Astryx `ChatComposerInput` triggers with a
+  searchable source and `TypeaheadItem` descriptions, following the
+  `ChatComposerInputSlashCommands` template.
 - Let Astryx `ChatComposer` render its default `ChatSendButton` unless the UI is
   intentionally replacing it via `sendButton`; `sendActions` is for auxiliary
   controls to the left of send and should not render another send affordance.
@@ -317,6 +330,10 @@ Responsibilities:
 - Normalize Pi events into Nelle's API event contract.
 - Persist sessions under Nelle's app data directory.
 - Enable host file and shell tools in v1.
+- Expose only Nelle-allowlisted Pi slash behavior through the web composer.
+  Initially this means manual compaction through `/compact [instructions]`.
+  Other Pi built-ins remain UI-owned or unsupported, and extension/skill/prompt
+  slash commands stay hidden until Nelle has explicit command-level policy.
 
 Security posture:
 
@@ -463,6 +480,10 @@ Initial implementation:
   any tokenization estimate is draft-only.
 - Route chat sendability problems through Astryx `ChatComposer` status:
   blocking errors above the composer and non-blocking warnings below it.
+- Add slash-command typeahead to the composer from Nelle's allowlist. Initially
+  show `/compact [instructions]` only, reject unsupported Pi commands before
+  prompt submission, and render manual compaction as a visible command/status
+  row rather than a normal user/assistant message.
 - Regenerating an assistant answer should create a sibling branch from the same
   parent user message. Selecting a different model in the message footer should
   load that model if needed and regenerate with that model override in one

@@ -42,6 +42,9 @@ Not implemented yet:
   list uses TanStack Virtual with Astryx sidebar/list styling.
 - Composer attachments and context-window display. Planned attachment scope is
   text files, PDFs, and images only; audio/video attachments are out of scope.
+- Slash-command typeahead and manual `/compact` support. Planned slash-command
+  scope is Nelle-allowlisted, with Pi session/model/auth commands handled by
+  Nelle UI controls instead of chat input.
 - Sandboxing for host tools.
 - SQLite persistence. The POC uses `.nelle/state.json`.
 - Progress streaming for long installs/builds.
@@ -106,8 +109,11 @@ send affordance.
 
 The planned composer overhaul will move chat warnings/errors into Astryx
 `ChatComposer` status, add a context-window progress bar with used/total token
-tooltip, and support text/PDF/image attachments gated by the selected model's
-vision capability. Audio/video attachments are intentionally excluded for now.
+tooltip, support text/PDF/image attachments gated by the selected model's vision
+capability, and add Astryx slash-command typeahead for Nelle-supported commands.
+Audio/video attachments are intentionally excluded for now. The first planned
+Pi slash command is `/compact [instructions]`; commands such as `/new`,
+`/resume`, `/model`, `/login`, and `/logout` stay owned by Nelle UI controls.
 
 Assistant message metadata shows the message time followed by llama.cpp
 throughput, for example `12:01 PM · prompt 32.30 tok/s · gen 21.53 tok/s`.

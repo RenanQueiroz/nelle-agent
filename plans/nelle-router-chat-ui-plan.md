@@ -92,6 +92,29 @@ Relevant upstream UI patterns:
 - llama.cpp reports context-overflow errors with `n_prompt_tokens` and `n_ctx`,
   and exposes `n_ctx` in `/props` and `/slots`.
 
+Relevant Pi slash-command behavior:
+
+- Pi's interactive editor opens command completion when the user types `/`.
+  Built-in commands include model/session/auth/settings/history utilities plus
+  `/compact [prompt]`.
+- Pi also exposes extension commands, skill commands, and prompt-template
+  commands through the same slash-command namespace.
+- Manual compaction is the only Pi built-in slash command Nelle should support
+  directly in the chat composer at first. It is conversation scoped and accepts
+  optional custom instructions.
+- Pi auto-compaction triggers when context exceeds its configured threshold, and
+  manual `/compact [instructions]` summarizes older messages while preserving
+  recent context.
+- The installed Pi SDK docs say `session.prompt()` handles prompt templates,
+  extension commands, and message sending. Pi's built-in interactive commands
+  such as `/compact` are handled by interactive-mode code, so the Nelle
+  implementation must verify the correct SDK/RPC/manual compaction hook before
+  assuming that `session.prompt("/compact")` works.
+- Astryx's `ChatComposerInputSlashCommands` template uses
+  `ChatComposerInput` `triggers`, `createStaticSource`, and `TypeaheadItem` to
+  provide a slash-command typeahead. Nelle should reuse that pattern with its
+  own command allowlist and descriptions.
+
 ## Current Gaps
 
 Nelle currently differs from the target in these ways:
@@ -112,6 +135,8 @@ Nelle currently differs from the target in these ways:
   model-modality gating.
 - Chat warnings/errors still appear as page-level notices instead of
   composer-local Astryx status messages.
+- The composer has no slash-command typeahead, and manual Pi compaction has no
+  Nelle-owned visual feedback.
 
 ## Target Data Ownership
 
@@ -348,6 +373,7 @@ Composer:
 - Keep exactly one Astryx default send/stop button.
 - Add a paperclip attachment action in `headerActions`.
 - Show context-window usage in `headerContext`.
+- Add slash-command typeahead for Nelle-supported chat commands.
 - Route chat-blocking errors and chat warnings through Astryx `ChatComposer`
   status instead of page-level notices.
 
@@ -454,6 +480,81 @@ Composer status routing:
 - General runtime/setup notices outside the chat workflow may still appear in
   settings/log surfaces, but chat sendability should be explained at the
   composer itself.
+
+### Slash Commands And Manual Compaction
+
+Nelle should not pass arbitrary Pi slash commands through the chat input. The
+chat composer owns a Nelle allowlist and should intercept slash commands before
+normal prompt submission.
+
+Supported initially:
+
+- `/compact [instructions]`: manually compact the active conversation/Pi
+  session. Optional instructions should focus the generated summary and should
+  be visible in the command-status details.
+
+UI-owned or unsupported initially:
+
+- `/new`: use the sidebar new-chat button.
+- `/resume`: use the conversation sidebar and search.
+- `/model` and `/scoped-models`: use Nelle's router-aware model selectors.
+- `/login` and `/logout`: use future Settings auth/provider flows. Nelle's
+  local llama.cpp provider remains app-managed.
+- `/settings`: use Nelle Settings.
+- `/name`, `/session`, `/tree`, `/fork`, `/clone`, `/export`, `/import`, and
+  `/share`: use Nelle's conversation sidebar, branching, export/import, and
+  sharing flows as those features are implemented.
+- `/copy`: use the assistant message copy button.
+- `/trust`, `/reload`, `/hotkeys`, `/changelog`, and `/quit`: keep out of the
+  chat composer unless Nelle implements explicit equivalents later.
+- Pi extension commands, skill commands, and prompt-template commands: disabled
+  or hidden by default until Nelle has a per-command allowlist and security
+  model. They share the same namespace and can bypass the product boundaries we
+  are building in the web UI.
+
+Slash-command UI:
+
+- Use the Astryx `ChatComposerInput` trigger pattern from
+  `ChatComposerInputSlashCommands`: `character: "/"`, a static/searchable
+  command source, `TypeaheadItem` descriptions, and token insertion through
+  `onSelect`.
+- Autocomplete should show only commands Nelle supports now. For the first
+  implementation that means `/compact`.
+- Add a command help surface, likely available from the typeahead empty state or
+  a settings/help link, that explains unsupported Pi commands and the Nelle UI
+  control that replaces each one.
+- If a user manually submits an unsupported slash command, do not send it to
+  Pi. Show a top composer error with the Nelle-owned alternative, such as "Use
+  the model selector to change models."
+- If the user submits an unknown slash command, show a top composer error and
+  keep the draft in the composer.
+
+`/compact` behavior:
+
+1. Parse `/compact` and optional trailing instructions client-side or
+   server-side before normal chat submission.
+2. Require the active conversation to be idle for the first implementation.
+   Reject while an assistant turn or another compaction is running and surface a
+   composer top error.
+3. Call a conversation-scoped Nelle endpoint:
+   `POST /api/conversations/:id/compact`.
+4. The server invokes Pi compaction for the active conversation/session.
+5. Render a command/status row in the chat timeline with states such as
+   pending, compacting, completed, and failed. This row should not be stored as
+   a normal user or assistant message.
+6. On completion, refresh context-window usage and conversation/session
+   metadata. If Pi exposes compaction details such as tokens before, first kept
+   entry, or summary metadata, store them in the command row details.
+7. On failure, keep conversation history unchanged and show both the failed
+   status row and a composer top error.
+
+Implementation spike:
+
+- Verify whether the embedded Pi SDK exposes a direct manual compaction API for
+  a session, whether RPC mode exposes one, or whether Nelle must call lower
+  level Pi compaction/session helpers. Do not rely on
+  `session.prompt("/compact")` unless a spike proves that built-in slash
+  commands are handled correctly outside Pi's interactive mode.
 
 ### Assistant Message Footer
 
@@ -621,6 +722,7 @@ API shape:
 - `POST /api/conversations/:id/export`
 - `DELETE /api/conversations`
 - `POST /api/conversations/:id/chat/stream`
+- `POST /api/conversations/:id/compact`
 - `POST /api/conversations/:id/messages/:messageId/regenerate`
 
 Chat streaming should be conversation-scoped. The stream route appends the user
@@ -782,6 +884,29 @@ Exit criteria:
 - Near-full context and non-blocking attachment conversions appear as bottom
   composer warnings.
 
+### Phase 3D: Slash Commands And Manual Compaction
+
+- Add an Astryx `ChatComposerInput` slash-command trigger backed by Nelle's
+  command allowlist.
+- Support `/compact [instructions]` for the active conversation.
+- Add the conversation-scoped compaction API and Pi bridge adapter.
+- Add command/status rows for compaction progress, completion, and failure.
+- Reject unsupported Pi slash commands with composer errors that point to the
+  Nelle UI equivalent.
+- Add a small command help surface that describes supported commands and
+  explains why UI-owned Pi commands are not forwarded.
+
+Exit criteria:
+
+- Typing `/` opens an Astryx-styled command typeahead showing `/compact`.
+- `/compact` and `/compact <instructions>` run manual compaction for the active
+  idle conversation and display visible progress.
+- Unsupported commands such as `/new`, `/resume`, `/model`, `/login`, and
+  `/logout` are never sent to Pi as prompts and show actionable UI guidance.
+- Compaction updates the context-window display after completion.
+- Pi SDK/RPC/manual compaction integration is verified by an automated or
+  documented spike before relying on it in product code.
+
 ### Phase 4: Title Generation
 
 - Add non-persisted title-generation request after first response.
@@ -810,6 +935,8 @@ Unit tests:
 - Sidebar row flattening, stable virtual keys, and search/pinned grouping.
 - Attachment file classification, modality gating, PDF/text extraction
   fallback, and context-progress formatting.
+- Slash-command parsing, Nelle allowlist/blocklist behavior, unsupported
+  command guidance, and `/compact` instruction extraction.
 
 Integration tests:
 
@@ -829,6 +956,9 @@ Integration tests:
   supports image input, and rejected through composer status when it does not.
 - Verify context overflow errors with `n_prompt_tokens`/`n_ctx` become composer
   top errors.
+- Verify `/compact` calls the Pi compaction adapter for the active conversation,
+  unsupported slash commands are rejected before Pi prompt submission, and busy
+  conversations reject compaction with composer status.
 
 Playwright tests:
 
@@ -854,6 +984,10 @@ Playwright tests:
   status at the configured thresholds.
 - Composer shows llama-server stopped/no model/unsupported attachment as top
   status errors and near-full context as a bottom status warning.
+- Typing `/` shows the slash-command typeahead, selecting `/compact` inserts the
+  command token/draft, and submitting it renders compaction progress.
+- Typing unsupported commands such as `/model` or `/new` shows composer guidance
+  and does not append a normal chat message.
 - Title generation updates only the conversation title, not message history.
 
 ## Risks And Decisions
@@ -877,6 +1011,14 @@ Playwright tests:
   Streamed `prompt_progress` and final `timings` remain authoritative.
 - Title generation cost: it adds one extra model call on new conversations.
   Keep it short and make failures silent.
+- Pi slash-command boundary: Pi owns many interactive commands that conflict
+  with Nelle's UI-owned model/session/auth/settings flows. Keep the chat
+  allowlist narrow, support `/compact` first, and do not expose extension, skill,
+  or prompt-template slash commands until Nelle has explicit command-level
+  policy.
+- Pi compaction integration: built-in interactive `/compact` is not guaranteed
+  to work through the same SDK path as normal prompts. Verify the correct
+  embedded API/RPC/helper path before implementation.
 
 ## Settled Follow-Up Decisions
 
@@ -893,3 +1035,6 @@ Playwright tests:
 - Local file model APIs are removed now, not just hidden.
 - Composer attachments are text, PDF, and image only for now. Audio/video are
   excluded while the Pi integration path is text plus image.
+- Only `/compact [instructions]` is supported as a Pi slash command in Nelle's
+  chat composer initially. All other Pi built-ins are either handled through
+  Nelle UI surfaces or intentionally unsupported until explicitly allowlisted.
