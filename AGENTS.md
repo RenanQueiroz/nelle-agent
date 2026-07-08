@@ -52,6 +52,9 @@ Project-specific guidance for AI coding agents.
   files as authoritative for message history, compaction, and branch state;
   SQLite stores conversation indexes, projections, and Nelle-only sidecar
   metadata.
+- Projection sync may rebuild the active SQLite view from Pi's current branch,
+  but must not rewrite the Pi session file or drop inactive branches from the
+  append-only JSONL history.
 - API-created conversations should immediately create and bind a header-only Pi
   session JSONL file, before the first prompt.
 - On Pi-enabled startup, migrate a non-empty legacy `poc-default` chat from

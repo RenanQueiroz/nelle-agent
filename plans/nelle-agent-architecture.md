@@ -445,6 +445,9 @@ Responsibilities:
 - Persist sessions under Nelle's app data directory.
 - Project Pi session entries into SQLite for fast UI/search, but treat Pi JSONL
   files as authoritative for message history and branch state.
+- Rebuild SQLite projections from Pi's active branch without rewriting Pi
+  session files; inactive Pi branches must remain in the append-only JSONL file
+  for export and future branch-tree UI.
 - Use Pi `AgentSession.abort()`, `compact()`, `abortCompaction()`, and
   `abortRetry()` for UI stop/compact behavior rather than reimplementing those
   mechanics.

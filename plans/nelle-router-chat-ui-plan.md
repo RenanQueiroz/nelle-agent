@@ -1711,8 +1711,10 @@ Exit criteria:
   overwriting existing conversations. Tool audit rows are exported when present;
   import keeps them as diagnostics rather than restoring them into the new
   conversation.
-- Inactive Pi branches are preserved in session files and are not dropped by
-  projection rebuilds.
+- Done: inactive Pi branches are preserved in session files and are not dropped
+  by projection rebuilds. Projection sync rebuilds the active SQLite view from
+  `SessionManager.getBranch()` while leaving Pi's append-only JSONL entries
+  intact.
 - Done: conversation delete removes SQLite rows, the Pi session file, and
   unreferenced attachment files.
 
@@ -1867,8 +1869,8 @@ Unit tests:
 - Message model metadata selection and alias snapshot fallback.
 - Fork/clone request validation, source entry eligibility, new conversation
   metadata, and default title generation.
-- Branch/variant grouping from `display_group_id` without dropping inactive Pi
-  branches.
+- Done: branch/variant grouping from `display_group_id` without dropping
+  inactive Pi branches from the Pi session file.
 - Regenerate request path construction, branch creation, and model override
   validation.
 - Performance statistics view selection, formatting, and live auto-switching.

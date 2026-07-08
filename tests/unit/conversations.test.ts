@@ -1599,6 +1599,77 @@ test('Pi sync preserves existing answer variants when regenerating again', async
   }
 });
 
+test('Pi sync rebuilds the active projection without dropping inactive session branches', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Branched session'});
+    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const userEntryId = sessionManager.appendMessage({
+      role: 'user',
+      content: 'Choose an answer',
+    } as any);
+    const inactiveAssistantEntryId = sessionManager.appendMessage({
+      role: 'assistant',
+      content: 'First branch answer',
+    } as any);
+    sessionManager.branch(userEntryId);
+    const activeAssistantEntryId = sessionManager.appendMessage({
+      role: 'assistant',
+      content: 'Second branch answer',
+    } as any);
+    const sessionPath = sessionManager.getSessionFile();
+    assert.ok(sessionPath);
+
+    const activeModel = createTestModel();
+    const harness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+    ) as unknown as {
+      syncPiConversation: (
+        conversationId: string,
+        session: unknown,
+        activeModel: ConfiguredModel,
+        assistantMessage?: ChatMessage,
+        status?: 'ready' | 'running',
+      ) => void;
+    };
+
+    harness.syncPiConversation(
+      conversation.id,
+      {
+        sessionFile: sessionPath,
+        sessionId: sessionManager.getSessionId(),
+        sessionManager,
+      },
+      activeModel,
+      undefined,
+      'ready',
+    );
+
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+    const reopened = SessionManager.open(sessionPath, paths.piSessionsDir, paths.repoRoot);
+
+    assert.deepEqual(snapshot?.activePathEntryIds, [userEntryId, activeAssistantEntryId]);
+    assert.deepEqual(
+      snapshot?.entries.map(entry => entry.piEntryId),
+      [userEntryId, activeAssistantEntryId],
+    );
+    assert.deepEqual(
+      reopened.getEntries().map(entry => entry.id),
+      [userEntryId, inactiveAssistantEntryId, activeAssistantEntryId],
+    );
+    assert.equal(reopened.getEntry(inactiveAssistantEntryId)?.type, 'message');
+  } finally {
+    database.close();
+  }
+});
+
 test('conversation API exposes list, snapshot, create, patch, pin, and delete routes', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
