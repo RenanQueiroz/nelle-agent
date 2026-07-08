@@ -216,6 +216,23 @@ function routerStatusColor(status: string): 'green' | 'yellow' | 'red' | 'blue' 
   return 'blue';
 }
 
+function routerStatusForModel(
+  model: ConfiguredModel | null,
+  routerModelsByConfiguredId: Map<string, LlamaRouterModel>,
+  runtime: RuntimeStatus | null,
+): string | null {
+  if (!model) {
+    return null;
+  }
+  return (
+    routerModelsByConfiguredId.get(model.id)?.status ?? (runtime?.running ? 'unlisted' : 'stopped')
+  );
+}
+
+function isRunnableRouterStatus(status: string | null | undefined): boolean {
+  return status === 'loaded' || status === 'sleeping';
+}
+
 export function App() {
   const showToast = useToast();
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
@@ -329,6 +346,10 @@ export function App() {
     }
     return entries;
   }, [models, routerModels]);
+  const activeComposerRouterStatus = useMemo(
+    () => routerStatusForModel(activeModel, routerModelsByConfiguredId, runtime),
+    [activeModel, routerModelsByConfiguredId, runtime],
+  );
   useEffect(() => {
     let isCancelled = false;
     void (async () => {
@@ -388,7 +409,7 @@ export function App() {
   useEffect(() => {
     let isCancelled = false;
     setActiveModelProps(null);
-    if (!activeModel || !runtime?.running) {
+    if (!activeModel || !runtime?.running || !isRunnableRouterStatus(activeComposerRouterStatus)) {
       return () => {
         isCancelled = true;
       };
@@ -408,7 +429,7 @@ export function App() {
     return () => {
       isCancelled = true;
     };
-  }, [activeModel, runtime?.running]);
+  }, [activeComposerRouterStatus, activeModel, runtime?.running]);
 
   function syncSettingsDrafts(
     globalParams: Record<string, string> | undefined,
@@ -632,6 +653,20 @@ export function App() {
       await unloadLlamaModel(model.id);
       await refreshRouterModels();
       setNotice({type: 'success', text: `${model.name} unload requested.`});
+    });
+  }
+
+  async function handleSelectComposerModel(model: ConfiguredModel) {
+    if (model.id === activeModelId) {
+      return;
+    }
+    await runAction(`composer-model:${model.id}`, async () => {
+      if (runtime?.running) {
+        await waitForRouterModelReady(model);
+      }
+      const activatedModel = await activateModel(model.id);
+      setActiveModelId(activatedModel.id);
+      await refreshState();
     });
   }
 
@@ -953,18 +988,23 @@ export function App() {
     if (!runtime?.running) {
       throw new Error('Start llama.cpp before regenerating a response.');
     }
+    await waitForRouterModelReady(model);
+  }
 
+  async function waitForRouterModelReady(model: ConfiguredModel): Promise<void> {
     const currentRouterModel = findRouterModelForConfiguredModel(model, routerModels);
-    if (currentRouterModel?.status === 'loaded' || currentRouterModel?.status === 'sleeping') {
+    if (isRunnableRouterStatus(currentRouterModel?.status)) {
       return;
     }
 
-    await loadLlamaModel(model.id);
+    if (currentRouterModel?.status !== 'loading') {
+      await loadLlamaModel(model.id);
+    }
     for (let attempt = 0; attempt < 60; attempt += 1) {
       const nextRouterModels = await getLlamaModels();
       setRouterModels(nextRouterModels);
       const nextRouterModel = findRouterModelForConfiguredModel(model, nextRouterModels);
-      if (nextRouterModel?.status === 'loaded' || nextRouterModel?.status === 'sleeping') {
+      if (isRunnableRouterStatus(nextRouterModel?.status)) {
         return;
       }
       if (nextRouterModel?.status === 'failed') {
@@ -972,7 +1012,7 @@ export function App() {
       }
       await delay(500);
     }
-    throw new Error(`${model.name} did not finish loading before regeneration timed out.`);
+    throw new Error(`${model.name} did not finish loading before the router timed out.`);
   }
 
   async function handleRegenerateMessage(message: ApiChatMessage, modelId?: string) {
@@ -1324,13 +1364,18 @@ export function App() {
                             }}
                             items={models.map(model => ({
                               label: model.name,
-                              onClick: () =>
-                                runAction('activate', async () => {
-                                  await activateModel(model.id);
-                                  await refreshState();
-                                }),
+                              onClick: () => void handleSelectComposerModel(model),
                             }))}
                           />
+                          {activeComposerRouterStatus && (
+                            <Tooltip content="Selected model router status">
+                              <Token
+                                size="sm"
+                                color={routerStatusColor(activeComposerRouterStatus)}
+                                label={formatRouterStatus(activeComposerRouterStatus)}
+                              />
+                            </Tooltip>
+                          )}
                           <Tooltip content="Supported command: compact this conversation context">
                             <Token size="sm" color="yellow" label="/compact" />
                           </Tooltip>

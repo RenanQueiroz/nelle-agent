@@ -151,8 +151,10 @@ Nelle currently differs from the target in these ways:
   full-file `models.ini` editing is not exposed.
 - Runtime settings for `modelsMax` and `sleepIdleSeconds` exist, the
   Nelle-owned `/api/llama/*` router facade exists, and Settings exposes router
-  status plus reload/load/unload actions. The composer dropdown is still a
-  compact model selector and does not yet show search/progress/favorites.
+  status plus reload/load/unload actions. The composer dropdown is now a compact
+  router-aware selector that displays the selected model status and loads an
+  unloaded model before activation, but it does not yet show search, rich load
+  progress, or favorites.
 - The web UI has a collapsible, virtualized conversation sidebar with search,
   pinned/recent groups, new-chat, running indicators, and row actions.
   Runtime/model/global/chats controls live in a right-side Settings panel.
@@ -1585,11 +1587,13 @@ Exit criteria:
 - Done: build settings surface with Runtime, Models, Global Params, and Chats
   sections.
 - Done: move HF search/import and param editing into Settings.
-- Pending: replace composer model dropdown with router-aware selector:
-  alias display, search, status, load progress.
+- Done for the compact composer selector: alias display, selected router status,
+  and load-before-activation for unloaded models. Pending: richer search,
+  favorites, and progress display.
 - Done: add manual load/unload controls in Settings model rows.
-- Fetch and cache loaded model props so model selectors can display modality and
-  context-window metadata.
+- Done for the active composer model: fetch and cache loaded model props so the
+  composer can display context-window metadata and gate image attachments.
+  Pending: expose modality/context metadata inside the richer selector.
 - Done for Settings writes: alias/param edits, HF imports, duplicate/remove, and
   global param saves write `models.ini` and reload router models when running.
   Remaining: richer composer selector progress/favorites and explicit active-run
@@ -1599,8 +1603,10 @@ Exit criteria:
 
 - Done: users can edit global/model params without editing files.
 - Done: users can see loaded/loading/unloaded/failed states in Settings rows.
-- Pending: composer model selector loads on selection and shows progress.
-- Loaded models expose context size and image-support capability in the UI.
+- Done: composer model selector loads unloaded models before activation and
+  shows the selected model router status. Pending: rich progress display.
+- Done for the active composer model: loaded model props expose context size and
+  image-support capability in the UI. Pending: selector-row metadata.
 - Done: Settings edits/removals reload the running router and keep active runs
   captured by request-time model ids. Pending: disable destructive edits while a
   matching active run is in progress.

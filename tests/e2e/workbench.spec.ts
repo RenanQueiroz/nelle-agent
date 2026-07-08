@@ -85,7 +85,7 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
 
   await expect(page.getByText('unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL').first()).toBeVisible();
   await expect(page.getByRole('button', {name: 'Selected'})).toBeVisible();
-  await expect(page.getByText('router stopped')).toBeVisible();
+  await expect(page.getByText('router stopped').first()).toBeVisible();
   await expect
     .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
     .toContain('[unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL]');
@@ -214,19 +214,142 @@ test('shows router model status and load/unload controls', async ({page}) => {
 
   await page.getByRole('button', {name: 'Settings'}).click();
   await page.getByRole('button', {name: 'Models'}).click();
-  await expect(page.getByText('loaded', {exact: true})).toBeVisible();
+  await expect(page.getByText('loaded', {exact: true}).last()).toBeVisible();
   await expect(page.getByText(`router id: ${model.id}`)).toBeVisible();
   await expect(page.getByRole('button', {name: 'Load', exact: true})).toBeDisabled();
   await page.getByRole('button', {name: 'Unload', exact: true}).click();
-  await expect(page.getByText('unloaded', {exact: true})).toBeVisible();
+  await expect(page.getByText('unloaded', {exact: true}).last()).toBeVisible();
   await expect.poll(() => unloadCalls).toBe(1);
 
   await page.getByRole('button', {name: 'Load', exact: true}).click();
   await expect.poll(() => loadCalls).toBe(1);
-  await expect(page.getByText('loaded', {exact: true})).toBeVisible();
+  await expect(page.getByText('loaded', {exact: true}).last()).toBeVisible();
 
   await page.getByRole('button', {name: 'Reload'}).click();
   await expect.poll(() => reloadCalls).toBe(1);
+});
+
+test('loads an unloaded router model from the composer selector', async ({page}) => {
+  const modelA = {
+    id: 'model-a',
+    name: 'Model A',
+    presetName: 'model-a',
+    source: 'huggingface',
+    repoId: 'repo/model-a',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model-a:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const modelB = {
+    id: 'model-b',
+    name: 'Model B',
+    presetName: 'model-b',
+    source: 'huggingface',
+    repoId: 'repo/model-b',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model-b:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    logPath: '/tmp/llama.log',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    modelsMax: 1,
+    sleepIdleSeconds: 90,
+    activeModelId: modelA.id,
+    lastError: null,
+  };
+  let activeModelId = modelA.id;
+  let modelBStatus = 'unloaded';
+  let activateCalls = 0;
+  let loadCalls = 0;
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId,
+          models: [modelA, modelB],
+          chat: [],
+        },
+        runtime: {...runtime, activeModelId},
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: {...runtime, activeModelId}});
+  });
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: modelA.id,
+            routerModelId: modelA.id,
+            alias: modelA.name,
+            hfRepo: modelA.hfRef,
+            status: 'loaded',
+            aliases: [modelA.id],
+          },
+          {
+            sectionId: modelB.id,
+            routerModelId: modelB.id,
+            alias: modelB.name,
+            hfRepo: modelB.hfRef,
+            status: modelBStatus,
+            aliases: [modelB.id],
+          },
+        ],
+      },
+    });
+  });
+  await page.route('**/api/llama/models/**/props', async route => {
+    await route.fulfill({
+      json: {
+        modelId: activeModelId,
+        modalities: {vision: false, audio: false, video: false},
+        contextWindow: 8192,
+        raw: {},
+      },
+    });
+  });
+  await page.route('**/api/models/model-b/activate', async route => {
+    activateCalls += 1;
+    activeModelId = modelB.id;
+    await route.fulfill({json: {model: modelB}});
+  });
+  await page.route(/\/api\/llama\/models\/model-b\/load$/, async route => {
+    loadCalls += 1;
+    modelBStatus = 'loaded';
+    await route.fulfill({json: {ok: true}});
+  });
+  await mockConversationRoutes(page, {chat: []});
+
+  await page.goto('/');
+
+  await expect(page.getByRole('button', {name: 'Model A'})).toBeVisible();
+  await expect(page.getByText('loaded', {exact: true})).toBeVisible();
+
+  await page.getByRole('button', {name: 'Model A'}).click();
+  await page.getByRole('menuitem', {name: 'Model B'}).click();
+
+  await expect.poll(() => loadCalls).toBe(1);
+  await expect.poll(() => activateCalls).toBe(1);
+  await expect(page.getByRole('button', {name: 'Model B'})).toBeVisible();
+  await expect(page.getByText('loaded', {exact: true})).toBeVisible();
 });
 
 test('renders llama.cpp prompt and generation throughput in chat message metadata', async ({
