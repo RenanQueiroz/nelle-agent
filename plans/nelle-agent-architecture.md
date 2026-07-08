@@ -95,6 +95,20 @@ The first product experience should be UI-driven:
 - Chat slash commands are Nelle allowlisted. Support `/compact [instructions]`
   first, and route session, model, auth, settings, export, and copy workflows
   through Nelle UI controls instead of Pi's interactive slash commands.
+  `/compact` should call Pi `AgentSession.compact()` directly, and stop during
+  compaction should call `AgentSession.abortCompaction()`.
+- Each Nelle conversation maps to exactly one Pi session JSONL file. Pi owns
+  message history, compaction, and branch/tree state; SQLite owns Nelle's
+  conversation index, projections, and sidecar UI metadata.
+- Nelle should support multiple active Pi conversation runtimes when Pi and the
+  local router can support them, while enforcing only one active run per
+  conversation.
+- UI stop/abort calls Pi `AgentSession.abort()` and propagates cancellation
+  through Nelle's llama.cpp proxy request. If llama.cpp keeps a slot generating,
+  Nelle warns and exposes a manual runtime stop/restart action.
+- `models.ini` editing uses a lossless AST parser/writer that preserves
+  comments, ordering, unknown keys, and untouched user edits. Hugging Face
+  imports keep exact `hf-repo` refs while using stable canonical section ids.
 - This directory should be initialized as a real Git repo with origin
   `git@github.com:RenanQueiroz/nelle-server.git`.
 
@@ -115,6 +129,9 @@ Use a TypeScript-first stack:
   versioned HTTP/WebSocket API.
 - Persistence: SQLite for app metadata, plus filesystem storage for generated
   llama presets, Pi sessions, logs, and downloaded binaries.
+- Streaming contract: typed SSE envelopes for conversation runs, Pi/tool
+  events, performance/context updates, model status, compaction, aborts, and
+  errors.
 
 Why this default:
 
@@ -298,6 +315,13 @@ Initial API transport:
 Responsibilities:
 
 - Run Pi using a Nelle-controlled `agentDir`, not the user's global Pi config.
+- Store Pi sessions under Nelle's app data directory and map one Nelle
+  conversation to one Pi session file.
+- Manage Pi sessions through `AgentSessionRuntime`/`SessionManager`, reopening
+  existing session files on demand after Nelle server restarts.
+- Maintain a lazy runtime pool keyed by conversation id so multiple
+  conversations can be open or streaming without replacing a single global Pi
+  session.
 - Generate or update Pi `models.json` for Nelle's local llama.cpp proxy
   provider.
 - Use a local OpenAI-compatible provider:
@@ -329,6 +353,11 @@ Responsibilities:
   metadata into Nelle chat events.
 - Normalize Pi events into Nelle's API event contract.
 - Persist sessions under Nelle's app data directory.
+- Project Pi session entries into SQLite for fast UI/search, but treat Pi JSONL
+  files as authoritative for message history and branch state.
+- Use Pi `AgentSession.abort()`, `compact()`, `abortCompaction()`, and
+  `abortRetry()` for UI stop/compact behavior rather than reimplementing those
+  mechanics.
 - Enable host file and shell tools in v1.
 - Expose only Nelle-allowlisted Pi slash behavior through the web composer.
   Initially this means manual compaction through `/compact [instructions]`.
@@ -484,10 +513,10 @@ Initial implementation:
   show `/compact [instructions]` only, reject unsupported Pi commands before
   prompt submission, and render manual compaction as a visible command/status
   row rather than a normal user/assistant message.
-- Regenerating an assistant answer should create a sibling branch from the same
-  parent user message. Selecting a different model in the message footer should
-  load that model if needed and regenerate with that model override in one
-  action.
+- Regenerating an assistant answer should use Pi-native branching by replaying
+  the original user content on a new branch. Selecting a different model in the
+  message footer should load that model if needed and regenerate with that model
+  override in one action; Nelle groups regenerated answers as UI variants.
 - Correlate Pi tool execution events by `toolCallId`, upsert the same tool call
   row as it moves from running to complete/error, and preserve compact input and
   output details for expandable UI inspection.
@@ -542,11 +571,12 @@ Likely path:
 Store under OS app data directories:
 
 - `settings.sqlite`: app settings, configured models, devices,
-  runtime state snapshots, migrations.
+  conversation index/projections, model cache, runtime state snapshots,
+  migrations.
 - `llama/`: generated `models.ini`, managed router pid file, llama.cpp
   binaries, llama logs.
 - `pi/`: Nelle-owned Pi `agentDir`, model config, credentials if needed,
-  sessions.
+  authoritative conversation session JSONL files.
 - `logs/`: app, runtime, and diagnostic logs.
 
 Secrets:
@@ -583,6 +613,12 @@ Exit criteria:
 - Pick SQLite library and migration tool.
 - Confirm Pi SDK can talk to a local `llama-server` model through generated
   `models.json`.
+- Implement the one-Nelle-conversation-to-one-Pi-session lifecycle and typed
+  stream envelope contracts from the router/chat plan.
+- Implement UI abort through Pi `AgentSession.abort()` and Nelle llama proxy
+  abort propagation.
+- Implement the lossless `models.ini` parser/writer and HF model id
+  canonicalizer.
 - Confirm `llama-server` router mode with generated preset on this host.
 - Confirm a first HF `hf-repo` import path.
 - Confirm Linux source-build flow from latest `llama.cpp` master.

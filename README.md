@@ -40,6 +40,11 @@ Not implemented yet:
 - Mobile LAN pairing and Expo push.
 - Collapsible conversation sidebar and persistence. The planned large-history
   list uses TanStack Virtual with Astryx sidebar/list styling.
+- Pi-backed conversation storage. The planned architecture maps each Nelle
+  conversation to one Pi session file and uses SQLite for indexes, projections,
+  and Nelle-only metadata.
+- Typed stream/abort contracts for chat runs. Planned stop behavior calls Pi
+  abort and propagates cancellation through Nelle's llama.cpp proxy.
 - Composer attachments and context-window display. Planned attachment scope is
   text files, PDFs, and images only; audio/video attachments are out of scope.
 - Slash-command typeahead and manual `/compact` support. Planned slash-command
@@ -114,6 +119,8 @@ capability, and add Astryx slash-command typeahead for Nelle-supported commands.
 Audio/video attachments are intentionally excluded for now. The first planned
 Pi slash command is `/compact [instructions]`; commands such as `/new`,
 `/resume`, `/model`, `/login`, and `/logout` stay owned by Nelle UI controls.
+Manual compaction will use Pi `AgentSession.compact()` directly, with
+`AgentSession.abortCompaction()` for stopping an active compaction.
 
 Assistant message metadata shows the message time followed by llama.cpp
 throughput, for example `12:01 PM · prompt 32.30 tok/s · gen 21.53 tok/s`.

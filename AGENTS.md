@@ -36,6 +36,17 @@ Project-specific guidance for AI coding agents.
 - Nelle persists managed llama-server ownership in
   `.nelle/llama/llama-server.pid.json` so restarted servers can adopt and stop
   the prior router process.
+- Each Nelle conversation maps to one Pi session JSONL file. Treat Pi session
+  files as authoritative for message history, compaction, and branch state;
+  SQLite stores conversation indexes, projections, and Nelle-only sidecar
+  metadata.
+- Chat/run streams use typed Nelle event envelopes. UI stop/abort calls Pi
+  `AgentSession.abort()` and must propagate cancellation through Nelle's
+  llama.cpp proxy request.
+- `models.ini` editing should use a lossless AST parser/writer that preserves
+  comments, ordering, unknown keys, and untouched user edits. Keep exact
+  `hf-repo` refs while deriving stable canonical section ids for router/OpenAI
+  model ids.
 - Chat messages carry llama.cpp-style `performance.prompt` and
   `performance.generation` metrics. Pi calls go through Nelle's
   `/api/llama-proxy/v1` provider so streamed `prompt_progress` and `timings`
@@ -63,6 +74,9 @@ Project-specific guidance for AI coding agents.
 - Do not pass arbitrary Pi slash commands through chat input. Nelle supports
   only its allowlist, initially `/compact [instructions]`; session, model, auth,
   settings, export, and copy flows belong to Nelle UI controls.
+- Implement `/compact` with Pi `AgentSession.compact()` and compaction stop
+  with `AgentSession.abortCompaction()`; do not send `/compact` through normal
+  prompt submission.
 - Let Astryx `ChatComposer` render its default `ChatSendButton` unless you are
   deliberately replacing it through `sendButton`; `sendActions` is only for
   auxiliary controls and must not create a second send affordance.
