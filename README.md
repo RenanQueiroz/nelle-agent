@@ -78,9 +78,9 @@ Not implemented yet:
   tool audit rows.
 - Composer attachments and context-window display. Planned attachment scope is
   text files, PDFs, and images only; audio/video attachments are out of scope.
-- Slash-command typeahead and manual `/compact` support. Planned slash-command
-  scope is Nelle-allowlisted, with Pi session/model/auth commands handled by
-  Nelle UI controls instead of chat input.
+- Slash-command typeahead and richer compaction status rows. `/compact` itself
+  is supported, but the Astryx typeahead and composer-local status treatment
+  are still pending.
 - Host-tool first-run acknowledgement, global disable switch, and durable tool
   audit storage. Sandboxing remains later.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for
@@ -150,11 +150,11 @@ The planned composer overhaul will move chat warnings/errors into Astryx
 `ChatComposer` status, add a context-window progress bar with used/total token
 tooltip, support text/PDF/image attachments gated by the selected model's vision
 capability, and add Astryx slash-command typeahead for Nelle-supported commands.
-Audio/video attachments are intentionally excluded for now. The first planned
-Pi slash command is `/compact [instructions]`; commands such as `/new`,
-`/resume`, `/model`, `/login`, and `/logout` stay owned by Nelle UI controls.
-Manual compaction will use Pi `AgentSession.compact()` directly, with
-`AgentSession.abortCompaction()` for stopping an active compaction.
+Audio/video attachments are intentionally excluded for now. Nelle supports
+`/compact [instructions]` by calling Pi `AgentSession.compact()` directly;
+commands such as `/new`, `/resume`, `/model`, `/login`, and `/logout` stay owned
+by Nelle UI controls. Composer stop calls `AgentSession.abortCompaction()` for
+an active compaction.
 
 Assistant message metadata shows the message time followed by llama.cpp
 throughput, for example `12:01 PM · prompt 32.30 tok/s · gen 21.53 tok/s`.

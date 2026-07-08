@@ -32,6 +32,12 @@ const chatSchema = z.object({
   message: z.string().min(1),
 });
 
+const compactConversationSchema = z
+  .object({
+    instructions: z.string().max(2000).optional(),
+  })
+  .optional();
+
 const listConversationsQuerySchema = z.object({
   search: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -332,6 +338,43 @@ export async function createServer(paths: AppPaths) {
       });
     }
     const aborted = await pi.abortConversation(id);
+    return {
+      ok: true,
+      aborted,
+      snapshot: conversations.getSnapshot(id, await store.getState()),
+    };
+  });
+
+  app.post('/api/conversations/:id/compact', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    if (!conversations.getConversation(id)) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    const body = compactConversationSchema.parse(request.body) ?? {};
+    const result = await pi.compactConversation(id, body.instructions);
+    return {
+      ok: true,
+      ...result,
+      snapshot: conversations.getSnapshot(id, await store.getState()),
+    };
+  });
+
+  app.post('/api/conversations/:id/compact/abort', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    if (!conversations.getConversation(id)) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    const aborted = pi.abortCompaction(id);
     return {
       ok: true,
       aborted,

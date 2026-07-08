@@ -247,6 +247,8 @@ browser-triggered conversation reset, SQLite schema/migration foundations,
 conversation list/snapshot APIs, conversation-scoped chat streaming, one
 Nelle-conversation-to-one-Pi-session-file binding under `.nelle/pi/sessions`,
 basic conversation abort via Pi `AgentSession.abort()`,
+manual `/compact [instructions]` through Pi `AgentSession.compact()` plus
+`abortCompaction()`,
 first-turn generated conversation titles through a non-Pi llama.cpp prompt,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for

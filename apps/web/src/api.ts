@@ -333,6 +333,26 @@ export async function abortConversation(id: string): Promise<{ok: boolean; abort
   return apiPost(`/api/conversations/${encodeURIComponent(id)}/abort`);
 }
 
+export async function compactConversation(
+  id: string,
+  instructions?: string,
+  signal?: AbortSignal,
+): Promise<{ok: boolean; compacted: boolean; snapshot: ConversationSnapshot}> {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(id)}/compact`, {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify(instructions ? {instructions} : {}),
+    signal,
+  });
+  return parseJson(response);
+}
+
+export async function abortConversationCompaction(
+  id: string,
+): Promise<{ok: boolean; aborted: boolean; snapshot: ConversationSnapshot}> {
+  return apiPost(`/api/conversations/${encodeURIComponent(id)}/compact/abort`);
+}
+
 export async function clearChat(): Promise<void> {
   await apiDelete('/api/chat/messages');
 }

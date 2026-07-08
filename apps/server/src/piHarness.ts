@@ -68,6 +68,42 @@ export class PiHarness {
     return true;
   }
 
+  async compactConversation(
+    conversationId: string,
+    customInstructions?: string,
+  ): Promise<{compacted: boolean}> {
+    const activeModel = await this.store.getActiveModel();
+    if (!activeModel) {
+      throw new Error('Select a model before compacting conversation context.');
+    }
+    this.conversations.ensureConversation(conversationId, {
+      defaultModelId: activeModel.id,
+    });
+    this.conversations.setConversationStatus(conversationId, 'compacting');
+
+    try {
+      const session = await this.ensureSession(conversationId, activeModel);
+      if ((session.messages?.length ?? 0) === 0) {
+        throw new Error('There is no conversation context to compact.');
+      }
+      await session.compact(customInstructions?.trim() || undefined);
+      this.syncPiConversation(conversationId, session, activeModel, undefined, 'compacting');
+      return {compacted: true};
+    } finally {
+      this.conversations.setConversationStatus(conversationId, 'ready');
+    }
+  }
+
+  abortCompaction(conversationId: string): boolean {
+    const managed = this.#sessions.get(conversationId);
+    if (!managed) {
+      return false;
+    }
+    managed.session.abortCompaction?.();
+    this.conversations.setConversationStatus(conversationId, 'ready');
+    return true;
+  }
+
   async streamPrompt(
     prompt: string,
     conversationId = 'poc-default',
@@ -325,12 +361,24 @@ export class PiHarness {
     conversationId: string,
     session: any,
     activeModel: ConfiguredModel,
-    assistantMessage: ChatMessage,
+    assistantMessage?: ChatMessage,
+    status: 'running' | 'compacting' = 'running',
   ): SyncConversationEntry[] {
     const branch = session.sessionManager.getBranch() as any[];
     const entries: SyncConversationEntry[] = [];
     let lastAssistantEntryId: string | null = null;
     for (const entry of branch) {
+      if (entry.type === 'compaction') {
+        entries.push({
+          piEntryId: String(entry.id),
+          parentPiEntryId: entry.parentId ?? null,
+          entryType: entry.type,
+          text: String(entry.summary ?? 'Context compacted.'),
+          createdAt: String(entry.timestamp ?? new Date().toISOString()),
+          displayGroupId: String(entry.id),
+        });
+        continue;
+      }
       if (entry.type !== 'message') {
         continue;
       }
@@ -354,7 +402,7 @@ export class PiHarness {
       entries.push(projection);
     }
 
-    if (lastAssistantEntryId) {
+    if (assistantMessage && lastAssistantEntryId) {
       const lastAssistant = entries.find(entry => entry.piEntryId === lastAssistantEntryId);
       if (lastAssistant) {
         lastAssistant.performance = assistantMessage.performance;
@@ -367,7 +415,7 @@ export class PiHarness {
       piSessionId: session.sessionId,
       activeLeafPiEntryId: session.sessionManager.getLeafId(),
       lastSyncedPiEntryId: session.sessionManager.getLeafId(),
-      status: 'running',
+      status,
       entries,
     });
     return entries;

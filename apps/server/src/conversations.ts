@@ -381,6 +381,9 @@ export class ConversationRepository {
     };
 
     const db = this.database.connection;
+    const existingEntries = new Map(
+      this.getEntries(id).map(entry => [entry.piEntryId, entry] as const),
+    );
     db.exec('BEGIN');
     try {
       db.prepare(
@@ -399,7 +402,15 @@ export class ConversationRepository {
       );
       db.prepare('DELETE FROM conversation_entry_projection WHERE conversation_id = ?').run(id);
       for (const entry of input.entries) {
-        this.upsertProjection(id, entry);
+        const existing = existingEntries.get(entry.piEntryId);
+        this.upsertProjection(id, {
+          ...entry,
+          performance: entry.performance ?? existing?.performance,
+          toolCalls: entry.toolCalls ?? existing?.toolCalls,
+          attachmentSummary: entry.attachmentSummary ?? existing?.attachmentSummary,
+          regeneratesPiEntryId: entry.regeneratesPiEntryId ?? existing?.regeneratesPiEntryId,
+          displayGroupId: entry.displayGroupId ?? existing?.displayGroupId,
+        });
       }
       db.exec('COMMIT');
     } catch (error) {

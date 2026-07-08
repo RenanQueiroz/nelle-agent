@@ -38,9 +38,11 @@ import {
 } from '@heroicons/react/24/outline';
 
 import {
+  abortConversationCompaction,
   abortConversation,
   activateModel,
   clearConversation,
+  compactConversation,
   createConversation,
   deleteConversation,
   getConversation,
@@ -139,7 +141,9 @@ export function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isCompacting, setIsCompacting] = useState(false);
   const streamAbortController = useRef<AbortController | null>(null);
+  const compactAbortController = useRef<AbortController | null>(null);
   const [notice, setNotice] = useState<{
     type: 'info' | 'warning' | 'error' | 'success';
     text: string;
@@ -367,7 +371,12 @@ export function App() {
 
   async function handleChatSubmit(value: string) {
     const prompt = value.trim();
-    if (!prompt || isStreaming) {
+    if (!prompt || isStreaming || isCompacting) {
+      return;
+    }
+    const compactInstructions = parseCompactCommand(prompt);
+    if (compactInstructions != null) {
+      await handleCompactConversation(compactInstructions);
       return;
     }
     setIsStreaming(true);
@@ -396,6 +405,36 @@ export function App() {
         streamAbortController.current = null;
       }
       setIsStreaming(false);
+    }
+  }
+
+  async function handleCompactConversation(instructions: string) {
+    setIsCompacting(true);
+    setNotice({type: 'info', text: 'Compacting conversation context...'});
+    const abortController = new AbortController();
+    compactAbortController.current = abortController;
+    try {
+      const result = await compactConversation(
+        activeConversationId,
+        instructions || undefined,
+        abortController.signal,
+      );
+      setMessages(messagesFromSnapshot(result.snapshot));
+      await refreshConversations(activeConversationId);
+      setNotice({type: 'success', text: 'Conversation compacted.'});
+    } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
+      setNotice({
+        type: 'error',
+        text: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      if (compactAbortController.current === abortController) {
+        compactAbortController.current = null;
+      }
+      setIsCompacting(false);
     }
   }
 
@@ -462,6 +501,16 @@ export function App() {
       setIsStreaming(false);
       await refreshConversations(activeConversationId);
       setNotice({type: 'info', text: 'Generation stopped.'});
+    });
+  }
+
+  async function handleStopCompaction() {
+    compactAbortController.current?.abort();
+    await runAction('abort-compaction', async () => {
+      await abortConversationCompaction(activeConversationId);
+      setIsCompacting(false);
+      await refreshConversations(activeConversationId);
+      setNotice({type: 'info', text: 'Compaction stopped.'});
     });
   }
 
@@ -861,9 +910,11 @@ export function App() {
                           ? 'Ask Nelle to inspect files, run shell commands, or reason about the project'
                           : 'Select a GGUF model before chatting'
                       }
-                      isDisabled={!activeModel || !runtime?.running || isStreaming}
-                      isStopShown={isStreaming}
-                      onStop={() => void handleStopGeneration()}
+                      isDisabled={!activeModel || !runtime?.running || isStreaming || isCompacting}
+                      isStopShown={isStreaming || isCompacting}
+                      onStop={() =>
+                        void (isCompacting ? handleStopCompaction() : handleStopGeneration())
+                      }
                       input={<ChatComposerInput />}
                       footerActions={
                         <HStack gap={1} vAlign="center" wrap="wrap">
@@ -1149,4 +1200,14 @@ function looksLikeJson(value: string): boolean {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function parseCompactCommand(value: string): string | null {
+  if (value === '/compact') {
+    return '';
+  }
+  if (value.startsWith('/compact ')) {
+    return value.slice('/compact '.length).trim();
+  }
+  return null;
 }

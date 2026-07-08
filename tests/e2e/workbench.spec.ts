@@ -418,6 +418,89 @@ test('updates streamed tool calls and shows expandable input and output', async 
   await expect(page.getByText('hello', {exact: true})).toBeVisible();
 });
 
+test('routes compact slash command outside normal chat streaming', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL',
+    presetName: 'unsloth-qwen',
+    source: 'huggingface',
+    repoId: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF',
+    quant: 'UD-Q4_K_XL',
+    hfRef: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  let compactCalls = 0;
+  let streamCalls = 0;
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await mockConversationRoutes(page, {
+    chat: [
+      {
+        id: 'user-1',
+        role: 'user',
+        content: 'Please summarize this project',
+        createdAt: '2026-07-07T12:00:00.000Z',
+      },
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Project summary.',
+        createdAt: '2026-07-07T12:01:00.000Z',
+      },
+    ],
+    onCompact: () => {
+      compactCalls += 1;
+    },
+  });
+  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+    streamCalls += 1;
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: '',
+    });
+  });
+
+  await page.goto('/');
+  await page.getByLabel('Message input').fill('/compact keep file names');
+  await page.getByLabel('Message input').press('Enter');
+
+  await expect.poll(() => compactCalls).toBe(1);
+  expect(streamCalls).toBe(0);
+  await expect(page.getByText('Conversation compacted.')).toBeVisible();
+});
+
 test('keeps the page frame fixed while only the chat region scrolls', async ({page}) => {
   const model = {
     id: 'model-1',
@@ -508,7 +591,10 @@ test('keeps the page frame fixed while only the chat region scrolls', async ({pa
   expect(Math.abs((composerBoxBefore?.y ?? 0) - (composerBoxAfter?.y ?? 0))).toBeLessThan(2);
 });
 
-async function mockConversationRoutes(page: Page, input: {chat: MockChatMessage[]}): Promise<void> {
+async function mockConversationRoutes(
+  page: Page,
+  input: {chat: MockChatMessage[]; onCompact?: (instructions?: string) => void},
+): Promise<void> {
   let chat = input.chat;
   let conversations = [
     {
@@ -527,6 +613,31 @@ async function mockConversationRoutes(page: Page, input: {chat: MockChatMessage[
     const pathname = url.pathname;
     if (pathname.endsWith('/chat/stream')) {
       await route.fallback();
+      return;
+    }
+    if (pathname === '/api/conversations/poc-default/compact' && request.method() === 'POST') {
+      const body = request.postDataJSON() as {instructions?: string} | null;
+      input.onCompact?.(body?.instructions);
+      await route.fulfill({
+        json: {
+          ok: true,
+          compacted: true,
+          snapshot: conversationSnapshot('poc-default', chat),
+        },
+      });
+      return;
+    }
+    if (
+      pathname === '/api/conversations/poc-default/compact/abort' &&
+      request.method() === 'POST'
+    ) {
+      await route.fulfill({
+        json: {
+          ok: true,
+          aborted: false,
+          snapshot: conversationSnapshot('poc-default', chat),
+        },
+      });
       return;
     }
     if (pathname === '/api/conversations' && request.method() === 'GET') {

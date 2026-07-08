@@ -173,8 +173,10 @@ Nelle currently differs from the target in these ways:
   model-modality gating.
 - Chat warnings/errors still appear as page-level notices instead of
   composer-local Astryx status messages.
-- The composer has no slash-command typeahead, and manual Pi compaction has no
-  Nelle-owned visual feedback.
+- The composer recognizes `/compact [instructions]` and routes it to Nelle's
+  compaction API instead of normal prompt submission. Astryx slash-command
+  typeahead and richer composer-local compaction progress/status rows are still
+  pending.
 
 ## Target Data Ownership
 
@@ -1654,8 +1656,8 @@ Exit criteria:
 
 - Add an Astryx `ChatComposerInput` slash-command trigger backed by Nelle's
   command allowlist.
-- Support `/compact [instructions]` for the active conversation.
-- Add the conversation-scoped compaction API and Pi bridge adapter.
+- Done: support `/compact [instructions]` for the active conversation.
+- Done: add the conversation-scoped compaction API and Pi bridge adapter.
 - Add command/status rows for compaction progress, completion, and failure.
 - Reject unsupported Pi slash commands with composer errors that point to the
   Nelle UI equivalent.

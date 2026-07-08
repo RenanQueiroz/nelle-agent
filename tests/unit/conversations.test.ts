@@ -120,6 +120,42 @@ test('repository stores Pi session bindings and replaces active branch projectio
           modelId: 'repo/model:Q4_K_M',
           modelRuntimeId: 'repo/model:Q4_K_M',
           modelAliasSnapshot: 'Model Q4',
+          performance: {
+            generation: {tokens: 3, tokensPerSecond: 12},
+          },
+        },
+      ],
+    });
+    repository.replaceConversationProjection(conversation.id, {
+      piSessionPath: path.join(paths.piSessionsDir, 'session.jsonl'),
+      piSessionId: 'pi-session-1',
+      activeLeafPiEntryId: 'entry-compaction',
+      lastSyncedPiEntryId: 'entry-compaction',
+      entries: [
+        {
+          piEntryId: 'entry-user',
+          entryType: 'message',
+          role: 'user',
+          text: 'Hello from Pi',
+          createdAt: '2026-07-08T12:00:00.000Z',
+        },
+        {
+          piEntryId: 'entry-assistant',
+          parentPiEntryId: 'entry-user',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'Hello from Nelle',
+          createdAt: '2026-07-08T12:00:01.000Z',
+          modelId: 'repo/model:Q4_K_M',
+          modelRuntimeId: 'repo/model:Q4_K_M',
+          modelAliasSnapshot: 'Model Q4',
+        },
+        {
+          piEntryId: 'entry-compaction',
+          parentPiEntryId: 'entry-assistant',
+          entryType: 'compaction',
+          text: 'Earlier context summary',
+          createdAt: '2026-07-08T12:00:02.000Z',
         },
       ],
     });
@@ -128,10 +164,18 @@ test('repository stores Pi session bindings and replaces active branch projectio
 
     assert.equal(repository.getPiSessionBinding(conversation.id)?.piSessionId, 'pi-session-1');
     assert.equal(snapshot?.conversation.piSessionId, 'pi-session-1');
-    assert.equal(snapshot?.conversation.activeLeafPiEntryId, 'entry-assistant');
-    assert.deepEqual(snapshot?.activePathEntryIds, ['entry-user', 'entry-assistant']);
+    assert.equal(snapshot?.conversation.activeLeafPiEntryId, 'entry-compaction');
+    assert.deepEqual(snapshot?.activePathEntryIds, [
+      'entry-user',
+      'entry-assistant',
+      'entry-compaction',
+    ]);
     assert.equal(snapshot?.entries[1]?.textPreview, 'Hello from Nelle');
     assert.equal(snapshot?.entries[1]?.modelAliasSnapshot, 'Model Q4');
+    assert.deepEqual(snapshot?.entries[1]?.performance, {
+      generation: {tokens: 3, tokensPerSecond: 12},
+    });
+    assert.equal(snapshot?.entries[2]?.entryType, 'compaction');
   } finally {
     database.close();
   }
@@ -233,6 +277,13 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
     assert.equal(aborted.ok, true);
     assert.equal(aborted.aborted, false);
     assert.equal(aborted.snapshot.conversation.id, created.id);
+
+    const compactionAbortResponse = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${created.id}/compact/abort`,
+    });
+    assert.equal(compactionAbortResponse.statusCode, 200);
+    assert.equal(compactionAbortResponse.json<{aborted: boolean}>().aborted, false);
 
     const deleteResponse = await app.inject({
       method: 'DELETE',
