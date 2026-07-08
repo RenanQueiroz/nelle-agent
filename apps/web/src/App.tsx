@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {HStack, VStack, StackItem, Layout, LayoutContent} from '@astryxdesign/core/Layout';
@@ -38,6 +38,7 @@ import {
 } from '@heroicons/react/24/outline';
 
 import {
+  abortConversation,
   activateModel,
   clearConversation,
   createConversation,
@@ -134,6 +135,7 @@ export function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const streamAbortController = useRef<AbortController | null>(null);
   const [notice, setNotice] = useState<{
     type: 'info' | 'warning' | 'error' | 'success';
     text: string;
@@ -359,16 +361,29 @@ export function App() {
     }
     setIsStreaming(true);
     setNotice(null);
+    const abortController = new AbortController();
+    streamAbortController.current = abortController;
     try {
-      await streamConversationChat(activeConversationId, prompt, applyChatEvent);
+      await streamConversationChat(
+        activeConversationId,
+        prompt,
+        applyChatEvent,
+        abortController.signal,
+      );
       setRuntime(await getRuntime());
       await refreshConversations(activeConversationId);
     } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
       setNotice({
         type: 'error',
         text: error instanceof Error ? error.message : String(error),
       });
     } finally {
+      if (streamAbortController.current === abortController) {
+        streamAbortController.current = null;
+      }
       setIsStreaming(false);
     }
   }
@@ -394,6 +409,16 @@ export function App() {
   async function handleSelectConversation(conversationId: string) {
     setActiveConversationId(conversationId);
     await refreshConversations(conversationId);
+  }
+
+  async function handleStopGeneration() {
+    streamAbortController.current?.abort();
+    await runAction('abort-chat', async () => {
+      await abortConversation(activeConversationId);
+      setIsStreaming(false);
+      await refreshConversations(activeConversationId);
+      setNotice({type: 'info', text: 'Generation stopped.'});
+    });
   }
 
   function applyChatEvent(event: ChatStreamEvent) {
@@ -747,9 +772,7 @@ export function App() {
                       }
                       isDisabled={!activeModel || !runtime?.running || isStreaming}
                       isStopShown={isStreaming}
-                      onStop={() =>
-                        setNotice({type: 'info', text: 'Stop is not wired in this POC yet.'})
-                      }
+                      onStop={() => void handleStopGeneration()}
                       input={<ChatComposerInput />}
                       footerActions={
                         <HStack gap={1} vAlign="center" wrap="wrap">
@@ -1040,4 +1063,8 @@ function looksLikeJson(value: string): boolean {
     (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
     (trimmed.startsWith('[') && trimmed.endsWith(']'))
   );
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
 }

@@ -303,6 +303,10 @@ export async function clearConversation(id: string): Promise<void> {
   await apiDelete(`/api/conversations/${encodeURIComponent(id)}/messages`);
 }
 
+export async function abortConversation(id: string): Promise<{ok: boolean; aborted: boolean}> {
+  return apiPost(`/api/conversations/${encodeURIComponent(id)}/abort`);
+}
+
 export async function clearChat(): Promise<void> {
   await apiDelete('/api/chat/messages');
 }
@@ -318,6 +322,7 @@ export async function streamConversationChat(
   conversationId: string,
   message: string,
   onEvent: (event: ChatStreamEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch(
     `/api/conversations/${encodeURIComponent(conversationId)}/chat/stream`,
@@ -325,6 +330,7 @@ export async function streamConversationChat(
       method: 'POST',
       headers: {'content-type': 'application/json'},
       body: JSON.stringify({message}),
+      signal,
     },
   );
   if (!response.ok || !response.body) {

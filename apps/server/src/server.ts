@@ -321,6 +321,24 @@ export async function createServer(paths: AppPaths) {
     return {ok: true};
   });
 
+  app.post('/api/conversations/:id/abort', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    if (!conversations.getConversation(id)) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    const aborted = await pi.abortConversation(id);
+    return {
+      ok: true,
+      aborted,
+      snapshot: conversations.getSnapshot(id, await store.getState()),
+    };
+  });
+
   app.get('/api/chat/messages', async () => {
     const state = await store.getState();
     return {messages: state.chat};

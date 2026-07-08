@@ -246,6 +246,7 @@ SDK chat streaming, a direct llama.cpp fallback for diagnostics,
 browser-triggered conversation reset, SQLite schema/migration foundations,
 conversation list/snapshot APIs, conversation-scoped chat streaming, one
 Nelle-conversation-to-one-Pi-session-file binding under `.nelle/pi/sessions`,
+basic conversation abort via Pi `AgentSession.abort()`,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
 browser workbench. The runtime UI also exposes a llama-server log tail for
 startup and configuration diagnostics, and the POC model panel can show router
@@ -259,8 +260,8 @@ Intentional POC limitations:
 - The web UI only has a small temporary conversation list/new-chat selector.
   The full collapsible, searchable, virtualized sidebar and conversation menus
   are still pending.
-- Conversation abort, fork/clone, generated titles, branch variants, and
-  export/import are still pending.
+- Stable run ids/terminal run events, fork/clone, generated titles, branch
+  variants, and export/import are still pending.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are enabled through Pi and remain unsandboxed.

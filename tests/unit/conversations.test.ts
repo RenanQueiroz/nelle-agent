@@ -195,6 +195,20 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
     assert.equal(pinResponse.statusCode, 200);
     assert.equal(pinResponse.json<{conversation: {pinned: boolean}}>().conversation.pinned, true);
 
+    const abortResponse = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${created.id}/abort`,
+    });
+    assert.equal(abortResponse.statusCode, 200);
+    const aborted = abortResponse.json<{
+      ok: boolean;
+      aborted: boolean;
+      snapshot: {conversation: {id: string}};
+    }>();
+    assert.equal(aborted.ok, true);
+    assert.equal(aborted.aborted, false);
+    assert.equal(aborted.snapshot.conversation.id, created.id);
+
     const deleteResponse = await app.inject({
       method: 'DELETE',
       url: `/api/conversations/${created.id}`,

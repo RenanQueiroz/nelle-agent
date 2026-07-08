@@ -58,6 +58,16 @@ export class PiHarness {
     this.#sessions.clear();
   }
 
+  async abortConversation(conversationId: string): Promise<boolean> {
+    const managed = this.#sessions.get(conversationId);
+    if (!managed) {
+      return false;
+    }
+    await managed.session.abort?.();
+    this.conversations.setConversationStatus(conversationId, 'ready');
+    return true;
+  }
+
   async streamPrompt(
     prompt: string,
     conversationId = 'poc-default',

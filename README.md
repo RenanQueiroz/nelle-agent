@@ -46,6 +46,9 @@ Implemented:
   throughput in tokens/sec when the server reports those timings.
 - Tool calls stream as a single status row per Pi `toolCallId` and can be
   expanded in the chat UI to inspect captured input and output.
+- The composer stop action calls `/api/conversations/:id/abort`, aborts the
+  active browser stream, and invokes Pi `AgentSession.abort()` for the cached
+  conversation runtime when one is active.
 - Playwright e2e test harness for the browser UI.
 
 Not implemented yet:
@@ -63,9 +66,9 @@ Not implemented yet:
   final sidebar actions are still pending.
 - Fork/duplicate conversation actions backed by Pi's runtime fork/clone
   behavior, creating new Nelle conversations without mutating the source.
-- Complete REST/SSE run lifecycle contracts. Conversation snapshot and stream
-  endpoints exist, but planned stop behavior still needs to call Pi abort and
-  propagate cancellation through Nelle's llama.cpp proxy.
+- Complete REST/SSE run lifecycle contracts with stable run ids, terminal
+  run events, and richer recovery states. Conversation snapshot, stream, and
+  basic abort endpoints exist.
 - Local `.nelle-chat.zip` conversation export/import, including Pi session
   files, Nelle sidecar metadata, attachments, model manifest snapshots, and
   tool audit rows.

@@ -158,8 +158,10 @@ Nelle currently differs from the target in these ways:
 - SQLite stores conversation rows and active-branch projections, but model and
   runtime setup state still live in `.nelle/state.json`, with the default
   `poc-default` chat kept for legacy compatibility.
-- Pi abort/stop semantics are not yet implemented as explicit run contracts.
-  Shared Nelle event envelope and conversation snapshot contracts now exist.
+- Basic stop now calls `/api/conversations/:id/abort`, cancels the active
+  browser stream, and invokes Pi `AgentSession.abort()` for a cached
+  conversation runtime. Explicit run ids, terminal run events, abort recovery
+  states, and llama.cpp slot-level verification are still pending.
 - Reset conversation is a composer footer action rather than a conversation
   action.
 - Model import/edit UX is split between app state and generated preset writes.
