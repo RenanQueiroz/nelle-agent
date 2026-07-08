@@ -5,6 +5,7 @@ export type RuntimeStatus = {
   arch: string;
   dataDir: string;
   binaryPath: string | null;
+  logPath: string;
   installMode: RuntimeInstallMode;
   installed: boolean;
   installedVersion: string | null;
@@ -14,6 +15,8 @@ export type RuntimeStatus = {
   pid: number | null;
   host: string;
   port: number;
+  modelsMax: number;
+  sleepIdleSeconds: number;
   activeModelId: string | null;
   lastError: string | null;
 };
@@ -29,12 +32,10 @@ export type ConfiguredModel = {
   id: string;
   name: string;
   presetName: string;
-  source: 'huggingface' | 'local';
+  source: 'huggingface';
   repoId?: string;
   quant?: string;
   hfRef?: string;
-  filename?: string;
-  path?: string;
   params: ModelParams;
   createdAt: string;
 };
@@ -120,7 +121,8 @@ export type AppState = {
   runtime: {
     host: string;
     port: number;
-    modelsMax: 1;
+    modelsMax: number;
+    sleepIdleSeconds: number;
   };
   chat: ChatMessage[];
 };

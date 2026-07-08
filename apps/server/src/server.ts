@@ -15,21 +15,15 @@ import {AppStore} from './store';
 import type {AppPaths} from './paths';
 import type {ChatStreamEvent} from './types';
 
-const addLocalModelSchema = z.object({
-  name: z.string().optional(),
-  path: z.string().min(1),
-});
-
-const downloadModelSchema = z.object({
-  repoId: z.string().min(1),
-  filename: z.string().min(1),
-  name: z.string().optional(),
-});
-
 const useHuggingFaceModelSchema = z.object({
   repoId: z.string().min(1),
   quant: z.string().min(1),
   name: z.string().optional(),
+});
+
+const runtimeSettingsSchema = z.object({
+  modelsMax: z.number().int().min(1).optional(),
+  sleepIdleSeconds: z.number().int().min(0).optional(),
 });
 
 const chatSchema = z.object({
@@ -39,7 +33,7 @@ const chatSchema = z.object({
 export async function createServer(paths: AppPaths) {
   const store = new AppStore(paths);
   const llama = new LlamaCppManager(paths, store);
-  const hf = new HuggingFaceService(paths, store);
+  const hf = new HuggingFaceService(store);
   const pi = new PiHarness(paths, store);
 
   const app = Fastify({
@@ -74,21 +68,21 @@ export async function createServer(paths: AppPaths) {
   app.post('/api/runtime/update', async () => llama.installOrUpdate());
   app.post('/api/runtime/start', async () => llama.start());
   app.post('/api/runtime/stop', async () => llama.stop());
+  app.get('/api/runtime/logs', async request => {
+    const requestedBytes = Number((request.query as {maxBytes?: string}).maxBytes ?? 80_000);
+    const maxBytes = Number.isFinite(requestedBytes)
+      ? Math.min(Math.max(0, requestedBytes), 1_000_000)
+      : 80_000;
+    return llama.readLogTail(maxBytes);
+  });
+  app.patch('/api/runtime/settings', async request => {
+    const body = runtimeSettingsSchema.parse(request.body);
+    return {runtime: await store.updateRuntimeSettings(body)};
+  });
 
   app.get('/api/models', async () => {
     const state = await store.getState();
     return {models: state.models, activeModelId: state.activeModelId};
-  });
-
-  app.post('/api/models/local', async request => {
-    const body = addLocalModelSchema.parse(request.body);
-    const model = await store.addLocalModel({
-      name: body.name ?? path.basename(body.path),
-      modelPath: body.path,
-      source: 'local',
-    });
-    await llama.writePreset(model);
-    return {model};
   });
 
   app.post('/api/models/:id/activate', async request => {
@@ -101,13 +95,6 @@ export async function createServer(paths: AppPaths) {
   app.get('/api/huggingface/search', async request => {
     const query = (request.query as {q?: string}).q ?? '';
     return {results: await hf.searchGgufModels(query)};
-  });
-
-  app.post('/api/huggingface/download', async request => {
-    const body = downloadModelSchema.parse(request.body);
-    const model = await hf.downloadGguf(body);
-    await llama.writePreset(model);
-    return {model};
   });
 
   app.post('/api/huggingface/use', async request => {

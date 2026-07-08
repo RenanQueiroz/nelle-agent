@@ -68,12 +68,12 @@ Nelle currently differs from the target in these ways:
 
 - App state owns `models[]` and `activeModelId`; `models.ini` is generated from
   app state instead of being the source.
-- `writePreset(activeModel)` only writes one selected model section and sets
-  `load-on-startup = true`.
-- `llama-server` is launched with hard-coded `--models-max 1`.
+- Presets are still generated from app state instead of edited as durable
+  structured INI.
+- Runtime settings for `modelsMax` and `sleepIdleSeconds` exist, but the final
+  settings surface is not built yet.
 - The web UI has side panels for runtime/model setup rather than a durable
   conversation sidebar plus settings.
-- Local GGUF path registration is available in the UI and server.
 - Chat storage is one global `chat` array, not multiple conversations.
 - Reset conversation is a composer footer action rather than a conversation
   action.
@@ -146,7 +146,8 @@ llama-server \
   --host <host> \
   --port <port> \
   --models-preset <data-dir>/llama/models.ini \
-  --models-max <configured max>
+  --models-max <configured max> \
+  --sleep-idle-seconds <configured seconds>
 ```
 
 Changes from current behavior:
@@ -155,7 +156,9 @@ Changes from current behavior:
   with zero or many model sections.
 - Stop writing a one-model preset during start.
 - Stop forcing `--models-max 1`. Store `modelsMax` as a user setting and pass it
-  through. Default can remain `1`, but it must be configurable.
+  through. Default remains `1`.
+- Pass `--sleep-idle-seconds` from user settings. Default is `90`.
+- Changing `modelsMax` or `sleepIdleSeconds` requires a `llama-server` restart.
 - Keep managed pid adoption logic.
 
 ### Runtime API Facade
@@ -215,7 +218,8 @@ Settings sections:
   - start/stop router
   - host/port
   - `models-max`
-  - logs/status
+  - `sleep-idle-seconds`
+  - easy access to llama-server logs/status
 - Models
   - search Hugging Face GGUF repos/quants
   - import selected HF ref into `models.ini`
@@ -243,7 +247,7 @@ HF import:
 
 Local file path support:
 
-- Remove UI and API for local GGUF path registration in this phase.
+- Remove UI and API for local GGUF path registration immediately.
 - Keep the plan open for later local-file support by representing it as a future
   `model = <path>` or other llama.cpp preset key in `models.ini`, not as direct
   Nelle-owned model downloads.
@@ -359,7 +363,8 @@ Migration steps:
 
 1. Parse existing `models[]`.
 2. Write HF-backed models into `models.ini` if not already present.
-3. Skip or warn for local path models; local files are deferred.
+3. Drop local path models from active state; keep `state.json` as backup for
+   manual recovery if needed.
 4. Convert global `chat` into a single conversation if non-empty.
 5. Preserve the selected model as the default new-chat model if its section
    exists in `models.ini`.
@@ -372,7 +377,7 @@ Migration steps:
 - Add a structured `models.ini` parser/writer module.
 - Change `LlamaCppManager.start()` to start router mode without requiring an
   active model.
-- Add configurable `modelsMax`.
+- Add configurable `modelsMax` and `sleepIdleSeconds`.
 - Remove local path registration UI/API from the active product surface.
 - Make HF import write `models.ini` sections directly.
 - Add `/api/llama/models`, reload, load, unload, and events endpoints.
@@ -462,25 +467,23 @@ Playwright tests:
   the HF quant suffix. We need stable section ids and alias display rules.
 - Running router reload: changing or removing a loaded section can trigger
   unload. The UI must warn before destructive model edits.
-- Local path migration: dropping local path support may strand existing POC
-  users. We should warn clearly and keep backup state.
+- Local path migration: local path model entries are removed from active state,
+  so backup state should remain available until the SQLite migration is proven.
 - SQLite timing: sidebar and virtualized conversation list are awkward on the
   current single-array JSON state. Doing SQLite first reduces rework.
 - Title generation cost: it adds one extra model call on new conversations.
   Keep it short and make failures silent.
 
-## Open Questions
+## Settled Follow-Up Decisions
 
-1. Should `modelsMax` default remain `1`, or do you want a higher default when
-   the host has enough RAM/VRAM?
-2. Should Nelle expose llama.cpp's cache-sourced `POST /models` imports at all,
-   or strictly hide them to keep `models.ini` authoritative?
-3. Should global/model param editing be free-form key/value only, or should we
-   add curated controls for common params first and an advanced key/value table
-   below?
-4. Should generated titles be fully automatic, or should there be a setting to
-   require confirmation before replacing "New chat"?
-5. Should deleting a conversation hard-delete immediately, or move it to an
-   archive/trash state first?
-6. Should local file model support be removed entirely from API routes now, or
-   hidden in UI while keeping server compatibility until a migration lands?
+- `modelsMax` defaults to `1`, is user-configurable, and requires a
+  `llama-server` restart.
+- `sleepIdleSeconds` defaults to `90`, is user-configurable, and requires a
+  `llama-server` restart.
+- Model/global parameter editing starts as free-form key/value UI only. Invalid
+  parameters should fail through llama-server, and Nelle exposes the
+  llama-server log tail for diagnosis.
+- Do not expose llama.cpp's cache-sourced `POST /models` import path for normal
+  Nelle imports; `models.ini` stays authoritative.
+- Conversation delete is a hard delete for now.
+- Local file model APIs are removed now, not just hidden.

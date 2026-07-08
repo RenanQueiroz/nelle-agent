@@ -62,6 +62,12 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   await expect(page.getByText('Not installed')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Reset conversation'})).toBeDisabled();
   await expect(page.getByRole('button', {name: 'Send'})).toHaveCount(1);
+  await expect(page.getByLabel('Max loaded models')).toHaveValue('1');
+  await expect(page.getByLabel('Sleep idle seconds')).toHaveValue('90');
+
+  await page.getByRole('button', {name: 'Show logs'}).click();
+  await expect(page.getByText('No llama-server log output yet.')).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Hide logs'})).toBeVisible();
 
   await page.getByLabel('Search query').fill('qwen gguf');
   await page.getByRole('button', {name: 'Search GGUF models'}).click();

@@ -4,7 +4,6 @@ import path from 'node:path';
 export type AppPaths = {
   repoRoot: string;
   dataDir: string;
-  modelsDir: string;
   downloadsDir: string;
   llamaDir: string;
   llamaBinDir: string;
@@ -28,7 +27,6 @@ export function createAppPaths(): AppPaths {
   return {
     repoRoot,
     dataDir,
-    modelsDir: path.join(dataDir, 'models'),
     downloadsDir: path.join(dataDir, 'downloads'),
     llamaDir,
     llamaBinDir: path.join(llamaDir, 'bin'),

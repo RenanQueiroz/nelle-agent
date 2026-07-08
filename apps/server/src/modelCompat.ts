@@ -5,7 +5,7 @@ export function llamaRuntimeModelId(model: ConfiguredModel): string {
 }
 
 export function isQwenFamilyModel(model: ConfiguredModel): boolean {
-  return [model.name, model.presetName, model.repoId, model.hfRef, model.filename]
+  return [model.name, model.presetName, model.repoId, model.hfRef]
     .filter(Boolean)
     .join(' ')
     .toLowerCase()

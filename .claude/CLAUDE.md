@@ -26,6 +26,10 @@ Project-specific guidance for AI coding agents.
   Pi's `qwen-chat-template` compatibility with thinking off for normal chat.
 - Generated llama.cpp presets omit `n-gpu-layers` by default. Only write GPU
   offload flags when the user explicitly configures them.
+- Launch llama-server with configurable `modelsMax` and `sleepIdleSeconds`
+  settings. Defaults are `1` and `90`, and changes require a server restart.
+- Do not reintroduce local GGUF path registration or Nelle-owned model downloads
+  in the active product; model imports are Hugging Face `hf-repo` entries.
 - The web app uses React Compiler through `@vitejs/plugin-react`'s
   `reactCompilerPreset()` and `@rolldown/plugin-babel` in
   `apps/web/vite.config.ts`.

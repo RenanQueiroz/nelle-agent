@@ -1,16 +1,12 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
-import {Readable} from 'node:stream';
-import {pipeline} from 'node:stream/promises';
 
-import type {AppPaths} from './paths';
 import type {
   ConfiguredModel,
   HuggingFaceFile,
   HuggingFaceModelResult,
   HuggingFaceQuant,
 } from './types';
-import {AppStore, slugify} from './store';
+import {AppStore} from './store';
 
 type HfModelListItem = {
   id: string;
@@ -28,10 +24,7 @@ type HfModelInfo = HfModelListItem & {
 };
 
 export class HuggingFaceService {
-  constructor(
-    private readonly paths: AppPaths,
-    private readonly store: AppStore,
-  ) {}
+  constructor(private readonly store: AppStore) {}
 
   async searchGgufModels(query: string): Promise<HuggingFaceModelResult[]> {
     const search = query.trim() || 'gguf';
@@ -53,41 +46,6 @@ export class HuggingFaceService {
     );
 
     return detailed.filter(result => result.quants.length > 0);
-  }
-
-  async downloadGguf(input: {
-    repoId: string;
-    filename: string;
-    name?: string;
-  }): Promise<ConfiguredModel> {
-    if (!input.filename.toLowerCase().endsWith('.gguf')) {
-      throw new Error('Only GGUF files can be downloaded.');
-    }
-
-    const safeRepo = slugify(input.repoId);
-    const targetDir = path.join(this.paths.modelsDir, safeRepo);
-    const targetPath = path.join(targetDir, path.basename(input.filename));
-    await fs.mkdir(targetDir, {recursive: true});
-
-    const encodedFile = input.filename.split('/').map(encodeURIComponent).join('/');
-    const url = `https://huggingface.co/${input.repoId}/resolve/main/${encodedFile}?download=true`;
-    const response = await fetch(url);
-    if (!response.ok || !response.body) {
-      throw new Error(`Download failed: ${response.status}`);
-    }
-
-    const tmpPath = `${targetPath}.part`;
-    const file = await fs.open(tmpPath, 'w');
-    await pipeline(Readable.fromWeb(response.body as any), file.createWriteStream());
-    await fs.rename(tmpPath, targetPath);
-
-    return this.store.addLocalModel({
-      name: input.name ?? `${input.repoId} ${path.basename(input.filename, '.gguf')}`,
-      modelPath: targetPath,
-      source: 'huggingface',
-      repoId: input.repoId,
-      filename: input.filename,
-    });
   }
 
   async useHuggingFaceGguf(input: {

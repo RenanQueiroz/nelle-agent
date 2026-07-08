@@ -19,13 +19,13 @@ Implemented:
   - Linux installs/updates by building latest `ggml-org/llama.cpp` master.
   - Windows/macOS install/update code downloads latest GitHub release assets.
   - Runtime start/stop uses router mode with `--models-preset` and
-    `--models-max 1`.
+    configurable `--models-max` and `--sleep-idle-seconds` values.
   - The router pid is persisted under `.nelle/llama/` so a restarted
     `nelle-server` can adopt and stop the llama-server it previously started.
-- Hugging Face GGUF search and download.
-- Hugging Face quant selection that lets `llama-server` download/cache the
-  model via `hf-repo`.
-- Local GGUF path registration.
+  - The runtime UI can show the llama-server log tail for startup/configuration
+    diagnostics.
+- Hugging Face GGUF search and quant selection that lets `llama-server`
+  download/cache the model via `hf-repo`.
 - Pi SDK chat harness configured against the local OpenAI-compatible
   Nelle llama.cpp proxy with v1 host file/shell tools enabled.
 - Direct llama.cpp chat-completions fallback if Pi initialization fails.
@@ -40,7 +40,7 @@ Not implemented yet:
 - Mobile LAN pairing and Expo push.
 - Sandboxing for host tools.
 - SQLite persistence. The POC uses `.nelle/state.json`.
-- Progress streaming for long downloads/builds.
+- Progress streaming for long installs/builds.
 
 ## Setup
 
@@ -86,12 +86,14 @@ Set these environment variables when needed:
 
 ## llama.cpp Flow
 
-1. Add a local GGUF path or search Hugging Face and choose a GGUF quant.
+1. Search Hugging Face and choose a GGUF quant.
 2. Click `Install` to install/update `llama.cpp`.
-3. Click `Start` to launch `llama-server` with the generated
+3. Optionally adjust max loaded models or idle sleep seconds. These launch
+   settings require a `llama.cpp` restart to take effect.
+4. Click `Start` to launch `llama-server` with the generated
    `.nelle/llama/models.ini`.
-4. Chat with Nelle through the browser UI.
-5. Use `Reset conversation` in the chat footer to clear chat history and reset
+5. Chat with Nelle through the browser UI.
+6. Use `Reset conversation` in the chat footer to clear chat history and reset
    the in-memory Pi session.
 
 The chat composer uses Astryx's default up-arrow send/stop button. The footer is
@@ -129,6 +131,8 @@ llama-server -hf unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 ```
 
 The model file download and cache are handled by `llama.cpp`.
+Nelle does not register local GGUF filesystem paths in the active POC; model
+selection is currently Hugging Face `hf-repo` only.
 Nelle keeps the exact Hugging Face ref for `hf-repo`, but canonicalizes the
 router section and OpenAI `model` id the same way llama.cpp does. For example,
 `UD-Q4_K_XL` is exposed by llama.cpp as `Q4_K_XL`. Qwen-family models are
@@ -138,6 +142,8 @@ sends
 assistant text instead of hidden-only reasoning.
 Generated presets do not set `n-gpu-layers` by default; llama.cpp uses its own
 default unless GPU offload is explicitly configured.
+If free-form model parameters make llama-server fail to start, use `Show logs`
+in the runtime panel to inspect the llama-server output.
 Nelle writes `.nelle/llama/llama-server.pid.json` when it starts the router.
 On restart, Nelle validates that pid against the managed `models.ini` command
 line before treating the runtime as controllable. If the configured port already

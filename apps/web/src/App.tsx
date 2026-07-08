@@ -33,22 +33,22 @@ import {
   CpuChipIcon,
   MagnifyingGlassIcon,
   PlayIcon,
-  PlusIcon,
   StopIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline';
 
 import {
   activateModel,
-  addLocalModel,
   clearChat,
   getRuntime,
+  getRuntimeLogs,
   getState,
   installRuntime,
   searchHuggingFace,
   startRuntime,
   stopRuntime,
   streamChat,
+  updateRuntimeSettings,
   useHuggingFaceModel,
   type ChatMessage as ApiChatMessage,
   type ChatPerformance,
@@ -80,7 +80,10 @@ export function App() {
   const [messages, setMessages] = useState<ApiChatMessage[]>([]);
   const [searchQuery, setSearchQuery] = useState('qwen gguf');
   const [searchResults, setSearchResults] = useState<HuggingFaceModelResult[]>([]);
-  const [localPath, setLocalPath] = useState('');
+  const [modelsMaxInput, setModelsMaxInput] = useState('1');
+  const [sleepIdleInput, setSleepIdleInput] = useState('90');
+  const [isLogVisible, setIsLogVisible] = useState(false);
+  const [runtimeLogs, setRuntimeLogs] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -101,6 +104,10 @@ export function App() {
   async function refreshState() {
     const response = await getState();
     setRuntime(response.runtime);
+    setModelsMaxInput(String(response.runtime.modelsMax ?? response.state.runtime?.modelsMax ?? 1));
+    setSleepIdleInput(
+      String(response.runtime.sleepIdleSeconds ?? response.state.runtime?.sleepIdleSeconds ?? 90),
+    );
     setModels(response.state.models);
     setActiveModelId(response.state.activeModelId);
     setMessages(response.state.chat);
@@ -134,6 +141,48 @@ export function App() {
     } finally {
       setIsSearching(false);
     }
+  }
+
+  async function handleSaveRuntimeSettings() {
+    const modelsMax = Number.parseInt(modelsMaxInput, 10);
+    const sleepIdleSeconds = Number.parseInt(sleepIdleInput, 10);
+    if (!Number.isInteger(modelsMax) || modelsMax < 1) {
+      setNotice({type: 'error', text: 'Max loaded models must be a positive integer.'});
+      return;
+    }
+    if (!Number.isInteger(sleepIdleSeconds) || sleepIdleSeconds < 0) {
+      setNotice({type: 'error', text: 'Sleep idle seconds must be zero or a positive integer.'});
+      return;
+    }
+
+    await runAction('runtime-settings', async () => {
+      await updateRuntimeSettings({modelsMax, sleepIdleSeconds});
+      await refreshState();
+      setNotice({
+        type: 'success',
+        text: runtime?.running
+          ? 'Runtime settings saved. Restart llama.cpp to apply them.'
+          : 'Runtime settings saved.',
+      });
+    });
+  }
+
+  async function handleToggleLogs() {
+    await runAction('runtime-logs', async () => {
+      if (!isLogVisible) {
+        const logs = await getRuntimeLogs();
+        setRuntimeLogs(logs.text);
+      }
+      setIsLogVisible(!isLogVisible);
+    });
+  }
+
+  async function handleRefreshLogs() {
+    await runAction('runtime-logs', async () => {
+      const logs = await getRuntimeLogs();
+      setRuntimeLogs(logs.text);
+      setIsLogVisible(true);
+    });
   }
 
   async function handleChatSubmit(value: string) {
@@ -277,6 +326,9 @@ export function App() {
                     <Text type="supporting" color="secondary" className="nelle-code">
                       {runtime?.binaryPath ?? 'No llama-server binary detected'}
                     </Text>
+                    <Text type="supporting" color="secondary" className="nelle-code">
+                      {runtime?.logPath ?? 'llama-server log path unavailable'}
+                    </Text>
                     <HStack gap={2} wrap="wrap">
                       <Button
                         label={runtime?.installed ? 'Update' : 'Install'}
@@ -295,7 +347,7 @@ export function App() {
                         size="sm"
                         variant="primary"
                         icon={<Icon icon={PlayIcon} size="sm" />}
-                        isDisabled={!runtime?.installed || runtime.running || !activeModel}
+                        isDisabled={!runtime?.installed || runtime.running}
                         isLoading={busyAction === 'start'}
                         onClick={() =>
                           runAction('start', async () => {
@@ -327,7 +379,53 @@ export function App() {
                           })
                         }
                       />
+                      <Button
+                        label={isLogVisible ? 'Hide logs' : 'Show logs'}
+                        size="sm"
+                        variant="ghost"
+                        isLoading={busyAction === 'runtime-logs'}
+                        onClick={handleToggleLogs}
+                      />
+                      {isLogVisible && (
+                        <Button
+                          label="Refresh logs"
+                          size="sm"
+                          variant="ghost"
+                          isLoading={busyAction === 'runtime-logs'}
+                          onClick={handleRefreshLogs}
+                        />
+                      )}
                     </HStack>
+                    {isLogVisible && (
+                      <CodeBlock
+                        code={runtimeLogs || 'No llama-server log output yet.'}
+                        language="text"
+                        width="100%"
+                        maxHeight="calc(var(--spacing-10) * 8)"
+                        isWrapped
+                      />
+                    )}
+                    <VStack gap={2}>
+                      <TextInput
+                        label="Max loaded models"
+                        value={modelsMaxInput}
+                        onChange={setModelsMaxInput}
+                        description="Default is 1. Requires a llama.cpp restart."
+                      />
+                      <TextInput
+                        label="Sleep idle seconds"
+                        value={sleepIdleInput}
+                        onChange={setSleepIdleInput}
+                        description="Default is 90. Requires a llama.cpp restart."
+                      />
+                    </VStack>
+                    <Button
+                      label="Save runtime settings"
+                      size="sm"
+                      variant="secondary"
+                      isLoading={busyAction === 'runtime-settings'}
+                      onClick={handleSaveRuntimeSettings}
+                    />
                   </VStack>
                 </Card>
 
@@ -336,7 +434,7 @@ export function App() {
                     <Heading level={3}>Configured models</Heading>
                     {models.length === 0 && (
                       <Text type="supporting" color="secondary">
-                        Search Hugging Face or add a local GGUF path to create the first model.
+                        Search Hugging Face and choose a GGUF quant to create the first model.
                       </Text>
                     )}
                     {models.map(model => (
@@ -358,38 +456,11 @@ export function App() {
                             {model.name}
                           </Text>
                           <Text type="supporting" color="secondary" className="nelle-code">
-                            {model.hfRef ?? model.path ?? model.presetName}
+                            {model.hfRef ?? model.presetName}
                           </Text>
                         </VStack>
                       </ClickableCard>
                     ))}
-                  </VStack>
-                </Card>
-
-                <Card padding={3}>
-                  <VStack gap={3}>
-                    <Heading level={3}>Local GGUF</Heading>
-                    <TextInput
-                      label="Local model path"
-                      value={localPath}
-                      onChange={setLocalPath}
-                      placeholder="/path/to/model.gguf"
-                    />
-                    <Button
-                      label="Add local model"
-                      size="sm"
-                      variant="secondary"
-                      icon={<Icon icon={PlusIcon} size="sm" />}
-                      isDisabled={!localPath.trim()}
-                      isLoading={busyAction === 'add-local'}
-                      onClick={() =>
-                        runAction('add-local', async () => {
-                          await addLocalModel({path: localPath});
-                          setLocalPath('');
-                          await refreshState();
-                        })
-                      }
-                    />
                   </VStack>
                 </Card>
               </VStack>

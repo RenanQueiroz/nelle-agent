@@ -3,6 +3,7 @@ export type RuntimeStatus = {
   arch: string;
   dataDir: string;
   binaryPath: string | null;
+  logPath: string;
   installMode: 'source-master' | 'github-release' | 'external';
   installed: boolean;
   installedVersion: string | null;
@@ -12,6 +13,8 @@ export type RuntimeStatus = {
   pid: number | null;
   host: string;
   port: number;
+  modelsMax: number;
+  sleepIdleSeconds: number;
   activeModelId: string | null;
   lastError: string | null;
 };
@@ -20,12 +23,10 @@ export type ConfiguredModel = {
   id: string;
   name: string;
   presetName: string;
-  source: 'huggingface' | 'local';
+  source: 'huggingface';
   repoId?: string;
   quant?: string;
   hfRef?: string;
-  filename?: string;
-  path?: string;
   params: {
     contextSize: number;
     gpuLayers?: number;
@@ -97,6 +98,12 @@ export type AppStateResponse = {
   state: {
     activeModelId: string | null;
     models: ConfiguredModel[];
+    runtime?: {
+      host: string;
+      port: number;
+      modelsMax: number;
+      sleepIdleSeconds: number;
+    };
     chat: ChatMessage[];
   };
   runtime: RuntimeStatus;
@@ -122,20 +129,26 @@ export async function stopRuntime(): Promise<RuntimeStatus> {
   return apiPost('/api/runtime/stop');
 }
 
+export async function getRuntimeLogs(): Promise<{path: string; text: string}> {
+  return apiGet('/api/runtime/logs');
+}
+
+export async function updateRuntimeSettings(input: {
+  modelsMax?: number;
+  sleepIdleSeconds?: number;
+}): Promise<AppStateResponse['state']['runtime']> {
+  const response = await apiPatch<{runtime: AppStateResponse['state']['runtime']}>(
+    '/api/runtime/settings',
+    input,
+  );
+  return response.runtime;
+}
+
 export async function searchHuggingFace(query: string): Promise<HuggingFaceModelResult[]> {
   const response = await apiGet<{results: HuggingFaceModelResult[]}>(
     `/api/huggingface/search?q=${encodeURIComponent(query)}`,
   );
   return response.results;
-}
-
-export async function downloadModel(input: {
-  repoId: string;
-  filename: string;
-  name?: string;
-}): Promise<ConfiguredModel> {
-  const response = await apiPost<{model: ConfiguredModel}>('/api/huggingface/download', input);
-  return response.model;
 }
 
 export async function useHuggingFaceModel(input: {
@@ -144,14 +157,6 @@ export async function useHuggingFaceModel(input: {
   name?: string;
 }): Promise<ConfiguredModel> {
   const response = await apiPost<{model: ConfiguredModel}>('/api/huggingface/use', input);
-  return response.model;
-}
-
-export async function addLocalModel(input: {
-  name?: string;
-  path: string;
-}): Promise<ConfiguredModel> {
-  const response = await apiPost<{model: ConfiguredModel}>('/api/models/local', input);
   return response.model;
 }
 
@@ -206,6 +211,15 @@ async function apiGet<T>(url: string): Promise<T> {
 async function apiPost<T>(url: string, body?: unknown): Promise<T> {
   const response = await fetch(url, {
     method: 'POST',
+    headers: body == null ? undefined : {'content-type': 'application/json'},
+    body: body == null ? undefined : JSON.stringify(body),
+  });
+  return parseJson<T>(response);
+}
+
+async function apiPatch<T>(url: string, body?: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: 'PATCH',
     headers: body == null ? undefined : {'content-type': 'application/json'},
     body: body == null ? undefined : JSON.stringify(body),
   });

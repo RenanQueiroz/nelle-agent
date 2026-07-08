@@ -13,6 +13,7 @@ const DEFAULT_STATE: AppState = {
     host: '127.0.0.1',
     port: 8080,
     modelsMax: 1,
+    sleepIdleSeconds: 90,
   },
   chat: [],
 };
@@ -34,7 +35,7 @@ export class AppStore {
     await this.ensureDirs();
     try {
       const raw = await fs.readFile(this.paths.statePath, 'utf8');
-      this.#state = {...DEFAULT_STATE, ...JSON.parse(raw)} as AppState;
+      this.#state = normalizeState(JSON.parse(raw) as Partial<AppState>);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         throw error;
@@ -58,7 +59,6 @@ export class AppStore {
   async ensureDirs(): Promise<void> {
     await Promise.all([
       fs.mkdir(path.dirname(this.paths.statePath), {recursive: true}),
-      fs.mkdir(this.paths.modelsDir, {recursive: true}),
       fs.mkdir(this.paths.downloadsDir, {recursive: true}),
       fs.mkdir(this.paths.llamaBinDir, {recursive: true}),
       fs.mkdir(path.dirname(this.paths.llamaLogPath), {recursive: true}),
@@ -82,38 +82,6 @@ export class AppStore {
       throw new Error(`Unknown model: ${id}`);
     }
     state.activeModelId = id;
-    await this.save();
-    return model;
-  }
-
-  async addLocalModel(input: {
-    name: string;
-    modelPath: string;
-    source: ConfiguredModel['source'];
-    repoId?: string;
-    filename?: string;
-    params?: Partial<ModelParams>;
-  }): Promise<ConfiguredModel> {
-    const state = await this.load();
-    const modelPath = path.resolve(input.modelPath);
-    const id = crypto.randomUUID();
-    const presetName = slugify(input.name || path.basename(modelPath));
-    const model: ConfiguredModel = {
-      id,
-      name: input.name || path.basename(modelPath),
-      presetName: uniquePresetName(
-        presetName,
-        state.models.map(item => item.presetName),
-      ),
-      source: input.source,
-      repoId: input.repoId,
-      filename: input.filename,
-      path: modelPath,
-      params: {...DEFAULT_PARAMS, ...input.params},
-      createdAt: new Date().toISOString(),
-    };
-    state.models.push(model);
-    state.activeModelId = model.id;
     await this.save();
     return model;
   }
@@ -154,6 +122,16 @@ export class AppStore {
     return model;
   }
 
+  async updateRuntimeSettings(input: {
+    modelsMax?: number;
+    sleepIdleSeconds?: number;
+  }): Promise<AppState['runtime']> {
+    const state = await this.load();
+    state.runtime = normalizeRuntime({...state.runtime, ...input});
+    await this.save();
+    return structuredClone(state.runtime);
+  }
+
   async appendChatMessage(message: ChatMessage): Promise<void> {
     const state = await this.load();
     state.chat.push(message);
@@ -166,6 +144,52 @@ export class AppStore {
     state.chat = [];
     await this.save();
   }
+}
+
+function normalizeState(input: Partial<AppState>): AppState {
+  const models = (input.models ?? []).filter(isHuggingFaceModel).map(model => ({
+    ...model,
+    source: 'huggingface' as const,
+    params: {...DEFAULT_PARAMS, ...(model.params ?? {})},
+    createdAt: model.createdAt ?? new Date().toISOString(),
+  }));
+  const activeModelId = models.some(model => model.id === input.activeModelId)
+    ? (input.activeModelId ?? null)
+    : (models[0]?.id ?? null);
+
+  return {
+    version: 1,
+    activeModelId,
+    models,
+    runtime: normalizeRuntime(input.runtime),
+    chat: Array.isArray(input.chat) ? input.chat : [],
+  };
+}
+
+function isHuggingFaceModel(model: ConfiguredModel): boolean {
+  return (
+    model.source === 'huggingface' && typeof model.hfRef === 'string' && model.hfRef.length > 0
+  );
+}
+
+function normalizeRuntime(input: Partial<AppState['runtime']> = {}): AppState['runtime'] {
+  return {
+    host: input.host || DEFAULT_STATE.runtime.host,
+    port: positiveInteger(input.port, DEFAULT_STATE.runtime.port),
+    modelsMax: positiveInteger(input.modelsMax, DEFAULT_STATE.runtime.modelsMax),
+    sleepIdleSeconds: nonNegativeInteger(
+      input.sleepIdleSeconds,
+      DEFAULT_STATE.runtime.sleepIdleSeconds,
+    ),
+  };
+}
+
+function positiveInteger(value: unknown, fallback: number): number {
+  return Number.isInteger(value) && Number(value) > 0 ? Number(value) : fallback;
+}
+
+function nonNegativeInteger(value: unknown, fallback: number): number {
+  return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : fallback;
 }
 
 export function slugify(value: string): string {

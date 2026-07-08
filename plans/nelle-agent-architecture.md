@@ -1,6 +1,6 @@
 # Nelle Agent Architecture Plan
 
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 ## Working Goal
 
@@ -13,7 +13,7 @@ The first product experience should be UI-driven:
 
 1. Launch Nelle Agent.
 2. Complete first-run setup in a local web/desktop UI.
-3. Pick a GGUF model from Hugging Face or choose an existing local GGUF.
+3. Pick a GGUF model and quant from Hugging Face.
 4. Configure practical `llama.cpp` parameters without editing raw config files.
 5. Start or stop the model server.
 6. Chat with the agent from the browser UI.
@@ -102,8 +102,8 @@ Use a TypeScript-first stack:
   on Linux.
 - Mobile client: separate React Native repo that talks to the server over a
   versioned HTTP/WebSocket API.
-- Persistence: SQLite for app metadata, plus filesystem storage for model files,
-  generated llama presets, Pi sessions, logs, and downloaded binaries.
+- Persistence: SQLite for app metadata, plus filesystem storage for generated
+  llama presets, Pi sessions, logs, and downloaded binaries.
 
 Why this default:
 
@@ -172,7 +172,7 @@ apps/
 packages/
   shared/               Shared TypeScript types, Zod schemas, API contracts
   db/                   SQLite schema and migrations
-  hf/                   Hugging Face search/download/catalog helpers
+  hf/                   Hugging Face search/catalog helpers
   llamacpp/             Binary install, preset generation, process control
   pi-bridge/            Pi SDK adapter and event normalization
   notifications/        Pairing, LAN delivery, future push-provider adapter
@@ -197,18 +197,19 @@ Companion implementation plans:
 ## Current POC Status
 
 The first POC implements the local Fastify server, React/Vite browser UI,
-Astryx chat surface, Hugging Face GGUF search/download, Hugging Face quant
-selection through llama.cpp-managed `hf-repo` references, local GGUF
-registration, managed `llama.cpp` install/update/start/stop paths, generated
+Astryx chat surface, Hugging Face GGUF search, Hugging Face quant selection
+through llama.cpp-managed `hf-repo` references, managed `llama.cpp`
+install/update/start/stop paths, generated
 router `models.ini`, Pi SDK chat streaming, a direct llama.cpp fallback for
 diagnostics, browser-triggered conversation reset, and Playwright e2e coverage
-for the browser workbench.
+for the browser workbench. The runtime UI also exposes a llama-server log tail
+for startup and configuration diagnostics.
 
 Intentional POC limitations:
 
 - State is stored in `.nelle/state.json`; SQLite is still the planned durable
   app database.
-- Long-running build/download progress is not streamed yet.
+- Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are enabled through Pi and remain unsandboxed.
 - The UI is adapted from Astryx `ai-chat` and `ai-chat-landing` templates, but
@@ -261,10 +262,10 @@ Responsibilities:
 Responsibilities:
 
 - Serve the admin UI.
-- Expose REST endpoints for settings, model catalog, downloads, runtime status,
+- Expose REST endpoints for settings, model catalog, runtime status,
   sessions, pairing, and diagnostics.
-- Expose WebSocket or SSE streams for chat deltas, tool events, model download
-  progress, server logs, and notifications.
+- Expose WebSocket or SSE streams for chat deltas, tool events, server logs,
+  and notifications.
 - Own auth, pairing, and permission gates.
 - Own all process supervision for `llama-server`.
 
@@ -337,7 +338,8 @@ llama-server \
   --host 127.0.0.1 \
   --port <port> \
   --models-preset <app-data>/llama/models.ini \
-  --models-max 1
+  --models-max <configured max, default 1> \
+  --sleep-idle-seconds <configured seconds, default 90>
 ```
 
 - Optionally bind to LAN only when mobile pairing is enabled.
@@ -370,8 +372,10 @@ Model concurrency:
 
 - Run exactly one model at a time in v1.
 - Keep multiple configured model records.
-- Use router mode with `--models-max 1` so switching models can use router
-  load/unload APIs rather than changing raw command lines.
+- Use router mode with `--models-max` defaulting to `1` so switching models can
+  use router load/unload APIs rather than changing raw command lines.
+- Pass `--sleep-idle-seconds`, defaulting to `90`, so loaded models can sleep
+  when idle.
 - Do not expose multi-model concurrency controls in v1.
 
 Generated preset example:
@@ -382,15 +386,10 @@ version = 1
 [*]
 c = 8192
 
-[qwen3-8b-q4km]
-model = /absolute/path/to/models/qwen3-8b-q4km.gguf
-load-on-startup = true
-stop-timeout = 10
-
 [unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL]
 hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 alias = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
-load-on-startup = false
+load-on-startup = true
 stop-timeout = 10
 ```
 
@@ -417,11 +416,7 @@ Responsibilities:
   `hf-repo` reference instead of forcing Nelle to download the files itself.
 - Show only useful model files by default, with quantization, size, license,
   architecture, downloads, and disk-space checks.
-- Support a "use local GGUF" path.
-- Download with progress, resume, and cancellation.
-- Store models in app data by default, with a configurable external model
-  directory.
-- Generate Nelle model records and llama preset sections after download.
+- Generate Nelle model records and llama preset sections after HF ref import.
 
 Initial implementation:
 
@@ -448,8 +443,9 @@ Initial implementation:
 - Correlate Pi tool execution events by `toolCallId`, upsert the same tool call
   row as it moves from running to complete/error, and preserve compact input and
   output details for expandable UI inspection.
-- Keep direct Nelle file downloads as a secondary/simple path for explicit
-  single-file GGUF use, but do not make it the primary HF model picker flow.
+- Do not expose direct Nelle file downloads or local GGUF path registration in
+  the active product. Later local-file support should still be represented as
+  `models.ini` parameters rather than as a separate Nelle-owned model path API.
 
 Open product questions:
 
@@ -497,9 +493,8 @@ Likely path:
 
 Store under OS app data directories:
 
-- `settings.sqlite`: app settings, configured models, downloads, devices,
+- `settings.sqlite`: app settings, configured models, devices,
   runtime state snapshots, migrations.
-- `models/`: downloaded GGUF files unless user selects another directory.
 - `llama/`: generated `models.ini`, managed router pid file, llama.cpp
   binaries, llama logs.
 - `pi/`: Nelle-owned Pi `agentDir`, model config, credentials if needed,
@@ -520,9 +515,10 @@ First-run screens:
 1. Welcome/status: local-only explanation and platform checks.
 2. llama.cpp setup: download recommended binary, use existing binary, or build
    from source on Linux.
-3. Model source: broad Hugging Face GGUF search or local file.
-4. Model parameters: guided controls for context size, GPU layers, batch/ubatch,
-   threads, flash attention, reasoning mode, and startup behavior.
+3. Model source: broad Hugging Face GGUF search and quant selection.
+4. Model parameters: free-form key/value controls for global `[*]` and
+   per-model `models.ini` params, plus visible llama-server logs for invalid
+   parameter diagnostics.
 5. Start server: live logs and health checks.
 6. Chat smoke test.
 7. Pair phone: optional QR code flow.
@@ -540,7 +536,7 @@ Exit criteria:
 - Confirm Pi SDK can talk to a local `llama-server` model through generated
   `models.json`.
 - Confirm `llama-server` router mode with generated preset on this host.
-- Confirm a first model download path.
+- Confirm a first HF `hf-repo` import path.
 - Confirm Linux source-build flow from latest `llama.cpp` master.
 - Confirm Windows/macOS release-asset naming and update metadata.
 
@@ -559,10 +555,12 @@ Exit criteria:
 
 - App can install, locate, update, start, and stop `llama-server`.
 - App can generate `models.ini`.
-- App can start/stop router mode with `--models-max 1`.
+- App can start/stop router mode with configurable `--models-max` and
+  `--sleep-idle-seconds`.
 - App can list router models and show loaded/unloaded status.
 - App can notify the user that a runtime update is available.
-- One configured local GGUF can answer through `/v1/chat/completions`.
+- One configured Hugging Face GGUF ref can answer through
+  `/v1/chat/completions`.
 
 ### Milestone 3: Pi Chat Loop
 
@@ -582,9 +580,8 @@ Exit criteria:
 
 Exit criteria:
 
-- User can search broad Hugging Face results filtered to GGUF models or choose a
-  local GGUF.
-- Downloads show progress, errors, disk checks, and cancellation.
+- User can search broad Hugging Face results filtered to GGUF models.
+- llama-server download/cache errors are visible through status and logs.
 - New model records update Pi `models.json` and llama `models.ini`.
 - User can switch active model from UI.
 

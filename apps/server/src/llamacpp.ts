@@ -59,6 +59,7 @@ export class LlamaCppManager {
       arch: process.arch,
       dataDir: this.paths.dataDir,
       binaryPath,
+      logPath: this.paths.llamaLogPath,
       installMode: process.env.LLAMA_SERVER_PATH
         ? 'external'
         : process.platform === 'linux'
@@ -74,6 +75,8 @@ export class LlamaCppManager {
       pid: managedPid,
       host: state.runtime.host,
       port: state.runtime.port,
+      modelsMax: state.runtime.modelsMax,
+      sleepIdleSeconds: state.runtime.sleepIdleSeconds,
       activeModelId: state.activeModelId,
       lastError: this.#lastError,
     };
@@ -93,6 +96,27 @@ export class LlamaCppManager {
       return this.getStatus(true);
     } catch (error) {
       this.#lastError = error instanceof Error ? error.message : String(error);
+      throw error;
+    }
+  }
+
+  async readLogTail(maxBytes = 80_000): Promise<{path: string; text: string}> {
+    try {
+      const stat = await fs.stat(this.paths.llamaLogPath);
+      const start = Math.max(0, stat.size - maxBytes);
+      const length = stat.size - start;
+      const handle = await fs.open(this.paths.llamaLogPath, 'r');
+      try {
+        const buffer = Buffer.alloc(length);
+        await handle.read(buffer, 0, length, start);
+        return {path: this.paths.llamaLogPath, text: buffer.toString('utf8')};
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return {path: this.paths.llamaLogPath, text: ''};
+      }
       throw error;
     }
   }
@@ -128,12 +152,7 @@ export class LlamaCppManager {
       return this.getStatus();
     }
 
-    const activeModel = await this.store.getActiveModel();
-    if (!activeModel) {
-      throw new Error('Select or download a model before starting llama.cpp.');
-    }
-
-    await this.writePreset(activeModel);
+    await this.writePreset();
     await fs.mkdir(path.dirname(this.paths.llamaLogPath), {recursive: true});
     const log = fsSync.openSync(this.paths.llamaLogPath, 'a');
     let logClosed = false;
@@ -151,7 +170,9 @@ export class LlamaCppManager {
       '--models-preset',
       this.paths.llamaPresetPath,
       '--models-max',
-      '1',
+      String(state.runtime.modelsMax),
+      '--sleep-idle-seconds',
+      String(state.runtime.sleepIdleSeconds),
     ];
 
     const child = spawn(binaryPath, args, {
@@ -222,24 +243,33 @@ export class LlamaCppManager {
     return this.getStatus();
   }
 
-  async writePreset(activeModel: ConfiguredModel): Promise<void> {
+  async writePreset(activeModel?: ConfiguredModel): Promise<void> {
+    const state = await this.store.getState();
+    const selectedModel =
+      activeModel ?? state.models.find(model => model.id === state.activeModelId) ?? null;
     await fs.mkdir(path.dirname(this.paths.llamaPresetPath), {recursive: true});
-    const params = activeModel.params;
+    const globalParams = selectedModel?.params ?? {contextSize: 8192};
     const lines = [
       'version = 1',
       '',
       '[*]',
-      `c = ${params.contextSize}`,
-      ...(params.gpuLayers != null ? [`n-gpu-layers = ${params.gpuLayers}`] : []),
-      ...(params.threads ? [`threads = ${params.threads}`] : []),
-      ...(params.batchSize ? [`b = ${params.batchSize}`] : []),
-      '',
-      `[${llamaRuntimeModelId(activeModel)}]`,
-      ...modelSourceLines(activeModel),
-      'load-on-startup = true',
-      'stop-timeout = 10',
+      `c = ${globalParams.contextSize}`,
+      ...(globalParams.gpuLayers != null ? [`n-gpu-layers = ${globalParams.gpuLayers}`] : []),
+      ...(globalParams.threads ? [`threads = ${globalParams.threads}`] : []),
+      ...(globalParams.batchSize ? [`b = ${globalParams.batchSize}`] : []),
       '',
     ];
+
+    for (const model of state.models) {
+      lines.push(
+        `[${llamaRuntimeModelId(model)}]`,
+        ...modelSourceLines(model),
+        `load-on-startup = ${model.id === selectedModel?.id ? 'true' : 'false'}`,
+        'stop-timeout = 10',
+        '',
+      );
+    }
+
     await fs.writeFile(this.paths.llamaPresetPath, lines.join('\n'));
   }
 
@@ -672,8 +702,5 @@ function modelSourceLines(model: ConfiguredModel): string[] {
   if (model.hfRef) {
     return [`hf-repo = ${model.hfRef}`, `alias = ${model.hfRef}`];
   }
-  if (model.path) {
-    return [`model = ${model.path}`];
-  }
-  throw new Error(`Model ${model.name} has no local path or Hugging Face reference.`);
+  throw new Error(`Model ${model.name} has no Hugging Face reference.`);
 }
