@@ -37,6 +37,9 @@ Project-specific guidance for AI coding agents.
   chat event types aligned.
 - Tool calls must be correlated by stable `id` / Pi `toolCallId`; stream updates
   should upsert existing calls and preserve expandable input/output detail.
+- Keep the workbench viewport-bounded. Do not reintroduce document-level
+  scrolling; side panels and the chat history should scroll internally while
+  the composer stays docked.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components

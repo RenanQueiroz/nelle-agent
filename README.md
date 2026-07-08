@@ -13,6 +13,8 @@ Implemented:
 - Fastify API server with browser-opened app flow.
 - React/Vite UI using Meta Astryx components, React Compiler, and generated
   Astryx agent guidance.
+- Viewport-bounded workbench layout where side panels and the chat history
+  manage their own scrolling while the chat composer stays docked.
 - Managed `llama.cpp` runtime control:
   - Linux installs/updates by building latest `ggml-org/llama.cpp` master.
   - Windows/macOS install/update code downloads latest GitHub release assets.

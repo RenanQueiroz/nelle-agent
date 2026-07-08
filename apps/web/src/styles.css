@@ -1,15 +1,19 @@
 html,
 body,
 #root {
+  height: 100%;
   min-height: 100%;
 }
 
 body {
   margin: 0;
+  overflow: hidden;
 }
 
 .nelle-workbench {
   height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .nelle-side-panel {
@@ -21,7 +25,17 @@ body {
 }
 
 .nelle-chat-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.nelle-chat-layout {
+  height: 100%;
+  min-height: 0;
 }
 
 .nelle-search-panel {

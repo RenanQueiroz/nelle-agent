@@ -281,3 +281,92 @@ test('updates streamed tool calls and shows expandable input and output', async 
   await expect(page.getByText('Output')).toBeVisible();
   await expect(page.getByText('hello', {exact: true})).toBeVisible();
 });
+
+test('keeps the page frame fixed while only the chat region scrolls', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL',
+    presetName: 'unsloth-qwen',
+    source: 'huggingface',
+    repoId: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF',
+    quant: 'UD-Q4_K_XL',
+    hfRef: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  const chat = Array.from({length: 36}, (_, index) => ({
+    id: `message-${index}`,
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    content: `Scrollable chat message ${index + 1}`,
+    createdAt: new Date(Date.UTC(2026, 6, 7, 12, index)).toISOString(),
+  }));
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat,
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+
+  await page.goto('/');
+  const chatLayout = page.getByTestId('chat-layout');
+  await expect(page.getByLabel('Message input')).toBeVisible();
+
+  const metrics = await page.evaluate(() => ({
+    bodyOverflow: getComputedStyle(document.body).overflow,
+    documentClientHeight: document.documentElement.clientHeight,
+    documentScrollHeight: document.documentElement.scrollHeight,
+  }));
+  expect(metrics.bodyOverflow).toBe('hidden');
+  expect(metrics.documentScrollHeight).toBeLessThanOrEqual(metrics.documentClientHeight + 1);
+  await expect
+    .poll(async () =>
+      chatLayout.evaluate(element => ({
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+      })),
+    )
+    .toMatchObject({
+      clientHeight: expect.any(Number),
+      scrollHeight: expect.any(Number),
+    });
+
+  const chatScrolls = await chatLayout.evaluate(
+    element => element.scrollHeight > element.clientHeight,
+  );
+  expect(chatScrolls).toBe(true);
+  const composerBoxBefore = await page.getByLabel('Message input').boundingBox();
+  await chatLayout.evaluate(element => {
+    element.scrollTop = 0;
+  });
+  const composerBoxAfter = await page.getByLabel('Message input').boundingBox();
+  expect(composerBoxBefore).not.toBeNull();
+  expect(composerBoxAfter).not.toBeNull();
+  expect(Math.abs((composerBoxBefore?.y ?? 0) - (composerBoxAfter?.y ?? 0))).toBeLessThan(2);
+});

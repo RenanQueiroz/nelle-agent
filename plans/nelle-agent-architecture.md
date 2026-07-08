@@ -120,6 +120,10 @@ Frontend conventions:
 
 - Build the web app with React Compiler through `@vitejs/plugin-react`'s
   `reactCompilerPreset()` and `@rolldown/plugin-babel`.
+- Keep the workbench viewport-bounded: the document body should not be the
+  primary scroll container. Side panels and the chat history own their own
+  overflow, and the chat composer remains docked at the bottom of the chat
+  column.
 - Import Astryx CSS once in the web app entry:
 
 ```ts

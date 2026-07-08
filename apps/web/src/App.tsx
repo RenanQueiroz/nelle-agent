@@ -390,6 +390,8 @@ export function App() {
 
               <StackItem size="fill" className="nelle-chat-column">
                 <ChatLayout
+                  data-testid="chat-layout"
+                  className="nelle-chat-layout"
                   density="spacious"
                   composer={
                     <ChatComposer
