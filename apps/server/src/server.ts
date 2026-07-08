@@ -108,6 +108,76 @@ export async function createServer(paths: AppPaths) {
     return {runtime: await store.updateRuntimeSettings(body)};
   });
 
+  app.get('/api/llama/props', async (_request, reply) =>
+    handleLlamaRoute(reply, () => llama.getRouterProps()),
+  );
+
+  app.get('/api/llama/models', async (_request, reply) =>
+    handleLlamaRoute(reply, () => llama.getRouterModels()),
+  );
+
+  app.post('/api/llama/models/reload', async (_request, reply) =>
+    handleLlamaRoute(reply, () => llama.getRouterModels({reload: true})),
+  );
+
+  app.get('/api/llama/models/events', async (request, reply) => {
+    const controller = new AbortController();
+    request.raw.on('close', () => controller.abort());
+    let upstream: Response;
+    try {
+      upstream = await llama.fetchRouterStream('/models/sse', controller.signal);
+    } catch (error) {
+      return sendLlamaError(reply, error);
+    }
+
+    if (!upstream.ok || !upstream.body) {
+      return sendLlamaError(
+        reply,
+        new Error(
+          upstream.body
+            ? `llama.cpp router events failed: ${upstream.status}`
+            : 'llama.cpp router events response did not include a stream.',
+        ),
+      );
+    }
+
+    reply.raw.writeHead(upstream.status, {
+      'content-type': upstream.headers.get('content-type') ?? 'text/event-stream; charset=utf-8',
+      'cache-control': upstream.headers.get('cache-control') ?? 'no-cache',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+
+    const reader = upstream.body.getReader();
+    try {
+      while (true) {
+        const {value, done} = await reader.read();
+        if (done) {
+          break;
+        }
+        reply.raw.write(value);
+      }
+    } finally {
+      reader.releaseLock();
+      reply.raw.end();
+    }
+  });
+
+  app.get('/api/llama/models/:id/props', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    return handleLlamaRoute(reply, () => llama.getModelProps(id));
+  });
+
+  app.post('/api/llama/models/:id/load', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    return handleLlamaRoute(reply, () => llama.loadRouterModel(id));
+  });
+
+  app.post('/api/llama/models/:id/unload', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    return handleLlamaRoute(reply, () => llama.unloadRouterModel(id));
+  });
+
   app.get('/api/models', async () => {
     const state = await store.getState();
     return {models: state.models, activeModelId: state.activeModelId};
@@ -294,6 +364,30 @@ export async function createServer(paths: AppPaths) {
   }
 
   return app;
+}
+
+async function handleLlamaRoute<T>(
+  reply: {status: (statusCode: number) => {send: (payload: unknown) => unknown}},
+  action: () => Promise<T>,
+): Promise<T | unknown> {
+  try {
+    return await action();
+  } catch (error) {
+    return sendLlamaError(reply, error);
+  }
+}
+
+function sendLlamaError(
+  reply: {status: (statusCode: number) => {send: (payload: unknown) => unknown}},
+  error: unknown,
+): unknown {
+  return reply.status(502).send({
+    error: {
+      code: 'llama_router_request_failed',
+      message: error instanceof Error ? error.message : String(error),
+      retryable: true,
+    },
+  });
 }
 
 async function hasBuiltWeb(webDistDir: string): Promise<boolean> {

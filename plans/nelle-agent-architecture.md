@@ -244,9 +244,9 @@ through llama.cpp-managed `hf-repo` references, managed `llama.cpp`
 install/update/start/stop paths, a lossless writer for router `models.ini`, Pi
 SDK chat streaming, a direct llama.cpp fallback for diagnostics,
 browser-triggered conversation reset, SQLite schema/migration foundations,
-conversation list/snapshot APIs, and Playwright e2e coverage for the browser
-workbench. The runtime UI also exposes a llama-server log tail for startup and
-configuration diagnostics.
+conversation list/snapshot APIs, Nelle-owned llama.cpp router facade APIs, and
+Playwright e2e coverage for the browser workbench. The runtime UI also exposes
+a llama-server log tail for startup and configuration diagnostics.
 
 Intentional POC limitations:
 

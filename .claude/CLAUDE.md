@@ -39,6 +39,9 @@ Project-specific guidance for AI coding agents.
 - Nelle persists managed llama-server ownership in
   `.nelle/llama/llama-server.pid.json` so restarted servers can adopt and stop
   the prior router process.
+- Browser/server UI code should use Nelle's `/api/llama/*` router facade for
+  llama.cpp props, models, load/unload, reload, model props, and router events.
+  Do not call llama.cpp directly from the web app.
 - Each Nelle conversation maps to one Pi session JSONL file. Treat Pi session
   files as authoritative for message history, compaction, and branch state;
   SQLite stores conversation indexes, projections, and Nelle-only sidecar

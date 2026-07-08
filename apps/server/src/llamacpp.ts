@@ -5,11 +5,19 @@ import os from 'node:os';
 import {spawn, type ChildProcess} from 'node:child_process';
 
 import type {AppPaths} from './paths';
-import type {ConfiguredModel, RuntimeStatus} from './types';
+import type {
+  ConfiguredModel,
+  LlamaModelProps,
+  LlamaRouterModel,
+  LlamaRouterProps,
+  RuntimeStatus,
+} from './types';
 import {AppStore} from './store';
 import {llamaRuntimeModelId} from './modelCompat';
 import {commandExists, runCommand} from './process';
 import {
+  getModelsIniSectionValues,
+  listModelsIniSections,
   parseModelsIni,
   removeModelsIniKeys,
   upsertModelsIniValues,
@@ -125,6 +133,83 @@ export class LlamaCppManager {
       }
       throw error;
     }
+  }
+
+  async getRouterProps(): Promise<LlamaRouterProps> {
+    const raw = await this.fetchRouterJson('/props');
+    return {
+      role: stringOrNull(getProp(raw, 'role')),
+      maxInstances: numberOrNull(getProp(raw, 'max_instances') ?? getProp(raw, 'maxInstances')),
+      modelsAutoload: booleanOrNull(
+        getProp(raw, 'models_autoload') ?? getProp(raw, 'modelsAutoload'),
+      ),
+      runtime: await this.getStatus(),
+      raw,
+    };
+  }
+
+  async getModelProps(modelId: string): Promise<LlamaModelProps> {
+    const raw = await this.fetchRouterJson(
+      `/props?model=${encodeURIComponent(modelId)}&autoload=false`,
+    );
+    const defaultGenerationSettings =
+      getProp(raw, 'default_generation_settings') ?? getProp(raw, 'defaultGenerationSettings');
+    const modalities = getProp(raw, 'modalities');
+    const contextWindow =
+      numberOrNull(getProp(defaultGenerationSettings, 'n_ctx')) ??
+      numberOrNull(getProp(defaultGenerationSettings, 'nCtx')) ??
+      numberOrNull(getProp(raw, 'n_ctx')) ??
+      numberOrNull(getProp(raw, 'nCtx'));
+
+    return {
+      modelId,
+      modalities: {
+        vision: booleanOrFalse(getProp(modalities, 'vision') ?? getProp(raw, 'vision')),
+        audio: booleanOrFalse(getProp(modalities, 'audio') ?? getProp(raw, 'audio')),
+        video: booleanOrFalse(getProp(modalities, 'video') ?? getProp(raw, 'video')),
+      },
+      contextWindow: contextWindow ?? undefined,
+      chatTemplate: stringOrUndefined(
+        getProp(raw, 'chat_template') ?? getProp(raw, 'chatTemplate'),
+      ),
+      defaultGenerationSettings,
+      raw,
+    };
+  }
+
+  async getRouterModels(input: {reload?: boolean} = {}): Promise<{
+    models: LlamaRouterModel[];
+    raw: unknown;
+  }> {
+    const raw = await this.fetchRouterJson(input.reload ? '/models?reload=1' : '/models');
+    return {
+      models: await this.mergeRouterModels(raw),
+      raw,
+    };
+  }
+
+  async loadRouterModel(modelId: string): Promise<{modelId: string; raw: unknown}> {
+    return {
+      modelId,
+      raw: await this.fetchRouterJson('/models/load', {
+        method: 'POST',
+        body: {model: modelId},
+      }),
+    };
+  }
+
+  async unloadRouterModel(modelId: string): Promise<{modelId: string; raw: unknown}> {
+    return {
+      modelId,
+      raw: await this.fetchRouterJson('/models/unload', {
+        method: 'POST',
+        body: {model: modelId},
+      }),
+    };
+  }
+
+  async fetchRouterStream(pathname: string, signal?: AbortSignal): Promise<Response> {
+    return this.fetchRouter(pathname, {signal});
   }
 
   async start(): Promise<RuntimeStatus> {
@@ -279,6 +364,114 @@ export class LlamaCppManager {
     }
 
     await writeModelsIniAtomic(this.paths.llamaPresetPath, document);
+  }
+
+  private async mergeRouterModels(raw: unknown): Promise<LlamaRouterModel[]> {
+    const configured = await this.readConfiguredModelSections();
+    const routerModels = extractRouterModelRecords(raw);
+    const bySection = new Map<string, LlamaRouterModel>();
+
+    for (const configuredModel of configured) {
+      bySection.set(configuredModel.sectionId, {
+        sectionId: configuredModel.sectionId,
+        alias: configuredModel.alias ?? configuredModel.hfRepo ?? configuredModel.sectionId,
+        hfRepo: configuredModel.hfRepo,
+        status: 'unloaded',
+        aliases: [],
+      });
+    }
+
+    for (const routerModel of routerModels) {
+      const normalized = normalizeRouterModel(routerModel);
+      const sectionId = findConfiguredSectionId(normalized, configured) ?? normalized.sectionId;
+      const previous = bySection.get(sectionId);
+      bySection.set(sectionId, {
+        ...previous,
+        ...normalized,
+        sectionId,
+        routerModelId: normalized.routerModelId ?? normalized.sectionId,
+        alias: previous?.alias ?? normalized.alias,
+        hfRepo: previous?.hfRepo ?? normalized.hfRepo,
+        aliases: normalized.aliases,
+      });
+    }
+
+    return Array.from(bySection.values()).sort((left, right) =>
+      left.alias.localeCompare(right.alias),
+    );
+  }
+
+  private async readConfiguredModelSections(): Promise<
+    Array<{sectionId: string; alias?: string; hfRepo?: string}>
+  > {
+    const state = await this.store.getState();
+    const sections = new Map<string, {sectionId: string; alias?: string; hfRepo?: string}>();
+    for (const model of state.models) {
+      sections.set(llamaRuntimeModelId(model), {
+        sectionId: llamaRuntimeModelId(model),
+        alias: model.name,
+        hfRepo: model.hfRef,
+      });
+    }
+
+    const existing = await fs.readFile(this.paths.llamaPresetPath, 'utf8').catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return '';
+      }
+      throw error;
+    });
+    const document = parseModelsIni(existing);
+    for (const sectionId of listModelsIniSections(document)) {
+      if (sectionId === '*') {
+        continue;
+      }
+      const values = getModelsIniSectionValues(document, sectionId);
+      sections.set(sectionId, {
+        sectionId,
+        alias: values.get('alias') ?? sections.get(sectionId)?.alias,
+        hfRepo: values.get('hf-repo') ?? sections.get(sectionId)?.hfRepo,
+      });
+    }
+
+    return Array.from(sections.values());
+  }
+
+  private async fetchRouterJson(
+    pathname: string,
+    input: {method?: string; body?: unknown; signal?: AbortSignal} = {},
+  ): Promise<unknown> {
+    const response = await this.fetchRouter(pathname, {
+      method: input.method,
+      body: input.body,
+      signal: input.signal,
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(text || `llama.cpp router request failed: ${response.status}`);
+    }
+    if (!text) {
+      return null;
+    }
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      return text;
+    }
+  }
+
+  private async fetchRouter(
+    pathname: string,
+    input: {method?: string; body?: unknown; signal?: AbortSignal} = {},
+  ): Promise<Response> {
+    const state = await this.store.getState();
+    const url = new URL(`http://${state.runtime.host}:${state.runtime.port}${pathname}`);
+    const response = await fetch(url, {
+      method: input.method ?? 'GET',
+      headers: input.body == null ? undefined : {'content-type': 'application/json'},
+      body: input.body == null ? undefined : JSON.stringify(input.body),
+      signal: input.signal,
+    });
+    return response;
   }
 
   private async buildLinuxFromMaster(): Promise<void> {
@@ -704,6 +897,102 @@ async function collectFiles(root: string, predicate: (file: string) => boolean):
     }),
   );
   return found;
+}
+
+function extractRouterModelRecords(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) {
+    return raw;
+  }
+  const data = getProp(raw, 'data');
+  if (Array.isArray(data)) {
+    return data;
+  }
+  const models = getProp(raw, 'models');
+  if (Array.isArray(models)) {
+    return models;
+  }
+  return [];
+}
+
+function normalizeRouterModel(raw: unknown): LlamaRouterModel {
+  const id =
+    stringOrUndefined(getProp(raw, 'id')) ??
+    stringOrUndefined(getProp(raw, 'model')) ??
+    stringOrUndefined(getProp(raw, 'name')) ??
+    'unknown';
+  const aliases = arrayOfStrings(getProp(raw, 'aliases'));
+  const statusValue = getProp(getProp(raw, 'status'), 'value') ?? getProp(raw, 'status');
+
+  return {
+    sectionId: id,
+    routerModelId: id,
+    alias: aliases[0] ?? id,
+    hfRepo:
+      stringOrUndefined(getProp(raw, 'hf_repo')) ??
+      stringOrUndefined(getProp(raw, 'hfRepo')) ??
+      stringOrUndefined(getProp(raw, 'source')),
+    status: stringOrUndefined(statusValue) ?? 'unknown',
+    progress:
+      numberOrNull(getProp(raw, 'progress')) ??
+      numberOrNull(getProp(getProp(raw, 'status'), 'progress')) ??
+      undefined,
+    aliases,
+    source: stringOrUndefined(getProp(raw, 'source')),
+    canRemove: booleanOrNull(getProp(raw, 'can_remove') ?? getProp(raw, 'canRemove')) ?? undefined,
+    architecture: stringOrUndefined(getProp(raw, 'architecture')),
+    raw,
+  };
+}
+
+function findConfiguredSectionId(
+  routerModel: LlamaRouterModel,
+  configured: Array<{sectionId: string; hfRepo?: string}>,
+): string | null {
+  for (const item of configured) {
+    if (
+      item.sectionId === routerModel.sectionId ||
+      item.sectionId === routerModel.routerModelId ||
+      routerModel.aliases.includes(item.sectionId) ||
+      (item.hfRepo != null && item.hfRepo === routerModel.hfRepo)
+    ) {
+      return item.sectionId;
+    }
+  }
+  return null;
+}
+
+function getProp(value: unknown, key: string): unknown {
+  if (value == null || typeof value !== 'object') {
+    return undefined;
+  }
+  return (value as Record<string, unknown>)[key];
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function booleanOrFalse(value: unknown): boolean {
+  return value === true;
+}
+
+function arrayOfStrings(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(item => typeof item === 'string');
 }
 
 function modelSourceValues(model: ConfiguredModel): Record<string, string> {

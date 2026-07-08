@@ -19,6 +19,41 @@ export type RuntimeStatus = {
   lastError: string | null;
 };
 
+export type LlamaRouterProps = {
+  role: string | null;
+  maxInstances: number | null;
+  modelsAutoload: boolean | null;
+  runtime: RuntimeStatus;
+  raw: unknown;
+};
+
+export type LlamaRouterModel = {
+  sectionId: string;
+  routerModelId?: string;
+  alias: string;
+  hfRepo?: string;
+  status: string;
+  progress?: number;
+  aliases: string[];
+  source?: string;
+  canRemove?: boolean;
+  architecture?: string;
+  raw?: unknown;
+};
+
+export type LlamaModelProps = {
+  modelId: string;
+  modalities: {
+    vision: boolean;
+    audio: boolean;
+    video: boolean;
+  };
+  contextWindow?: number;
+  chatTemplate?: string;
+  defaultGenerationSettings?: unknown;
+  raw: unknown;
+};
+
 export type ConfiguredModel = {
   id: string;
   name: string;
@@ -142,6 +177,32 @@ export async function updateRuntimeSettings(input: {
     input,
   );
   return response.runtime;
+}
+
+export async function getLlamaRouterProps(): Promise<LlamaRouterProps> {
+  return apiGet('/api/llama/props');
+}
+
+export async function getLlamaModels(): Promise<LlamaRouterModel[]> {
+  const response = await apiGet<{models: LlamaRouterModel[]}>('/api/llama/models');
+  return response.models;
+}
+
+export async function reloadLlamaModels(): Promise<LlamaRouterModel[]> {
+  const response = await apiPost<{models: LlamaRouterModel[]}>('/api/llama/models/reload');
+  return response.models;
+}
+
+export async function getLlamaModelProps(modelId: string): Promise<LlamaModelProps> {
+  return apiGet(`/api/llama/models/${encodeURIComponent(modelId)}/props`);
+}
+
+export async function loadLlamaModel(modelId: string): Promise<void> {
+  await apiPost(`/api/llama/models/${encodeURIComponent(modelId)}/load`);
+}
+
+export async function unloadLlamaModel(modelId: string): Promise<void> {
+  await apiPost(`/api/llama/models/${encodeURIComponent(modelId)}/unload`);
 }
 
 export async function searchHuggingFace(query: string): Promise<HuggingFaceModelResult[]> {

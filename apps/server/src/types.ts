@@ -21,6 +21,41 @@ export type RuntimeStatus = {
   lastError: string | null;
 };
 
+export type LlamaRouterProps = {
+  role: string | null;
+  maxInstances: number | null;
+  modelsAutoload: boolean | null;
+  runtime: RuntimeStatus;
+  raw: unknown;
+};
+
+export type LlamaRouterModel = {
+  sectionId: string;
+  routerModelId?: string;
+  alias: string;
+  hfRepo?: string;
+  status: string;
+  progress?: number;
+  aliases: string[];
+  source?: string;
+  canRemove?: boolean;
+  architecture?: string;
+  raw?: unknown;
+};
+
+export type LlamaModelProps = {
+  modelId: string;
+  modalities: {
+    vision: boolean;
+    audio: boolean;
+    video: boolean;
+  };
+  contextWindow?: number;
+  chatTemplate?: string;
+  defaultGenerationSettings?: unknown;
+  raw: unknown;
+};
+
 export type ModelParams = {
   contextSize: number;
   gpuLayers?: number;
