@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -169,6 +170,56 @@ test('removeModelSection deletes removed model from models.ini', async () => {
   assert.doesNotMatch(written, /\[repo\/model:Q4_K_M\]/);
 });
 
+test('start launches router mode with zero configured models', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const port = await getFreePort();
+  await store.updateRuntimeSettings({port, modelsMax: 3, sleepIdleSeconds: 45});
+  const fakeServerPath = path.join(paths.dataDir, 'fake-llama-server.cjs');
+  const argsPath = path.join(paths.dataDir, 'fake-llama-args.json');
+  await fs.writeFile(fakeServerPath, fakeLlamaServerScript(), {mode: 0o755});
+  await fs.chmod(fakeServerPath, 0o755);
+  const previousServerPath = process.env.LLAMA_SERVER_PATH;
+  const previousArgsPath = process.env.NELLE_FAKE_LLAMA_ARGS;
+  process.env.LLAMA_SERVER_PATH = fakeServerPath;
+  process.env.NELLE_FAKE_LLAMA_ARGS = argsPath;
+  const llama = new LlamaCppManager(paths, store);
+
+  try {
+    const status = await llama.start();
+    const args = JSON.parse(await fs.readFile(argsPath, 'utf8')) as string[];
+    const preset = await fs.readFile(paths.llamaPresetPath, 'utf8');
+
+    assert.equal(status.running, true);
+    assert.ok(status.pid);
+    assert.deepEqual(args.slice(0, 8), [
+      '--host',
+      '127.0.0.1',
+      '--port',
+      String(port),
+      '--models-preset',
+      paths.llamaPresetPath,
+      '--models-max',
+      '3',
+    ]);
+    assert.deepEqual(args.slice(8), ['--sleep-idle-seconds', '45']);
+    assert.equal(args.includes('--model'), false);
+    assert.match(preset, /version = 1/);
+  } finally {
+    await llama.stop().catch(() => undefined);
+    if (previousServerPath == null) {
+      delete process.env.LLAMA_SERVER_PATH;
+    } else {
+      process.env.LLAMA_SERVER_PATH = previousServerPath;
+    }
+    if (previousArgsPath == null) {
+      delete process.env.NELLE_FAKE_LLAMA_ARGS;
+    } else {
+      process.env.NELLE_FAKE_LLAMA_ARGS = previousArgsPath;
+    }
+  }
+});
+
 async function createTempPaths(): Promise<AppPaths> {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-test-'));
   const repoRoot = path.resolve('.');
@@ -194,4 +245,53 @@ async function createTempPaths(): Promise<AppPaths> {
     statePath: path.join(dataDir, 'state.json'),
     webDistDir: path.join(repoRoot, 'dist', 'web'),
   };
+}
+
+async function getFreePort(): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      server.close(error => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        if (typeof address === 'object' && address?.port) {
+          resolve(address.port);
+          return;
+        }
+        reject(new Error('Could not allocate a free test port.'));
+      });
+    });
+  });
+}
+
+function fakeLlamaServerScript(): string {
+  return `#!/usr/bin/env node
+const fs = require('node:fs');
+const http = require('node:http');
+const args = process.argv.slice(2);
+fs.writeFileSync(process.env.NELLE_FAKE_LLAMA_ARGS, JSON.stringify(args));
+const valueAfter = flag => {
+  const index = args.indexOf(flag);
+  return index >= 0 ? args[index + 1] : undefined;
+};
+const host = valueAfter('--host') || '127.0.0.1';
+const port = Number(valueAfter('--port') || 8080);
+const server = http.createServer((request, response) => {
+  if (request.url === '/v1/models') {
+    response.writeHead(200, {'content-type': 'application/json'});
+    response.end(JSON.stringify({data: []}));
+    return;
+  }
+  response.writeHead(404);
+  response.end();
+});
+const shutdown = () => server.close(() => process.exit(0));
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+server.listen(port, host);
+`;
 }

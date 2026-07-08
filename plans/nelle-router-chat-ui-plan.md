@@ -1626,9 +1626,9 @@ Exit criteria:
   model APIs.
 - Use the Phase 0 model id canonicalizer for HF imports and Pi model registry
   generation.
-- Change `LlamaCppManager.start()` to start router mode without requiring an
-  active model.
-- Add configurable `modelsMax` and `sleepIdleSeconds`.
+- Done: change `LlamaCppManager.start()` to start router mode without requiring
+  an active model.
+- Done: add configurable `modelsMax` and `sleepIdleSeconds`.
 - Remove local path registration UI/API from the active product surface.
 - Make HF import write `models.ini` sections directly.
 - Make AppStore refresh model catalog state from parsed `models.ini` so manual
@@ -1639,7 +1639,10 @@ Exit criteria:
 
 Exit criteria:
 
-- Start router with zero or more configured HF models.
+- Done: start router with zero or more configured HF models. Unit coverage
+  launches a fake `llama-server` with no models and verifies
+  `--models-preset`, `--models-max`, `--sleep-idle-seconds`, and no single
+  `--model` flag.
 - Importing an HF quant updates `models.ini`.
 - Duplicate or invalid editable INI keys are surfaced before save.
 - Imported HF refs keep exact `hf-repo` values and stable section ids.
