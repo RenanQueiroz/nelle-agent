@@ -144,8 +144,9 @@ Nelle currently differs from the target in these ways:
   through the lossless AST writer, but it is not yet the source of truth.
 - New Hugging Face imports use stable canonical section ids, but the full
   Settings-based durable `models.ini` editor is not built yet.
-- Runtime settings for `modelsMax` and `sleepIdleSeconds` exist, and the
-  Nelle-owned `/api/llama/*` router facade exists. The final router-aware
+- Runtime settings for `modelsMax` and `sleepIdleSeconds` exist, the
+  Nelle-owned `/api/llama/*` router facade exists, and the POC model panel can
+  show router status plus reload/load/unload actions. The final router-aware
   settings/model selector surface is not built yet.
 - The web UI has side panels for runtime/model setup rather than a durable
   conversation sidebar plus settings.
@@ -157,8 +158,9 @@ Nelle currently differs from the target in these ways:
   now exist.
 - Reset conversation is a composer footer action rather than a conversation
   action.
-- Model import/edit UX is split between app state and generated preset writes,
-  even though the server now exposes router model list/load/unload/reload APIs.
+- Model import/edit UX is split between app state and generated preset writes.
+  The POC UI can call router model list/load/unload/reload APIs, but model
+  editing has not moved into Settings yet.
 - The composer has no attachment drawer, file picker, context-window bar, or
   model-modality gating.
 - Chat warnings/errors still appear as page-level notices instead of

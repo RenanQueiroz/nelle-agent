@@ -246,7 +246,8 @@ SDK chat streaming, a direct llama.cpp fallback for diagnostics,
 browser-triggered conversation reset, SQLite schema/migration foundations,
 conversation list/snapshot APIs, Nelle-owned llama.cpp router facade APIs, and
 Playwright e2e coverage for the browser workbench. The runtime UI also exposes
-a llama-server log tail for startup and configuration diagnostics.
+a llama-server log tail for startup and configuration diagnostics, and the POC
+model panel can show router model status plus reload/load/unload actions.
 
 Intentional POC limitations:
 

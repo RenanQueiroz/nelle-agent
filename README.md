@@ -49,8 +49,9 @@ Not implemented yet:
 - Mobile LAN pairing and Expo push.
 - Collapsible conversation sidebar and persistence. The planned large-history
   list uses TanStack Virtual with Astryx sidebar/list styling.
-- Router-aware model selector/settings UI. The server API exists, but the
-  current POC UI still uses its earlier model controls.
+- Full router-aware model selector/settings UI. The current POC model panel
+  shows router status and exposes reload/load/unload actions, but the final
+  settings/sidebar design is not built yet.
 - Full Pi-backed conversation storage. The current SQLite foundation mirrors
   the POC chat into a default conversation; the planned architecture maps each
   Nelle conversation to one Pi session file and uses SQLite for indexes,

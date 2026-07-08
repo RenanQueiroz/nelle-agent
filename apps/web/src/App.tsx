@@ -6,7 +6,6 @@ import {Text, Heading} from '@astryxdesign/core/Text';
 import {Button} from '@astryxdesign/core/Button';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Card} from '@astryxdesign/core/Card';
-import {ClickableCard} from '@astryxdesign/core/ClickableCard';
 import {
   ChatComposer,
   ChatComposerInput,
@@ -40,14 +39,18 @@ import {
 import {
   activateModel,
   clearChat,
+  getLlamaModels,
   getRuntime,
   getRuntimeLogs,
   getState,
   installRuntime,
+  loadLlamaModel,
+  reloadLlamaModels,
   searchHuggingFace,
   startRuntime,
   stopRuntime,
   streamChat,
+  unloadLlamaModel,
   updateRuntimeSettings,
   useHuggingFaceModel,
   type ChatMessage as ApiChatMessage,
@@ -56,6 +59,7 @@ import {
   type ChatStreamEvent,
   type ConfiguredModel,
   type HuggingFaceModelResult,
+  type LlamaRouterModel,
   type RuntimeStatus,
 } from './api';
 
@@ -73,9 +77,44 @@ const formatBytes = (value: number | null) => {
   return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 };
 
+function findRouterModelForConfiguredModel(
+  model: ConfiguredModel,
+  routerModels: LlamaRouterModel[],
+): LlamaRouterModel | undefined {
+  return routerModels.find(
+    routerModel =>
+      routerModel.sectionId === model.id ||
+      routerModel.routerModelId === model.id ||
+      routerModel.hfRepo === model.hfRef ||
+      routerModel.aliases.includes(model.id) ||
+      (model.hfRef != null && routerModel.aliases.includes(model.hfRef)),
+  );
+}
+
+function formatRouterStatus(status: string): string {
+  if (status === 'stopped') {
+    return 'router stopped';
+  }
+  return status.replace(/_/g, ' ');
+}
+
+function routerStatusColor(status: string): 'green' | 'yellow' | 'red' | 'blue' {
+  if (status === 'loaded' || status === 'sleeping') {
+    return 'green';
+  }
+  if (status === 'failed') {
+    return 'red';
+  }
+  if (status === 'loading' || status === 'unloaded') {
+    return 'yellow';
+  }
+  return 'blue';
+}
+
 export function App() {
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [models, setModels] = useState<ConfiguredModel[]>([]);
+  const [routerModels, setRouterModels] = useState<LlamaRouterModel[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ApiChatMessage[]>([]);
   const [searchQuery, setSearchQuery] = useState('qwen gguf');
@@ -96,6 +135,16 @@ export function App() {
     () => models.find(model => model.id === activeModelId) ?? null,
     [activeModelId, models],
   );
+  const routerModelsByConfiguredId = useMemo(() => {
+    const entries = new Map<string, LlamaRouterModel>();
+    for (const model of models) {
+      const routerModel = findRouterModelForConfiguredModel(model, routerModels);
+      if (routerModel) {
+        entries.set(model.id, routerModel);
+      }
+    }
+    return entries;
+  }, [models, routerModels]);
 
   useEffect(() => {
     void refreshState();
@@ -111,6 +160,24 @@ export function App() {
     setModels(response.state.models);
     setActiveModelId(response.state.activeModelId);
     setMessages(response.state.chat);
+    if (response.runtime.running) {
+      await refreshRouterModels({silent: true});
+    } else {
+      setRouterModels([]);
+    }
+  }
+
+  async function refreshRouterModels(
+    input: {reload?: boolean; silent?: boolean} = {},
+  ): Promise<void> {
+    try {
+      setRouterModels(input.reload ? await reloadLlamaModels() : await getLlamaModels());
+    } catch (error) {
+      setRouterModels([]);
+      if (!input.silent) {
+        throw error;
+      }
+    }
   }
 
   async function runAction(label: string, action: () => Promise<void>) {
@@ -182,6 +249,29 @@ export function App() {
       const logs = await getRuntimeLogs();
       setRuntimeLogs(logs.text);
       setIsLogVisible(true);
+    });
+  }
+
+  async function handleReloadRouterModels() {
+    await runAction('router-reload', async () => {
+      await refreshRouterModels({reload: true});
+      setNotice({type: 'success', text: 'Router model list reloaded.'});
+    });
+  }
+
+  async function handleLoadRouterModel(model: ConfiguredModel) {
+    await runAction(`load:${model.id}`, async () => {
+      await loadLlamaModel(model.id);
+      await refreshRouterModels();
+      setNotice({type: 'success', text: `${model.name} load requested.`});
+    });
+  }
+
+  async function handleUnloadRouterModel(model: ConfiguredModel) {
+    await runAction(`unload:${model.id}`, async () => {
+      await unloadLlamaModel(model.id);
+      await refreshRouterModels();
+      setNotice({type: 'success', text: `${model.name} unload requested.`});
     });
   }
 
@@ -352,6 +442,7 @@ export function App() {
                         onClick={() =>
                           runAction('start', async () => {
                             setRuntime(await startRuntime());
+                            await refreshState();
                           })
                         }
                       />
@@ -365,6 +456,7 @@ export function App() {
                         onClick={() =>
                           runAction('stop', async () => {
                             setRuntime(await stopRuntime());
+                            setRouterModels([]);
                           })
                         }
                       />
@@ -431,36 +523,90 @@ export function App() {
 
                 <Card padding={3}>
                   <VStack gap={3}>
-                    <Heading level={3}>Configured models</Heading>
+                    <HStack gap={2} vAlign="center">
+                      <StackItem size="fill">
+                        <Heading level={3}>Configured models</Heading>
+                      </StackItem>
+                      <Button
+                        label="Reload router models"
+                        size="sm"
+                        variant="ghost"
+                        icon={<Icon icon={ArrowPathIcon} size="sm" />}
+                        isDisabled={!runtime?.running}
+                        isLoading={busyAction === 'router-reload'}
+                        onClick={handleReloadRouterModels}
+                      />
+                    </HStack>
                     {models.length === 0 && (
                       <Text type="supporting" color="secondary">
                         Search Hugging Face and choose a GGUF quant to create the first model.
                       </Text>
                     )}
-                    {models.map(model => (
-                      <ClickableCard
-                        key={model.id}
-                        label={`Use ${model.name}`}
-                        variant={model.id === activeModelId ? 'blue' : 'muted'}
-                        padding={2}
-                        onClick={() =>
-                          runAction('activate', async () => {
-                            const updated = await activateModel(model.id);
-                            setActiveModelId(updated.id);
-                            await refreshState();
-                          })
-                        }
-                      >
-                        <VStack gap={0.5}>
-                          <Text type="label" weight="semibold">
-                            {model.name}
-                          </Text>
-                          <Text type="supporting" color="secondary" className="nelle-code">
-                            {model.hfRef ?? model.presetName}
-                          </Text>
-                        </VStack>
-                      </ClickableCard>
-                    ))}
+                    {models.map(model => {
+                      const routerModel = routerModelsByConfiguredId.get(model.id);
+                      const routerStatus =
+                        routerModel?.status ?? (runtime?.running ? 'unlisted' : 'stopped');
+                      const isLoaded = routerStatus === 'loaded' || routerStatus === 'sleeping';
+                      const isLoading = routerStatus === 'loading';
+                      return (
+                        <Card key={model.id} padding={2}>
+                          <VStack gap={0.5}>
+                            <HStack gap={2} vAlign="center">
+                              <StackItem size="fill">
+                                <Text type="label" weight="semibold">
+                                  {model.name}
+                                </Text>
+                              </StackItem>
+                              <Token
+                                label={formatRouterStatus(routerStatus)}
+                                color={routerStatusColor(routerStatus)}
+                              />
+                            </HStack>
+                            <Text type="supporting" color="secondary" className="nelle-code">
+                              {model.hfRef ?? model.presetName}
+                            </Text>
+                            {routerModel && (
+                              <Text type="supporting" color="secondary" className="nelle-code">
+                                router id: {routerModel.routerModelId ?? routerModel.sectionId}
+                              </Text>
+                            )}
+                            <HStack gap={1} wrap="wrap">
+                              <Button
+                                label={
+                                  model.id === activeModelId ? 'Selected' : `Select ${model.name}`
+                                }
+                                size="sm"
+                                variant={model.id === activeModelId ? 'primary' : 'secondary'}
+                                isLoading={busyAction === 'activate'}
+                                onClick={() =>
+                                  runAction('activate', async () => {
+                                    const updated = await activateModel(model.id);
+                                    setActiveModelId(updated.id);
+                                    await refreshState();
+                                  })
+                                }
+                              />
+                              <Button
+                                label="Load"
+                                size="sm"
+                                variant="secondary"
+                                isDisabled={!runtime?.running || isLoaded || isLoading}
+                                isLoading={busyAction === `load:${model.id}`}
+                                onClick={() => handleLoadRouterModel(model)}
+                              />
+                              <Button
+                                label="Unload"
+                                size="sm"
+                                variant="ghost"
+                                isDisabled={!runtime?.running || !isLoaded}
+                                isLoading={busyAction === `unload:${model.id}`}
+                                onClick={() => handleUnloadRouterModel(model)}
+                              />
+                            </HStack>
+                          </VStack>
+                        </Card>
+                      );
+                    })}
                   </VStack>
                 </Card>
               </VStack>

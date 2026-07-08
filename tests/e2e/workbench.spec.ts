@@ -78,18 +78,128 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
 
   await page.getByRole('button', {name: 'Use'}).first().click();
 
-  await expect(
-    page.getByRole('button', {
-      name: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL',
-      exact: true,
-    }),
-  ).toBeVisible();
+  await expect(page.getByText('unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL').first()).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Selected'})).toBeVisible();
+  await expect(page.getByText('router stopped')).toBeVisible();
   await expect
     .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
     .toContain('[unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL]');
   await expect
     .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
     .toContain('hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL');
+});
+
+test('shows router model status and load/unload controls', async ({page}) => {
+  const model = {
+    id: 'repo/model:Q4_K_M',
+    name: 'Model Q4',
+    presetName: 'repo/model:Q4_K_M',
+    source: 'huggingface',
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    logPath: '/tmp/llama.log',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    modelsMax: 1,
+    sleepIdleSeconds: 90,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  let status = 'loaded';
+  let loadCalls = 0;
+  let unloadCalls = 0;
+  let reloadCalls = 0;
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: model.id,
+            routerModelId: model.id,
+            alias: model.name,
+            hfRepo: model.hfRef,
+            status,
+            aliases: [model.id],
+          },
+        ],
+      },
+    });
+  });
+  await page.route('**/api/llama/models/reload', async route => {
+    reloadCalls += 1;
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: model.id,
+            routerModelId: model.id,
+            alias: model.name,
+            hfRepo: model.hfRef,
+            status,
+            aliases: [model.id],
+          },
+        ],
+      },
+    });
+  });
+  await page.route(/\/api\/llama\/models\/.+\/unload$/, async route => {
+    unloadCalls += 1;
+    status = 'unloaded';
+    await route.fulfill({json: {ok: true}});
+  });
+  await page.route(/\/api\/llama\/models\/.+\/load$/, async route => {
+    loadCalls += 1;
+    status = 'loaded';
+    await route.fulfill({json: {ok: true}});
+  });
+
+  await page.goto('/');
+
+  await expect(page.getByText('loaded', {exact: true})).toBeVisible();
+  await expect(page.getByText(`router id: ${model.id}`)).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Load', exact: true})).toBeDisabled();
+  await page.getByRole('button', {name: 'Unload', exact: true}).click();
+  await expect(page.getByText('unloaded', {exact: true})).toBeVisible();
+  await expect.poll(() => unloadCalls).toBe(1);
+
+  await page.getByRole('button', {name: 'Load', exact: true}).click();
+  await expect.poll(() => loadCalls).toBe(1);
+  await expect(page.getByText('loaded', {exact: true})).toBeVisible();
+
+  await page.getByRole('button', {name: 'Reload router models'}).click();
+  await expect.poll(() => reloadCalls).toBe(1);
 });
 
 test('renders llama.cpp prompt and generation throughput in chat message metadata', async ({
