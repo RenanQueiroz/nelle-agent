@@ -509,6 +509,7 @@ export class PiHarness {
           userEntry.piEntryId,
         );
       }
+      queue.push({type: 'message.assistant.completed', message: assistantMessage});
       queue.push({type: 'done', message: assistantMessage});
       const title = await this.maybeGenerateConversationTitle(
         conversationId,

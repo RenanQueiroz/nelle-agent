@@ -1414,8 +1414,14 @@ test('chat stream emits SSE envelopes with run lifecycle events', async () => {
     assert.deepEqual(
       envelopes
         .map(envelope => envelope.data?.type)
-        .filter(type => type === 'run.started' || type === 'run.completed' || type === 'done'),
-      ['run.started', 'done', 'run.completed'],
+        .filter(
+          type =>
+            type === 'run.started' ||
+            type === 'message.assistant.completed' ||
+            type === 'run.completed' ||
+            type === 'done',
+        ),
+      ['run.started', 'message.assistant.completed', 'done', 'run.completed'],
     );
     const runStarted = envelopes.find(envelope => envelope.data?.type === 'run.started');
     const runCompleted = envelopes.find(envelope => envelope.data?.type === 'run.completed');

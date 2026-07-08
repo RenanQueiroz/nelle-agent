@@ -190,6 +190,7 @@ export type ChatStreamEvent =
   | {type: 'tool'; call: NonNullable<ChatMessage['toolCalls']>[number]}
   | {type: 'conversation_title'; conversationId: string; title: string}
   | {type: 'warning'; message: string}
+  | {type: 'message.assistant.completed'; message: ChatMessage}
   | {type: 'done'; message: ChatMessage}
   | {type: 'error'; message: string};
 

@@ -144,6 +144,7 @@ export async function streamDirectLlama(
         }
       }
       await store.appendChatMessage(assistantMessage);
+      queue.push({type: 'message.assistant.completed', message: assistantMessage});
       queue.push({type: 'done', message: assistantMessage});
       queue.push({
         type: 'run.completed',

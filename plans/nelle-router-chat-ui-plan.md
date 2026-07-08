@@ -172,9 +172,9 @@ Nelle currently differs from the target in these ways:
   received a run id, cancels the active browser stream, and invokes Pi
   `AgentSession.abort()` for a cached conversation runtime. Chat/regenerate
   streams now emit SSE envelopes with stable run ids and terminal
-  `run.completed` events, and `run.aborted` clears UI run tracking/model locks.
-  Compact/title run streaming, final message-event renaming, and llama.cpp
-  slot-level verification are still pending.
+  `run.completed` events, `message.assistant.completed` final assistant events,
+  and `run.aborted` clears UI run tracking/model locks. Compact/title run
+  streaming and llama.cpp slot-level verification are still pending.
 - Done in the current sidebar: reset/delete/pin/rename actions moved out of the
   composer footer and into each conversation row's action menu, and large lists
   use TanStack virtualization inside an Astryx `SideNav` shell.
@@ -1282,10 +1282,9 @@ should mirror envelope `id`.
 Current implementation note: chat and regenerate routes now serialize Nelle SSE
 envelopes and include stable run ids plus `run.started`, `run.aborted`, and
 `run.completed` data events. The browser stream reader remains backward
-compatible with older raw event payloads, and message/tool/performance payloads
-still use the current legacy data names (`user_message`, `assistant_start`,
-`assistant_delta`, `assistant_metrics`, `tool`, `done`, `error`) until the final
-event-name migration lands.
+compatible with older raw event payloads. Final assistant messages now emit
+`message.assistant.completed`; the legacy `done` event is still emitted as a
+compatibility alias while older clients/tests exist.
 
 Durability rules:
 

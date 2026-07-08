@@ -1477,7 +1477,7 @@ export function App() {
         ),
       );
     }
-    if (event.type === 'done') {
+    if (event.type === 'message.assistant.completed' || event.type === 'done') {
       setMessages(prev =>
         prev.map(message => (message.id === event.message.id ? event.message : message)),
       );
