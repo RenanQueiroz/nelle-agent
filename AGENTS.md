@@ -5,9 +5,10 @@ Project-specific guidance for AI coding agents.
 ## Project Rules
 
 - Keep documentation current with every repository change. Update `README.md`,
-  `plans/nelle-agent-architecture.md`, and agent docs such as `AGENTS.md` /
-  `.claude/CLAUDE.md` whenever implementation behavior, setup commands,
-  architecture, or workflow expectations change.
+  `plans/nelle-agent-architecture.md`, and `AGENTS.md` whenever implementation
+  behavior, setup commands, architecture, or workflow expectations change.
+- `AGENTS.md` is the single source of truth for shared agent guidance. Root
+  `CLAUDE.md` should contain only `@AGENTS.md`.
 - Use a Node version matching `package.json` `engines` before running npm
   commands.
 - Primary checks are `npm run format:check`, `npm run lint`, `npm run check`,
