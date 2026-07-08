@@ -35,6 +35,8 @@ Project-specific guidance for AI coding agents.
 - Chat messages can carry `performance.tokensPerSecond`, populated from
   llama.cpp `/slots` live counters or final stream `timings`; keep server and web
   chat event types aligned.
+- Tool calls must be correlated by stable `id` / Pi `toolCallId`; stream updates
+  should upsert existing calls and preserve expandable input/output detail.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components

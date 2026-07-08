@@ -78,10 +78,14 @@ export type ChatPerformance = {
 };
 
 export type ToolCallEvent = {
+  id: string;
   name: string;
   target?: string;
   status: 'running' | 'complete' | 'error';
   duration?: string;
+  input?: string;
+  output?: string;
+  errorMessage?: string;
 };
 
 export type ChatStreamEvent =

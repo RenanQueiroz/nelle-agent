@@ -56,10 +56,14 @@ export type ChatMessage = {
   createdAt: string;
   performance?: ChatPerformance;
   toolCalls?: Array<{
+    id: string;
     name: string;
     target?: string;
     status: 'running' | 'complete' | 'error';
     duration?: string;
+    input?: string;
+    output?: string;
+    errorMessage?: string;
   }>;
 };
 

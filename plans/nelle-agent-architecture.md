@@ -424,6 +424,9 @@ Initial implementation:
   router `/slots?model=...` decoded-token counters; direct llama.cpp fallback
   streams replace that value with final `timings.predicted_per_second` when
   available.
+- Correlate Pi tool execution events by `toolCallId`, upsert the same tool call
+  row as it moves from running to complete/error, and preserve compact input and
+  output details for expandable UI inspection.
 - Keep direct Nelle file downloads as a secondary/simple path for explicit
   single-file GGUF use, but do not make it the primary HF model picker flow.
 
@@ -548,6 +551,8 @@ Exit criteria:
 - Web UI can create a session and stream assistant output.
 - Web UI displays llama.cpp generation throughput beside assistant message
   timestamps when the server reports it.
+- Web UI shows each tool call once, updates its status in place, and exposes
+  expandable input/output details.
 - Basic session history persists.
 - Host file and shell tools work in the user's account.
 - First-run UX clearly states that v1 tool execution is unsandboxed.

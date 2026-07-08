@@ -177,3 +177,107 @@ test('renders llama.cpp throughput in chat message metadata', async ({page}) => 
   await expect(page.getByText('Hello from Nelle.')).toBeVisible();
   await expect(page.getByText('21.5 tok/s')).toBeVisible();
 });
+
+test('updates streamed tool calls and shows expandable input and output', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL',
+    presetName: 'unsloth-qwen',
+    source: 'huggingface',
+    repoId: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF',
+    quant: 'UD-Q4_K_XL',
+    hfRef: 'unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    activeModelId: model.id,
+    lastError: null,
+  };
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/chat/stream', async route => {
+    const userMessage = {
+      id: 'user-1',
+      role: 'user',
+      content: 'run a command',
+      createdAt: '2026-07-07T12:01:00.000Z',
+    };
+    const runningCall = {
+      id: 'call-1',
+      name: 'bash',
+      target: 'echo hello',
+      status: 'running',
+      input: '{\n  "command": "echo hello"\n}',
+    };
+    const completedCall = {
+      ...runningCall,
+      status: 'complete',
+      duration: '120ms',
+      output: 'hello\n',
+    };
+    const assistantMessage = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'Done.',
+      createdAt: '2026-07-07T12:01:01.000Z',
+      toolCalls: [completedCall],
+    };
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: [
+        {type: 'user_message', message: userMessage},
+        {
+          type: 'assistant_start',
+          harness: 'pi',
+          message: {...assistantMessage, content: '', toolCalls: []},
+        },
+        {type: 'tool', call: runningCall},
+        {type: 'tool', call: completedCall},
+        {type: 'assistant_delta', id: assistantMessage.id, delta: assistantMessage.content},
+        {type: 'done', message: assistantMessage},
+      ]
+        .map(event => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    });
+  });
+
+  await page.goto('/');
+  await page.getByLabel('Message input').fill('run a command');
+  await page.getByLabel('Message input').press('Enter');
+
+  await expect(page.getByText('Done.')).toBeVisible();
+  await expect(page.getByText('bash')).toHaveCount(1);
+  await page.getByRole('button', {name: /bash/}).click();
+  await expect(page.getByText('Input')).toBeVisible();
+  await expect(page.getByText('"command": "echo hello"')).toBeVisible();
+  await expect(page.getByText('Output')).toBeVisible();
+  await expect(page.getByText('hello', {exact: true})).toBeVisible();
+});

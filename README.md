@@ -29,6 +29,8 @@ Implemented:
 - Direct llama.cpp chat-completions fallback if Pi initialization fails.
 - Chat message metadata shows llama.cpp generation throughput in tokens/sec
   while generation is active and after final timings are available.
+- Tool calls stream as a single status row per Pi `toolCallId` and can be
+  expanded in the chat UI to inspect captured input and output.
 - Playwright e2e test harness for the browser UI.
 
 Not implemented yet:
@@ -96,6 +98,10 @@ the router `/slots?model=...` decoded-token counters. Direct llama.cpp fallback
 responses replace that estimate with the final
 `timings.predicted_per_second` value emitted by the streamed
 `/v1/chat/completions` response.
+Pi tool execution events are correlated by `toolCallId`, so a running tool row
+updates in place when progress or completion arrives instead of rendering
+separate running and complete rows. Expand the tool row to inspect the captured
+tool input and output.
 
 For Hugging Face selections, Nelle stores the repo/quant reference and writes an
 `hf-repo` entry into `models.ini`, for example:

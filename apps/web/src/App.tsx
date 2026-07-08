@@ -19,6 +19,7 @@ import {
   ChatToolCalls,
 } from '@astryxdesign/core/Chat';
 import {Markdown} from '@astryxdesign/core/Markdown';
+import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
@@ -186,12 +187,26 @@ export function App() {
     }
     if (event.type === 'tool') {
       setMessages(prev => {
-        const copy = [...prev];
-        const lastAssistant = [...copy].reverse().find(message => message.role === 'assistant');
-        if (!lastAssistant) {
+        let assistantIndex = -1;
+        for (let index = prev.length - 1; index >= 0; index -= 1) {
+          if (prev[index].role === 'assistant') {
+            assistantIndex = index;
+            break;
+          }
+        }
+        if (assistantIndex < 0) {
           return prev;
         }
-        lastAssistant.toolCalls = [...(lastAssistant.toolCalls ?? []), event.call];
+        const copy = [...prev];
+        const assistant = copy[assistantIndex];
+        const toolCalls = [...(assistant.toolCalls ?? [])];
+        const toolIndex = toolCalls.findIndex(call => call.id === event.call.id);
+        if (toolIndex >= 0) {
+          toolCalls[toolIndex] = {...toolCalls[toolIndex], ...event.call};
+        } else {
+          toolCalls.push(event.call);
+        }
+        copy[assistantIndex] = {...assistant, toolCalls};
         return copy;
       });
     }
@@ -522,9 +537,7 @@ function RenderedMessage({message}: {message: ApiChatMessage}) {
       sender={message.role === 'assistant' ? 'assistant' : 'user'}
       avatar={message.role === 'assistant' ? <Avatar name="Nelle" size="small" /> : undefined}
     >
-      {message.toolCalls && message.toolCalls.length > 0 && (
-        <ChatToolCalls calls={message.toolCalls} />
-      )}
+      {message.toolCalls && message.toolCalls.length > 0 && <ToolCalls calls={message.toolCalls} />}
       <ChatMessageBubble
         variant={message.role === 'assistant' ? 'ghost' : undefined}
         metadata={
@@ -544,9 +557,61 @@ function RenderedMessage({message}: {message: ApiChatMessage}) {
   );
 }
 
+function ToolCalls({calls}: {calls: NonNullable<ApiChatMessage['toolCalls']>}) {
+  return (
+    <ChatToolCalls
+      calls={calls.map(call => ({
+        ...call,
+        key: call.id,
+        resultDetail: renderToolCallDetail(call),
+      }))}
+    />
+  );
+}
+
+function renderToolCallDetail(call: NonNullable<ApiChatMessage['toolCalls']>[number]) {
+  const sections = [
+    call.input ? {label: 'Input', value: call.input} : null,
+    call.output
+      ? {label: call.status === 'error' ? 'Error output' : 'Output', value: call.output}
+      : null,
+  ].filter(section => section != null);
+
+  if (sections.length === 0) {
+    return undefined;
+  }
+
+  return (
+    <VStack gap={2} className="nelle-tool-detail">
+      {sections.map(section => (
+        <VStack key={section.label} gap={1}>
+          <Text type="supporting" color="secondary">
+            {section.label}
+          </Text>
+          <CodeBlock
+            code={section.value}
+            language={looksLikeJson(section.value) ? 'json' : 'text'}
+            width="100%"
+            maxHeight="calc(var(--spacing-10) * 6)"
+            isWrapped
+          />
+        </VStack>
+      ))}
+    </VStack>
+  );
+}
+
 function formatTokensPerSecond(value: number | undefined): string | undefined {
   if (value == null || !Number.isFinite(value)) {
     return undefined;
   }
   return `${value.toFixed(value < 100 ? 1 : 0)} tok/s`;
+}
+
+function looksLikeJson(value: string): boolean {
+  const trimmed = value.trim();
+  return (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  );
 }

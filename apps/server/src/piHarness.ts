@@ -87,6 +87,7 @@ export class PiHarness {
       },
     });
     const toolCalls: ToolCallEvent[] = [];
+    const toolCallStarts = new Map<string, number>();
     let thinkingText = '';
     let providerError: string | null = null;
     const unsubscribe = session.subscribe((event: any) => {
@@ -109,23 +110,46 @@ export class PiHarness {
       }
 
       if (event.type === 'tool_execution_start') {
+        const id = getToolCallId(event);
         const call: ToolCallEvent = {
+          id,
           name: String(event.toolName ?? 'tool'),
-          target: stringifyMaybe(event.input ?? event.target),
+          target: summarizeToolTarget(event.toolName, event.args),
           status: 'running',
+          input: stringifyToolData(event.args),
         };
+        toolCallStarts.set(id, Date.now());
         toolCalls.push(call);
-        queue.push({type: 'tool', call});
+        queue.push({type: 'tool', call: {...call}});
+      }
+
+      if (event.type === 'tool_execution_update') {
+        const id = getToolCallId(event);
+        const call = upsertToolCall(toolCalls, {
+          id,
+          name: String(event.toolName ?? 'tool'),
+          target: summarizeToolTarget(event.toolName, event.args),
+          status: 'running',
+          input: stringifyToolData(event.args),
+          output: stringifyToolData(event.partialResult),
+        });
+        queue.push({type: 'tool', call: {...call}});
       }
 
       if (event.type === 'tool_execution_end') {
-        const call: ToolCallEvent = {
+        const id = getToolCallId(event);
+        const startedAt = toolCallStarts.get(id);
+        const call = upsertToolCall(toolCalls, {
+          id,
           name: String(event.toolName ?? 'tool'),
-          target: stringifyMaybe(event.input ?? event.target),
+          target: summarizeToolTarget(event.toolName, event.args),
           status: event.isError ? 'error' : 'complete',
-        };
-        toolCalls.push(call);
-        queue.push({type: 'tool', call});
+          input: stringifyToolData(event.args),
+          output: stringifyToolData(event.result),
+          duration: startedAt ? formatDuration(Date.now() - startedAt) : undefined,
+          errorMessage: event.isError ? stringifyToolData(event.result) : undefined,
+        });
+        queue.push({type: 'tool', call: {...call}});
       }
     });
 
@@ -255,4 +279,101 @@ function stringifyMaybe(value: unknown): string | undefined {
   } catch {
     return String(value).slice(0, 160);
   }
+}
+
+function getToolCallId(event: any): string {
+  return String(event.toolCallId ?? `${event.toolName ?? 'tool'}:${stringifyMaybe(event.args)}`);
+}
+
+function upsertToolCall(calls: ToolCallEvent[], next: ToolCallEvent): ToolCallEvent {
+  const index = calls.findIndex(call => call.id === next.id);
+  if (index >= 0) {
+    calls[index] = mergeDefined(calls[index], next);
+    return calls[index];
+  }
+  calls.push(next);
+  return next;
+}
+
+function mergeDefined(base: ToolCallEvent, next: ToolCallEvent): ToolCallEvent {
+  const merged: ToolCallEvent = {...base};
+  for (const [key, value] of Object.entries(next) as Array<
+    [keyof ToolCallEvent, ToolCallEvent[keyof ToolCallEvent]]
+  >) {
+    if (value !== undefined) {
+      (merged as Record<keyof ToolCallEvent, ToolCallEvent[keyof ToolCallEvent]>)[key] = value;
+    }
+  }
+  return merged;
+}
+
+function summarizeToolTarget(toolName: unknown, args: unknown): string | undefined {
+  const data = args && typeof args === 'object' ? (args as Record<string, unknown>) : {};
+  const preferredKeys =
+    toolName === 'bash'
+      ? ['command']
+      : ['path', 'filePath', 'filename', 'query', 'pattern', 'command', 'target'];
+  for (const key of preferredKeys) {
+    const value = data[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.slice(0, 160);
+    }
+  }
+  return stringifyMaybe(args);
+}
+
+function stringifyToolData(value: unknown): string | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  const text = extractTextContent(value);
+  if (text) {
+    return truncateToolDetail(text);
+  }
+  if (typeof value === 'string') {
+    return truncateToolDetail(value);
+  }
+  try {
+    return truncateToolDetail(JSON.stringify(value, null, 2));
+  } catch {
+    return truncateToolDetail(String(value));
+  }
+}
+
+function extractTextContent(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const data = value as {content?: unknown};
+  if (!Array.isArray(data.content)) {
+    return undefined;
+  }
+  const text = data.content
+    .map(item => {
+      if (typeof item === 'string') {
+        return item;
+      }
+      if (item && typeof item === 'object' && typeof (item as {text?: unknown}).text === 'string') {
+        return (item as {text: string}).text;
+      }
+      return null;
+    })
+    .filter(item => item != null)
+    .join('\n');
+  return text || undefined;
+}
+
+function formatDuration(durationMs: number): string {
+  if (durationMs < 1000) {
+    return `${durationMs}ms`;
+  }
+  return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+function truncateToolDetail(value: string): string {
+  const limit = 20_000;
+  if (value.length <= limit) {
+    return value;
+  }
+  return `${value.slice(0, limit)}\n\n[truncated ${value.length - limit} chars]`;
 }
