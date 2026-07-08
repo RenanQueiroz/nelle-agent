@@ -338,6 +338,20 @@ function removeRunModel(
   return next;
 }
 
+function removeActiveRunId(
+  activeRunIds: Record<string, string>,
+  conversationId: string,
+  runId?: string,
+): Record<string, string> {
+  const currentRunId = activeRunIds[conversationId];
+  if (!currentRunId || (runId && currentRunId !== runId)) {
+    return activeRunIds;
+  }
+  const next = {...activeRunIds};
+  delete next[conversationId];
+  return next;
+}
+
 export function App() {
   const showToast = useToast();
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
@@ -1242,12 +1256,16 @@ export function App() {
   async function handleStopGeneration() {
     await runAction('abort-chat', async () => {
       const runId = activeRunIds[activeConversationId];
+      const abortRequest = runId
+        ? abortConversationRun(activeConversationId, runId)
+        : abortConversation(activeConversationId);
+      streamAbortController.current?.abort();
+      setActiveRunIds(previous => removeActiveRunId(previous, activeConversationId, runId));
       if (runId) {
-        await abortConversationRun(activeConversationId, runId);
-      } else {
-        await abortConversation(activeConversationId);
+        setActiveRunModelsById(previous => removeRunModel(previous, runId));
       }
       setIsStreaming(false);
+      await abortRequest;
       await refreshConversations(activeConversationId);
       setNotice({type: 'info', text: 'Generation stopped.'});
     });
@@ -1372,6 +1390,7 @@ export function App() {
       }
     }
     if (event.type === 'run.aborted') {
+      setActiveRunIds(previous => removeActiveRunId(previous, event.conversationId, event.runId));
       setActiveRunModelsById(previous => removeRunModel(previous, event.runId));
       setComposerWarning('Generation stopped.');
     }

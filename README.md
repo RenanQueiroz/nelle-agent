@@ -118,10 +118,10 @@ Not implemented yet:
   and user-message fork creates new conversations from persisted Pi entries.
   The composer has an Astryx `/compact` typeahead, composer-local unsupported
   slash-command guidance, visible compaction status rows, and local
-  `.nelle-chat.zip` export/import. Richer abort recovery is still pending.
+  `.nelle-chat.zip` export/import. Slot-level abort verification is still
+  pending.
 - Complete REST/SSE run lifecycle coverage for compaction/title/background
-  events, richer abort recovery states, and llama.cpp slot-level abort
-  verification.
+  events and llama.cpp slot-level abort verification.
 - Host-tool sandboxing and per-tool permission prompts. The current v1 gate is
   acknowledgement plus a global enable/disable switch.
 - Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for

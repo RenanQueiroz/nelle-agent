@@ -172,9 +172,9 @@ Nelle currently differs from the target in these ways:
   received a run id, cancels the active browser stream, and invokes Pi
   `AgentSession.abort()` for a cached conversation runtime. Chat/regenerate
   streams now emit SSE envelopes with stable run ids and terminal
-  `run.completed` events. Richer abort recovery states, compact/title run
-  streaming, final message-event renaming, and llama.cpp slot-level verification
-  are still pending.
+  `run.completed` events, and `run.aborted` clears UI run tracking/model locks.
+  Compact/title run streaming, final message-event renaming, and llama.cpp
+  slot-level verification are still pending.
 - Done in the current sidebar: reset/delete/pin/rename actions moved out of the
   composer footer and into each conversation row's action menu, and large lists
   use TanStack virtualization inside an Astryx `SideNav` shell.
@@ -1890,8 +1890,8 @@ Playwright tests:
 - New chat creates a durable conversation that survives server restart.
 - Starting generation in one conversation does not block viewing or starting an
   allowed run in another conversation.
-- Pressing stop aborts generation, updates the assistant row to aborted, and
-  leaves the composer usable.
+- Pressing stop aborts generation, clears active-run model locks, shows
+  composer-local stopped feedback, and leaves the composer usable.
 - Settings HF import writes `models.ini` and model appears in selector.
 - Selecting an unloaded model shows loading progress then selected loaded model.
 - Sidebar creates, searches, pins, renames, exports, and deletes conversations.

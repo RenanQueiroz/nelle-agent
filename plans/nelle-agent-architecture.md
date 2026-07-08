@@ -290,8 +290,9 @@ Intentional POC limitations:
   implemented as a right-side panel; full branch tree exploration is still
   pending.
 - Chat/regenerate streams now emit SSE envelopes with stable run ids and
-  terminal run events. Full branch tree exploration, compact/title run streams,
-  and richer abort recovery states are still pending.
+  terminal run events. Aborted run events clear UI run tracking and model locks.
+  Full branch tree exploration, compact/title run streams, and slot-level abort
+  verification are still pending.
 - Long-running install/build progress is not streamed yet.
 - Mobile LAN pairing and Expo push are still future milestones.
 - Host tools are gated through a Settings acknowledgement/global disable switch
