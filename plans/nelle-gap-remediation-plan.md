@@ -61,7 +61,7 @@ being the only client. It stops being masked the moment `nelle-client` exists.
 
 ## G1: The Conversation List Is Capped At 50, And Search Is Dead
 
-**Status: server done; web pending.**
+**Status: done.**
 
 ### Symptom
 

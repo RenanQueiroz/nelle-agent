@@ -36,14 +36,16 @@ import {
   TrashIcon,
 } from '@heroicons/react/24/outline';
 
+import {useEffect, useState} from 'react';
+
 import type {
   ConfiguredModel,
-  ConversationListItem,
   HostToolSettings,
   LlamaRouterModel,
   LlamaRouterProps,
   RuntimeStatus,
 } from '../../api';
+import {getConversations} from '../../api';
 import type {ParamRow, SettingsSection} from '../../types';
 import {useSettingsStore} from '../../stores/settingsStore';
 import {useUiStore} from '../../stores/uiStore';
@@ -82,7 +84,6 @@ type SettingsDialogProps = {
   onHostToolsToggle: (enabled: boolean) => void | Promise<void>;
   onSearch: () => void | Promise<void>;
   onUseHuggingFaceModel: (repoId: string, quant: string) => void | Promise<void>;
-  conversations: ConversationListItem[];
   onImportConversation: () => void;
   isImporting: boolean;
   onClearAllChats: () => void | Promise<void>;
@@ -137,12 +138,12 @@ export function SettingsDialog({
   onHostToolsToggle,
   onSearch,
   onUseHuggingFaceModel,
-  conversations,
   onImportConversation,
   isImporting,
   onClearAllChats,
 }: SettingsDialogProps) {
   const section = useUiStore(state => state.settingsSection);
+  const storedConversationCount = useStoredConversationCount(isOpen && section === 'chats');
   const onSectionChange = useUiStore(state => state.setSettingsSection);
 
   return (
@@ -243,7 +244,9 @@ export function SettingsDialog({
                 <Heading level={3}>Chats</Heading>
                 <Divider />
                 <Text type="supporting" color="secondary">
-                  {conversations.length.toLocaleString()} conversations stored locally.
+                  {storedConversationCount == null
+                    ? 'Counting conversations…'
+                    : `${storedConversationCount.toLocaleString()} conversations stored locally.`}
                 </Text>
                 <HStack gap={2} wrap="wrap">
                   <Button
@@ -929,4 +932,34 @@ function settingsSectionLabel(section: SettingsSection): string {
     return 'Tools';
   }
   return 'Chats';
+}
+
+/**
+ * The true number of stored conversations, not the number the sidebar happens
+ * to have paged in. Asks for one row and reads the total off the page.
+ */
+function useStoredConversationCount(isActive: boolean): number | null {
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+    let isCancelled = false;
+    void (async () => {
+      try {
+        const page = await getConversations({limit: 1});
+        if (!isCancelled) {
+          setCount(page.total);
+        }
+      } catch {
+        if (!isCancelled) {
+          setCount(null);
+        }
+      }
+    })();
+    return () => {
+      isCancelled = true;
+    };
+  }, [isActive]);
+  return count;
 }

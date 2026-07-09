@@ -1,4 +1,4 @@
-import {type ChangeEvent, useMemo, useRef, useState} from 'react';
+import {type ChangeEvent, useEffect, useMemo, useRef, useState} from 'react';
 import {useVirtualizer} from '@tanstack/react-virtual';
 
 import {Badge} from '@astryxdesign/core/Badge';
@@ -38,10 +38,14 @@ import {
 
 import type {ConversationListItem} from '../../api';
 import type {AppNotice} from '../../types';
+import {useConversationsStore} from '../../stores/conversationsStore';
 import {useUiStore} from '../../stores/uiStore';
 
 const SECTION_ROW_HEIGHT = 32;
 const CONVERSATION_ROW_HEIGHT = 36;
+/** Rows kept mounted past the viewport, and the band that triggers the next page. */
+const OVERSCAN_ROWS = 8;
+const SEARCH_DEBOUNCE_MS = 200;
 
 type ConversationSectionId = 'pinned' | 'recent' | 'results';
 
@@ -82,7 +86,6 @@ export function NelleSideNav({
   isImportBusy,
   archiveInputRef,
   onArchivePickerChange,
-  conversations,
   activeConversationId,
   ...actions
 }: {
@@ -98,7 +101,6 @@ export function NelleSideNav({
   isImportBusy: boolean;
   archiveInputRef: {current: HTMLInputElement | null};
   onArchivePickerChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  conversations: ConversationListItem[];
   activeConversationId: string;
 } & ConversationActions) {
   return (
@@ -213,11 +215,7 @@ export function NelleSideNav({
       {isCollapsed ? (
         <VStack className="nelle-side-nav-collapsed-spacer" />
       ) : (
-        <ConversationVirtualList
-          conversations={conversations}
-          activeConversationId={activeConversationId}
-          {...actions}
-        />
+        <ConversationVirtualList activeConversationId={activeConversationId} {...actions} />
       )}
     </SideNav>
   );
@@ -226,10 +224,33 @@ export function NelleSideNav({
 /**
  * Search state lives in the UI store so typing only re-renders the sidebar
  * instead of the whole workbench.
+ *
+ * The query goes to the server, because the sidebar only ever holds a window
+ * onto the conversation list. Filtering that window client-side would report
+ * "no matching chats" for any conversation the user has not scrolled to.
  */
 function ConversationSearchInput() {
   const conversationSearch = useUiStore(state => state.conversationSearch);
   const setConversationSearch = useUiStore(state => state.setConversationSearch);
+  const loadFirstPage = useConversationsStore(state => state.loadFirstPage);
+  const loadedSearch = useConversationsStore(state => state.loadedSearch);
+
+  const query = conversationSearch.trim();
+  const isLoaded = query === loadedSearch;
+  useEffect(() => {
+    // The workbench already loaded this query -- on mount, or because a
+    // conversation action refreshed the page. Do not ask again.
+    if (isLoaded) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void loadFirstPage(query).catch(() => {
+        // The sidebar keeps its last good page; the workbench surfaces errors.
+      });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [query, isLoaded, loadFirstPage]);
+
   return (
     <TextInput
       label="Search conversations"
@@ -245,16 +266,22 @@ function ConversationSearchInput() {
 }
 
 function ConversationVirtualList({
-  conversations,
   activeConversationId,
   ...actions
 }: {
-  conversations: ConversationListItem[];
   activeConversationId: string;
 } & ConversationActions) {
   const query = useUiStore(state => state.conversationSearch);
   const setConversationSearch = useUiStore(state => state.setConversationSearch);
-  const rows = useMemo(() => buildConversationRows(conversations, query), [conversations, query]);
+  const conversations = useConversationsStore(state => state.conversations);
+  const total = useConversationsStore(state => state.total);
+  const nextCursor = useConversationsStore(state => state.nextCursor);
+  const isLoadingMore = useConversationsStore(state => state.isLoadingMore);
+  const loadNextPage = useConversationsStore(state => state.loadNextPage);
+  const rows = useMemo(
+    () => buildConversationRows(conversations, query, total),
+    [conversations, query, total],
+  );
   const scrollRef = useRef<HTMLElement | null>(null);
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -262,8 +289,25 @@ function ConversationVirtualList({
     estimateSize: index =>
       rows[index]?.type === 'section' ? SECTION_ROW_HEIGHT : CONVERSATION_ROW_HEIGHT,
     getItemKey: index => rows[index]?.key ?? index,
-    overscan: 8,
+    overscan: OVERSCAN_ROWS,
   });
+
+  // Fetch the next page as the last rendered row comes into the overscan band,
+  // so the scrollbar never reaches an end that is not the real end. The store
+  // ignores re-entrant calls while a page is in flight.
+  const virtualItems = virtualizer.getVirtualItems();
+  const lastRenderedIndex = virtualItems[virtualItems.length - 1]?.index ?? -1;
+  // `rows.length > 0` is not redundant. An empty list renders no virtual items,
+  // so `lastRenderedIndex` is -1 and the band check passes vacuously, paging
+  // the whole history in behind a view showing nothing.
+  const isNearEnd = rows.length > 0 && lastRenderedIndex >= rows.length - 1 - OVERSCAN_ROWS;
+  useEffect(() => {
+    if (isNearEnd && nextCursor && !isLoadingMore) {
+      void loadNextPage().catch(() => {
+        // Leave the loaded rows in place; scrolling again retries.
+      });
+    }
+  }, [isNearEnd, nextCursor, isLoadingMore, loadNextPage]);
 
   if (rows.length === 0) {
     return (
@@ -335,6 +379,17 @@ function ConversationVirtualList({
           );
         })}
       </VStack>
+      {isLoadingMore && (
+        <HStack
+          gap={2}
+          align="center"
+          justify="center"
+          data-testid="conversation-list-loading-more"
+          className="nelle-conversation-loading-more"
+        >
+          <Spinner size="sm" shade="subtle" aria-label="Loading more conversations" />
+        </HStack>
+      )}
     </VStack>
   );
 }
@@ -474,18 +529,24 @@ function isOngoingConversationStatus(status: ConversationListItem['status']): bo
   return status === 'running' || status === 'compacting' || status === 'aborting';
 }
 
+/**
+ * Flattens the loaded page into pinned and recent sections.
+ *
+ * `query` only picks the section label. The server did the filtering; the rows
+ * handed in are already the matches. `total` counts every match, including the
+ * ones not paged in yet, so the section header does not report the size of the
+ * scroll window as the size of the list.
+ */
 function buildConversationRows(
   conversations: ConversationListItem[],
   query: string,
+  total: number,
 ): ConversationListRow[] {
   const normalizedQuery = query.trim().toLowerCase();
-  const filtered = normalizedQuery
-    ? conversations.filter(conversation =>
-        conversation.title.toLowerCase().includes(normalizedQuery),
-      )
-    : conversations;
-  const pinned = filtered.filter(conversation => conversation.pinned);
-  const unpinned = filtered.filter(conversation => !conversation.pinned);
+  const pinned = conversations.filter(conversation => conversation.pinned);
+  const unpinned = conversations.filter(conversation => !conversation.pinned);
+  // Every pinned row arrives on the first page, so the remainder is unpinned.
+  const unpinnedTotal = Math.max(total - pinned.length, unpinned.length);
   const rows: ConversationListRow[] = [];
   if (pinned.length > 0) {
     rows.push({
@@ -505,7 +566,7 @@ function buildConversationRows(
       type: 'section',
       id: normalizedQuery ? 'results' : 'recent',
       label: normalizedQuery ? 'Results' : 'Recent',
-      count: unpinned.length,
+      count: unpinnedTotal,
     });
     for (const conversation of unpinned) {
       rows.push({key: `conversation:${conversation.id}`, type: 'conversation', conversation});

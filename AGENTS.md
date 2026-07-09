@@ -187,8 +187,21 @@ Project-specific guidance for AI coding agents.
 - Composer draft text, attachments, PDF-as-image mode, and composer
   error/warning/slash status live in `apps/web/src/stores/composerStore.ts`, and
   the composer surface is `apps/web/src/components/chat/ChatComposerPanel.tsx`.
-  Conversation search lives in `uiStore`. Keep them out of `App.tsx` so typing
-  and stream status updates do not rerender the chat transcript.
+  The conversation search box lives in `uiStore`; the list it searches lives in
+  `apps/web/src/stores/conversationsStore.ts`. Keep them out of `App.tsx` so
+  typing and stream status updates do not rerender the chat transcript.
+- `GET /api/conversations` is keyset-paginated and returns
+  `{conversations, nextCursor?, total}`. The cursor walks `(updated_at, id)`
+  descending; the `id` is not decoration, because two conversations touched in
+  the same millisecond tie on `updated_at` and a cursor without it drops a run of
+  rows at the page boundary. Pinned rows ride along on the first page only.
+  Never paginate by FTS `rank`: rank shifts as rows enter the index, so pages
+  overlap.
+- Conversation search is a server query, never a filter over the loaded page.
+  The sidebar holds a window onto the list, so filtering it client-side reports
+  "no matching chats" for every conversation the user has not scrolled to.
+  Section headers and the Settings chat count must render `total`, not the
+  number of rows paged in.
 - Model param update payloads are full replacements for editable params in a
   section. Preserve a free-form key by including it in the submitted key/value
   draft; omit it to delete it.

@@ -95,6 +95,8 @@ export type ConversationListItem = {
 export type ConversationPage = {
   conversations: ConversationListItem[];
   nextCursor?: string;
+  /** Every conversation matching the search, not only the ones on this page. */
+  total: number;
 };
 
 /**
@@ -288,6 +290,7 @@ export class ConversationRepository {
     return {
       conversations: [...pinned, ...recent].map(mapConversationListItem),
       nextCursor: last ? encodeCursor({updatedAt: last.updated_at, id: last.id}) : undefined,
+      total: this.countConversations(search),
     };
   }
 
@@ -1208,6 +1211,44 @@ export class ConversationRepository {
       .all(conversationId, piEntryId) as AttachmentRow[];
 
     return rows.map(mapAttachmentRow);
+  }
+
+  /**
+   * How many conversations match, across every page.
+   *
+   * The sidebar shows a window; "512 conversations stored locally" must count
+   * the ones that were never fetched.
+   */
+  private countConversations(search: string | undefined): number {
+    const db = this.database.connection;
+    if (search && hasConversationSearch(db)) {
+      try {
+        const row = db
+          .prepare(
+            `SELECT COUNT(*) AS total
+             FROM conversation_search
+             JOIN conversations ON conversations.id = conversation_search.conversation_id
+             WHERE conversation_search MATCH ? AND conversations.deleted_at IS NULL`,
+          )
+          .get(search) as {total: number};
+        return row.total;
+      } catch {
+        // Same stricter-syntax fallback as the page query below.
+      }
+    }
+    if (search) {
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) AS total FROM conversations
+           WHERE deleted_at IS NULL AND title LIKE ? ESCAPE '\\'`,
+        )
+        .get(`%${escapeLike(search)}%`) as {total: number};
+      return row.total;
+    }
+    const row = db
+      .prepare('SELECT COUNT(*) AS total FROM conversations WHERE deleted_at IS NULL')
+      .get() as {total: number};
+    return row.total;
   }
 
   /**

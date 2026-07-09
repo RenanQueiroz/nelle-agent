@@ -2241,12 +2241,35 @@ test('virtualizes and collapses the conversation sidebar', async ({page}) => {
     .poll(() => page.locator('[data-testid^="conversation-row-"]').count())
     .toBeLessThan(40);
 
+  // 177 unpinned conversations, even though only the first page is loaded. The
+  // header must count the list, not the scroll window.
+  await expect(page.getByTestId('conversation-section-recent')).toContainText('177');
+
   const conversationList = page.getByTestId('conversation-list');
-  await conversationList.evaluate(element => {
-    element.scrollTop = element.scrollHeight - element.clientHeight;
-    element.dispatchEvent(new Event('scroll'));
-  });
+  const scrollToBottom = async () => {
+    await conversationList.evaluate(element => {
+      element.scrollTop = element.scrollHeight;
+      element.dispatchEvent(new Event('scroll'));
+    });
+  };
+
+  // Newest first, so page one holds Chat 179. Chat 003 is the oldest unpinned
+  // conversation and sits three pages down; it can only appear if the sidebar
+  // asks the server for the next page.
   await expect(page.getByRole('button', {name: 'Chat 179', exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Chat 003', exact: true})).toHaveCount(0);
+
+  await expect(async () => {
+    await scrollToBottom();
+    await expect(page.getByRole('button', {name: 'Chat 003', exact: true})).toBeVisible({
+      timeout: 1_000,
+    });
+  }).toPass({timeout: 15_000});
+
+  // Paging in every conversation must not mount every row.
+  await expect
+    .poll(() => page.locator('[data-testid^="conversation-row-"]').count())
+    .toBeLessThan(40);
 
   await page.getByRole('button', {name: 'Collapse sidebar'}).click();
   await expect(page.getByRole('button', {name: 'Expand sidebar'})).toBeVisible();
@@ -2266,6 +2289,40 @@ test('virtualizes and collapses the conversation sidebar', async ({page}) => {
 
   await page.getByRole('button', {name: 'Expand sidebar'}).click();
   await expect(page.getByLabel('Search conversations')).toBeVisible();
+});
+
+test('conversation search finds a chat that is not on the first page', async ({page}) => {
+  // The needle is the oldest conversation, so it is nowhere near the loaded
+  // page. A sidebar that filters its own rows would report "No matching chats".
+  const conversations = [
+    ...Array.from({length: 120}, (_, index) => ({
+      id: index === 0 ? 'legacy-default' : `chat-${index}`,
+      title: `Haystack ${String(index).padStart(3, '0')}`,
+      titleSource: 'fallback',
+      pinned: false,
+      status: 'ready',
+      updatedAt: new Date(Date.UTC(2026, 6, 7, 12, index + 1)).toISOString(),
+    })),
+    {
+      id: 'needle',
+      title: 'Needle conversation',
+      titleSource: 'fallback',
+      pinned: false,
+      status: 'ready',
+      updatedAt: new Date(Date.UTC(2026, 6, 7, 11, 0)).toISOString(),
+    },
+  ];
+
+  await mockConversationRoutes(page, {chat: [], conversations});
+  await page.goto('/');
+
+  await expect(page.getByTestId('conversation-section-recent')).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Needle conversation', exact: true})).toHaveCount(0);
+
+  await page.getByLabel('Search conversations').fill('Needle');
+
+  await expect(page.getByRole('button', {name: 'Needle conversation', exact: true})).toBeVisible();
+  await expect(page.getByTestId('conversation-section-results')).toContainText('1');
 });
 
 test('deleting the last conversation leaves an empty sidebar', async ({page}) => {
@@ -3177,7 +3234,7 @@ async function mockConversationRoutes(
       return;
     }
     if (pathname === '/api/conversations' && request.method() === 'GET') {
-      await route.fulfill({json: {conversations}});
+      await route.fulfill({json: paginateConversations(conversations, url)});
       return;
     }
     if (pathname === '/api/conversations' && request.method() === 'DELETE') {
@@ -3383,3 +3440,54 @@ type MockConversation = {
   updatedAt: string;
   reasoningLevel?: string;
 };
+
+/**
+ * Mirrors the server's keyset pagination, so the sidebar is exercised against
+ * the contract it will meet in production rather than one giant response.
+ *
+ * Pinned rows ride along on the first page only; the rest is a keyset walk over
+ * `(updatedAt, id)` descending.
+ */
+function paginateConversations(
+  conversations: MockConversation[],
+  url: URL,
+): {conversations: MockConversation[]; nextCursor?: string; total: number} {
+  const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
+  const limit = Number(url.searchParams.get('limit') ?? 50);
+  const rawCursor = url.searchParams.get('cursor');
+  const cursor = rawCursor
+    ? (JSON.parse(Buffer.from(rawCursor, 'base64url').toString('utf8')) as {
+        updatedAt: string;
+        id: string;
+      })
+    : null;
+
+  const matches = conversations.filter(
+    conversation => !search || conversation.title.toLowerCase().includes(search),
+  );
+  const byKeyDesc = (a: MockConversation, b: MockConversation) =>
+    b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id);
+
+  const pinned = cursor ? [] : matches.filter(conversation => conversation.pinned).sort(byKeyDesc);
+  const recent = matches
+    .filter(conversation => !conversation.pinned)
+    .sort(byKeyDesc)
+    .filter(
+      conversation =>
+        !cursor ||
+        conversation.updatedAt < cursor.updatedAt ||
+        (conversation.updatedAt === cursor.updatedAt && conversation.id < cursor.id),
+    )
+    .slice(0, limit);
+
+  const last = recent.length === limit ? recent[recent.length - 1] : undefined;
+  return {
+    conversations: [...pinned, ...recent],
+    nextCursor: last
+      ? Buffer.from(JSON.stringify({updatedAt: last.updatedAt, id: last.id}), 'utf8').toString(
+          'base64url',
+        )
+      : undefined,
+    total: matches.length,
+  };
+}

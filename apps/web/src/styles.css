@@ -57,6 +57,12 @@ body {
   padding-block: var(--spacing-4);
 }
 
+/* Sits below the virtual space, so it scrolls with the last loaded row. */
+.nelle-conversation-loading-more {
+  flex: 0 0 auto;
+  padding-block: var(--spacing-3);
+}
+
 .nelle-conversation-virtual-space {
   position: relative;
   width: 100%;

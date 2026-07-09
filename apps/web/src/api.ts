@@ -670,9 +670,28 @@ export async function activateModel(id: string): Promise<ConfiguredModel> {
   return response.model;
 }
 
-export async function getConversations(): Promise<ConversationListItem[]> {
-  const response = await apiGet<{conversations: ConversationListItem[]}>('/api/conversations');
-  return response.conversations;
+export type ConversationPage = {
+  conversations: ConversationListItem[];
+  nextCursor?: string;
+  /** Every conversation matching the search, not only the ones on this page. */
+  total: number;
+};
+
+export async function getConversations(
+  input: {search?: string; cursor?: string; limit?: number} = {},
+): Promise<ConversationPage> {
+  const query = new URLSearchParams();
+  if (input.search) {
+    query.set('search', input.search);
+  }
+  if (input.cursor) {
+    query.set('cursor', input.cursor);
+  }
+  if (input.limit != null) {
+    query.set('limit', String(input.limit));
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : '';
+  return apiGet<ConversationPage>(`/api/conversations${suffix}`);
 }
 
 export async function createConversation(input: {

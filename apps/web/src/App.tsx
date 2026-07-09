@@ -106,6 +106,7 @@ import {ThinkingBlock} from './components/chat/ThinkingBlock';
 import {NelleSideNav} from './components/sidebar/NelleSideNav';
 import {SettingsDialog} from './components/settings/SettingsDialog';
 import {restoreComposerDraft, useComposerStore} from './stores/composerStore';
+import {useConversationsStore} from './stores/conversationsStore';
 import {useSettingsStore} from './stores/settingsStore';
 import {useUiStore} from './stores/uiStore';
 import type {ActiveRunKind, AppNotice, CommandStatusRow, ComposerModelOptionDetail} from './types';
@@ -300,7 +301,6 @@ export function App() {
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [modelPropsById, setModelPropsById] = useState<Record<string, ModelPropsEntry>>({});
   const [favoriteModelIds, setFavoriteModelIds] = useState<string[]>(readFavoriteModelIds);
-  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [activeConversationId, setActiveConversationId] = useState('');
   // "Not fetched yet" is not the same as "there are none". Until the list
   // arrives, the composer must not claim there is nothing to send to.
@@ -461,11 +461,10 @@ export function App() {
       setActiveModelId(response.state.activeModelId);
       setHostTools(response.hostTools ?? (await getHostToolSettings()));
       try {
-        const list = await getConversations();
+        const list = await useConversationsStore.getState().loadFirstPage('');
         if (isCancelled) {
           return;
         }
-        setConversations(list);
         setHasLoadedConversations(true);
         // The server orders pinned first, then most recently updated.
         const nextConversationId = list[0]?.id ?? '';
@@ -622,20 +621,30 @@ export function App() {
     }
   }
 
+  /**
+   * Reloads the sidebar's first page and settles which conversation is active.
+   *
+   * `preferredConversationId` is authoritative when set. It must not be looked
+   * up in the loaded page: the page is search-filtered, so a chat that simply
+   * does not match the search box would otherwise be treated as deleted and the
+   * user would be thrown into a different conversation as they typed. Callers
+   * that know their conversation is gone pass `''` and get the newest one.
+   */
   async function refreshConversations(
     preferredConversationId = activeConversationId,
     fallbackMessages: ApiChatMessage[] = [],
   ): Promise<void> {
+    const conversationsStore = useConversationsStore.getState();
+    const search = useUiStore.getState().conversationSearch.trim();
     try {
-      const list = await getConversations();
-      setConversations(list);
+      const page = await conversationsStore.loadFirstPage(search);
       setHasLoadedConversations(true);
       // Falls back to '' when every conversation was deleted; nothing is bound
-      // to a conversation id the server no longer knows about.
-      const nextConversationId =
-        list.find(conversation => conversation.id === preferredConversationId)?.id ??
-        list[0]?.id ??
-        '';
+      // to a conversation id the server no longer knows about. Under an active
+      // search the page cannot answer "what is the newest chat", so ask again
+      // without the filter.
+      const newest = search ? (await getConversations({limit: 1})).conversations : page;
+      const nextConversationId = preferredConversationId || (newest[0]?.id ?? '');
       setActiveConversationId(nextConversationId);
       if (!nextConversationId) {
         setMessages([]);
@@ -870,13 +879,7 @@ export function App() {
     conversationId: string,
     status: ConversationListItem['status'],
   ) {
-    setConversations(previous =>
-      previous.map(conversation =>
-        conversation.id === conversationId
-          ? {...conversation, status, updatedAt: new Date().toISOString()}
-          : conversation,
-      ),
-    );
+    useConversationsStore.getState().setStatus(conversationId, status);
   }
 
   async function handleToggleLogs() {
@@ -1276,11 +1279,14 @@ export function App() {
     }
     await runAction(`delete:${conversation.id}`, async () => {
       await deleteConversation(conversation.id);
-      if (conversation.id === activeConversationId) {
+      const wasActive = conversation.id === activeConversationId;
+      if (wasActive) {
         setMessages([]);
         setContextUsage({});
       }
-      await refreshConversations(activeConversationId);
+      // '' asks for the newest surviving conversation. Passing the id we just
+      // deleted would keep it selected.
+      await refreshConversations(wasActive ? '' : activeConversationId);
     });
   }
 
@@ -1650,13 +1656,7 @@ export function App() {
       }
     }
     if (event.type === 'conversation_title') {
-      setConversations(prev =>
-        prev.map(conversation =>
-          conversation.id === event.conversationId
-            ? {...conversation, title: event.title, titleSource: 'generated'}
-            : conversation,
-        ),
-      );
+      useConversationsStore.getState().setGeneratedTitle(event.conversationId, event.title);
     }
     if (event.type === 'message.assistant.completed' || event.type === 'done') {
       if (!isVisibleConversation) {
@@ -1694,7 +1694,6 @@ export function App() {
           isImportBusy={busyAction === 'import-chat'}
           archiveInputRef={archiveInputRef}
           onArchivePickerChange={handleArchivePickerChange}
-          conversations={conversations}
           activeConversationId={activeConversationId}
           onSelect={handleSelectConversation}
           onTogglePin={handleToggleConversationPin}
@@ -1839,7 +1838,6 @@ export function App() {
                     await refreshState();
                   })
                 }
-                conversations={conversations}
                 onImportConversation={() => archiveInputRef.current?.click()}
                 isImporting={busyAction === 'import-chat'}
                 onClearAllChats={() => void handleClearAllConversations()}

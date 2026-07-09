@@ -155,9 +155,6 @@ Not implemented yet:
   SQLite schema migration paths back up `settings.sqlite`, but the broader
   state/Pi/attachment migration runner is still future work.
 - Progress streaming for long installs/builds.
-- Conversation list pagination. `GET /api/conversations` returns the 50 most
-  recently updated conversations and the sidebar filters them client-side, so
-  search cannot reach an older chat. Tracked as G1 in the gap remediation plan.
 
 ## Setup
 
