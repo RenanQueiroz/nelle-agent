@@ -2,6 +2,17 @@ import {
   ATTACHMENT_LIMITS,
   ATTACHMENT_LIMIT_MESSAGES,
 } from '../../../../packages/shared/src/attachments.ts';
+import {
+  ATTACHMENT_MESSAGES,
+  dataUrlByteLength,
+  isBinaryText,
+  isImageAttachment,
+  isPdfAttachment,
+  isTextAttachment,
+  mimeTypeFromName,
+  renderedPdfPageName,
+  truncateAttachmentText,
+} from '../../../../packages/shared/src/attachmentRules.ts';
 import type {AttachmentMetadata, LlamaModelProps} from '../api';
 import type {DraftAttachment} from '../types';
 import {formatBytes} from './format';
@@ -66,9 +77,10 @@ async function prepareDraftAttachment(
   file: File,
   input: {canAttachImages: boolean; renderPdfImages: boolean; remainingSlots: number},
 ): Promise<{attachments: DraftAttachment[]; warning?: string}> {
-  if (isImageFile(file)) {
+  const descriptor = {name: file.name, mimeType: file.type};
+  if (isImageAttachment(descriptor)) {
     if (!input.canAttachImages) {
-      throw new Error('Image attachments require a selected model with vision support.');
+      throw new Error(ATTACHMENT_MESSAGES.visionRequired);
     }
     return {
       attachments: [
@@ -84,16 +96,16 @@ async function prepareDraftAttachment(
     };
   }
 
-  if (isPdfFile(file)) {
+  if (isPdfAttachment(descriptor)) {
     if (input.renderPdfImages) {
       if (!input.canAttachImages) {
-        throw new Error('PDF image attachments require a selected model with vision support.');
+        throw new Error(ATTACHMENT_MESSAGES.pdfVisionRequired);
       }
       return renderPdfPageAttachments(file, input.remainingSlots);
     }
     const extracted = await extractPdfText(file);
     if (!extracted.text.trim()) {
-      throw new Error(`${file.name} did not contain extractable text.`);
+      throw new Error(ATTACHMENT_MESSAGES.noExtractableText(file.name));
     }
     return {
       attachments: [
@@ -106,25 +118,21 @@ async function prepareDraftAttachment(
           text: extracted.text,
         },
       ],
-      warning: extracted.truncated
-        ? `${file.name} was truncated to ${ATTACHMENT_LIMITS.maxTextCharacters.toLocaleString()} characters.`
-        : undefined,
+      warning: extracted.truncated ? ATTACHMENT_MESSAGES.truncated(file.name) : undefined,
     };
   }
 
-  if (!isTextFile(file)) {
-    throw new Error(`${file.name} is not a supported text, PDF, or image attachment.`);
+  if (!isTextAttachment(descriptor)) {
+    throw new Error(ATTACHMENT_MESSAGES.unsupportedKind(file.name));
   }
 
   const rawText = await file.text();
   if (isBinaryText(rawText)) {
-    throw new Error(
-      `${file.name} looks like a binary file. Attach text, PDF, or image files only.`,
-    );
+    throw new Error(ATTACHMENT_MESSAGES.binaryFile(file.name));
   }
-  const text = rawText.slice(0, ATTACHMENT_LIMITS.maxTextCharacters);
+  const {text, truncated} = truncateAttachmentText(rawText);
   if (!text.trim()) {
-    throw new Error(`${file.name} is empty.`);
+    throw new Error(ATTACHMENT_MESSAGES.emptyFile(file.name));
   }
   return {
     attachments: [
@@ -137,10 +145,7 @@ async function prepareDraftAttachment(
         text,
       },
     ],
-    warning:
-      rawText.length > text.length
-        ? `${file.name} was truncated to ${ATTACHMENT_LIMITS.maxTextCharacters.toLocaleString()} characters.`
-        : undefined,
+    warning: truncated ? ATTACHMENT_MESSAGES.truncated(file.name) : undefined,
   };
 }
 
@@ -265,17 +270,6 @@ async function readFileAsBase64(file: File): Promise<string> {
   return dataUrl.split(',')[1] ?? '';
 }
 
-function renderedPdfPageName(fileName: string, pageNumber: number): string {
-  const baseName = fileName.replace(/\.pdf$/i, '') || 'PDF';
-  return `${baseName} page ${pageNumber}.png`;
-}
-
-function dataUrlByteLength(dataUrl: string): number {
-  const base64 = dataUrl.split(',')[1] ?? dataUrl;
-  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
-  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
-}
-
 export function getDraftAttachmentError(
   attachments: DraftAttachment[],
   activeModelProps: LlamaModelProps | null,
@@ -286,49 +280,11 @@ export function getDraftAttachmentError(
   if (activeModelProps?.modalities.vision === true) {
     return null;
   }
-  return 'Image attachments require a selected model with vision support.';
+  return ATTACHMENT_MESSAGES.visionRequired;
 }
 
 export function attachmentTooltip(attachment: DraftAttachment | AttachmentMetadata): string {
   const type =
     attachment.kind === 'pdf' ? 'PDF text' : attachment.kind === 'image' ? 'Image' : 'Text file';
   return `${type} · ${formatBytes(attachment.sizeBytes ?? null)}`;
-}
-
-function isImageFile(file: File): boolean {
-  return file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(file.name);
-}
-
-function isPdfFile(file: File): boolean {
-  return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-}
-
-function isTextFile(file: File): boolean {
-  return (
-    file.type.startsWith('text/') ||
-    /\.(txt|md|markdown|json|jsonl|csv|tsv|log|xml|yaml|yml|toml|ini|sql)$/i.test(file.name)
-  );
-}
-
-function mimeTypeFromName(name: string): string | undefined {
-  if (/\.pdf$/i.test(name)) {
-    return 'application/pdf';
-  }
-  if (/\.png$/i.test(name)) {
-    return 'image/png';
-  }
-  if (/\.webp$/i.test(name)) {
-    return 'image/webp';
-  }
-  if (/\.gif$/i.test(name)) {
-    return 'image/gif';
-  }
-  if (/\.jpe?g$/i.test(name)) {
-    return 'image/jpeg';
-  }
-  return undefined;
-}
-
-function isBinaryText(value: string): boolean {
-  return value.includes('\u0000');
 }
