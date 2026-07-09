@@ -11,7 +11,10 @@ import {
   stripLeadingThinkingEndTag,
   UNLIMITED_REASONING_BUDGET,
 } from '../../packages/shared/src/reasoning.ts';
-import {templateSupportsThinking} from '../../apps/web/src/utils/reasoning.ts';
+import {
+  parseReasoningBudgets,
+  templateSupportsThinking,
+} from '../../apps/web/src/utils/reasoning.ts';
 
 test('thinking support is read from the chat template, not the model name', () => {
   // Qwen3 and Gemma 4 both gate their thinking channel on this kwarg.
@@ -49,6 +52,19 @@ test('only the max level maps onto a Pi thinking level Nelle does not name', () 
   assert.equal(piThinkingLevel('max'), 'xhigh');
 });
 
+test('the settings drafts only accept whole token counts llama.cpp would take', () => {
+  assert.deepEqual(parseReasoningBudgets({low: '512', medium: ' 2048 ', high: '0'}), {
+    low: 512,
+    medium: 2048,
+    high: 0,
+  });
+  assert.equal(parseReasoningBudgets({low: 'abc', medium: '2048', high: '8192'}), null);
+  assert.equal(parseReasoningBudgets({low: '-1', medium: '2048', high: '8192'}), null);
+  assert.equal(parseReasoningBudgets({low: '1.5', medium: '2048', high: '8192'}), null);
+  assert.equal(parseReasoningBudgets({low: '', medium: '2048', high: '8192'}), null);
+  assert.equal(parseReasoningBudgets({low: '512', medium: '2048', high: '65537'}), null);
+});
+
 test('reasoning budgets clamp per level and reject junk', () => {
   assert.deepEqual(normalizeReasoningBudgets({low: 10, medium: 20, high: 30}), {
     low: 10,
@@ -61,6 +77,8 @@ test('reasoning budgets clamp per level and reject junk', () => {
     high: 65_536,
   });
   assert.deepEqual(normalizeReasoningBudgets(undefined), DEFAULT_REASONING_BUDGETS);
+  // llama.cpp's own tiers.
+  assert.deepEqual(DEFAULT_REASONING_BUDGETS, {low: 512, medium: 2048, high: 8192});
 });
 
 test('off, max, and a zero budget all mean no thinking_budget_tokens', () => {

@@ -99,6 +99,9 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   await expect
     .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
     .toContain('c = 12288');
+  // The save refreshes app state, which re-seeds the settings drafts. Editing
+  // before that lands would have the refresh overwrite what was just typed.
+  await expect(page.getByText('Global params saved')).toBeVisible();
 
   await page.getByRole('button', {name: 'Models'}).click();
   await page.getByLabel('Alias').fill('Qwen alias');
@@ -2328,7 +2331,7 @@ test('the settings dialog keeps one size across sections and scrolls its content
   const runtime = await dialogSize();
   expect(runtime).toEqual({width: 1040, height: 760});
 
-  for (const section of ['Models', 'Global Params', 'Tools', 'Chats']) {
+  for (const section of ['Models', 'Reasoning', 'Global Params', 'Tools', 'Chats']) {
     await page.getByRole('button', {name: section, exact: true}).click();
     // Sections must not resize the modal around the user.
     expect(await dialogSize()).toEqual(runtime);
@@ -2346,6 +2349,45 @@ test('the settings dialog keeps one size across sections and scrolls its content
   expect(small.width).toBeLessThanOrEqual(700);
   expect(small.height).toBeLessThanOrEqual(560);
   expect(small.width).toBeLessThan(runtime.width);
+});
+
+test('edits reasoning budgets in settings and rejects invalid token counts', async ({page}) => {
+  let savedBudgets: unknown = null;
+  const budgets = {low: 512, medium: 2048, high: 8192};
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {activeModelId: null, models: [], chat: [], reasoning: {budgets}},
+        runtime: RUNNING_RUNTIME,
+      },
+    });
+  });
+  await page.route('**/api/settings/reasoning', async route => {
+    savedBudgets = (route.request().postDataJSON() as {budgets: unknown}).budgets;
+    await route.fulfill({json: {budgets: savedBudgets}});
+  });
+  await mockConversationRoutes(page, {chat: []});
+
+  await page.goto('/');
+  await page.getByRole('button', {name: 'Settings'}).click();
+  await page.getByRole('button', {name: 'Reasoning', exact: true}).click();
+  await expect(page.getByRole('heading', {name: 'Reasoning Budgets'})).toBeVisible();
+
+  const low = page.getByLabel('Low', {exact: true});
+  await expect(low).toHaveValue('512');
+  await expect(page.getByLabel('Medium', {exact: true})).toHaveValue('2048');
+  await expect(page.getByLabel('High', {exact: true})).toHaveValue('8192');
+
+  // A budget llama.cpp could not use never reaches the server.
+  await low.fill('not-a-number');
+  await page.getByRole('button', {name: 'Save reasoning budgets'}).click();
+  await expect(page.getByText('Reasoning budgets must be whole numbers')).toBeVisible();
+  expect(savedBudgets).toBeNull();
+
+  await low.fill('256');
+  await page.getByRole('button', {name: 'Save reasoning budgets'}).click();
+  await expect.poll(() => savedBudgets).toEqual({low: 256, medium: 2048, high: 8192});
 });
 
 test('no full-viewport backdrop blur repaints behind the settings dialog', async ({page}) => {

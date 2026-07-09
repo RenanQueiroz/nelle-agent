@@ -28,8 +28,12 @@ Project-specific guidance for AI coding agents.
 - `.nelle/backups/` contains generated SQLite migration backups; do not commit
   it.
 - Hugging Face GGUF `hf-repo` refs stay exact, but llama.cpp router sections and
-  OpenAI `model` ids use llama.cpp-canonical quant tags. Qwen-family models use
-  Pi's `qwen-chat-template` compatibility with thinking off for normal chat.
+  OpenAI `model` ids use llama.cpp-canonical quant tags. Every model is written
+  to `.pi/models.json` with `reasoning: true` and Pi's `qwen-chat-template`
+  compatibility, which is Pi's name for "send
+  `chat_template_kwargs.enable_thinking`". Whether a model can actually think is
+  a property of its chat template, not its name: gate UI on
+  `templateSupportsThinking(props.chatTemplate)`, never on a `qwen` substring.
 - Generated llama.cpp presets omit `n-gpu-layers` by default. Only write GPU
   offload flags when the user explicitly configures them.
 - Launch llama-server with configurable `modelsMax` and `sleepIdleSeconds`
@@ -125,8 +129,29 @@ Project-specific guidance for AI coding agents.
   truth. `AppStore` refreshes model records from parsed `models.ini` before
   returning model state; `.nelle/state.json` mirrors the catalog only as a
   compatibility backup.
-- Runtime/model/global/chats controls live in the modal Astryx Settings dialog.
-  Settings writes free-form string params into `models.ini` through server APIs,
+- Reasoning is per conversation (`conversations.reasoning_level`, one of `off`,
+  `low`, `medium`, `high`, `max`) and drives Pi's thinking level:
+  `createAgentSession({thinkingLevel})` at session creation and
+  `session.setThinkingLevel()` before every prompt, so a cached session picks up
+  an on-the-fly change. Nelle's `max` maps to Pi's `xhigh`.
+- llama-server, not Nelle, separates thinking from the answer: thinking arrives
+  as `delta.reasoning_content` and reaches the UI as `assistant_reasoning`
+  events; Pi persists it as `{type: 'thinking'}` content blocks, which stay
+  authoritative for a conversation's reasoning history. Do not parse thinking
+  tags out of message text. The one exception is
+  `stripLeadingThinkingEndTag`: when a budget forces the block closed,
+  llama.cpp hands the model its own end tag and then passes everything through
+  as content, and the model usually echoes that tag as its first answer token.
+- Reasoning budgets are global (`state.reasoning.budgets`, defaulting to
+  llama.cpp's own 512/2048/8192) and reach llama.cpp as the top-level
+  `thinking_budget_tokens` field, injected through Pi's `agent.onPayload` hook.
+  Pi's own `thinkingBudgets` setting never reaches an OpenAI-completions
+  provider, and neither `reasoning_budget` nor
+  `chat_template_kwargs.thinking_budget` has any per-request effect. The `max`
+  level and a budget of `0` both mean "send no budget".
+- Runtime/model/reasoning/global/chats controls live in the modal Astryx
+  Settings dialog. Settings writes free-form string params into `models.ini`
+  through server APIs,
   reloads router models when llama-server is running, and keeps the persisted
   stable section id as the llama.cpp/OpenAI model id.
 - The settings dialog is a fixed size (`min(92vw, 1040px)` by

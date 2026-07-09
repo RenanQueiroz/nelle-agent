@@ -26,6 +26,7 @@ import {
   Cog6ToothIcon,
   CpuChipIcon,
   DocumentDuplicateIcon,
+  LightBulbIcon,
   MagnifyingGlassIcon,
   PlayIcon,
   PlusIcon,
@@ -75,6 +76,7 @@ type SettingsDialogProps = {
   onDuplicateModel: (model: ConfiguredModel) => void | Promise<void>;
   onDeleteModel: (model: ConfiguredModel) => void | Promise<void>;
   onSaveGlobalParams: () => void | Promise<void>;
+  onSaveReasoningBudgets: () => void | Promise<void>;
   hostTools: HostToolSettings | null;
   onAcknowledgeHostTools: () => void | Promise<void>;
   onHostToolsToggle: (enabled: boolean) => void | Promise<void>;
@@ -96,6 +98,7 @@ const SETTINGS_SECTIONS: Array<{
 }> = [
   {id: 'runtime', icon: CpuChipIcon},
   {id: 'models', icon: SparklesIcon},
+  {id: 'reasoning', icon: LightBulbIcon},
   {id: 'global', icon: Cog6ToothIcon},
   {id: 'tools', icon: ShieldCheckIcon},
   {id: 'chats', icon: ChatBubbleLeftRightIcon},
@@ -128,6 +131,7 @@ export function SettingsDialog({
   onDuplicateModel,
   onDeleteModel,
   onSaveGlobalParams,
+  onSaveReasoningBudgets,
   hostTools,
   onAcknowledgeHostTools,
   onHostToolsToggle,
@@ -212,6 +216,12 @@ export function SettingsDialog({
                 onDeleteModel={onDeleteModel}
                 onSearch={onSearch}
                 onUseHuggingFaceModel={onUseHuggingFaceModel}
+              />
+            )}
+            {section === 'reasoning' && (
+              <ReasoningSettingsSection
+                busyAction={busyAction}
+                onSaveReasoningBudgets={onSaveReasoningBudgets}
               />
             )}
             {section === 'global' && (
@@ -510,6 +520,62 @@ function GlobalSettingsSection({
           variant="primary"
           isLoading={busyAction === 'global-params'}
           onClick={onSaveGlobalParams}
+        />
+      </HStack>
+    </VStack>
+  );
+}
+
+/**
+ * llama.cpp caps a thinking block from `thinking_budget_tokens`. `max` has no
+ * cap by definition, so only the three budgeted tiers appear here.
+ */
+function ReasoningSettingsSection({
+  busyAction,
+  onSaveReasoningBudgets,
+}: {
+  busyAction: string | null;
+  onSaveReasoningBudgets: () => void | Promise<void>;
+}) {
+  const budgetInputs = useSettingsStore(state => state.reasoningBudgetInputs);
+  const setBudgetInput = useSettingsStore(state => state.setReasoningBudgetInput);
+
+  return (
+    <VStack gap={3}>
+      <Heading level={3}>Reasoning Budgets</Heading>
+      <Divider />
+      <Text type="supporting" color="secondary">
+        Tokens each level may spend inside its thinking block before llama.cpp closes it. Use{' '}
+        <code className="nelle-code">0</code> for no cap. The <strong>max</strong> level is always
+        uncapped, and <strong>off</strong> disables thinking entirely.
+      </Text>
+      <VStack gap={2}>
+        <TextInput
+          label="Low"
+          value={budgetInputs.low}
+          onChange={value => setBudgetInput('low', value)}
+          description="Default is 512 tokens."
+        />
+        <TextInput
+          label="Medium"
+          value={budgetInputs.medium}
+          onChange={value => setBudgetInput('medium', value)}
+          description="Default is 2048 tokens."
+        />
+        <TextInput
+          label="High"
+          value={budgetInputs.high}
+          onChange={value => setBudgetInput('high', value)}
+          description="Default is 8192 tokens."
+        />
+      </VStack>
+      <HStack gap={2}>
+        <Button
+          label="Save reasoning budgets"
+          size="sm"
+          variant="primary"
+          isLoading={busyAction === 'reasoning-budgets'}
+          onClick={onSaveReasoningBudgets}
         />
       </HStack>
     </VStack>
@@ -852,6 +918,9 @@ function settingsSectionLabel(section: SettingsSection): string {
   }
   if (section === 'models') {
     return 'Models';
+  }
+  if (section === 'reasoning') {
+    return 'Reasoning';
   }
   if (section === 'global') {
     return 'Global Params';

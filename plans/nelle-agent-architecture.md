@@ -617,11 +617,28 @@ Initial implementation:
 - Also write `alias = <repo>:<quant>` for Hugging Face refs as user-facing
   metadata. Keep Nelle requests keyed by the stable section id and cache any
   router-reported runtime id separately.
-- Register Qwen-family models in Pi with model-level
-  `compat.thinkingFormat = "qwen-chat-template"` and `reasoning = true`, while
-  starting sessions with `thinkingLevel: "off"`. This makes Pi send
-  `chat_template_kwargs.enable_thinking = false` to local llama.cpp servers and
-  avoids hidden-only `reasoning_content` responses for normal chat.
+- Register every model in Pi with model-level
+  `compat.thinkingFormat = "qwen-chat-template"` and `reasoning = true`. That
+  compat name is Pi's label for "send `chat_template_kwargs.enable_thinking`",
+  which Qwen3 and Gemma 4 both read and other templates ignore. Nelle drives the
+  switch from a per-conversation reasoning level: `createAgentSession({
+  thinkingLevel })` when the session opens, and `session.setThinkingLevel()`
+  before each prompt so a cached session honours an on-the-fly change. Nelle's
+  `max` level maps onto Pi's `xhigh`, which needs a `thinkingLevelMap` entry to
+  be offered at all.
+- Do not parse thinking tags. llama-server separates them for us: thinking
+  arrives on `delta.reasoning_content` and the answer on `delta.content`, and Pi
+  persists the thinking as `{type: "thinking"}` content blocks in the session
+  file. llama.cpp's own UI does the same. The single exception is a budget-forced
+  close, where llama.cpp feeds the model its end tag, moves the sampler to
+  `REASONING_BUDGET_DONE`, and then passes the model's echo of that tag through
+  as content; strip that one leading tag.
+- Reasoning budgets are global and reach llama.cpp only as the top-level
+  `thinking_budget_tokens` request field, injected through Pi's `agent.onPayload`
+  hook. Pi's `thinkingBudgets` setting is read by the Anthropic and Google
+  providers alone, and llama.cpp honours neither a top-level `reasoning_budget`
+  nor `chat_template_kwargs.thinking_budget` per request. Defaults mirror
+  llama.cpp's UI (512 / 2048 / 8192); the `max` level sends no budget at all.
 - Attach llama.cpp throughput metadata to assistant messages. Prefer exact
   streamed `prompt_progress` and `timings` values observed by Nelle's llama
   proxy or direct fallback path; use router `/slots?model=...` decoded-token

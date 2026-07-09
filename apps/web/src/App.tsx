@@ -79,6 +79,7 @@ import {
   updateConfiguredModel,
   updateGlobalModelParams,
   updateHostToolSettings,
+  updateReasoningBudgets,
   updateRuntimeSettings,
   useHuggingFaceModel,
   type ChatMessage as ApiChatMessage,
@@ -94,6 +95,7 @@ import {
   type LlamaModelProps,
   type LlamaRouterModel,
   type LlamaRouterModelUpdate,
+  MAX_REASONING_BUDGET,
   type LlamaRouterProps,
   type ReasoningBudgets,
   type ReasoningLevel,
@@ -109,8 +111,8 @@ import {useUiStore} from './stores/uiStore';
 import type {ActiveRunKind, AppNotice, CommandStatusRow, ComposerModelOptionDetail} from './types';
 import {attachmentTooltip, getDraftAttachmentError} from './utils/attachments';
 import {useScrollChatToBottomOnOpen} from './utils/chatScroll';
-import {getContextOverflowMessage, positiveTokenCount} from './utils/context';
-import {templateSupportsThinking} from './utils/reasoning';
+import {formatInteger, getContextOverflowMessage, positiveTokenCount} from './utils/context';
+import {parseReasoningBudgets, templateSupportsThinking} from './utils/reasoning';
 import {rowsToParams} from './utils/params';
 
 const FAVORITE_MODEL_IDS_STORAGE_KEY = 'nelle.favoriteModelIds';
@@ -443,6 +445,7 @@ export function App() {
       }
       setRuntime(response.runtime);
       setReasoningBudgets(response.state.reasoning?.budgets ?? DEFAULT_REASONING_BUDGETS);
+      useSettingsStore.getState().syncReasoningDrafts(response.state.reasoning?.budgets);
       useSettingsStore
         .getState()
         .syncRuntimeDrafts(
@@ -601,6 +604,7 @@ export function App() {
     const response = await getState();
     setRuntime(response.runtime);
     setReasoningBudgets(response.state.reasoning?.budgets ?? DEFAULT_REASONING_BUDGETS);
+    useSettingsStore.getState().syncReasoningDrafts(response.state.reasoning?.budgets);
     useSettingsStore
       .getState()
       .syncRuntimeDrafts(
@@ -736,6 +740,24 @@ export function App() {
           ? 'Global params saved and router models reloaded.'
           : 'Global params saved. Restart llama.cpp if it is already running elsewhere.',
       });
+    });
+  }
+
+  async function handleSaveReasoningBudgets() {
+    await runAction('reasoning-budgets', async () => {
+      const inputs = useSettingsStore.getState().reasoningBudgetInputs;
+      const budgets = parseReasoningBudgets(inputs);
+      if (!budgets) {
+        setNotice({
+          type: 'error',
+          text: `Reasoning budgets must be whole numbers between 0 and ${formatInteger(MAX_REASONING_BUDGET)}.`,
+        });
+        return;
+      }
+      const saved = await updateReasoningBudgets(budgets);
+      setReasoningBudgets(saved);
+      useSettingsStore.getState().syncReasoningDrafts(saved);
+      setNotice({type: 'success', text: 'Reasoning budgets saved.'});
     });
   }
 
@@ -1800,6 +1822,7 @@ export function App() {
                 onDuplicateModel={handleDuplicateConfiguredModel}
                 onDeleteModel={handleDeleteConfiguredModel}
                 onSaveGlobalParams={handleSaveGlobalParams}
+                onSaveReasoningBudgets={handleSaveReasoningBudgets}
                 hostTools={hostTools}
                 onAcknowledgeHostTools={handleHostToolsAcknowledgement}
                 onHostToolsToggle={handleHostToolsToggle}

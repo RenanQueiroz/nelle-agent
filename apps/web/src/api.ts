@@ -290,6 +290,7 @@ export type ReasoningLevel = (typeof REASONING_LEVELS)[number];
 export type ReasoningBudgets = {low: number; medium: number; high: number};
 
 export const UNLIMITED_REASONING_BUDGET = 0;
+export const MAX_REASONING_BUDGET = 65_536;
 
 /** The same tiers llama.cpp's built-in UI ships with; `max` is uncapped. */
 export const DEFAULT_REASONING_BUDGETS: ReasoningBudgets = {

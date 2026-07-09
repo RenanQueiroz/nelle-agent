@@ -21,7 +21,14 @@ Implemented:
   the chat transcript.
 - Viewport-bounded workbench layout where the sidebar and chat history manage
   their own scrolling while the chat composer stays docked over an opaque
-  backdrop.
+  backdrop. Opening a conversation pins the transcript to the newest message.
+- Reasoning support for thinking models:
+  - A per-conversation level (`off`, `low`, `medium`, `high`, `max`) switched
+    from the composer, driving Pi's thinking level on the fly.
+  - Thinking renders as a collapsible block above the answer, streamed live from
+    llama.cpp's `reasoning_content` field and persisted with the conversation.
+  - Per-level token budgets in Settings (llama.cpp's own 512 / 2048 / 8192
+    defaults), applied as `thinking_budget_tokens`. `max` is uncapped.
 - Managed `llama.cpp` runtime control:
   - Linux installs/updates by building latest `ggml-org/llama.cpp` master.
   - Windows/macOS install/update code downloads latest GitHub release assets.
@@ -280,11 +287,12 @@ Nelle does not register local GGUF filesystem paths; model
 selection is currently Hugging Face `hf-repo` only.
 Nelle keeps the exact Hugging Face ref for `hf-repo`, but canonicalizes the
 router section and OpenAI `model` id the same way llama.cpp does. For example,
-`UD-Q4_K_XL` is exposed by llama.cpp as `Q4_K_XL`. Qwen-family models are
-registered with Pi's `qwen-chat-template` compatibility so `thinkingLevel: off`
-sends
-`chat_template_kwargs.enable_thinking = false` and responses stream visible
-assistant text instead of hidden-only reasoning.
+`UD-Q4_K_XL` is exposed by llama.cpp as `Q4_K_XL`. Every model is registered
+with Pi's `qwen-chat-template` compatibility, which is Pi's name for sending
+`chat_template_kwargs.enable_thinking`. Qwen3 and Gemma 4 both read that kwarg;
+a template that does not simply ignores it. Whether the reasoning control is
+offered for a model is decided from the chat template llama.cpp reports on
+`/props`, not from the model's name.
 Generated presets do not set `n-gpu-layers` by default; llama.cpp uses its own
 default unless GPU offload is explicitly configured.
 If free-form model parameters make llama-server fail to start, use `Show logs`

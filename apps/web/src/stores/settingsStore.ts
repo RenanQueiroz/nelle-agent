@@ -1,6 +1,7 @@
 import {create} from 'zustand';
 
-import type {ConfiguredModel, HuggingFaceModelResult} from '../api';
+import type {ConfiguredModel, HuggingFaceModelResult, ReasoningBudgets} from '../api';
+import {DEFAULT_REASONING_BUDGETS} from '../api';
 import type {ParamRow} from '../types';
 import {paramsToRows} from '../utils/params';
 
@@ -11,6 +12,7 @@ type SettingsStore = {
   modelAliasDrafts: Record<string, string>;
   modelParamRows: Record<string, ParamRow[]>;
   modelsMaxInput: string;
+  reasoningBudgetInputs: Record<keyof ReasoningBudgets, string>;
   runtimeLogs: string;
   searchQuery: string;
   searchResults: HuggingFaceModelResult[];
@@ -21,6 +23,7 @@ type SettingsStore = {
   setModelAliasDraft: (modelId: string, value: string) => void;
   setModelParamRows: (modelId: string, rows: ParamRow[]) => void;
   setModelsMaxInput: (value: string) => void;
+  setReasoningBudgetInput: (level: keyof ReasoningBudgets, value: string) => void;
   setRuntimeLogs: (logs: string) => void;
   setSearchQuery: (query: string) => void;
   setSearchResults: (results: HuggingFaceModelResult[]) => void;
@@ -29,8 +32,17 @@ type SettingsStore = {
     globalParams: Record<string, string> | undefined,
     models: ConfiguredModel[],
   ) => void;
+  syncReasoningDrafts: (budgets: ReasoningBudgets | undefined) => void;
   syncRuntimeDrafts: (modelsMax: number | undefined, sleepIdleSeconds: number | undefined) => void;
 };
+
+function budgetInputs(budgets: ReasoningBudgets): Record<keyof ReasoningBudgets, string> {
+  return {
+    low: String(budgets.low),
+    medium: String(budgets.medium),
+    high: String(budgets.high),
+  };
+}
 
 export const useSettingsStore = create<SettingsStore>(set => ({
   globalParamRows: paramsToRows({c: '8192'}),
@@ -39,6 +51,7 @@ export const useSettingsStore = create<SettingsStore>(set => ({
   modelAliasDrafts: {},
   modelParamRows: {},
   modelsMaxInput: '1',
+  reasoningBudgetInputs: budgetInputs(DEFAULT_REASONING_BUDGETS),
   runtimeLogs: '',
   searchQuery: 'qwen gguf',
   searchResults: [],
@@ -55,6 +68,10 @@ export const useSettingsStore = create<SettingsStore>(set => ({
       modelParamRows: {...state.modelParamRows, [modelId]: rows},
     })),
   setModelsMaxInput: value => set({modelsMaxInput: value}),
+  setReasoningBudgetInput: (level, value) =>
+    set(state => ({
+      reasoningBudgetInputs: {...state.reasoningBudgetInputs, [level]: value},
+    })),
   setRuntimeLogs: logs => set({runtimeLogs: logs}),
   setSearchQuery: query => set({searchQuery: query}),
   setSearchResults: results => set({searchResults: results}),
@@ -67,6 +84,8 @@ export const useSettingsStore = create<SettingsStore>(set => ({
         models.map(model => [model.id, paramsToRows(model.params.extra ?? {})]),
       ),
     }),
+  syncReasoningDrafts: budgets =>
+    set({reasoningBudgetInputs: budgetInputs(budgets ?? DEFAULT_REASONING_BUDGETS)}),
   syncRuntimeDrafts: (modelsMax, sleepIdleSeconds) =>
     set({
       modelsMaxInput: String(modelsMax ?? 1),
