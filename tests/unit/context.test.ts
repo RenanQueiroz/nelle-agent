@@ -133,3 +133,49 @@ test('an unknown context size still yields a usable reading', () => {
   // With no window, no threshold can be breached.
   assert.equal(contextUsageStatus(reading ?? {}), 'ok');
 });
+
+test('the tracker does not put one context event on the wire per generated token', () => {
+  let clock = 0;
+  const track = createLiveContextTracker(10_000, {minIntervalMs: 250, now: () => clock});
+  const tick = (generated: number) =>
+    track({
+      source: 'llamacpp-timings',
+      prompt: {totalTokens: 100},
+      generation: {tokens: generated},
+    });
+
+  assert.notEqual(tick(1), null, 'the first reading always goes out');
+  // Twenty tokens inside the window: the count changes every time, but the bar
+  // cannot show a difference, so nothing is emitted.
+  for (let generated = 2; generated <= 21; generated += 1) {
+    clock += 10;
+    assert.equal(tick(generated), null);
+  }
+  clock += 250;
+  assert.notEqual(tick(22), null, 'the window reopens');
+});
+
+test('crossing a threshold recolours the bar without waiting for the throttle', () => {
+  let clock = 0;
+  const track = createLiveContextTracker(1000, {minIntervalMs: 10_000, now: () => clock});
+  const tick = (generated: number) =>
+    track({
+      source: 'llamacpp-timings',
+      prompt: {totalTokens: 700},
+      generation: {tokens: generated},
+    });
+
+  assert.equal(tick(1)?.usedTokens, 701);
+  clock += 1;
+  // Still 'ok', and inside the window: suppressed.
+  assert.equal(tick(2), null);
+  clock += 1;
+  // 800/1000 is the warning threshold. It must not wait ten seconds to show.
+  const warning = tick(100);
+  assert.equal(warning?.usedTokens, 800);
+  assert.equal(contextUsageStatus(warning ?? {}), 'warning');
+  clock += 1;
+  // And the overflow, likewise.
+  const overflow = tick(300);
+  assert.equal(contextUsageStatus(overflow ?? {}), 'overflow');
+});

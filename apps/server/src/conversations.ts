@@ -15,7 +15,11 @@ import {
   conversationContextUsageSchema,
   conversationSnapshotSchema,
 } from '../../../packages/shared/src/conversations.ts';
-import {withContextStatus} from '../../../packages/shared/src/context.ts';
+import {
+  contextUsageStatus,
+  withContextStatus,
+  type ContextUsageStatus,
+} from '../../../packages/shared/src/context.ts';
 import type {ChatAttachmentKind} from '../../../packages/shared/src/contracts.ts';
 import type {ReasoningLevel} from '../../../packages/shared/src/reasoning.ts';
 import {
@@ -1608,18 +1612,39 @@ function isContextNewer(
  * on top. Returns `null` for a tick that would repeat the last token count, so a
  * stream does not carry one `context.updated` per generated token.
  */
+export const LIVE_CONTEXT_MIN_INTERVAL_MS = 250;
+
 export function createLiveContextTracker(
   totalTokens: number | undefined,
+  options: {minIntervalMs?: number; now?: () => number} = {},
 ): (performance: unknown) => ConversationContextUsage | null {
-  let lastUsedTokens: number | undefined;
   const total = positiveInteger(totalTokens);
+  const minIntervalMs = options.minIntervalMs ?? LIVE_CONTEXT_MIN_INTERVAL_MS;
+  const now = options.now ?? (() => Date.now());
+  let lastUsedTokens: number | undefined;
+  let lastStatus: ContextUsageStatus | undefined;
+  let lastEmittedAt: number | undefined;
+
   return performance => {
     const context = contextUsageFromPerformance(performance, new Date().toISOString());
     if (!context || context.usedTokens === lastUsedTokens) {
       return null;
     }
-    lastUsedTokens = context.usedTokens;
-    return {...context, totalTokens: total};
+    const usage = {...context, totalTokens: total};
+    const status = contextUsageStatus(usage);
+    const at = now();
+    // Generation grows `usedTokens` by one per token, so an unthrottled tracker
+    // would put a `context.updated` on the wire for every token of a long
+    // answer. Crossing a threshold still recolours the bar immediately.
+    const throttled =
+      lastEmittedAt != null && status === lastStatus && at - lastEmittedAt < minIntervalMs;
+    if (throttled) {
+      return null;
+    }
+    lastUsedTokens = usage.usedTokens;
+    lastStatus = status;
+    lastEmittedAt = at;
+    return usage;
   };
 }
 
