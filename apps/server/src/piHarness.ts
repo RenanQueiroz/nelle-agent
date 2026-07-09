@@ -796,6 +796,7 @@ export class PiHarness {
       onPerformance: pushPerformance,
     });
     const toolCalls: ToolCallEvent[] = [];
+    let toolsDisabledAborted = false;
     const toolCallStarts = new Map<string, number>();
     let thinkingText = '';
     let providerError: string | null = null;
@@ -809,6 +810,18 @@ export class PiHarness {
       queue.push({type: 'message.assistant.delta', id: assistantMessage.id, delta: text});
     };
     const unsubscribe = session.subscribe((event: any) => {
+      // `tools: []` at session construction is a build-time gate, not a runtime
+      // one. A cached session, a Pi retry, or a future Pi version could still
+      // emit a tool event; the user disabling host tools mid-run certainly can.
+      // Fail closed: no audit row, no tool event, and the run ends.
+      if (isToolExecutionEvent(event.type) && !this.hostTools.areToolsEnabled()) {
+        if (!toolsDisabledAborted) {
+          toolsDisabledAborted = true;
+          queue.push(createErrorEvent(new ToolsDisabledError()));
+          void session.abort?.();
+        }
+        return;
+      }
       if (event.type === 'message_update') {
         const assistantEvent = event.assistantMessageEvent;
         if (assistantEvent?.type === 'text_delta') {
@@ -2285,6 +2298,23 @@ class SessionUnavailableError extends Error {
     );
     this.name = 'SessionUnavailableError';
     this.detail = piSessionPath;
+  }
+}
+
+/** `tool_execution_start`, `_update` and `_end` are the only tool events Pi emits. */
+export function isToolExecutionEvent(eventType: unknown): boolean {
+  return typeof eventType === 'string' && eventType.startsWith('tool_execution_');
+}
+
+export class ToolsDisabledError extends Error {
+  readonly code = 'tools_disabled';
+  readonly retryable = false;
+
+  constructor() {
+    super(
+      'Host tools are disabled, but the model tried to call one. The run was stopped. Enable host tools in Settings > Tools to allow it.',
+    );
+    this.name = 'ToolsDisabledError';
   }
 }
 

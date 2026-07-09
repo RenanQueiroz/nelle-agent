@@ -341,6 +341,12 @@ Project-specific guidance for AI coding agents.
   controls and Astryx tooltips, not as a plain text throughput string.
 - Tool calls must be correlated by stable `id` / Pi `toolCallId`; stream updates
   should upsert existing calls and preserve expandable input/output detail.
+- Host tools fail closed at runtime, not only at Pi-session construction.
+  `tools: []` is a build-time gate; the tool-event subscriber rechecks
+  `areToolsEnabled()` and, if a tool event arrives anyway, writes no audit row,
+  emits no `tool_call.updated`, pushes a `tools_disabled` error and aborts the
+  run. Disabling host tools mid-run therefore makes the next tool call fail
+  closed rather than killing the run outright.
 - Host file/shell tools are unsandboxed in v1 and disabled until the user
   acknowledges the warning in Settings. Keep the global enable/disable switch,
   reset cached Pi sessions after changes, and persist tool audit events until

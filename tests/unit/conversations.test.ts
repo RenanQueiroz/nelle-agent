@@ -18,9 +18,14 @@ import {
   importConversationArchive,
 } from '../../apps/server/src/conversationArchive.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
+import {createErrorEvent} from '../../apps/server/src/errors.ts';
 import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
 import {HostToolRepository} from '../../apps/server/src/hostTools.ts';
-import {PiHarness} from '../../apps/server/src/piHarness.ts';
+import {
+  PiHarness,
+  ToolsDisabledError,
+  isToolExecutionEvent,
+} from '../../apps/server/src/piHarness.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {createServer} from '../../apps/server/src/server.ts';
 import {AppStore, DEFAULT_CONTEXT_SIZE} from '../../apps/server/src/store.ts';
@@ -2907,3 +2912,42 @@ async function createTempPaths(): Promise<AppPaths> {
     webDistDir: path.join(repoRoot, 'dist', 'web'),
   };
 }
+
+test('a tool event with host tools disabled fails the run closed', () => {
+  // Pi is handed `tools: []` when host tools are off, so it should never emit a
+  // tool event. The guard is what happens if it does anyway -- a cached session,
+  // a retry, or the user disabling tools mid-run.
+  for (const eventType of ['tool_execution_start', 'tool_execution_update', 'tool_execution_end']) {
+    assert.equal(isToolExecutionEvent(eventType), true, eventType);
+  }
+  assert.equal(isToolExecutionEvent('message_update'), false);
+  assert.equal(isToolExecutionEvent(undefined), false);
+
+  const event = createErrorEvent(new ToolsDisabledError());
+  assert.equal(event.type, 'error');
+  assert.equal(event.code, 'tools_disabled');
+  assert.equal(event.retryable, false);
+  assert.match(event.message, /Host tools are disabled/);
+});
+
+test('host tools are disabled until acknowledged, and disabling keeps the acknowledgement', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const hostTools = new HostToolRepository(database);
+    assert.equal(hostTools.areToolsEnabled(), false, 'tools are off until asked for');
+
+    assert.throws(() => hostTools.updateSettings({enabled: true}), /acknowledged/);
+    assert.equal(hostTools.areToolsEnabled(), false);
+
+    hostTools.updateSettings({acknowledged: true, enabled: true});
+    assert.equal(hostTools.areToolsEnabled(), true);
+
+    hostTools.updateSettings({enabled: false});
+    assert.equal(hostTools.areToolsEnabled(), false);
+    assert.equal(hostTools.getSettings().acknowledged, true);
+  } finally {
+    database.close();
+  }
+});

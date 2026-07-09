@@ -612,6 +612,8 @@ Then implement the five missing behaviors:
 
 ## G7: Host Tools Have No Fail-Closed Guard
 
+**Status: done.**
+
 ### Evidence
 
 `apps/server/src/piHarness.ts:1040` builds the Pi registry as
