@@ -206,6 +206,13 @@ Project-specific guidance for AI coding agents.
 - The web UI conversation pane is collapsible and uses `@tanstack/react-virtual`
   for pinned/recent conversation sections. Keep row actions and e2e tests aligned
   when changing the sidebar.
+- The sidebar collapse toggle is Astryx's `SideNavCollapseButton` in
+  `footerIcons`, per their example, with `collapsible={{hasButton: false}}`. Pass
+  it directly: SideNav stacks the footer row vertically when collapsed, and
+  wrapping it in an `HStack` forces a row into the 48px rail and pushes the
+  expand button off-screen. The toggle cannot live in the heading row, because
+  `SideNavHeading` `headerEndContent` is hidden when collapsed. The collapsed
+  rail carries new-chat and settings icons in `topContent`.
 - Conversation rows are Astryx `SideNavItem`s with a hover/focus-revealed
   `MoreMenu` rendered as a sibling, not as `endContent`: Astryx puts `endContent`
   inside the row's own `<button>`, so a nested menu button would break semantics

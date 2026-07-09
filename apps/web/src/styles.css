@@ -37,10 +37,6 @@ body {
   min-height: 100%;
 }
 
-.nelle-side-nav-footer-icons {
-  width: 100%;
-}
-
 /*
  * Fills SideNav's scrollable content box exactly, so the conversation list owns
  * its scrollbar instead of scrolling the whole nav body.

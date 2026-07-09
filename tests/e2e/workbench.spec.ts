@@ -2251,6 +2251,18 @@ test('virtualizes and collapses the conversation sidebar', async ({page}) => {
   await expect(page.getByRole('button', {name: 'Expand sidebar'})).toBeVisible();
   await expect(page.getByLabel('Search conversations')).toHaveCount(0);
 
+  // The collapsed rail is ~48px. A horizontal footer row pushed the expand
+  // button off the left edge of the screen, leaving only a sliver clickable.
+  const rail = await page.getByTestId('nelle-side-nav').boundingBox();
+  for (const name of ['Expand sidebar', 'New chat', 'Settings']) {
+    const button = await page.getByRole('button', {name, exact: true}).boundingBox();
+    expect(button, `${name} should be rendered while collapsed`).not.toBeNull();
+    expect(button!.x, `${name} escapes the collapsed rail`).toBeGreaterThanOrEqual(rail!.x);
+    expect(button!.x + button!.width, `${name} escapes the collapsed rail`).toBeLessThanOrEqual(
+      rail!.x + rail!.width + 1,
+    );
+  }
+
   await page.getByRole('button', {name: 'Expand sidebar'}).click();
   await expect(page.getByLabel('Search conversations')).toBeVisible();
 });

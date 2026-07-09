@@ -10,7 +10,12 @@ import {IconButton} from '@astryxdesign/core/IconButton';
 import {HStack, StackItem, VStack} from '@astryxdesign/core/Layout';
 import {MoreMenu} from '@astryxdesign/core/MoreMenu';
 import {NavIcon} from '@astryxdesign/core/NavIcon';
-import {SideNav, SideNavHeading, SideNavItem} from '@astryxdesign/core/SideNav';
+import {
+  SideNav,
+  SideNavCollapseButton,
+  SideNavHeading,
+  SideNavItem,
+} from '@astryxdesign/core/SideNav';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Text} from '@astryxdesign/core/Text';
@@ -23,8 +28,6 @@ import {
   BookmarkIcon,
   BookmarkSlashIcon,
   ChatBubbleLeftRightIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   Cog6ToothIcon,
   DocumentDuplicateIcon,
   MagnifyingGlassIcon,
@@ -134,7 +137,29 @@ export function NelleSideNav({
         </>
       }
       topContent={
-        isCollapsed ? undefined : (
+        isCollapsed ? (
+          // Collapsed rail: the primary actions stacked as icons, the way
+          // llama.cpp's sidebar presents them.
+          <VStack gap={1} hAlign="center" className="nelle-side-nav-rail">
+            <IconButton
+              label="New chat"
+              tooltip="New chat"
+              size="sm"
+              variant="primary"
+              icon={<Icon icon={PlusIcon} size="sm" />}
+              isLoading={isNewConversationBusy}
+              onClick={() => void onNewConversation()}
+            />
+            <IconButton
+              label="Settings"
+              tooltip="Settings"
+              size="sm"
+              variant={isSettingsOpen ? 'secondary' : 'ghost'}
+              icon={<Icon icon={Cog6ToothIcon} size="sm" />}
+              onClick={onToggleSettings}
+            />
+          </VStack>
+        ) : (
           <VStack gap={2} className="nelle-side-nav-top">
             {notice && (
               <Banner
@@ -178,44 +203,12 @@ export function NelleSideNav({
           </VStack>
         )
       }
-      footerIcons={
-        <HStack gap={1} hAlign="center" vAlign="center" className="nelle-side-nav-footer-icons">
-          <IconButton
-            label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            tooltip={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            size="sm"
-            variant="ghost"
-            icon={<Icon icon={isCollapsed ? ChevronRightIcon : ChevronLeftIcon} size="sm" />}
-            onClick={() => onCollapsedChange(!isCollapsed)}
-          />
-          {isCollapsed && (
-            <IconButton
-              label="New chat"
-              tooltip="New chat"
-              size="sm"
-              variant="primary"
-              icon={<Icon icon={PlusIcon} size="sm" />}
-              isLoading={isNewConversationBusy}
-              onClick={() => void onNewConversation()}
-            />
-          )}
-          {isCollapsed && (
-            <IconButton
-              label="Settings"
-              tooltip="Settings"
-              size="sm"
-              variant={isSettingsOpen ? 'secondary' : 'ghost'}
-              icon={<Icon icon={Cog6ToothIcon} size="sm" />}
-              onClick={() => {
-                onCollapsedChange(false);
-                if (!isSettingsOpen) {
-                  onToggleSettings();
-                }
-              }}
-            />
-          )}
-        </HStack>
-      }
+      // Astryx's own button, placed exactly as their SideNavCollapseButton
+      // example does. It reads collapse state from context, keeps the
+      // Collapse/Expand labels in sync, and SideNav stacks the footer row
+      // vertically when collapsed. Wrapping it in an HStack forced a row into a
+      // 48px rail and pushed the expand button off-screen.
+      footerIcons={<SideNavCollapseButton />}
     >
       {isCollapsed ? (
         <VStack className="nelle-side-nav-collapsed-spacer" />
