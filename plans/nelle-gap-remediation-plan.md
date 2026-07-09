@@ -248,13 +248,56 @@ UI:
   disabled with a top status error.
 - After a successful repair, refresh the snapshot and the sidebar row.
 
-### Open Question
+### Rebuild From Projection (Decided)
 
-Should there also be a `POST /api/conversations/:id/rebind` that binds the
-conversation to a fresh empty Pi session, explicitly discarding history? It
-would need to be a separate, explicitly-named endpoint so no read path can ever
-reach it. Recommend deferring it: repair + export-diagnostics + delete covers
-the real cases, and a rebind is indistinguishable from delete-then-create.
+`conversation_entry_projection.text_preview` is misnamed: `upsertProjection`
+writes the **full**, untruncated `entry.text` into it
+(`apps/server/src/conversations.ts:1089`), alongside `reasoning_text`,
+`tool_calls_json`, `performance_json`, roles, parentage, and timestamps. So
+SQLite holds a complete copy of the active path. `migrateLegacyDefaultConversation`
+(`apps/server/src/piHarness.ts:155`) already demonstrates the reconstruction
+technique: walk messages, call `sessionManager.appendMessage({role, content})`
+per message, then `replaceConversationProjection`.
+
+Add a third, explicitly user-initiated endpoint:
+
+```http
+POST /api/conversations/:id/rebuild
+```
+
+It reconstructs a valid Pi session JSONL from the projection rows. This is not
+the "silently create a replacement session" that AGENTS.md forbids: it is a
+reconstruction from data Nelle already holds, reachable only from an explicit
+user action with a warning dialog, never from a read path.
+
+What it recovers: message text, roles, ordering, timestamps, per-message
+reasoning, model alias snapshots, and performance metadata.
+
+What it loses, and the dialog must say so:
+
+- **Tool-call results.** Tool calls live in `tool_calls_json` on the assistant
+  projection row, not in Pi message content, so the rebuilt entries carry no
+  tool output and the model loses that context on subsequent turns.
+- **Image attachment content.** Rebuilt user entries are text-only. The
+  attachment metadata rows and the content-addressed files survive, so the UI
+  keeps rendering the chips, but the model will not see the images again.
+  Re-embedding them from `.nelle/attachments/` is a possible follow-up.
+- **Compaction summaries.** Projections can hold `entryType: 'compaction'` rows
+  and `appendMessage` cannot produce them. Rebuild skips them, so the session
+  keeps the messages that survived compaction without the summary explaining the
+  gap. This is a deliberate choice, not an oversight.
+- **Inactive Pi branches, in the session file.** Regenerate variants live in the
+  Pi JSONL as inactive branches, but `getBranch()` only returns the active path,
+  so `prependExistingVariantGroup` (`piHarness.ts:1421`) re-adds them to the
+  projection from SQLite on every sync. After a rebuild the UI therefore keeps
+  showing variants — they are sourced from SQLite — while the rebuilt Pi file
+  contains only a linear active path. The variants survive on screen and die in
+  the session tree; a future branch explorer would not see them.
+
+A blank `rebind` (fresh empty session under the same conversation id) is
+explicitly **rejected**. It preserves only the title and pin state versus
+delete-then-create, orphans the attachment and tool-audit rows, and is the one
+variant that breaks the replacement-session invariant for no recovery gain.
 
 ### Tests
 
@@ -262,8 +305,11 @@ the real cases, and a rebind is indistinguishable from delete-then-create.
   entries; repair with the file still missing returns `session_unavailable` and
   creates **no** new file under `.nelle/pi/sessions` (assert the directory
   listing is unchanged before and after).
+- Unit: rebuild reconstructs a readable Pi session from projection rows, sets the
+  conversation `ready`, preserves message text/roles/order and `reasoning_text`,
+  and skips `compaction` entries.
 - E2e: an unavailable conversation shows the repair `EmptyState` and its row
-  menu offers Repair.
+  menu offers Repair; rebuild is behind a confirm dialog naming what is lost.
 
 ---
 
@@ -315,7 +361,7 @@ guarantee that does not exist.
 **Fix: drop it.** Verified safe: `deleted_at` participates in no index, and the
 bundled SQLite (3.53.1 via `node:sqlite`) supports `ALTER TABLE ... DROP COLUMN`.
 
-Migration 5:
+Migration:
 
 ```sql
 ALTER TABLE conversations DROP COLUMN deleted_at;
@@ -326,7 +372,30 @@ remove the filters and the `NULL` writes.
 
 The alternative — actually implementing soft delete — contradicts "Conversation
 delete is a hard delete for now" and would strand Pi session files and
-attachments until a purge job exists. Not recommended.
+attachments until a purge job exists. Rejected.
+
+### Decided: Drop It, Then Add A Client-Side Undo Window
+
+Ship as **two commits**. The migration is a cleanup; the undo toast is the only
+item in this whole plan that adds product behavior rather than closing a gap, and
+it should not ride along with a schema change.
+
+The toast: deleting a conversation removes the row from the sidebar immediately
+and shows `Deleted "<title>". [Undo]`, holding the `DELETE` request for ~5s.
+Constraints, all of which come from hard delete being irreversible once it lands:
+
+- Flush the pending `DELETE` on `beforeunload` with `navigator.sendBeacon`.
+  Without this a page reload inside the window silently _cancels_ the deletion
+  and the conversation returns from the dead — the same shape as the
+  `legacy-default` resurrection AGENTS.md warns about. Committing on unload makes
+  the window a real time bound rather than a session-lifetime one.
+- Queue timers per conversation id. Deleting three chats in a row must issue
+  three deletes, not one.
+- If the deleted conversation was active, switch away immediately; undo restores
+  both the row and the selection.
+- Once the request lands, the Pi session file and unreferenced attachments are
+  gone. The toast is the entire safety net, and it does not survive the window.
+  Say so in the toast copy.
 
 ### G3c: Fork Lineage Columns Are Write-Only
 
@@ -362,15 +431,32 @@ point a hardcoded `false` silently disables image attachments on a vision model.
   modalities". Only return `false` when modalities are known and vision is
   absent.
 - Add `canRepair` (G2).
-- `canSend` is currently `!unavailable && state.runtime != null`. Also require a
-  selected model and `status === 'ready'`, so the field means what it says.
-- Have the web app consume `canSend`, `canAbort`, `canCompact`, `canFork`, and
-  `canRepair` rather than recomputing them.
-- Keep **live** router props as the authority for image gating in the browser,
-  since they are strictly fresher than the cache. Add a unit test asserting the
-  server-derived and browser-derived answers agree for a loaded model.
-- Document in `packages/shared/src/conversations.ts` that `capabilities` is the
-  contract for non-browser clients.
+- Drop `canAttachText`. It is unconditionally `true`.
+
+### Decided: The Conversation/Runtime Split
+
+The objection to letting the browser consume `capabilities` is staleness: it
+ships in a snapshot, while router status changes live over SSE. That dissolves
+with the right division of labour.
+
+Server capabilities describe what the **conversation** permits — durable facts
+only: is the status `ready`, is the Pi session valid, are there entries to fork
+from. The client ANDs in what the **runtime** currently permits:
+
+```text
+browser canSend = capabilities.canSend && routerUp && modelSelected
+```
+
+Under that split `canAbort`, `canCompact`, `canFork`, and `canRepair` are purely
+conversation-level, and the browser uses them directly. `canSend` becomes
+`status === 'ready' && sessionValid` server-side — it drops the
+`state.runtime != null` check, which is runtime state the client owns.
+
+`canAttachImages` is inherently live, so it stays a last-known tri-state derived
+from `model_cache` for clients without router access, while the browser keeps
+using fresh `/api/llama/models/:id/props`. Add a unit test asserting the two
+agree for a loaded model, and document in `packages/shared/src/conversations.ts`
+that the cached value is best-effort.
 
 ---
 
@@ -402,13 +488,23 @@ Rename in one atomic pass:
 user_message         -> message.user.created
 assistant_start      -> message.assistant.started
 assistant_delta      -> message.assistant.delta
-assistant_reasoning  -> message.assistant.thinking_delta
+assistant_reasoning  -> message.assistant.reasoning_delta
 assistant_metrics    -> performance.updated
 tool                 -> tool_call.updated
 conversation_title   -> conversation.updated
 warning              -> run.warning
 done                 -> (delete)
 ```
+
+**Decided: `reasoning_delta`, not the router plan's `thinking_delta`.** Nelle's
+whole public surface says _reasoning_ — `conversations.reasoning_level`,
+`conversation_entry_projection.reasoning_text`, `ReasoningLevel`,
+`PATCH /api/settings/reasoning`, `PUT /api/conversations/:id/reasoning`, and the
+`message.reasoning` field. Only Pi's internals say _thinking_
+(`thinking_delta`, `setThinkingLevel`), and llama.cpp says `reasoning_content`.
+`piHarness` is where those vocabularies meet; the wire contract should stay on
+Nelle's side of that boundary. Update the router plan's proposed name and the
+AGENTS.md line that pins `assistant_reasoning`.
 
 - `conversation.updated` should carry `{title?, titleSource?, activeLeafPiEntryId?, updatedAt}`
   rather than only `title`, per the router plan.
@@ -430,13 +526,26 @@ Files to touch: `apps/server/src/types.ts`, emitters in `piHarness.ts` and
 handlers in `apps/web/src/App.tsx:1512-1675`, the e2e mocks in
 `tests/e2e/workbench.spec.ts`, and `tests/unit/conversations.test.ts`.
 
-### Decisions Needed
+### Decided: `run.warning` Carries A Code
 
-1. `assistant_reasoning -> message.assistant.thinking_delta` matches the router
-   plan's proposed name and Pi's own `thinking_delta`. AGENTS.md currently pins
-   `assistant_reasoning`, so it must be updated in the same commit.
-2. `warning -> run.warning` is a guess; no plan names this event. The
-   alternative is keeping `warning` and documenting it as a Nelle extension.
+`warning` is not one event, it is five conditions sharing a prose field. AGENTS.md
+forbids message-only `error` events; warnings simply escaped the rule. A browser
+can render prose, but no other client can branch on it, localize it, or suppress
+a known-benign one.
+
+Give `run.warning` the shape `{code, message, detail?}` — the `NelleError` family
+minus `retryable` — and assign each existing emitter a stable code:
+
+| Emitter             | Code                          | Condition                                         |
+| ------------------- | ----------------------------- | ------------------------------------------------- |
+| `directLlama.ts:57` | `pi_harness_fallback`         | Pi failed; falling back to direct llama.cpp       |
+| `piHarness.ts:662`  | `reply_budget_exhausted`      | Prompt leaves no room for a reply                 |
+| `piHarness.ts:811`  | `reasoning_budget_exhausted`  | Whole reasoning budget spent, no answer produced  |
+| `piHarness.ts:818`  | `reasoning_without_answer`    | Reasoning content but no final text; showing it   |
+| `piHarness.ts:1636` | `llama_slot_still_processing` | Slot still busy after the post-abort grace window |
+
+The last code already exists on the REST abort response (`llamacpp.ts:247`), so
+the stream and the REST path finally agree on one name.
 
 ---
 
@@ -641,35 +750,41 @@ One item per commit, docs updated in the same commit, per AGENTS.md.
 
 1. **G11 standalone doc fixes** (`pnpm dev`, repo shape, README gaps,
    `models.ini` example, facade list). Stops the plans lying while the rest
-   lands. The reasoning bullet waits for G5, which decides the event name.
+   lands. The reasoning bullet rides with G5.
 2. **G9** — one-line constant swap.
-3. **G1** — pagination and server-side search. Highest user impact; both halves
-   land together because fixing search without pagination still misses rows.
-4. **G2** — the repair path.
-5. **G5** — the event rename, `conversation.forked`, `conversation.updated`.
-   Land it before G6/G7 so new error and event work is written against the final
-   names, and before it acquires a second client.
-6. **G3a** — populate `model_cache`. Unblocks G4 and G6.4.
-7. **G4** — honest `capabilities`.
-8. **G6** — the error-code set, `context_overflow` first.
-9. **G7** — `tools_disabled` fail-closed.
-10. **G3b** — drop `deleted_at` (migration 6, or fold into migration 5 if G1 has
-    not shipped yet).
-11. **G8** — remove the legacy default-chat surface.
-12. **G10** — whatever tests did not ride along with their feature commit.
+3. **G1 server** — keyset pagination, server-side search, migration 5 index.
+4. **G1 web** — infinite scroll, debounced `?search=`, delete the client filter.
+5. **G2 server** — `repair`, `rebuild`, `diagnostics`, unavailable-aware export.
+6. **G2 web** — repair `EmptyState`, row-menu actions, rebuild confirm dialog.
+7. **G5** — the event rename, coded `run.warning`, `conversation.forked`,
+   `conversation.updated`. Land it before G6/G7 so new error and event work is
+   written against the final names, and before it acquires a second client.
+8. **G3a** — populate `model_cache`. Unblocks G4 and G6.4.
+9. **G4** — honest `capabilities` plus the conversation/runtime split.
+10. **G6** — the error-code set, `context_overflow` first.
+11. **G7** — `tools_disabled` fail-closed.
+12. **G3b** — migration 6 drops `deleted_at`.
+13. **Undo toast** — the deferred-delete window (product behavior; kept separate
+    from the migration above on purpose).
+14. **G8** — remove the legacy default-chat surface.
+15. **G10** — whatever tests did not ride along with their feature commit.
 
 G3c needs no code.
 
-## Decisions Needed Before Starting
+## Settled Decisions
 
-1. **Event names** (G5): confirm `message.assistant.thinking_delta` over the
-   current `assistant_reasoning`, and decide whether `warning` becomes
-   `run.warning` or stays a documented Nelle extension.
-2. **`deleted_at`** (G3b): drop it, or implement soft delete after all.
-3. **`capabilities`** (G4): does the browser consume it, or does it stay a
-   contract for non-browser clients only?
-4. **Unavailable conversations** (G2): repair + export + delete only, or also a
-   `rebind` action that discards history?
+1. **Event names** (G5): `message.assistant.reasoning_delta`, not the router
+   plan's `thinking_delta` — Nelle's public surface says _reasoning_ everywhere
+   and `piHarness` is the boundary with Pi's vocabulary. `warning` becomes
+   `run.warning` carrying `{code, message, detail?}` across five stable codes.
+2. **`deleted_at`** (G3b): drop the column. Add a client-side undo window as a
+   separate commit; server-side undo would require the soft delete we rejected.
+3. **`capabilities`** (G4): the browser consumes it, under a conversation/runtime
+   split. Server reports what the conversation permits; the client ANDs in live
+   router state. `canAttachText` is deleted.
+4. **Unavailable conversations** (G2): `repair` (revalidate) plus `rebuild`
+   (reconstruct a Pi session from the projection, which holds full message text),
+   plus `diagnostics` and delete. A blank `rebind` is rejected.
 
 ## Verification For Every Commit
 
@@ -680,4 +795,5 @@ npm run test:e2e
 
 Migrations 5 and 6 must additionally be exercised against a populated
 `settings.sqlite` so the pre-migration backup path (`database.ts:313`) runs, and
+
 `tests/unit/conversations.test.ts` must have its migration version list updated.
