@@ -179,6 +179,19 @@ const MIGRATIONS: Migration[] = [
     `,
     isApplied: db => indexExists(db, 'conversations_recent_keyset_idx'),
   },
+  {
+    version: 6,
+    name: 'drop_conversation_deleted_at',
+    checksum: '2026-07-09-drop-conversation-deleted-at',
+    // Conversation delete is a hard delete, so `deleted_at` was only ever NULL
+    // and every `WHERE deleted_at IS NULL` was a filter that always passed --
+    // reading as a soft-delete guarantee that does not exist. No index refers to
+    // it, and the bundled SQLite supports DROP COLUMN.
+    sql: `
+      ALTER TABLE conversations DROP COLUMN deleted_at;
+    `,
+    isApplied: db => !tableHasColumn(db, 'conversations', 'deleted_at'),
+  },
 ];
 
 /** The proof-of-concept default chat was stored under this id. */

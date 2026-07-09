@@ -46,7 +46,6 @@ type ConversationRow = {
   status: ConversationStatus;
   created_at: string;
   updated_at: string;
-  deleted_at: string | null;
 };
 
 type EntryRow = {
@@ -263,7 +262,6 @@ export class ConversationRepository {
       status: 'ready',
       created_at: now,
       updated_at: now,
-      deleted_at: null,
     };
     this.insertConversation(row);
     this.upsertSearch(row.id, row.title);
@@ -315,9 +313,9 @@ export class ConversationRepository {
 
   getConversation(id: string): ConversationRow | null {
     return (
-      (this.database.connection
-        .prepare('SELECT * FROM conversations WHERE id = ? AND deleted_at IS NULL')
-        .get(id) as ConversationRow | undefined) ?? null
+      (this.database.connection.prepare('SELECT * FROM conversations WHERE id = ?').get(id) as
+        | ConversationRow
+        | undefined) ?? null
     );
   }
 
@@ -341,8 +339,7 @@ export class ConversationRepository {
     const rows = this.database.connection
       .prepare(
         `SELECT * FROM conversations
-         WHERE deleted_at IS NULL
-           AND status != 'unavailable'
+         WHERE status != 'unavailable'
            AND pi_session_path IS NOT NULL`,
       )
       .all() as ConversationRow[];
@@ -1131,7 +1128,6 @@ export class ConversationRepository {
       status: existing?.status ?? 'ready',
       created_at: existing?.created_at ?? now,
       updated_at: now,
-      deleted_at: null,
     };
 
     if (existing) {
@@ -1140,7 +1136,7 @@ export class ConversationRepository {
           `UPDATE conversations
            SET title = ?, title_source = ?, pinned = ?, active_leaf_pi_entry_id = ?,
                last_synced_pi_entry_id = ?, default_model_id = ?, status = ?,
-               updated_at = ?, deleted_at = NULL
+               updated_at = ?
            WHERE id = ?`,
         )
         .run(
@@ -1179,8 +1175,8 @@ export class ConversationRepository {
           id, title, title_source, pinned, pi_session_path, pi_session_id,
           active_leaf_pi_entry_id, last_synced_pi_entry_id, default_model_id,
           parent_conversation_id, forked_from_pi_entry_id, fork_kind,
-          context_usage_json, reasoning_level, status, created_at, updated_at, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          context_usage_json, reasoning_level, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -1200,7 +1196,6 @@ export class ConversationRepository {
         row.status,
         row.created_at,
         row.updated_at,
-        row.deleted_at,
       );
   }
 
@@ -1343,7 +1338,7 @@ export class ConversationRepository {
             `SELECT COUNT(*) AS total
              FROM conversation_search
              JOIN conversations ON conversations.id = conversation_search.conversation_id
-             WHERE conversation_search MATCH ? AND conversations.deleted_at IS NULL`,
+             WHERE conversation_search MATCH ?`,
           )
           .get(search) as {total: number};
         return row.total;
@@ -1355,14 +1350,12 @@ export class ConversationRepository {
       const row = db
         .prepare(
           `SELECT COUNT(*) AS total FROM conversations
-           WHERE deleted_at IS NULL AND title LIKE ? ESCAPE '\\'`,
+           WHERE title LIKE ? ESCAPE '\\'`,
         )
         .get(`%${escapeLike(search)}%`) as {total: number};
       return row.total;
     }
-    const row = db
-      .prepare('SELECT COUNT(*) AS total FROM conversations WHERE deleted_at IS NULL')
-      .get() as {total: number};
+    const row = db.prepare('SELECT COUNT(*) AS total FROM conversations').get() as {total: number};
     return row.total;
   }
 
@@ -1380,7 +1373,7 @@ export class ConversationRepository {
     cursor?: ConversationCursor | null;
   }): ConversationRow[] {
     const db = this.database.connection;
-    const conditions = ['conversations.deleted_at IS NULL', 'conversations.pinned = ?'];
+    const conditions = ['conversations.pinned = ?'];
     const params: (string | number)[] = [input.pinned ? 1 : 0];
 
     if (input.cursor) {

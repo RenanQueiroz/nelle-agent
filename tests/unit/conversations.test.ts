@@ -61,6 +61,7 @@ test('SQLite migration creates conversation tables and migration records', async
         [3, 'rename_poc_default_conversation'],
         [4, 'conversation_reasoning'],
         [5, 'conversation_keyset_index'],
+        [6, 'drop_conversation_deleted_at'],
       ],
     );
     assert.equal(table?.name, 'conversations');
@@ -168,7 +169,7 @@ test('SQLite migration backs up existing databases before repairing migration re
       .all() as Array<{version: number}>;
     assert.deepEqual(
       migrations.map(migration => migration.version),
-      [1, 2, 3, 4, 5],
+      [1, 2, 3, 4, 5, 6],
     );
   } finally {
     repaired.close();
@@ -191,7 +192,7 @@ test('SQLite migration backs up existing databases before repairing migration re
     // this test deleted, so it is missing while the others remain.
     assert.deepEqual(
       backupMigrations.map(migration => migration.version),
-      [1, 3, 4, 5],
+      [1, 3, 4, 5, 6],
     );
     assert.equal(contextColumn, true);
   } finally {
@@ -311,6 +312,46 @@ test('repository still migrates a non-empty legacy chat into the default convers
     database.close();
   }
 });
+
+test('migration 6 drops deleted_at from an existing database without losing rows', async () => {
+  const paths = await createTempPaths();
+  const first = new AppDatabase(paths);
+  await first.open();
+  const repository = new ConversationRepository(first);
+  const conversation = repository.createConversation({title: 'Survivor'});
+
+  // Rewind to schema 5: put the column back and forget the migration ran.
+  first.connection.exec('ALTER TABLE conversations ADD COLUMN deleted_at TEXT');
+  first.connection.prepare('DELETE FROM schema_migrations WHERE version = 6').run();
+  assert.equal(hasColumn(first.connection, 'conversations', 'deleted_at'), true);
+  first.close();
+
+  const upgraded = new AppDatabase(paths);
+  await upgraded.open();
+  try {
+    assert.equal(hasColumn(upgraded.connection, 'conversations', 'deleted_at'), false);
+    const rows = upgraded.connection.prepare('SELECT id, title FROM conversations').all() as Array<{
+      id: string;
+      title: string;
+    }>;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.id, conversation.id);
+    assert.equal(rows[0]?.title, 'Survivor');
+
+    // A populated database is backed up before its schema is rewritten.
+    const backups = await fs.readdir(path.join(paths.dataDir, 'backups'));
+    assert.equal(backups.length, 1);
+  } finally {
+    upgraded.close();
+  }
+});
+
+function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
+  return db
+    .prepare(`PRAGMA table_info('${table}')`)
+    .all()
+    .some(row => (row as {name?: string}).name === column);
+}
 
 test('conversation pages are disjoint, ordered, and cover every conversation', async () => {
   const paths = await createTempPaths();

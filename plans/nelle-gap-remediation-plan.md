@@ -355,6 +355,8 @@ whenever it is up. When llama-server is stopped, leave rows as-is and let
 
 ### G3b: `conversations.deleted_at` Is Dead
 
+**Status: done.** The undo toast is the next commit.
+
 The column (`database.ts:47`) is filtered on in five queries
 (`conversations.ts:233, 244, 269, 1168, 1182`) and only ever written as `NULL`
 (`:202, :963, :972`). Delete is a hard delete (`hardDeleteConversation` `:848`,
