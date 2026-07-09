@@ -424,6 +424,15 @@ Project-specific guidance for AI coding agents.
   divergences between the implementation and the other two plans. Before marking
   anything there as done, re-verify it against the code; before adding a gap,
   cite the `file:line` that proves it.
+- Use `plans/nelle-thin-client-plan.md` as the source of truth for what belongs
+  on the server versus in a client. Nelle is growing a React Native client and a
+  desktop shell, so a rule the browser owns is a rule every client reimplements.
+  Before adding logic to `apps/web/src`, ask: does it need server data or CPU, or
+  does it change the shape of what gets rendered? Then it belongs on the server.
+  Is it a pure helper only TypeScript clients will call? Then `packages/shared`.
+  Rendering, drafts, optimistic UI, scroll, and live run state stay in the
+  client, as does `canAbort`/`canCompact`, which the client tracks more freshly
+  than any payload can carry.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components

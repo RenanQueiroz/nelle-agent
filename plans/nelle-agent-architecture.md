@@ -275,7 +275,13 @@ Companion implementation plans:
   the conversation list cap, unavailable-session repair, the half-migrated stream
   event contract, dead schema, missing `NelleError` codes, and the host-tool
   fail-closed guard. Milestones that are simply not started yet are tracked here,
-  not there.
+  not there. Every gap in it is closed.
+- [Thin client plan](nelle-thin-client-plan.md): moving domain logic out of the
+  browser so `nelle-client` and a desktop shell do not reimplement it. Covers
+  attachment ingestion, the snapshot's `messages` array, server-owned model
+  loading, derived capabilities, the command registry, and preferences. Written
+  because the browser currently owns rules that a second client would have to
+  copy, and because several of them are already copied and already disagree.
 
 ## Current MVP Status
 
