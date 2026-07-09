@@ -17,6 +17,10 @@ type ConversationsStore = {
   /** Replaces the list. Returns the loaded page so callers can pick an active row. */
   loadFirstPage: (search: string) => Promise<ConversationListItem[]>;
   loadNextPage: () => Promise<void>;
+  /** Ids withheld from the sidebar while their delete waits out the undo window. */
+  hiddenIds: string[];
+  hideConversation: (conversationId: string) => void;
+  unhideConversation: (conversationId: string) => void;
   setStatus: (conversationId: string, status: ConversationListItem['status']) => void;
   setConversationTitle: (
     conversationId: string,
@@ -45,6 +49,23 @@ export const useConversationsStore = create<ConversationsStore>((set, get) => {
     loadedSearch: '',
     isLoadingMore: false,
     hasLoaded: false,
+    hiddenIds: [],
+
+    hideConversation: conversationId =>
+      set(state => ({
+        hiddenIds: state.hiddenIds.includes(conversationId)
+          ? state.hiddenIds
+          : [...state.hiddenIds, conversationId],
+        conversations: state.conversations.filter(
+          conversation => conversation.id !== conversationId,
+        ),
+        total: Math.max(0, state.total - 1),
+      })),
+
+    unhideConversation: conversationId =>
+      set(state => ({
+        hiddenIds: state.hiddenIds.filter(id => id !== conversationId),
+      })),
 
     loadFirstPage: async search => {
       const request = (latestRequest += 1);
@@ -52,15 +73,20 @@ export const useConversationsStore = create<ConversationsStore>((set, get) => {
       if (request !== latestRequest) {
         return get().conversations;
       }
+      // The server still knows about a conversation whose delete is waiting out
+      // the undo window. Keep it out of the sidebar, or it reappears on the next
+      // refresh, which reads as the delete having failed.
+      const hidden = new Set(get().hiddenIds);
+      const conversations = page.conversations.filter(conversation => !hidden.has(conversation.id));
       set({
-        conversations: page.conversations,
+        conversations,
         nextCursor: page.nextCursor,
-        total: page.total,
+        total: Math.max(0, page.total - hidden.size),
         loadedSearch: search,
         isLoadingMore: false,
         hasLoaded: true,
       });
-      return page.conversations;
+      return conversations;
     },
 
     loadNextPage: async () => {
@@ -83,7 +109,10 @@ export const useConversationsStore = create<ConversationsStore>((set, get) => {
           return;
         }
         set(state => {
-          const seen = new Set(state.conversations.map(conversation => conversation.id));
+          const seen = new Set([
+            ...state.conversations.map(conversation => conversation.id),
+            ...state.hiddenIds,
+          ]);
           // A conversation answered mid-scroll moves up the ordering and can
           // surface on two pages. Keep the copy already rendered.
           const fresh = page.conversations.filter(conversation => !seen.has(conversation.id));
@@ -125,6 +154,7 @@ export const useConversationsStore = create<ConversationsStore>((set, get) => {
         loadedSearch: '',
         isLoadingMore: false,
         hasLoaded: false,
+        hiddenIds: [],
       });
     },
   };

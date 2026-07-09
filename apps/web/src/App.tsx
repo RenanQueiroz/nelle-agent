@@ -22,6 +22,7 @@ import {type SelectorOptionData, type SelectorOptionType} from '@astryxdesign/co
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Token} from '@astryxdesign/core/Token';
 import {Tooltip} from '@astryxdesign/core/Tooltip';
+import {Button} from '@astryxdesign/core/Button';
 import {useToast} from '@astryxdesign/core/Toast';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Icon} from '@astryxdesign/core/Icon';
@@ -115,6 +116,12 @@ import {useUiStore} from './stores/uiStore';
 import type {ActiveRunKind, AppNotice, CommandStatusRow, ComposerModelOptionDetail} from './types';
 import {attachmentTooltip, getDraftAttachmentError} from './utils/attachments';
 import {useScrollChatToBottomOnOpen} from './utils/chatScroll';
+import {
+  DELETE_UNDO_WINDOW_MS,
+  cancelPendingDelete,
+  registerPendingDeleteFlush,
+  schedulePendingDelete,
+} from './utils/pendingDeletes';
 import {formatInteger, getContextOverflowMessage, positiveTokenCount} from './utils/context';
 import {parseReasoningBudgets, templateSupportsThinking} from './utils/reasoning';
 import {rowsToParams} from './utils/params';
@@ -349,6 +356,9 @@ export function App() {
   const [notice, setNotice] = useState<AppNotice | null>(null);
 
   useScrollChatToBottomOnOpen(chatScrollRef, activeConversationId);
+
+  // A reload inside the undo window must commit the delete, not cancel it.
+  useEffect(registerPendingDeleteFlush, []);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1360,21 +1370,69 @@ export function App() {
     });
   }
 
+  /**
+   * Removes the conversation from the sidebar at once and holds the request for
+   * the undo window.
+   *
+   * There is no confirmation dialog: the toast is the confirmation, and it is
+   * reversible, which a dialog is not. Once the request lands, the Pi session
+   * file and any unreferenced attachments are gone, so the toast copy says so.
+   */
   async function handleDeleteConversation(conversation: ConversationListItem) {
-    if (!window.confirm(`Delete "${conversation.title}"?`)) {
+    const store = useConversationsStore.getState();
+    const wasActive = conversation.id === activeConversationId;
+    store.hideConversation(conversation.id);
+    if (wasActive) {
+      setMessages([]);
+      setContextUsage({});
+      setCapabilities(null);
+      setActiveConversationId('');
+    }
+
+    const nextVisible = useConversationsStore.getState().conversations[0]?.id ?? '';
+    if (wasActive && nextVisible) {
+      await handleSelectConversation(nextVisible);
+    }
+
+    schedulePendingDelete(conversation.id, () => {
+      void (async () => {
+        try {
+          await deleteConversation(conversation.id);
+        } catch (error) {
+          setNotice({
+            type: 'error',
+            text: error instanceof Error ? error.message : String(error),
+          });
+        } finally {
+          useConversationsStore.getState().unhideConversation(conversation.id);
+        }
+      })();
+    });
+
+    showToast({
+      body: `Deleted "${conversation.title}". Its session file and attachments go with it.`,
+      uniqueID: `delete:${conversation.id}`,
+      collisionBehavior: 'overwrite',
+      isAutoHide: true,
+      autoHideDuration: DELETE_UNDO_WINDOW_MS,
+      endContent: (
+        <Button
+          label="Undo"
+          size="sm"
+          variant="ghost"
+          onClick={() => void handleUndoDeleteConversation(conversation)}
+        />
+      ),
+    });
+  }
+
+  async function handleUndoDeleteConversation(conversation: ConversationListItem) {
+    if (!cancelPendingDelete(conversation.id)) {
+      // The window already closed and the request went out.
       return;
     }
-    await runAction(`delete:${conversation.id}`, async () => {
-      await deleteConversation(conversation.id);
-      const wasActive = conversation.id === activeConversationId;
-      if (wasActive) {
-        setMessages([]);
-        setContextUsage({});
-      }
-      // '' asks for the newest surviving conversation. Passing the id we just
-      // deleted would keep it selected.
-      await refreshConversations(wasActive ? '' : activeConversationId);
-    });
+    useConversationsStore.getState().unhideConversation(conversation.id);
+    await refreshConversations(conversation.id);
   }
 
   async function handleClearAllConversations() {

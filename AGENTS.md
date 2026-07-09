@@ -377,6 +377,13 @@ Project-specific guidance for AI coding agents.
   renders pages to PNG data URLs, images are base64-normalized and stored
   content-addressed under `.nelle/attachments/` after send, and metadata is
   bound to the resulting Pi user entry in SQLite.
+- Deleting a conversation has no confirmation dialog; it hides the row at once
+  and holds the request for a 5s undo window (`utils/pendingDeletes.ts`). The
+  window must be committed on `pagehide` with a `keepalive` fetch -- `sendBeacon`
+  only issues POSTs -- or a reload silently cancels the deletion and the
+  conversation returns from the dead. The store hides pending-deleted ids so a
+  list refresh cannot resurrect them. Once the request lands it is irreversible,
+  which the toast copy says.
 - Conversation hard delete removes the deleted conversation's Pi session file
   and only unreferenced attachment files. Server startup also sweeps orphan
   files under `.nelle/attachments/` that are absent from SQLite attachment

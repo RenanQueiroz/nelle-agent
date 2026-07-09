@@ -2379,7 +2379,6 @@ test('an unavailable conversation offers repair, rebuild, and delete', async ({p
 
 test('deleting the last conversation leaves an empty sidebar', async ({page}) => {
   await mockConversationRoutes(page, {chat: []});
-  page.on('dialog', dialog => void dialog.accept());
 
   await page.goto('/');
   await expect(page.getByTestId('conversation-row-legacy-default')).toBeVisible();
@@ -2399,23 +2398,81 @@ test('deleting the last conversation leaves an empty sidebar', async ({page}) =>
 test('a deleted conversation is not recreated by the server', async ({page}) => {
   // Deliberately unmocked: this drives the real Fastify server and SQLite so it
   // catches `GET /api/conversations` re-inserting the conversation it lists.
-  page.on('dialog', dialog => void dialog.accept());
   const rows = page.locator('[data-testid^="conversation-row-"]');
 
   await page.goto('/');
   await page.getByRole('button', {name: 'New chat'}).click();
   await expect(rows).toHaveCount(1);
 
+  const deleted = page.waitForResponse(
+    response =>
+      response.request().method() === 'DELETE' && /\/api\/conversations\//.test(response.url()),
+  );
   await page.getByRole('button', {name: /^Actions for /}).click();
   await page.getByRole('menuitem', {name: 'Delete'}).click();
 
+  // The row goes at once; the request waits out the undo window.
   await expect(rows).toHaveCount(0);
   await expect(page.getByText('No chats yet')).toBeVisible();
+  await deleted;
 
   // Survives a fresh list request and a server-side startup sync.
   await page.reload();
   await expect(page.getByText('No chats yet')).toBeVisible();
   await expect(rows).toHaveCount(0);
+});
+
+test('reloading inside the undo window commits the delete', async ({page}) => {
+  // Deferring the request client-side means a reload could silently cancel the
+  // deletion, and the conversation would come back from the dead. `pagehide` has
+  // to commit it instead.
+  const deleteRequests: string[] = [];
+  page.on('request', request => {
+    if (request.method() === 'DELETE' && request.url().includes('/api/conversations/')) {
+      deleteRequests.push(request.url());
+    }
+  });
+  await mockConversationRoutes(page, {chat: []});
+
+  await page.goto('/');
+  await expect(page.getByTestId('conversation-row-legacy-default')).toBeVisible();
+
+  await page.getByRole('button', {name: 'Actions for Legacy chat'}).click();
+  await page.getByRole('menuitem', {name: 'Delete'}).click();
+  await expect(page.getByTestId('conversation-row-legacy-default')).toHaveCount(0);
+  expect(deleteRequests, 'the request waits out the undo window').toHaveLength(0);
+
+  // Well inside the 5s window, so only the unload handler can have sent it.
+  await page.reload();
+  await expect.poll(() => deleteRequests.length).toBe(1);
+});
+
+test('deleting a conversation can be undone inside the window', async ({page}) => {
+  let deleteRequests = 0;
+  await mockConversationRoutes(page, {
+    chat: [],
+    onDelete: () => {
+      deleteRequests += 1;
+    },
+  });
+
+  await page.goto('/');
+  await expect(page.getByTestId('conversation-row-legacy-default')).toBeVisible();
+
+  await page.getByRole('button', {name: 'Actions for Legacy chat'}).click();
+  await page.getByRole('menuitem', {name: 'Delete'}).click();
+
+  await expect(page.getByTestId('conversation-row-legacy-default')).toHaveCount(0);
+  const toast = page.getByText(/Deleted "Legacy chat"/);
+  await expect(toast).toBeVisible();
+  await expect(page.getByText('session file and attachments go with it')).toBeVisible();
+
+  await page.getByRole('button', {name: 'Undo', exact: true}).click();
+
+  await expect(page.getByTestId('conversation-row-legacy-default')).toBeVisible();
+  // The row came back because the request never went out, not because the server
+  // resurrected it.
+  await expect.poll(() => deleteRequests).toBe(0);
 });
 
 test('the settings dialog keeps one size across sections and scrolls its content', async ({
@@ -3054,6 +3111,7 @@ async function mockConversationRoutes(
     onAbort?: () => void;
     onReasoningLevel?: (conversationId: string, level: string) => void;
     onRecover?: (conversationId: string, action: 'repair' | 'rebuild') => void;
+    onDelete?: (conversationId: string) => void;
     /** Default true: the session file is still gone, so repair 409s. */
     repairFails?: boolean;
   },
@@ -3372,6 +3430,7 @@ async function mockConversationRoutes(
     }
     if (conversationMatch && request.method() === 'DELETE') {
       const conversationId = decodeURIComponent(conversationMatch[1]!);
+      input.onDelete?.(conversationId);
       conversations = conversations.filter(conversation => conversation.id !== conversationId);
       chat = [];
       await route.fulfill({json: {ok: true, cleanup: {}}});

@@ -383,6 +383,8 @@ attachments until a purge job exists. Rejected.
 
 ### Decided: Drop It, Then Add A Client-Side Undo Window
 
+**Status: done.**
+
 Ship as **two commits**. The migration is a cleanup; the undo toast is the only
 item in this whole plan that adds product behavior rather than closing a gap, and
 it should not ride along with a schema change.
