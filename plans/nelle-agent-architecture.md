@@ -107,6 +107,10 @@ The first product experience should be UI-driven:
   `.nelle/state.json` should be converted into a Nelle-owned Pi session file
   before session validation. Direct llama.cpp fallback may still force-refresh
   the legacy projection for compatibility when Pi is disabled or unavailable.
+  The legacy sync must never conjure a `poc-default` conversation out of an
+  empty chat: read paths call it, so a placeholder there would undelete the
+  conversation on the next list request. With no conversations left, the
+  sidebar shows its empty state and the composer is blocked.
 - Forking and duplicating conversations are in scope for the conversation UI.
   They use Pi `SessionManager.createBranchedSession()` to create new Nelle
   conversations backed by new Pi session files without mutating the source

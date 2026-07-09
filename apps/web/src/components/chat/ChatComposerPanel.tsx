@@ -82,6 +82,7 @@ export function ChatComposerPanel({
   activeModelIsFavorite,
   activeComposerRouterStatus,
   isRuntimeRunning,
+  hasActiveConversation,
   contextUsage,
   isStreaming,
   isCompacting,
@@ -98,6 +99,7 @@ export function ChatComposerPanel({
   activeModelIsFavorite: boolean;
   activeComposerRouterStatus: string | null;
   isRuntimeRunning: boolean;
+  hasActiveConversation: boolean;
   contextUsage: ConversationContextUsage;
   isStreaming: boolean;
   isCompacting: boolean;
@@ -129,6 +131,9 @@ export function ChatComposerPanel({
     if (attachmentError) {
       return attachmentError;
     }
+    if (!hasActiveConversation) {
+      return 'Start a chat before sending a message.';
+    }
     if (!isRuntimeRunning) {
       return 'Start llama.cpp before chatting.';
     }
@@ -142,6 +147,7 @@ export function ChatComposerPanel({
     attachments,
     contextUsage,
     error,
+    hasActiveConversation,
     isRuntimeRunning,
     slashCommandError,
   ]);
@@ -213,7 +219,7 @@ export function ChatComposerPanel({
       // Astryx sets pointer-events: none on the whole composer when isDisabled
       // is set, which would also kill the stop button. Stay enabled during a
       // run and reject sends instead.
-      isDisabled={!activeModel || !isRuntimeRunning}
+      isDisabled={!activeModel || !isRuntimeRunning || !hasActiveConversation}
       isStopShown={isStreaming || isCompacting}
       onStop={onStop}
       headerActions={

@@ -892,13 +892,24 @@ export class ConversationRepository {
     }
   }
 
+  /**
+   * Mirrors a legacy `state.json` chat into the `poc-default` conversation.
+   *
+   * Returns null when there is no legacy chat to migrate and the conversation
+   * does not exist. Read paths such as `GET /api/conversations` call this, so
+   * creating a placeholder here would resurrect the conversation immediately
+   * after the user deletes it.
+   */
   syncPocConversationFromState(
     state: AppState,
     options: {forceLegacyProjection?: boolean} = {},
-  ): ConversationListItem {
+  ): ConversationListItem | null {
     const now = new Date().toISOString();
     const title = state.chat[0]?.content.slice(0, 80) || 'POC chat';
     const existing = this.getConversation(POC_CONVERSATION_ID);
+    if (!existing && state.chat.length === 0) {
+      return null;
+    }
     if (existing?.pi_session_id && !options.forceLegacyProjection) {
       return mapConversationListItem(existing);
     }

@@ -431,8 +431,13 @@ export function App() {
         }
         setConversations(list);
         const conversationId = list.find(conversation => conversation.id === 'poc-default')?.id;
-        const nextConversationId = conversationId ?? list[0]?.id ?? 'poc-default';
+        const nextConversationId = conversationId ?? list[0]?.id ?? '';
         setActiveConversationId(nextConversationId);
+        if (!nextConversationId) {
+          setMessages([]);
+          setContextUsage({});
+          return;
+        }
         const snapshot = await getConversation(nextConversationId);
         if (!isCancelled) {
           applyConversationSnapshot(snapshot, setMessages, setContextUsage);
@@ -592,11 +597,18 @@ export function App() {
     try {
       const list = await getConversations();
       setConversations(list);
+      // Falls back to '' when every conversation was deleted; nothing is bound
+      // to a conversation id the server no longer knows about.
       const nextConversationId =
         list.find(conversation => conversation.id === preferredConversationId)?.id ??
         list[0]?.id ??
-        preferredConversationId;
+        '';
       setActiveConversationId(nextConversationId);
+      if (!nextConversationId) {
+        setMessages([]);
+        setContextUsage({});
+        return;
+      }
       const snapshot = await getConversation(nextConversationId);
       applyConversationSnapshot(snapshot, setMessages, setContextUsage);
     } catch {
@@ -894,7 +906,7 @@ export function App() {
     const prompt = normalizeComposerValue(value);
     const conversationId = activeConversationId;
     const composer = useComposerStore.getState();
-    if (!prompt) {
+    if (!prompt || !conversationId) {
       return;
     }
     if (isActiveConversationBusy) {
@@ -1191,7 +1203,7 @@ export function App() {
       await deleteAllConversations();
       setMessages([]);
       setContextUsage({});
-      await refreshConversations('poc-default');
+      await refreshConversations('');
       setNotice({type: 'success', text: 'All conversations cleared.'});
     });
   }
@@ -1607,6 +1619,7 @@ export function App() {
                       activeModelIsFavorite={activeModelIsFavorite}
                       activeComposerRouterStatus={activeComposerRouterStatus}
                       isRuntimeRunning={runtime?.running === true}
+                      hasActiveConversation={activeConversationId !== ''}
                       contextUsage={displayedContextUsage}
                       isStreaming={isStreaming}
                       isCompacting={isCompacting}

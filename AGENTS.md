@@ -63,6 +63,12 @@ Project-specific guidance for AI coding agents.
   recover to `ready` rather than staying stuck.
 - API-created conversations should immediately create and bind a header-only Pi
   session JSONL file, before the first prompt.
+- `syncPocConversationFromState` only migrates a non-empty legacy
+  `.nelle/state.json` chat; it must never create `poc-default` from nothing.
+  Read paths such as `GET /api/conversations` call it, so creating a placeholder
+  there resurrects the conversation right after the user deletes it. Deleting
+  every conversation is allowed and leaves an empty sidebar with a blocked
+  composer.
 - On Pi-enabled startup, migrate a non-empty legacy `poc-default` chat from
   `.nelle/state.json` into a real Pi session before validating existing
   bindings. Direct llama.cpp fallback may still force-refresh the legacy

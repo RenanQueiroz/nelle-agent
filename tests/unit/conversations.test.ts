@@ -158,6 +158,66 @@ test('repository mirrors current POC chat into a conversation snapshot', async (
   }
 });
 
+test('repository does not recreate the POC conversation after it is deleted', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    await store.appendChatMessage({
+      id: 'user-1',
+      role: 'user',
+      content: 'Hello Nelle',
+      createdAt: '2026-07-08T12:00:00.000Z',
+    });
+
+    const repository = new ConversationRepository(database);
+    await repository.init();
+    repository.syncPocConversationFromState(await store.getState());
+    assert.equal(repository.listConversations({}).length, 1);
+
+    assert.equal(repository.hardDeleteConversation(POC_CONVERSATION_ID), true);
+    await store.clearChat();
+
+    // `GET /api/conversations` syncs before listing; that must not resurrect the
+    // conversation the user just deleted.
+    assert.equal(repository.syncPocConversationFromState(await store.getState()), null);
+    assert.equal(repository.listConversations({}).length, 0);
+    assert.equal(repository.getConversation(POC_CONVERSATION_ID), null);
+  } finally {
+    database.close();
+  }
+});
+
+test('repository still migrates a non-empty legacy chat into the POC conversation', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    await repository.init();
+
+    // No legacy chat: nothing to show, nothing to create.
+    assert.equal(repository.syncPocConversationFromState(await store.getState()), null);
+    assert.equal(repository.listConversations({}).length, 0);
+
+    await store.appendChatMessage({
+      id: 'user-1',
+      role: 'user',
+      content: 'Legacy prompt',
+      createdAt: '2026-07-08T12:00:00.000Z',
+    });
+
+    const migrated = repository.syncPocConversationFromState(await store.getState());
+    assert.equal(migrated?.id, POC_CONVERSATION_ID);
+    assert.equal(migrated?.title, 'Legacy prompt');
+    assert.equal(repository.listConversations({}).length, 1);
+  } finally {
+    database.close();
+  }
+});
+
 test('repository does not overwrite Pi-bound POC projection from legacy state', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);

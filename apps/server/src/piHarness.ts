@@ -149,6 +149,10 @@ export class PiHarness {
     if (state.chat.length === 0 || this.conversations.getPiSessionBinding(POC_CONVERSATION_ID)) {
       return;
     }
+    if (!existing) {
+      // Unreachable: a non-empty legacy chat always yields a conversation row.
+      return;
+    }
 
     const sessionManager = SessionManager.create(this.paths.repoRoot, this.paths.piSessionsDir);
     const sessionFile = sessionManager.getSessionFile();

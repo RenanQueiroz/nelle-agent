@@ -45,7 +45,9 @@ Implemented:
   file under `.nelle/pi/sessions`, and SQLite stores the UI projection for the
   active Pi branch. On Pi-enabled startup, any non-empty legacy `poc-default`
   chat still present in `.nelle/state.json` is migrated into a real Pi session
-  before session validation. If a bound Pi session file is missing or malformed,
+  before session validation; when there is no legacy chat to migrate, no
+  placeholder conversation is created, so deleting every conversation leaves an
+  empty sidebar. If a bound Pi session file is missing or malformed,
   Nelle marks the conversation unavailable and surfaces `session_unavailable`
   instead of creating a replacement session under the same conversation id.
   Conversation snapshot reads reopen the bound Pi session file and rebuild the

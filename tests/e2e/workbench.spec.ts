@@ -2252,6 +2252,47 @@ test('virtualizes and collapses the conversation sidebar', async ({page}) => {
   await expect(page.getByLabel('Search conversations')).toBeVisible();
 });
 
+test('deleting the last conversation leaves an empty sidebar', async ({page}) => {
+  await mockConversationRoutes(page, {chat: []});
+  page.on('dialog', dialog => void dialog.accept());
+
+  await page.goto('/');
+  await expect(page.getByTestId('conversation-row-poc-default')).toBeVisible();
+
+  await page.getByRole('button', {name: 'Actions for POC chat'}).click();
+  await page.getByRole('menuitem', {name: 'Delete'}).click();
+
+  // Conversation routes are mocked here, so this covers the client half only:
+  // no conversation to send to means an empty sidebar and a blocked composer.
+  // `syncPocConversationFromState` is covered by tests/unit/conversations.test.ts
+  // and by the unmocked test below.
+  await expect(page.getByTestId('conversation-row-poc-default')).toHaveCount(0);
+  await expect(page.getByText('No chats yet')).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('Start a chat before sending a message.');
+});
+
+test('a deleted conversation is not recreated by the server', async ({page}) => {
+  // Deliberately unmocked: this drives the real Fastify server and SQLite so it
+  // catches `GET /api/conversations` re-inserting the conversation it lists.
+  page.on('dialog', dialog => void dialog.accept());
+  const rows = page.locator('[data-testid^="conversation-row-"]');
+
+  await page.goto('/');
+  await page.getByRole('button', {name: 'New chat'}).click();
+  await expect(rows).toHaveCount(1);
+
+  await page.getByRole('button', {name: /^Actions for /}).click();
+  await page.getByRole('menuitem', {name: 'Delete'}).click();
+
+  await expect(rows).toHaveCount(0);
+  await expect(page.getByText('No chats yet')).toBeVisible();
+
+  // Survives a fresh list request and a server-side startup sync.
+  await page.reload();
+  await expect(page.getByText('No chats yet')).toBeVisible();
+  await expect(rows).toHaveCount(0);
+});
+
 test('stops re-requesting model props after llama.cpp rejects the call', async ({page}) => {
   const model = {
     id: 'model-a',
@@ -2644,6 +2685,12 @@ async function mockConversationRoutes(
       await route.fulfill({json: {conversations}});
       return;
     }
+    if (pathname === '/api/conversations' && request.method() === 'DELETE') {
+      conversations = [];
+      chat = [];
+      await route.fulfill({json: {ok: true, cleanup: {}}});
+      return;
+    }
     if (pathname === '/api/conversations' && request.method() === 'POST') {
       const conversation = {
         id: 'new-chat',
@@ -2671,6 +2718,13 @@ async function mockConversationRoutes(
           ),
         },
       });
+      return;
+    }
+    if (conversationMatch && request.method() === 'DELETE') {
+      const conversationId = decodeURIComponent(conversationMatch[1]!);
+      conversations = conversations.filter(conversation => conversation.id !== conversationId);
+      chat = [];
+      await route.fulfill({json: {ok: true, cleanup: {}}});
       return;
     }
     if (pathname.endsWith('/messages') && request.method() === 'DELETE') {
