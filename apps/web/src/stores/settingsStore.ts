@@ -54,20 +54,27 @@ function budgetInputs(budgets: ReasoningBudgets): Record<keyof ReasoningBudgets,
   };
 }
 
-const DEFAULT_GLOBAL_PARAMS = {c: '8192'};
-
+/**
+ * Drafts start empty, not at invented defaults.
+ *
+ * The store used to seed `{c: '8192'}`, `modelsMax: '1'` and `sleepIdle: '90'` --
+ * a second copy of policy the server owns, and 8192 is the exact context size
+ * AGENTS.md documents as clamping `max_tokens` to 1. `refreshState()` seeds every
+ * draft from `/api/state` on load; until it answers, Nelle does not know what the
+ * values are and should not guess.
+ */
 export const useSettingsStore = create<SettingsStore>(set => ({
-  globalParamRows: paramsToRows(DEFAULT_GLOBAL_PARAMS),
+  globalParamRows: [],
   isLogVisible: false,
   isSearching: false,
   modelAliasDrafts: {},
   modelParamRows: {},
-  modelsMaxInput: '1',
+  modelsMaxInput: '',
   reasoningBudgetInputs: budgetInputs(DEFAULT_REASONING_BUDGETS),
   runtimeLogs: '',
   searchQuery: 'qwen gguf',
   searchResults: [],
-  sleepIdleInput: '90',
+  sleepIdleInput: '',
   setGlobalParamRows: rows => set({globalParamRows: rows}),
   setIsLogVisible: isVisible => set({isLogVisible: isVisible}),
   setIsSearching: isSearching => set({isSearching}),
@@ -90,7 +97,7 @@ export const useSettingsStore = create<SettingsStore>(set => ({
   setSleepIdleInput: value => set({sleepIdleInput: value}),
   seedModelDrafts: (globalParams, models) =>
     set({
-      globalParamRows: paramsToRows(globalParams ?? DEFAULT_GLOBAL_PARAMS),
+      globalParamRows: paramsToRows(globalParams ?? {}),
       modelAliasDrafts: Object.fromEntries(models.map(model => [model.id, model.name])),
       modelParamRows: Object.fromEntries(
         models.map(model => [model.id, paramsToRows(model.params.extra ?? {})]),
@@ -107,8 +114,7 @@ export const useSettingsStore = create<SettingsStore>(set => ({
       }
       return {modelAliasDrafts, modelParamRows};
     }),
-  resetGlobalParamRows: globalParams =>
-    set({globalParamRows: paramsToRows(globalParams ?? DEFAULT_GLOBAL_PARAMS)}),
+  resetGlobalParamRows: globalParams => set({globalParamRows: paramsToRows(globalParams ?? {})}),
   resetModelDraft: model =>
     set(state => ({
       modelAliasDrafts: {...state.modelAliasDrafts, [model.id]: model.name},
