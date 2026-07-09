@@ -359,22 +359,33 @@ Verified against the real router: gemma-4-26B's template declares
 
 ### Phase 4b — the rest
 
-- **Context thresholds.** Put `CONTEXT_WARNING_RATIO = 0.8` and
-  `CONTEXT_OVERFLOW_RATIO = 1` in `packages/shared`, and add
-  `status: 'ok' | 'warning' | 'overflow'` to `ConversationContextUsage`, computed
-  server-side in `buildContextUsage` and on every `context.updated`. The client
-  picks a colour from the status instead of recomputing the ratio.
-- **Context usage from performance.** Delete `contextUsageFromPerformance` and
-  `mergeLiveContextUsage` from `App.tsx`. The server already computes this
-  (`conversations.ts:1596`); have it emit `context.updated` during the run rather
-  than only after compaction.
-- **`isReasoning`.** The server knows which phase a turn is in. Carry it on
-  `message.assistant.reasoning_delta` / `.delta`, or emit a
-  `message.assistant.phase` event. The client stops inferring it from event
-  order.
-- **Performance merge.** The `llamacpp-timings` beats `llamacpp-slots` precedence
-  belongs next to the code that produces both, in `llamaThroughput.ts`. Emit
-  merged `performance.updated` payloads; the client assigns rather than merges.
+**Status: done.**
+
+- **Context thresholds.** `packages/shared/src/context.ts` owns
+  `CONTEXT_WARNING_RATIO = 0.8` and `CONTEXT_OVERFLOW_RATIO = 1`, and
+  `ConversationContextUsage.status` is `ok | warning | overflow`. The server
+  stamps it through `withContextStatus` on both exits -- `buildContextUsage` for
+  snapshots and `createContextUpdatedEvent` for the stream. The client picks a
+  colour from the status, falling back to the shared thresholds for payloads
+  written before the field existed.
+- **Context usage from performance.** `contextUsageFromPerformance` and
+  `mergeLiveContextUsage` are gone from `App.tsx`. Both harnesses run a
+  `createLiveContextTracker` that emits `context.updated` during the run. It
+  throttles to one event per 250ms -- generation grows `usedTokens` by one per
+  token, so an unthrottled tracker put one event on the wire per token -- but
+  always emits when the usage crosses a threshold, so the bar recolours at once.
+- **`isReasoning`.** Carried on `message.assistant.delta` (`false`) and
+  `.reasoning_delta` (`true`). Verified on a real thinking run: 900 reasoning
+  deltas, then 359 answer deltas, one transition, none mislabelled.
+- **Performance merge.** Both harnesses already merged into the assistant message
+  before emitting, so the client was merging an already-merged payload with a
+  second, subtly different rule. The client now assigns. `mergeChatPerformance`
+  and `performanceFromLlamaTimings` gained the tests they never had.
+
+Two bugs surfaced while verifying this phase against the real server, and were
+fixed on their own commits: `Stop` raised
+`Cannot read properties of undefined (reading 'catch')` and never aborted the
+run, and the first cut of the live context tracker flooded the stream.
 
 ## Phase 5: Server-Owned Command Registry
 

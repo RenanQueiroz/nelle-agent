@@ -203,7 +203,10 @@ Project-specific guidance for AI coding agents.
   an on-the-fly change. Nelle's `max` maps to Pi's `xhigh`.
 - llama-server, not Nelle, separates thinking from the answer: thinking arrives
   as `delta.reasoning_content` and reaches the UI as
-  `message.assistant.reasoning_delta` events. The wire contract says *reasoning*,
+  `message.assistant.reasoning_delta` events, which carry `isReasoning: true`
+  while `message.assistant.delta` carries `isReasoning: false`. The server states
+  the phase; clients must not infer it from the order events arrive in. The wire
+  contract says *reasoning*,
   matching `reasoning_level`, `reasoning_text`, and the REST routes; Pi's
   internals say *thinking*, and `piHarness` is the boundary between the two.
   Pi persists it as `{type: 'thinking'}` content blocks, which stay
@@ -431,6 +434,22 @@ Project-specific guidance for AI coding agents.
 - Show context-window usage through the Astryx `ChatComposer` header
   `ProgressBar` with tooltip token counts. Use composer top status for
   send-blocking errors and bottom status for non-blocking warnings.
+- The context thresholds live in `packages/shared/src/context.ts`
+  (`CONTEXT_WARNING_RATIO = 0.8`, `CONTEXT_OVERFLOW_RATIO = 1`). The server
+  stamps `ConversationContextUsage.status` on every payload it emits, so a client
+  picks a colour rather than recomputing a ratio. Both harnesses emit
+  `context.updated` during a run through `createLiveContextTracker`, which
+  throttles to one event per 250ms but never delays a threshold crossing:
+  generation grows `usedTokens` by one per token, so an unthrottled tracker puts
+  one event on the wire per generated token.
+- `performance.updated` already carries the merged reading; both harnesses merge
+  into the assistant message before emitting. Clients assign it. The
+  `llamacpp-timings` beats `llamacpp-slots` precedence lives only in
+  `mergeChatPerformance`.
+- Pi's in-process `AgentSession.abortRetry()` returns `void`; its RPC client
+  returns `Promise<void>`. `ManagedSession.session` is typed `any`, so treating
+  the result as a promise compiles and then throws at runtime. Await it through
+  `abortSessionRetry()`.
 - Do not set `ChatComposer` `isDisabled` while a run streams or compacts. Astryx
   dims the composer to 0.6 opacity and sets `pointer-events: none` on the whole
   subtree, which makes the stop button unclickable and lets the transcript show
