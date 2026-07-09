@@ -54,6 +54,12 @@ export const conversationContextUsageSchema = z.object({
   usedTokens: z.number().int().nonnegative().optional(),
   totalTokens: z.number().int().positive().optional(),
   source: z.enum(['estimate', 'prompt_progress', 'timings', 'pi']).optional(),
+  /**
+   * Derived server-side from the shared thresholds so clients pick a colour
+   * rather than re-deriving the rule. Optional: rows written before this field
+   * existed parse, and the server restamps them on read.
+   */
+  status: z.enum(['ok', 'warning', 'overflow']).optional(),
   updatedAt: z.string().optional(),
 });
 

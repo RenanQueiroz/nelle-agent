@@ -1,42 +1,43 @@
+import {
+  contextUsageRatio,
+  contextUsageStatus,
+  positiveTokenCount,
+} from '../../../../packages/shared/src/context.ts';
 import type {ConversationContextUsage} from '../api';
 
+export {contextUsageRatio, positiveTokenCount};
+
+/**
+ * The server stamps `status` on every payload it sends. A payload that predates
+ * the field still renders, by falling back to the same shared thresholds.
+ */
+function statusOf(context: ConversationContextUsage) {
+  return context.status ?? contextUsageStatus(context);
+}
+
 export function getContextOverflowMessage(context: ConversationContextUsage): string | null {
-  const ratio = contextUsageRatio(context);
-  if (ratio == null || ratio < 1) {
-    return null;
-  }
-  return 'The selected model context window is full.';
+  return statusOf(context) === 'overflow' ? 'The selected model context window is full.' : null;
 }
 
 export function getContextWarningMessage(context: ConversationContextUsage): string | null {
-  const ratio = contextUsageRatio(context);
-  if (ratio == null || ratio < 0.8 || ratio >= 1) {
+  if (statusOf(context) !== 'warning') {
     return null;
   }
-  return `Context is ${Math.round(ratio * 100)}% full.`;
+  const ratio = contextUsageRatio(context);
+  return ratio == null ? null : `Context is ${Math.round(ratio * 100)}% full.`;
 }
 
 export function contextProgressVariant(
   context: ConversationContextUsage,
 ): 'accent' | 'warning' | 'error' {
-  const ratio = contextUsageRatio(context);
-  if (ratio == null || ratio < 0.8) {
-    return 'accent';
+  switch (statusOf(context)) {
+    case 'overflow':
+      return 'error';
+    case 'warning':
+      return 'warning';
+    default:
+      return 'accent';
   }
-  return ratio >= 1 ? 'error' : 'warning';
-}
-
-export function contextUsageRatio(context: ConversationContextUsage): number | null {
-  const usedTokens = positiveTokenCount(context.usedTokens);
-  const totalTokens = positiveTokenCount(context.totalTokens);
-  if (usedTokens == null || totalTokens == null) {
-    return null;
-  }
-  return usedTokens / totalTokens;
-}
-
-export function positiveTokenCount(value: number | undefined): number | undefined {
-  return value != null && Number.isFinite(value) && value > 0 ? Math.round(value) : undefined;
 }
 
 export function formatInteger(value: number): string {

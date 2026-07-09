@@ -1,3 +1,5 @@
+import type {ContextUsageStatus} from '../../../packages/shared/src/context.ts';
+
 export type RuntimeStatus = {
   platform: string;
   arch: string;
@@ -302,6 +304,8 @@ export type ConversationContextUsage = {
   usedTokens?: number;
   totalTokens?: number;
   source?: 'estimate' | 'prompt_progress' | 'timings' | 'pi';
+  /** Derived by the server from the shared thresholds. */
+  status?: ContextUsageStatus;
   updatedAt?: string;
 };
 

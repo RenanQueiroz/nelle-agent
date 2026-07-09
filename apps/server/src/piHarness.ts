@@ -50,6 +50,7 @@ import {
   reasoningBudgetTokens,
   stripLeadingThinkingEndTag,
 } from '../../../packages/shared/src/reasoning.ts';
+import {withContextStatus} from '../../../packages/shared/src/context.ts';
 import type {
   AbortConversationResult,
   ChatMessage,
@@ -1833,7 +1834,7 @@ function createContextUpdatedEvent(
   return {
     type: 'context.updated',
     conversationId,
-    ...context,
+    ...withContextStatus(context),
     createdAt: new Date().toISOString(),
   };
 }

@@ -1060,8 +1060,46 @@ test('repository derives context usage from assistant performance metadata', asy
       usedTokens: 134,
       totalTokens: DEFAULT_CONTEXT_SIZE,
       source: 'timings',
+      // The snapshot carries the threshold verdict, so no client re-derives it.
+      status: 'ok',
       updatedAt: '2026-07-08T12:00:01.000Z',
     });
+  } finally {
+    database.close();
+  }
+});
+
+test('a snapshot whose prompt filled the window reports an overflow status', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    await store.addHuggingFaceModel({repoId: 'repo/model', quant: 'UD-Q4_K_M', name: 'Model Q4'});
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Full chat'});
+    repository.replaceConversationProjection(conversation.id, {
+      activeLeafPiEntryId: 'assistant-1',
+      lastSyncedPiEntryId: 'assistant-1',
+      entries: [
+        {
+          piEntryId: 'assistant-1',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'Full.',
+          createdAt: '2026-07-08T12:00:01.000Z',
+          performance: {
+            source: 'llamacpp-timings',
+            prompt: {tokens: DEFAULT_CONTEXT_SIZE, totalTokens: DEFAULT_CONTEXT_SIZE},
+            generation: {tokens: 1},
+          },
+        },
+      ],
+    });
+
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+    assert.equal(snapshot?.context.status, 'overflow');
+    assert.equal(snapshot?.context.usedTokens, DEFAULT_CONTEXT_SIZE + 1);
   } finally {
     database.close();
   }

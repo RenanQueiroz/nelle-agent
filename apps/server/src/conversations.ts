@@ -15,6 +15,7 @@ import {
   conversationContextUsageSchema,
   conversationSnapshotSchema,
 } from '../../../packages/shared/src/conversations.ts';
+import {withContextStatus} from '../../../packages/shared/src/context.ts';
 import type {ChatAttachmentKind} from '../../../packages/shared/src/contracts.ts';
 import type {ReasoningLevel} from '../../../packages/shared/src/reasoning.ts';
 import {
@@ -1524,7 +1525,19 @@ function buildModelList(models: ConfiguredModel[]): ModelListItem[] {
   }));
 }
 
+/**
+ * Every context payload leaves the server carrying its `status`, so a client
+ * never has to know where the warning threshold sits.
+ */
 function buildContextUsage(
+  entries: ConversationEntryProjection[],
+  totalTokens?: number,
+  storedContext?: ConversationContextUsage | null,
+): ConversationContextUsage {
+  return withContextStatus(resolveContextUsage(entries, totalTokens, storedContext));
+}
+
+function resolveContextUsage(
   entries: ConversationEntryProjection[],
   totalTokens?: number,
   storedContext?: ConversationContextUsage | null,
