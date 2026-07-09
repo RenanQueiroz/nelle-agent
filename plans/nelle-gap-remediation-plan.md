@@ -323,6 +323,8 @@ readers.
 
 ### G3a: `model_cache` Is Never Read Or Written
 
+**Status: done.**
+
 `apps/server/src/database.ts:102` creates the table with exactly the columns the
 plan asks for. The only occurrence of `model_cache` in the entire repo is that
 `CREATE TABLE`. Model props live only in browser memory, keyed by

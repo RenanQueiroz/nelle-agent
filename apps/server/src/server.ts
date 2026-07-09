@@ -20,6 +20,7 @@ import {AppStore} from './store';
 import {AppDatabase} from './database';
 import {exportConversationArchive, importConversationArchive} from './conversationArchive';
 import {HostToolRepository} from './hostTools';
+import {ModelCacheRepository} from './modelCache';
 import {
   ConversationRepository,
   LEGACY_DEFAULT_CONVERSATION_ID,
@@ -121,6 +122,7 @@ export async function createServer(paths: AppPaths) {
   const conversations = new ConversationRepository(database);
   await conversations.init();
   const hostTools = new HostToolRepository(database);
+  const modelCache = new ModelCacheRepository(database);
   const llama = new LlamaCppManager(paths, store);
   const hf = new HuggingFaceService(store);
   const pi = new PiHarness(paths, store, conversations, hostTools, llama);
@@ -224,11 +226,19 @@ export async function createServer(paths: AppPaths) {
   );
 
   app.get('/api/llama/models', async (_request, reply) =>
-    handleLlamaRoute(reply, () => llama.getRouterModels()),
+    handleLlamaRoute(reply, async () => {
+      const result = await llama.getRouterModels();
+      modelCache.upsertRouterModels(result.models);
+      return result;
+    }),
   );
 
   app.post('/api/llama/models/reload', async (_request, reply) =>
-    handleLlamaRoute(reply, () => llama.getRouterModels({reload: true})),
+    handleLlamaRoute(reply, async () => {
+      const result = await llama.getRouterModels({reload: true});
+      modelCache.upsertRouterModels(result.models);
+      return result;
+    }),
   );
 
   app.get('/api/llama/models/events', async (request, reply) => {
@@ -276,7 +286,12 @@ export async function createServer(paths: AppPaths) {
 
   app.get('/api/llama/models/:id/props', async (request, reply) => {
     const id = (request.params as {id: string}).id;
-    return handleLlamaRoute(reply, () => llama.getModelProps(id));
+    return handleLlamaRoute(reply, async () => {
+      const props = await llama.getModelProps(id);
+      // A sleeping model answers /props with an error, so only a success caches.
+      modelCache.upsertModelProps(id, props);
+      return props;
+    });
   });
 
   app.post('/api/llama/tokenize', async (request, reply) => {
@@ -317,7 +332,7 @@ export async function createServer(paths: AppPaths) {
       return reply.status(400).send({error: validation});
     }
     const globalModelParams = await store.updateGlobalModelParams(body.params);
-    await writePresetAndReloadRouter(llama);
+    await writePresetAndReloadRouter(llama, store, modelCache);
     return {globalModelParams};
   });
 
@@ -341,7 +356,7 @@ export async function createServer(paths: AppPaths) {
         },
       });
     }
-    await writePresetAndReloadRouter(llama);
+    await writePresetAndReloadRouter(llama, store, modelCache);
     conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {model, state: await store.getState()};
   });
@@ -359,7 +374,7 @@ export async function createServer(paths: AppPaths) {
         },
       });
     }
-    await writePresetAndReloadRouter(llama);
+    await writePresetAndReloadRouter(llama, store, modelCache);
     conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {model, state: await store.getState()};
   });
@@ -376,7 +391,7 @@ export async function createServer(paths: AppPaths) {
       });
     }
     await llama.removeModelSection(id);
-    await writePresetAndReloadRouter(llama);
+    await writePresetAndReloadRouter(llama, store, modelCache);
     conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {ok: true, removedModelId: id, state: await store.getState()};
   });
@@ -389,7 +404,7 @@ export async function createServer(paths: AppPaths) {
   app.post('/api/huggingface/use', async request => {
     const body = useHuggingFaceModelSchema.parse(request.body);
     const model = await hf.useHuggingFaceGguf(body);
-    await writePresetAndReloadRouter(llama);
+    await writePresetAndReloadRouter(llama, store, modelCache);
     conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {model};
   });
@@ -1062,10 +1077,18 @@ function validateEditableParams(
   return null;
 }
 
-async function writePresetAndReloadRouter(llama: LlamaCppManager): Promise<void> {
+async function writePresetAndReloadRouter(
+  llama: LlamaCppManager,
+  store: AppStore,
+  modelCache: ModelCacheRepository,
+): Promise<void> {
   await llama.writePreset();
+  // A removed models.ini section leaves a cache row pointing at a model that no
+  // longer exists; the next snapshot would gate attachments on its modalities.
+  modelCache.pruneMissingSections((await store.getState()).models.map(model => model.id));
   if ((await llama.getStatus()).running) {
-    await llama.getRouterModels({reload: true});
+    const result = await llama.getRouterModels({reload: true});
+    modelCache.upsertRouterModels(result.models);
   }
 }
 

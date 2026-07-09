@@ -5,7 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import {AppDatabase} from '../../apps/server/src/database.ts';
 import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';
+import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {createServer} from '../../apps/server/src/server.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
@@ -105,6 +107,59 @@ test('llama router facade normalizes props, models, model props, actions, and ev
       .map(call => call.body);
     assert.deepEqual(actionBodies, [{model: model.id}, {model: model.id}]);
   } finally {
+    await app.close();
+    await router.close();
+  }
+});
+
+test('router responses populate the model cache and survive a stopped router', async () => {
+  const router = await createMockRouter();
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+  const app = await createServer(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+
+  try {
+    const cache = new ModelCacheRepository(database);
+    assert.equal(cache.getModel(model.id), null, 'nothing is cached before the router answers');
+
+    await app.inject({method: 'GET', url: '/api/llama/models'});
+    const afterModels = cache.getModel(model.id);
+    assert.equal(afterModels?.status, 'loaded');
+    assert.equal(afterModels?.hfRepo, 'repo/model:UD-Q4_K_M');
+    assert.equal(afterModels?.alias, 'Model Q4');
+    // /models says nothing about modalities, so vision is unknown, not absent.
+    assert.equal(cache.getVisionSupport(model.id), null);
+
+    await app.inject({
+      method: 'GET',
+      url: `/api/llama/models/${encodeURIComponent(model.id)}/props`,
+    });
+    const afterProps = cache.getModel(model.id);
+    assert.equal(afterProps?.modalities?.vision, true);
+    assert.equal(afterProps?.contextWindow, 32768);
+    assert.equal(cache.getVisionSupport(model.id), true);
+    // The props call must not clobber what /models reported.
+    assert.equal(afterProps?.status, 'loaded');
+
+    // Stopping llama.cpp does not erase what Nelle last knew about the model.
+    await router.close();
+    await app.inject({method: 'GET', url: '/api/llama/models'});
+    assert.equal(cache.getVisionSupport(model.id), true);
+
+    // Removing the section from models.ini does.
+    await app.inject({method: 'DELETE', url: `/api/models/${encodeURIComponent(model.id)}`});
+    assert.equal(cache.getModel(model.id), null);
+  } finally {
+    database.close();
     await app.close();
     await router.close();
   }

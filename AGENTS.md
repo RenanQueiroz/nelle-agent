@@ -247,6 +247,15 @@ Project-specific guidance for AI coding agents.
   is still running.
 - Ongoing conversations in the sidebar use an Astryx `Spinner` plus status text,
   not only a status dot, so users can spot running agents after switching chats.
+- `model_cache` is Nelle's server-side record of what the router last said about
+  each `models.ini` section. `GET /api/llama/models` writes status/alias/hf-repo;
+  `GET /api/llama/models/:id/props` writes modalities and context window on
+  success only. It is a cache, never a source of truth: the router wins when it
+  is up, a stopped llama-server leaves the rows alone (`updated_at` expresses
+  staleness), and removing a section from `models.ini` prunes its row. A model
+  that has never been loaded has no props, so `getVisionSupport()` returns `null`
+  for "unknown" rather than `false`. `/props` answers for a `sleeping` model and
+  502s for an `unloaded` one.
 - Cache llama.cpp model props per `(model id, router status)` and store failures
   as `null` instead of retrying. A `sleeping` model answers `/props` with an
   error, and an uncached failure turns the props effect into an unbounded fetch
