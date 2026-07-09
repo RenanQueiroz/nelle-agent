@@ -115,6 +115,7 @@ import {useSettingsStore} from './stores/settingsStore';
 import {useUiStore} from './stores/uiStore';
 import type {ActiveRunKind, AppNotice, CommandStatusRow, ComposerModelOptionDetail} from './types';
 import {attachmentTooltip, getDraftAttachmentError} from './utils/attachments';
+import {isRunnableRouterStatus} from '../../../packages/shared/src/router.ts';
 import {useScrollChatToBottomOnOpen} from './utils/chatScroll';
 import {
   DELETE_UNDO_WINDOW_MS,
@@ -173,10 +174,6 @@ function routerStatusForModel(
   return (
     routerModelsByConfiguredId.get(model.id)?.status ?? (runtime?.running ? 'unlisted' : 'stopped')
   );
-}
-
-function isRunnableRouterStatus(status: string | null | undefined): boolean {
-  return status === 'loaded' || status === 'sleeping';
 }
 
 /**
@@ -326,6 +323,10 @@ export function App() {
   const [reasoningLevel, setReasoningLevel] = useState<ReasoningLevel>('off');
   const [reasoningBudgets, setReasoningBudgets] =
     useState<ReasoningBudgets>(DEFAULT_REASONING_BUDGETS);
+  const [serverModelLoad, setServerModelLoad] = useState<{
+    status: string;
+    progress?: number;
+  } | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<{
     conversationId: string;
     text: string;
@@ -420,8 +421,11 @@ export function App() {
   const activeModelIsFavorite = activeModelId != null && favoriteModelIdSet.has(activeModelId);
   const activePendingPrompt =
     pendingPrompt?.conversationId === activeConversationId ? pendingPrompt.text : null;
+  // The run stream reports what the server is waiting for; the router SSE store
+  // is the fallback for a load nobody is waiting on.
   const activeModelLoadPercent = normalizeRouterProgressPercent(
-    activeModelId == null ? undefined : routerModelsByConfiguredId.get(activeModelId)?.progress,
+    serverModelLoad?.progress ??
+      (activeModelId == null ? undefined : routerModelsByConfiguredId.get(activeModelId)?.progress),
   );
   const activeRunModelIdSet = useMemo(
     () => new Set(Object.values(activeRunModelsById)),
@@ -968,8 +972,13 @@ export function App() {
       return;
     }
     await runAction(`composer-model:${model.id}`, async () => {
-      if (runtime?.running) {
-        await waitForRouterModelReady(model);
+      // Kick the load off so the weights are warming while the user types; do not
+      // wait for it. The chat route waits, and router SSE reports the progress.
+      const routerModel = findRouterModelForConfiguredModel(model, routerModels);
+      if (runtime?.running && routerModel && !isRunnableRouterStatus(routerModel.status)) {
+        await loadLlamaModel(model.id).catch(() => {
+          // The send will surface a real failure with model_load_failed.
+        });
       }
       const activatedModel = await activateModel(model.id);
       setActiveModelId(activatedModel.id);
@@ -1073,18 +1082,8 @@ export function App() {
     // Loading a model can take tens of seconds. Show the prompt (and the load
     // progress) straight away instead of an empty transcript.
     setPendingPrompt({conversationId, text: prompt});
-    setConversationRunKind(conversationId, 'chat');
-    setConversationListStatus(conversationId, 'running');
-    try {
-      await ensureModelReadyForRun(activeModel.id);
-    } catch (error) {
-      setPendingPrompt(null);
-      clearConversationRunKind(conversationId, 'chat');
-      setConversationListStatus(conversationId, 'ready');
-      composer.setError(error instanceof Error ? error.message : String(error));
-      restoreComposerDraft(prompt);
-      return;
-    }
+    // The server loads the model if it must, and streams `model.loading` while it
+    // does. The prompt and its progress placeholder are already on screen.
     setConversationRunKind(conversationId, 'chat');
     setConversationListStatus(conversationId, 'running');
     setNotice(null);
@@ -1569,41 +1568,6 @@ export function App() {
     });
   }
 
-  async function ensureModelReadyForRun(modelId: string): Promise<void> {
-    const model = models.find(item => item.id === modelId);
-    if (!model) {
-      throw new Error(`Unknown model: ${modelId}`);
-    }
-    if (!runtime?.running) {
-      throw new Error('Start llama.cpp before sending a request.');
-    }
-    await waitForRouterModelReady(model);
-  }
-
-  async function waitForRouterModelReady(model: ConfiguredModel): Promise<void> {
-    const currentRouterModel = findRouterModelForConfiguredModel(model, routerModels);
-    if (!currentRouterModel || isRunnableRouterStatus(currentRouterModel.status)) {
-      return;
-    }
-
-    if (currentRouterModel?.status !== 'loading') {
-      await loadLlamaModel(model.id);
-    }
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      const nextRouterModels = await getLlamaModels();
-      setRouterModels(nextRouterModels);
-      const nextRouterModel = findRouterModelForConfiguredModel(model, nextRouterModels);
-      if (isRunnableRouterStatus(nextRouterModel?.status)) {
-        return;
-      }
-      if (nextRouterModel?.status === 'failed') {
-        throw new Error(`${model.name} failed to load. Check the llama.cpp logs.`);
-      }
-      await delay(500);
-    }
-    throw new Error(`${model.name} did not finish loading before the router timed out.`);
-  }
-
   async function handleRegenerateMessage(message: ApiChatMessage, modelId?: string) {
     const conversationId = activeConversationId;
     if (message.role !== 'assistant' || isActiveConversationBusy) {
@@ -1624,7 +1588,6 @@ export function App() {
     streamAbortControllers.current.set(conversationId, abortController);
     let receivedRunStarted = false;
     try {
-      await ensureModelReadyForRun(selectedModelId);
       await streamRegenerateMessage(
         conversationId,
         message.id,
@@ -1702,6 +1665,7 @@ export function App() {
       }
     }
     if (event.type === 'run.completed') {
+      setServerModelLoad(null);
       setActiveRunModelsById(previous => removeRunModel(previous, event.runId));
       clearConversationRunKind(event.conversationId);
       setConversationListStatus(event.conversationId, 'ready');
@@ -1727,6 +1691,14 @@ export function App() {
         });
       }
     }
+    if (event.type === 'model.loading') {
+      if (isVisibleConversation) {
+        // The server is waiting for weights. Show its progress rather than the
+        // router SSE store's, which lags a poll behind.
+        setServerModelLoad({status: event.status, progress: event.progress});
+      }
+      return;
+    }
     if (event.type === 'message.user.created') {
       // The server has the prompt now; drop the optimistic copy.
       setPendingPrompt(previous => (previous?.conversationId === conversationId ? null : previous));
@@ -1736,6 +1708,7 @@ export function App() {
       setMessages(prev => [...prev, event.message]);
     }
     if (event.type === 'message.assistant.started') {
+      setServerModelLoad(null);
       if (!isVisibleConversation) {
         return;
       }
@@ -2743,12 +2716,6 @@ function createCompactCommandRow(conversationId: string, instructions: string): 
     message: 'Queued context compaction.',
     createdAt: now,
   };
-}
-
-async function delay(milliseconds: number): Promise<void> {
-  await new Promise(resolve => {
-    setTimeout(resolve, milliseconds);
-  });
 }
 
 function readFavoriteModelIds(): string[] {

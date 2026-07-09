@@ -278,9 +278,17 @@ Project-specific guidance for AI coding agents.
   groups browser-local favorites first, shows selected/row router
   status/progress from router SSE updates, and loads unloaded router models
   before activating them.
-- Chat submit and assistant regeneration must load the selected/requested model
-  first when router status says it is unloaded, loading, or otherwise not
-  runnable.
+- The **server** loads the model. `POST /api/conversations/:id/chat/stream` and
+  `.../regenerate` call `LlamaCppManager.ensureModelRunnable()` before the run
+  starts, streaming `model.loading` events while they wait, and failing with
+  `model_load_failed`. A model the router does not list is left alone. Clients do
+  not poll `/api/llama/models`; the composer's model selector may fire a load and
+  walk away, because the run waits.
+- A successful server-side load must fetch and cache the model's props.
+  `GET /api/llama/models/:id/props` is otherwise the only writer of
+  `model_cache`'s modality and context columns, and it fires because a client
+  asked. A thin client never asks, so without this every capability derived from
+  props -- `canAttachImages`, `canReason` -- silently degrades to "unknown".
 - Settings rows for models with active runs must show an active-run token and
   keep unload/save/remove disabled until a terminal run event arrives.
 - Browser chat run state is conversation-scoped. Use per-conversation run-kind

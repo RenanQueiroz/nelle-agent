@@ -3003,6 +3003,20 @@ test('chat stream emits SSE envelopes with run lifecycle events', async () => {
     if (href.includes('/slots')) {
       return new Response('[]', {status: 200, headers: {'content-type': 'application/json'}});
     }
+    // The run now waits for the model to be runnable before it starts, so the
+    // router has to say that it is.
+    if (href.includes('/models')) {
+      return new Response(JSON.stringify([{id: 'repo/model:Q4_K_M', status: {value: 'loaded'}}]), {
+        status: 200,
+        headers: {'content-type': 'application/json'},
+      });
+    }
+    if (href.includes('/props')) {
+      return new Response(JSON.stringify({modalities: {vision: false}}), {
+        status: 200,
+        headers: {'content-type': 'application/json'},
+      });
+    }
     return new Response(
       [
         'data: {"choices":[{"delta":{"content":"Direct answer."}}]}',
@@ -3075,9 +3089,16 @@ test('the chat route enforces the guards the composer enforces', async () => {
   const previousPiDisabled = process.env.NELLE_PI_DISABLED;
   process.env.NELLE_PI_DISABLED = '1';
   let runtimeIsUp = true;
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (async (url: string | URL | Request) => {
     if (!runtimeIsUp) {
       throw new Error('connection refused');
+    }
+    const href = String(url);
+    if (href.includes('/models')) {
+      return new Response(JSON.stringify([{id: model.id, status: {value: 'loaded'}}]), {
+        status: 200,
+        headers: {'content-type': 'application/json'},
+      });
     }
     return new Response('[]', {status: 200, headers: {'content-type': 'application/json'}});
   }) as typeof fetch;

@@ -217,6 +217,14 @@ export type ChatStreamEvent =
       error: {code: string; message: string; retryable?: boolean};
       createdAt: string;
     }
+  | {
+      type: 'model.loading';
+      conversationId: string;
+      modelId: string;
+      status: string;
+      progress?: number;
+      createdAt: string;
+    }
   | {type: 'message.user.created'; message: ChatMessage}
   | {type: 'message.assistant.started'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
   | {type: 'message.assistant.delta'; id: string; delta: string}

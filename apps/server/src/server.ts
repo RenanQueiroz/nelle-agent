@@ -855,6 +855,19 @@ export async function createServer(paths: AppPaths) {
       // hand Pi `/model` as a literal prompt.
       assertSupportedSlashCommand(body.message);
       await assertRuntimeRunning(llama);
+
+      const activeModel = await store.getActiveModel();
+      if (activeModel) {
+        await ensureModelReadyForRun({
+          llama,
+          modelCache,
+          conversationId: id,
+          modelId: activeModel.id,
+          write: event => writeChatEvent(reply.raw, event, id),
+          log: app.log,
+        });
+      }
+      // After the load, so `model_cache` can answer whether the model sees images.
       assertSupportedAttachments(body.attachments ?? [], modelCache, await store.getState());
 
       const streamResult = await createChatStream({
@@ -901,6 +914,19 @@ export async function createServer(paths: AppPaths) {
         throw new Error('Regeneration requires the Pi harness.');
       }
       await assertRuntimeRunning(llama);
+      const regenerateModel = body.modelId
+        ? await store.getModel(body.modelId)
+        : await store.getActiveModel();
+      if (regenerateModel) {
+        await ensureModelReadyForRun({
+          llama,
+          modelCache,
+          conversationId: id,
+          modelId: regenerateModel.id,
+          write: event => writeChatEvent(reply.raw, event, id),
+          log: app.log,
+        });
+      }
       const stream = await pi.regenerateMessage({
         conversationId: id,
         assistantMessageId: messageId,
@@ -977,17 +1003,25 @@ async function writeChatStream(
   conversationId: string,
 ): Promise<void> {
   for await (const event of stream) {
-    raw.write(
-      serializeSseEnvelope(
-        createEventEnvelope({
-          type: event.type,
-          conversationId: eventConversationId(event, conversationId),
-          runId: eventRunId(event),
-          data: event,
-        }),
-      ),
-    );
+    writeChatEvent(raw, event, conversationId);
   }
+}
+
+function writeChatEvent(
+  raw: {write: (chunk: string) => void},
+  event: ChatStreamEvent,
+  conversationId: string,
+): void {
+  raw.write(
+    serializeSseEnvelope(
+      createEventEnvelope({
+        type: event.type,
+        conversationId: eventConversationId(event, conversationId),
+        runId: eventRunId(event),
+        data: event,
+      }),
+    ),
+  );
 }
 
 function writeChatError(raw: {write: (chunk: string) => void}, error: unknown): void {
@@ -1078,6 +1112,53 @@ function nelleErrorFromZod(error: ZodError): NelleError {
         .join(' — ') || undefined,
     retryable: false,
   };
+}
+
+/**
+ * Makes the requested model runnable, streaming progress while it loads.
+ *
+ * The browser used to do this: post a load, poll `/models` sixty times at half a
+ * second, watch for `failed`, give up at thirty. Every client would have copied
+ * it. Now the run waits here and reports what it is waiting for.
+ *
+ * The props fetch afterwards is not incidental. `GET /api/llama/models/:id/props`
+ * was the only writer of `model_cache`'s modality and context columns, and it
+ * fires because a client asked. Once the server loads models itself, nothing asks,
+ * and every capability derived from props degrades to "unknown" for exactly the
+ * thin client this exists to serve.
+ */
+async function ensureModelReadyForRun(input: {
+  llama: LlamaCppManager;
+  modelCache: ModelCacheRepository;
+  conversationId: string;
+  modelId: string;
+  write: (event: ChatStreamEvent) => void;
+  log: {warn: (input: unknown, message?: string) => void};
+}): Promise<void> {
+  const result = await input.llama.ensureModelRunnable(input.modelId, {
+    onProgress: update =>
+      input.write({
+        type: 'model.loading',
+        conversationId: input.conversationId,
+        modelId: input.modelId,
+        status: update.status,
+        progress: update.progress,
+        createdAt: new Date().toISOString(),
+      }),
+  });
+  if (!result.loaded) {
+    return;
+  }
+  try {
+    input.modelCache.upsertModelProps(
+      input.modelId,
+      await input.llama.getModelProps(input.modelId),
+    );
+  } catch (error) {
+    // A model that will not describe itself can still answer a prompt. Losing the
+    // cache entry costs a capability, not the run.
+    input.log.warn({err: error, modelId: input.modelId}, 'could not cache model props after load');
+  }
 }
 
 /** llama.cpp is not running, so no run of any kind can start. */

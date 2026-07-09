@@ -282,6 +282,8 @@ thinking block), variants grouped and labelled, attachments joined.
 
 ## Phase 3: The Server Loads The Model
 
+**Status: done.**
+
 Delete `waitForRouterModelReady` and `ensureModelReadyForRun` from the client.
 
 `POST /api/conversations/:id/chat/stream` and `.../regenerate` ensure the

@@ -205,6 +205,150 @@ test('the facade keys every configured model by its section id', async () => {
   }
 });
 
+test('a run loads the model and caches its props with no client asking', async () => {
+  // The props route is the only writer of model_cache's modality columns today,
+  // and it fires because a client asked. A thin client never asks.
+  const statuses = ['unloaded', 'loading', 'loaded'];
+  let statusIndex = 0;
+  const router = await createMockRouter({
+    modelsFactory: () => {
+      const status = statuses[Math.min(statusIndex, statuses.length - 1)]!;
+      statusIndex += 1;
+      return [
+        {
+          id: 'repo/model:Q4_K_M',
+          aliases: [],
+          status: {value: status},
+          progress: status === 'loading' ? 0.5 : undefined,
+        },
+      ];
+    },
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+  const database = new AppDatabase(paths);
+  await database.open();
+
+  try {
+    const llama = new LlamaCppManager(paths, store);
+    const cache = new ModelCacheRepository(database);
+    assert.equal(cache.getVisionSupport(model.id), null, 'nothing is known before the load');
+
+    const progress: Array<{status: string; progress?: number}> = [];
+    const result = await llama.ensureModelRunnable(model.id, {
+      onProgress: update => progress.push(update),
+      pollMs: 1,
+    });
+
+    assert.equal(result.loaded, true);
+    assert.ok(
+      router.calls.some(call => call.url === '/models/load'),
+      'an unloaded model is loaded exactly once',
+    );
+    assert.equal(router.calls.filter(call => call.url === '/models/load').length, 1);
+    assert.deepEqual(
+      progress.map(update => update.status),
+      ['loading', 'loaded'],
+      'and the wait reports what it is waiting for',
+    );
+
+    // The step that keeps every derived capability alive for a thin client.
+    cache.upsertModelProps(model.id, await llama.getModelProps(model.id));
+    assert.equal(cache.getVisionSupport(model.id), true);
+    assert.equal(cache.getModel(model.id)?.contextWindow, 32_768);
+  } finally {
+    database.close();
+    await router.close();
+  }
+});
+
+test('a run does not load a model the router already has', async () => {
+  const router = await createMockRouter();
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+
+  try {
+    // The default mock reports the model `loaded`; `sleeping` counts too, because
+    // llama.cpp keeps the weights and wakes it on the next request.
+    const result = await new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {
+      pollMs: 1,
+    });
+    assert.equal(result.loaded, false);
+    assert.equal(
+      router.calls.some(call => call.url === '/models/load'),
+      false,
+    );
+  } finally {
+    await router.close();
+  }
+});
+
+test('a model that fails to load ends the run with model_load_failed', async () => {
+  const router = await createMockRouter({
+    modelsFactory: () => [{id: 'repo/model:Q4_K_M', aliases: [], status: {value: 'failed'}}],
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+
+  try {
+    await assert.rejects(
+      () => new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {pollMs: 1}),
+      (error: Error & {code?: string}) => error.code === 'model_load_failed',
+    );
+  } finally {
+    await router.close();
+  }
+});
+
+test('a load that never finishes times out rather than hanging the run', async () => {
+  const router = await createMockRouter({
+    modelsFactory: () => [{id: 'repo/model:Q4_K_M', aliases: [], status: {value: 'loading'}}],
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+
+  try {
+    await assert.rejects(
+      () =>
+        new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {
+          pollMs: 1,
+          timeoutMs: 5,
+        }),
+      /did not finish loading/,
+    );
+  } finally {
+    await router.close();
+  }
+});
+
 test('llama abort verifier warns when slots keep processing after grace window', async () => {
   const processingSlot = {
     id: 2,
@@ -330,7 +474,13 @@ test('model settings endpoints edit params, duplicate, and remove sections', asy
 });
 
 async function createMockRouter(
-  input: {failModels?: boolean; slots?: unknown[][]; models?: unknown[]} = {},
+  input: {
+    failModels?: boolean;
+    slots?: unknown[][];
+    models?: unknown[];
+    /** Called per `/models` request, so a status can change between polls. */
+    modelsFactory?: () => unknown[];
+  } = {},
 ): Promise<{
   port: number;
   calls: Array<{method: string; url: string; body: unknown}>;
@@ -383,6 +533,10 @@ async function createMockRouter(
       if (input.failModels) {
         response.writeHead(500, {'content-type': 'text/plain'});
         response.end('router failed');
+        return;
+      }
+      if (input.modelsFactory) {
+        sendJson(response, input.modelsFactory());
         return;
       }
       if (input.models) {

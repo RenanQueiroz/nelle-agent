@@ -17,6 +17,12 @@ import type {
 import {AppStore} from './store';
 import {llamaRuntimeModelId} from './modelCompat';
 import {commandExists, runCommand} from './process';
+import {NELLE_ERROR_CODES} from '../../../packages/shared/src/contracts.ts';
+import {
+  MODEL_LOAD_POLL_MS,
+  MODEL_LOAD_TIMEOUT_MS,
+  isRunnableRouterStatus,
+} from '../../../packages/shared/src/router.ts';
 import {
   getModelsIniSectionValues,
   listModelsIniSections,
@@ -276,6 +282,49 @@ export class LlamaCppManager {
         body: {model: modelId},
       }),
     };
+  }
+
+  /**
+   * Makes a model runnable before a run starts, or explains why it cannot be.
+   *
+   * This state machine used to live in the browser, which meant every client had
+   * to reimplement it: post a load, poll `/models`, watch for `failed`, give up
+   * after 30 seconds. The semantics are preserved exactly, including the odd one:
+   * a model the router does not list at all is left alone, and the request goes
+   * through so llama.cpp can answer for itself.
+   */
+  async ensureModelRunnable(
+    modelId: string,
+    options: {
+      onProgress?: (update: {status: string; progress?: number}) => void;
+      timeoutMs?: number;
+      pollMs?: number;
+    } = {},
+  ): Promise<{loaded: boolean}> {
+    const pollMs = options.pollMs ?? MODEL_LOAD_POLL_MS;
+    const attempts = Math.max(1, Math.ceil((options.timeoutMs ?? MODEL_LOAD_TIMEOUT_MS) / pollMs));
+    const find = (models: LlamaRouterModel[]) => models.find(model => model.sectionId === modelId);
+
+    const current = find((await this.getRouterModels()).models);
+    if (!current || isRunnableRouterStatus(current.status)) {
+      return {loaded: false};
+    }
+    if (current.status !== 'loading') {
+      await this.loadRouterModel(modelId);
+    }
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const next = find((await this.getRouterModels()).models);
+      options.onProgress?.({status: next?.status ?? 'unknown', progress: next?.progress});
+      if (isRunnableRouterStatus(next?.status)) {
+        return {loaded: true};
+      }
+      if (next?.status === 'failed') {
+        throw modelLoadError(`${modelId} failed to load. Check the llama.cpp logs.`);
+      }
+      await delayMs(pollMs);
+    }
+    throw modelLoadError(`${modelId} did not finish loading before the router timed out.`);
   }
 
   async unloadRouterModel(modelId: string): Promise<{modelId: string; raw: unknown}> {
@@ -1050,6 +1099,16 @@ function normalizeRouterModel(raw: unknown): LlamaRouterModel {
     architecture: stringOrUndefined(getProp(raw, 'architecture')),
     raw,
   };
+}
+
+function modelLoadError(message: string): Error {
+  const error = new Error(message);
+  Object.assign(error, {code: NELLE_ERROR_CODES.modelLoadFailed, retryable: true});
+  return error;
+}
+
+function delayMs(milliseconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
 function findConfiguredSectionId(

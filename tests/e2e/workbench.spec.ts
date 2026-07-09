@@ -378,7 +378,7 @@ test('loads an unloaded router model from the composer selector', async ({page})
   await expect(page.getByText('loaded', {exact: true}).last()).toBeVisible();
 });
 
-test('loads an unloaded selected model before sending chat', async ({page}) => {
+test('the server loads an unloaded model and the client renders its progress', async ({page}) => {
   const model = {
     id: 'model-a',
     name: 'Model A',
@@ -414,7 +414,6 @@ test('loads an unloaded selected model before sending chat', async ({page}) => {
   let modelStatus = 'unloaded';
   let loadCalls = 0;
   let streamCalls = 0;
-  let streamSawLoadedModel = false;
 
   await page.route('**/api/state', async route => {
     await route.fulfill({
@@ -453,9 +452,12 @@ test('loads an unloaded selected model before sending chat', async ({page}) => {
     await route.fulfill({json: {ok: true}});
   });
   await mockConversationRoutes(page, {chat});
+  let releaseStream: (() => void) | undefined;
+  const streamGate = new Promise<void>(resolve => {
+    releaseStream = resolve;
+  });
   await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     streamCalls += 1;
-    streamSawLoadedModel = modelStatus === 'loaded';
     const userMessage = {
       id: 'user-1',
       role: 'user',
@@ -472,9 +474,20 @@ test('loads an unloaded selected model before sending chat', async ({page}) => {
       modelAliasSnapshot: model.name,
     };
     chat.push(userMessage, assistantMessage);
+    // Hold the response open after the load events so the placeholder is
+    // observable, exactly as a real server-side load would.
+    await streamGate;
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
       body: [
+        {
+          type: 'model.loading',
+          conversationId: 'legacy-default',
+          modelId: model.id,
+          status: 'loading',
+          progress: 0.42,
+          createdAt: '2026-07-07T12:01:00.000Z',
+        },
         {type: 'message.user.created', message: userMessage},
         {
           type: 'message.assistant.started',
@@ -497,10 +510,15 @@ test('loads an unloaded selected model before sending chat', async ({page}) => {
   await page.getByLabel('Message input').fill('hello after eviction');
   await page.getByLabel('Message input').press('Enter');
 
-  await expect.poll(() => loadCalls).toBe(1);
+  // The prompt and a load placeholder appear while the server waits for weights.
+  await expect(page.getByText('Loading weights')).toBeVisible();
+  releaseStream?.();
+
   await expect.poll(() => streamCalls).toBe(1);
-  expect(streamSawLoadedModel).toBe(true);
   await expect(page.getByText('Loaded before chat.')).toBeVisible();
+
+  // The client no longer loads or polls. The run does it, and says so.
+  expect(loadCalls, 'the client must not post a load itself').toBe(0);
 });
 
 test('requires acknowledgement before enabling host tools', async ({page}) => {
@@ -1730,9 +1748,11 @@ test('regenerates an assistant response from the footer model picker', async ({p
   await page.getByRole('button', {name: /Regenerate model: Model A/}).click();
   await page.getByRole('menuitem', {name: 'Model B'}).click();
 
-  await expect.poll(() => loadCalls).toBe(1);
   await expect.poll(() => regenerateCalls).toBe(1);
   expect(regenerateModelId).toBe(modelB.id);
+  // The regenerate route loads the override model server-side; the client only
+  // names it.
+  expect(loadCalls, 'the client must not post a load itself').toBe(0);
   await expect(page.getByText('Original answer.')).toBeVisible();
   await expect(page.getByText('Regenerated with Model B.')).toBeVisible();
   await expect(page.getByText('variant 1/2')).toBeVisible();
