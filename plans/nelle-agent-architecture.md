@@ -254,6 +254,12 @@ Companion implementation plans:
 - [Router and chat UI plan](nelle-router-chat-ui-plan.md): router-mode model
   lifecycle, `models.ini` ownership, settings, sidebar, conversations, and
   generated chat titles.
+- [Gap remediation plan](nelle-gap-remediation-plan.md): the places where the
+  implementation and these two plans disagree, and how to close each one. Covers
+  the conversation list cap, unavailable-session repair, the half-migrated stream
+  event contract, dead schema, missing `NelleError` codes, and the host-tool
+  fail-closed guard. Milestones that are simply not started yet are tracked here,
+  not there.
 
 ## Current MVP Status
 

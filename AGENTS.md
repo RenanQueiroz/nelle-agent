@@ -335,6 +335,10 @@ Project-specific guidance for AI coding agents.
 - Use `plans/nelle-router-chat-ui-plan.md` as the source of truth for the
   router-mode model lifecycle, `models.ini` ownership, sidebar, settings, and
   conversation UI overhaul.
+- Use `plans/nelle-gap-remediation-plan.md` as the source of truth for known
+  divergences between the implementation and the other two plans. Before marking
+  anything there as done, re-verify it against the code; before adding a gap,
+  cite the `file:line` that proves it.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components
