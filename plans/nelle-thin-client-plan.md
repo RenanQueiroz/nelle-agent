@@ -138,10 +138,26 @@ Small, independent, and correct regardless of whether anything else here ships.
 3. **`settingsStore` defaults.** Delete `DEFAULT_GLOBAL_PARAMS = {c: '8192'}`,
    `modelsMaxInput: '1'` and `sleepIdleInput: '90'`; render an empty draft until
    `/api/state` seeds it, or import the shared defaults.
+4. **Stop `piHarness` bypassing the facade.** `assertImageAttachmentsSupported`
+   (`piHarness.ts:1284`) `fetch`es llama.cpp `/props` directly. Route it through
+   `llama.getModelProps()` and have it write `modelCache.upsertModelProps()`.
+   **Behavior stays identical** — it still errors when props are unavailable.
+   Only the bypass goes. Relaxing it to the cached tri-state waits for Phase 3;
+   see the dependency note there.
+5. **Shrink the router-model join.** `findRouterModelForConfiguredModel`
+   (`App.tsx:149`) tries five ways to match a configured model to a router entry.
+   Four of them are dead: `mergeRouterModels` (`llamacpp.ts:452`) seeds its map
+   from `readConfiguredModelSections()` and keys every row by section id, and
+   `ConfiguredModel.id` _is_ the section id (`store.ts:333`). Reduce it to
+   `routerModels.find(m => m.sectionId === model.id)`. This is independent of
+   Phase 3: the function itself survives, because the composer's model selector
+   still needs the join for per-row status and progress (`App.tsx:404-443`).
+   Only the two call sites inside the poll loop go away with Phase 3.
 
 Exit criteria: attaching 11 files succeeds; attaching 21 fails with
 `unsupported_attachment` and a readable message; a malformed chat body returns
-400 `invalid_request`.
+400 `invalid_request`; no `fetch` to llama.cpp outside `llamacpp.ts` and
+`llamaProxy.ts`.
 
 ## Phase 1: Attachment Ingestion Moves To The Server
 
@@ -204,11 +220,17 @@ cleanup."_
 
 ### Consolidate the vision gate
 
-Delete `assertImageAttachmentsSupported` (`piHarness.ts:1284`). It fetches
-llama.cpp `/props` directly, bypassing the facade and `model_cache`. The upload
-endpoint and the chat route both consult `modelCache.getVisionSupport()`, which
-returns `null` for a model llama.cpp has never loaded — unproven, not proven
-text-only. That tri-state already exists.
+By the time this phase lands, `assertImageAttachmentsSupported` should already be
+gone: Phase 0 removes its bypass of the facade, and Phase 3 deletes it once a
+server-side load guarantees the props are cached. What is left for this phase is
+to make the **upload endpoint** consult `modelCache.getVisionSupport()` too, so an
+image is rejected when it is chosen rather than when the message is sent.
+
+That leaves two gates, which is the right number: the upload endpoint refuses an
+image for a model llama.cpp has _proven_ cannot see it, and the client keeps its
+own conservative UI gate (it blocks images while props are unknown, because the
+user can simply load the model). `null` means unproven, not text-only, and the
+server never rejects on a guess.
 
 ### What the client keeps
 
@@ -270,15 +292,37 @@ requested model is runnable before they start a run:
 
 Failure maps to `model_load_failed`, which already exists.
 
-The client's `findRouterModelForConfiguredModel` goes with it: `getRouterModels()`
-already returns rows keyed by the configured section id, so a client that still
-needs router state can match on `sectionId` alone.
+The two calls to `findRouterModelForConfiguredModel` inside the poll loop go away
+with it. The function itself stays, shrunk by Phase 0: the composer's model
+selector still joins configured models to router rows for per-row status and
+progress (`App.tsx:404-443`).
+
+### Fetch props after a successful load — this unblocks the vision gate
+
+Today the _only_ writer of `model_cache`'s modality and context columns is the
+`GET /api/llama/models/:id/props` route (`server.ts:291`). It fills the cache
+because a client asked. Once the server loads models itself, nothing asks, and
+`modelCache.getVisionSupport()` stays `null` forever for any client that never
+calls that route — which is exactly the thin client this plan is building.
+
+So a successful server-side load must call `llama.getModelProps()` and
+`modelCache.upsertModelProps()` before the run starts. Without that step:
+
+- Phase 4's `canReason` is `null` for every model on a fresh client.
+- Phase 1's vision gate can never tighten, because `getVisionSupport()` never
+  leaves `null`, and `null` means "allow".
+
+With it, `assertImageAttachmentsSupported` can finally be deleted rather than
+merely un-bypassed: by the time attachments are prepared, the model is loaded and
+its props are cached. That deletion belongs here, not in Phase 1.
 
 ### Tests
 
 - Unit: chat against an `unloaded` model issues one load and streams
   `model.loading` before `run.started`; a `failed` model errors with
   `model_load_failed`; a `sleeping` model loads nothing.
+- Unit: after a server-side load, `model_cache` holds modalities and context
+  window for that model without any client having called the props route.
 - E2e: the composer shows load progress from server events, with no
   `/api/llama/models` polling in the network log.
 
@@ -359,23 +403,33 @@ Do not move these. Moving them costs a round trip and buys nothing.
 
 One item per commit, docs updated in the same commit.
 
-1. **Phase 0** — three independent fixes; land them first, they are live bugs.
+1. **Phase 0** — five independent fixes. Three are live bugs; two are cleanups
+   that remove a facade bypass and a redundant join. None depend on anything
+   else here.
 2. **Phase 2** — `messagesFromSnapshot` into `shared` + the snapshot. Pure, zero
    risk, immediate payoff. Do it before anything that touches the transcript.
-3. **Phase 4a** — `canReason` into model props and `model_cache`. Small, deletes
-   a whole client module.
-4. **Phase 3** — server-owned model loading. Deletes the poll loop.
+3. **Phase 3** — server-owned model loading, _and_ caching props after a load.
+   Moved up: it is the prerequisite for the two phases below, because nothing
+   else fills `model_cache` once clients stop asking for props.
+4. **Phase 4a** — `canReason` into model props and `model_cache`. Small, deletes
+   a whole client module. Needs Phase 3, or it reports `null` for every model.
 5. **Phase 4b** — context status, `isReasoning`, performance merge.
 6. **Phase 5** — command registry.
 7. **Phase 6** — preferences.
 8. **Phase 1** — attachment ingestion. Last, not first: it is the only phase that
    adds a table, a directory, a retention job, and a native dependency, and it
    benefits from everything above already having proved the shape of the
-   contract.
+   contract. It also needs Phase 3 for the vision gate to mean anything.
 
 Phase 1 is last on purpose. It is the most valuable change and the most
 disruptive one, and the earlier phases are cheap enough that waiting costs
 nothing.
+
+The one hard dependency in this plan is **Phase 3 before Phase 4a and Phase 1**.
+`model_cache`'s props columns are written by exactly one caller today — the props
+route, invoked by a client. Take that client away without giving the server a
+reason to fetch props, and every capability derived from them silently degrades
+to "unknown".
 
 ## Risks
 
