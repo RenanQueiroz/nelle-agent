@@ -20,7 +20,7 @@ import type {AppDatabase} from './database';
 import {sanitizeStoredPerformance} from './llamaThroughput';
 import type {AppState, ChatMessage, ConfiguredModel} from './types';
 
-export const POC_CONVERSATION_ID = 'poc-default';
+export const LEGACY_DEFAULT_CONVERSATION_ID = 'legacy-default';
 
 type ConversationRow = {
   id: string;
@@ -894,20 +894,20 @@ export class ConversationRepository {
   }
 
   /**
-   * Mirrors a legacy `state.json` chat into the `poc-default` conversation.
+   * Mirrors a legacy `state.json` chat into the default conversation.
    *
    * Returns null when there is no legacy chat to migrate and the conversation
    * does not exist. Read paths such as `GET /api/conversations` call this, so
    * creating a placeholder here would resurrect the conversation immediately
    * after the user deletes it.
    */
-  syncPocConversationFromState(
+  syncLegacyDefaultConversationFromState(
     state: AppState,
     options: {forceLegacyProjection?: boolean} = {},
   ): ConversationListItem | null {
     const now = new Date().toISOString();
-    const title = state.chat[0]?.content.slice(0, 80) || 'POC chat';
-    const existing = this.getConversation(POC_CONVERSATION_ID);
+    const title = state.chat[0]?.content.slice(0, 80) || 'Legacy chat';
+    const existing = this.getConversation(LEGACY_DEFAULT_CONVERSATION_ID);
     if (!existing && state.chat.length === 0) {
       return null;
     }
@@ -915,7 +915,7 @@ export class ConversationRepository {
       return mapConversationListItem(existing);
     }
     const row: ConversationRow = {
-      id: POC_CONVERSATION_ID,
+      id: LEGACY_DEFAULT_CONVERSATION_ID,
       title: existing?.title ?? title,
       title_source: existing?.title_source ?? 'fallback',
       pinned: existing?.pinned ?? 0,
@@ -960,9 +960,13 @@ export class ConversationRepository {
 
     this.database.connection
       .prepare('DELETE FROM conversation_entry_projection WHERE conversation_id = ?')
-      .run(POC_CONVERSATION_ID);
+      .run(LEGACY_DEFAULT_CONVERSATION_ID);
     for (let index = 0; index < state.chat.length; index += 1) {
-      this.upsertChatMessage(POC_CONVERSATION_ID, state.chat[index]!, state.chat[index - 1]?.id);
+      this.upsertChatMessage(
+        LEGACY_DEFAULT_CONVERSATION_ID,
+        state.chat[index]!,
+        state.chat[index - 1]?.id,
+      );
     }
     this.upsertSearch(row.id, row.title);
     return mapConversationListItem(row);

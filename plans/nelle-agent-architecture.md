@@ -103,11 +103,11 @@ The first product experience should be UI-driven:
 - Each Nelle conversation maps to exactly one Pi session JSONL file. Pi owns
   message history, compaction, and branch/tree state; SQLite owns Nelle's
   conversation index, projections, and sidecar UI metadata.
-- On Pi-enabled startup, a non-empty legacy `poc-default` chat from
+- On Pi-enabled startup, a non-empty legacy default chat from
   `.nelle/state.json` should be converted into a Nelle-owned Pi session file
   before session validation. Direct llama.cpp fallback may still force-refresh
   the legacy projection for compatibility when Pi is disabled or unavailable.
-  The legacy sync must never conjure a `poc-default` conversation out of an
+  The legacy sync must never conjure a `legacy-default` conversation out of an
   empty chat: read paths call it, so a placeholder there would undelete the
   conversation on the next list request. With no conversations left, the
   sidebar shows its empty state and the composer is blocked.
@@ -255,9 +255,9 @@ Companion implementation plans:
   lifecycle, `models.ini` ownership, settings, sidebar, conversations, and
   generated chat titles.
 
-## Current POC Status
+## Current MVP Status
 
-The first POC implements the local Fastify server, React/Vite browser UI,
+The MVP implements the local Fastify server, React/Vite browser UI,
 Astryx chat surface, Hugging Face GGUF search, Hugging Face quant selection
 through llama.cpp-managed `hf-repo` references, managed `llama.cpp`
 install/update/start/stop paths, a lossless parser/writer for authoritative
@@ -267,7 +267,7 @@ browser-triggered conversation reset, SQLite schema/migration foundations with
 pre-migration `settings.sqlite` backups under `.nelle/backups/`,
 conversation list/snapshot APIs, conversation-scoped chat streaming,
 header-only Pi session creation for new conversations, Pi-enabled migration of
-the legacy `poc-default` state chat into a real Pi session, one
+the legacy default state chat into a real Pi session, one
 Nelle-conversation-to-one-Pi-session-file binding under `.nelle/pi/sessions`,
 basic conversation abort via Pi `AgentSession.abort()`,
 manual `/compact [instructions]` through Pi `AgentSession.compact()` plus
@@ -305,13 +305,13 @@ and loaded-model metadata from the router SSE store, and loads unloaded router
 models before activation. Settings rows for models with active runs are locked
 against unload/save/remove until the run completes or aborts.
 
-Intentional POC limitations:
+Intentional MVP limitations:
 
 - Runtime setup state is still stored in `.nelle/state.json`; model catalog
   rows are sourced from `models.ini` and mirrored into state only as a
   compatibility backup. SQLite stores conversation rows and active-branch
   projections, but is not yet the primary database for all app state. A
-  non-empty legacy `poc-default` chat is migrated to a Pi session on normal
+  non-empty legacy default chat is migrated to a Pi session on normal
   Pi-enabled startup; direct fallback can still mirror the legacy state for
   compatibility. Existing SQLite schema migrations create a `settings.sqlite`
   backup before applying migrations or repairing missing migration records;
@@ -426,7 +426,7 @@ Responsibilities:
 - Run Pi using a Nelle-controlled `agentDir`, not the user's global Pi config.
 - Store Pi sessions under Nelle's app data directory and map one Nelle
   conversation to one Pi session file.
-- During normal Pi-enabled startup, migrate a non-empty legacy `poc-default`
+- During normal Pi-enabled startup, migrate a non-empty legacy default
   state chat into a Pi session file before validating existing bindings.
 - Manage Pi sessions through `AgentSessionRuntime`/`SessionManager`, reopening
   existing session files on demand after Nelle server restarts.

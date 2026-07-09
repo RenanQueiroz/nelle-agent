@@ -46,7 +46,7 @@ export async function streamDirectLlama(
   queue.push({
     type: 'run.started',
     runId,
-    conversationId: 'poc-default',
+    conversationId: 'legacy-default',
     kind: 'chat',
     modelId: activeModel.id,
     status: 'running',
@@ -150,7 +150,7 @@ export async function streamDirectLlama(
       queue.push({
         type: 'run.completed',
         runId,
-        conversationId: 'poc-default',
+        conversationId: 'legacy-default',
         status: 'completed',
         createdAt: new Date().toISOString(),
       });
@@ -159,7 +159,7 @@ export async function streamDirectLlama(
       queue.push({
         type: 'run.completed',
         runId,
-        conversationId: 'poc-default',
+        conversationId: 'legacy-default',
         status: 'failed',
         error: {
           code: 'llama_direct_failed',

@@ -144,7 +144,7 @@ Relevant Pi SDK/session behavior:
 Nelle currently differs from the target in these ways:
 
 - Done: `models.ini` is the model catalog and free-form global/model parameter
-  source of truth. The POC `state.json` mirrors parsed model records and active
+  source of truth. The `state.json` file mirrors parsed model records and active
   model id only as a compatibility backup.
 - New Hugging Face imports use stable canonical section ids, and Settings can
   edit aliases plus free-form global/model `models.ini` params. Direct
@@ -170,7 +170,7 @@ Nelle currently differs from the target in these ways:
 - SQLite stores conversation rows and active-branch projections. Runtime setup
   state still lives in `.nelle/state.json`, while model catalog state is sourced
   from `models.ini` and mirrored into state for compatibility. The default
-  `poc-default` chat remains for direct-fallback compatibility, but normal
+  the `legacy-default` chat remains for direct-fallback compatibility, but normal
   Pi-enabled startup migrates a non-empty legacy `state.json` default chat into
   a real Pi session before validating session bindings. Existing
   `settings.sqlite` files are backed up with SQLite `VACUUM INTO` under
@@ -1518,7 +1518,7 @@ Implementation notes:
 
 ## Migration And Backup Plan
 
-Existing POC state may contain `.nelle/state.json` with `models[]`,
+Existing state may contain `.nelle/state.json` with `models[]`,
 `activeModelId`, and one global `chat`.
 
 Migration framework:
@@ -1542,7 +1542,7 @@ Migration framework:
 - Migrations should be idempotent where practical. Re-running after failure
   should detect completed steps from the database and backup markers.
 
-POC-to-SQLite migration steps:
+SQLite migration steps:
 
 1. Parse existing `models[]`.
 2. Write HF-backed models into `models.ini` if not already present.
@@ -1580,7 +1580,7 @@ Future migration expectations:
   FTS title search.
 - Done for SQLite schema migrations: existing `settings.sqlite` files are
   backed up under `.nelle/backups/` before missing migrations, checksum-mismatch
-  repair paths, or migration-record repairs run. The broader POC
+  repair paths, or migration-record repairs run. The broader
   `.nelle/state.json` to SQLite migration path remains limited to the current
   default-conversation compatibility bridge.
 - Done: add `PiConversationRuntimePool`:
@@ -1697,7 +1697,7 @@ Exit criteria:
   Pi-session binding into the final sidebar workflow.
 - Replace legacy default-chat compatibility with conversation-scoped APIs
   throughout the UI and server. Done for the browser UI and normal Pi-enabled
-  startup: legacy `poc-default` state chat is migrated into a Pi session. The
+  startup: legacy default state chat is migrated into a Pi session. The
   legacy `/api/chat/stream` and direct-fallback state projection remain as
   compatibility wrappers only.
 - Done: use Pi session entries and leaf ids for active path and branch state.

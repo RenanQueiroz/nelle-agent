@@ -20,7 +20,7 @@ Project-specific guidance for AI coding agents.
   server uses `.nelle-e2e/` and starts on `127.0.0.1:8799`.
 - Codex has a local Playwright MCP server configured in `~/.codex/config.toml`;
   restart the Codex session after MCP config changes.
-- The current POC stores app data under `.nelle/` by default. Do not commit
+- Nelle stores app data under `.nelle/` by default. Do not commit
   generated app data, e2e app data, downloaded models, llama.cpp builds, test
   reports, or logs.
 - `.nelle/settings.sqlite` is generated app data. It stores conversation rows,
@@ -78,13 +78,19 @@ Project-specific guidance for AI coding agents.
   recover to `ready` rather than staying stuck.
 - API-created conversations should immediately create and bind a header-only Pi
   session JSONL file, before the first prompt.
-- `syncPocConversationFromState` only migrates a non-empty legacy
-  `.nelle/state.json` chat; it must never create `poc-default` from nothing.
+- The default conversation id is `legacy-default`. It was `poc-default` until
+  schema migration 3 renamed it, along with every table whose `conversation_id`
+  references it. Those tables declare foreign keys without `ON UPDATE CASCADE`
+  and the connection runs with `PRAGMA foreign_keys = ON`, so any rename of a
+  conversation id must `PRAGMA defer_foreign_keys = ON` inside the migration
+  transaction or it orphans the children mid-statement.
+- `syncLegacyDefaultConversationFromState` only migrates a non-empty legacy
+  `.nelle/state.json` chat; it must never create `legacy-default` from nothing.
   Read paths such as `GET /api/conversations` call it, so creating a placeholder
   there resurrects the conversation right after the user deletes it. Deleting
   every conversation is allowed and leaves an empty sidebar with a blocked
   composer.
-- On Pi-enabled startup, migrate a non-empty legacy `poc-default` chat from
+- On Pi-enabled startup, migrate a non-empty legacy default chat from
   `.nelle/state.json` into a real Pi session before validating existing
   bindings. Direct llama.cpp fallback may still force-refresh the legacy
   projection for compatibility.
@@ -117,7 +123,7 @@ Project-specific guidance for AI coding agents.
   model ids.
 - `models.ini` is the active model catalog and free-form params source of
   truth. `AppStore` refreshes model records from parsed `models.ini` before
-  returning model state; `.nelle/state.json` mirrors the catalog only as a POC
+  returning model state; `.nelle/state.json` mirrors the catalog only as a
   compatibility backup.
 - Runtime/model/global/chats controls live in the modal Astryx Settings dialog.
   Settings writes free-form string params into `models.ini` through server APIs,
@@ -197,7 +203,7 @@ Project-specific guidance for AI coding agents.
   alias snapshot. Footer model changes should regenerate through Pi-native
   branch replay with a model override, then group the new answer as a UI
   variant instead of overwriting the prior answer.
-- The current POC exposes regeneration at
+- Nelle exposes regeneration at
   `/api/conversations/:id/messages/:messageId/regenerate`, branches the Pi
   session before the original user entry, replays that user text, and stores
   `regenerates_pi_entry_id` / `display_group_id` sidecar metadata. The web UI

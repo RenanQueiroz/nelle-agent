@@ -450,7 +450,7 @@ test('loads an unloaded selected model before sending chat', async ({page}) => {
     await route.fulfill({json: {ok: true}});
   });
   await mockConversationRoutes(page, {chat});
-  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     streamCalls += 1;
     streamSawLoadedModel = modelStatus === 'loaded';
     const userMessage = {
@@ -728,13 +728,13 @@ test('locks model settings while a matching run is active', async ({page}) => {
     });
   });
   await mockConversationRoutes(page, {chat: []});
-  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
       body: `data: ${JSON.stringify({
         type: 'run.started',
         runId: 'run-model-lock',
-        conversationId: 'poc-default',
+        conversationId: 'legacy-default',
         kind: 'chat',
         modelId: model.id,
         status: 'running',
@@ -820,14 +820,14 @@ test('clears model locks when a run is aborted', async ({page}) => {
     });
   });
   await mockConversationRoutes(page, {chat: []});
-  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
       body: [
         {
           type: 'run.started',
           runId: 'run-model-lock',
-          conversationId: 'poc-default',
+          conversationId: 'legacy-default',
           kind: 'chat',
           modelId: model.id,
           status: 'running',
@@ -836,7 +836,7 @@ test('clears model locks when a run is aborted', async ({page}) => {
         {
           type: 'run.aborted',
           runId: 'run-model-lock',
-          conversationId: 'poc-default',
+          conversationId: 'legacy-default',
           reason: 'user',
           createdAt: '2026-07-07T12:01:01.000Z',
         },
@@ -938,7 +938,7 @@ test('surfaces llama slot abort warnings from the composer stop action', async (
       releaseStream();
     },
   });
-  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     await streamReleased;
     await route
       .fulfill({
@@ -994,7 +994,7 @@ test('keeps per-conversation run state while another chat is active', async ({pa
   };
   const conversations = [
     {
-      id: 'poc-default',
+      id: 'legacy-default',
       title: 'Primary chat',
       titleSource: 'fallback',
       pinned: false,
@@ -1044,15 +1044,15 @@ test('keeps per-conversation run state while another chat is active', async ({pa
     });
   });
   await mockConversationRoutes(page, {chat: [], conversations});
-  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
-    streamCalls.push('poc-default');
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
+    streamCalls.push('legacy-default');
     conversations[0]!.status = 'running';
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
       body: `data: ${JSON.stringify({
         type: 'run.started',
         runId: 'run-primary',
-        conversationId: 'poc-default',
+        conversationId: 'legacy-default',
         kind: 'chat',
         modelId: model.id,
         status: 'running',
@@ -1091,13 +1091,13 @@ test('keeps per-conversation run state while another chat is active', async ({pa
   await page.goto('/');
   await page.getByLabel('Message input').fill('start primary run');
   await page.getByLabel('Message input').press('Enter');
-  await expect.poll(() => streamCalls).toContainEqual('poc-default');
+  await expect.poll(() => streamCalls).toContainEqual('legacy-default');
   await expect(
-    page.getByTestId('conversation-row-poc-default').getByText('running', {exact: true}),
+    page.getByTestId('conversation-row-legacy-default').getByText('running', {exact: true}),
   ).toBeVisible();
   await expect(
     page
-      .getByTestId('conversation-row-poc-default')
+      .getByTestId('conversation-row-legacy-default')
       .getByRole('status', {name: 'Conversation running in progress'}),
   ).toBeVisible();
 
@@ -1106,13 +1106,13 @@ test('keeps per-conversation run state while another chat is active', async ({pa
   await page.getByLabel('Message input').fill('start second run');
   await page.getByLabel('Message input').press('Enter');
 
-  await expect.poll(() => streamCalls).toEqual(['poc-default', 'second-chat']);
+  await expect.poll(() => streamCalls).toEqual(['legacy-default', 'second-chat']);
   await expect(
-    page.getByTestId('conversation-row-poc-default').getByText('running', {exact: true}),
+    page.getByTestId('conversation-row-legacy-default').getByText('running', {exact: true}),
   ).toBeVisible();
   await expect(
     page
-      .getByTestId('conversation-row-poc-default')
+      .getByTestId('conversation-row-legacy-default')
       .getByRole('status', {name: 'Conversation running in progress'}),
   ).toBeVisible();
 });
@@ -1186,7 +1186,7 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
   });
   const chat: Array<{id: string; role: string; content: string; createdAt: string}> = [];
   await mockConversationRoutes(page, {chat});
-  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     const userMessage = {
       id: 'user-1',
       role: 'user',
@@ -1343,7 +1343,7 @@ test('attaches text files and blocks images for text-only models', async ({page}
     });
   });
   await mockConversationRoutes(page, {chat});
-  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     streamCalls += 1;
     requestBody = route.request().postDataJSON() as {
       message?: string;
@@ -1351,7 +1351,7 @@ test('attaches text files and blocks images for text-only models', async ({page}
     };
     const userAttachments = (requestBody.attachments ?? []).map((attachment, index) => ({
       id: `attachment-${index}`,
-      conversationId: 'poc-default',
+      conversationId: 'legacy-default',
       piEntryId: 'user-1',
       uploadId: attachment.id,
       kind: attachment.kind,
@@ -1489,7 +1489,7 @@ test('renders PDFs as image attachments for vision models', async ({page}) => {
     });
   });
   await mockConversationRoutes(page, {chat});
-  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     streamCalls += 1;
     requestBody = route.request().postDataJSON() as {
       message?: string;
@@ -1497,7 +1497,7 @@ test('renders PDFs as image attachments for vision models', async ({page}) => {
     };
     const userAttachments = (requestBody.attachments ?? []).map((attachment, index) => ({
       id: `attachment-${index}`,
-      conversationId: 'poc-default',
+      conversationId: 'legacy-default',
       piEntryId: 'user-1',
       uploadId: attachment.id,
       kind: attachment.kind,
@@ -1670,7 +1670,7 @@ test('regenerates an assistant response from the footer model picker', async ({p
     await route.fulfill({json: {ok: true}});
   });
   await page.route(
-    '**/api/conversations/poc-default/messages/assistant-1/regenerate',
+    '**/api/conversations/legacy-default/messages/assistant-1/regenerate',
     async route => {
       regenerateCalls += 1;
       regenerateModelId = (route.request().postDataJSON() as {modelId?: string}).modelId;
@@ -1755,8 +1755,8 @@ test('duplicates conversations and forks from a user message', async ({page}) =>
     chat,
     conversations: [
       {
-        id: 'poc-default',
-        title: 'POC chat',
+        id: 'legacy-default',
+        title: 'Legacy chat',
         titleSource: 'fallback',
         pinned: false,
         status: 'ready',
@@ -1775,11 +1775,11 @@ test('duplicates conversations and forks from a user message', async ({page}) =>
   await page.goto('/');
   await expect(page.getByText('Use llama.cpp router mode.')).toBeVisible();
 
-  await page.getByRole('button', {name: 'Actions for POC chat'}).click();
+  await page.getByRole('button', {name: 'Actions for Legacy chat'}).click();
   await page.getByRole('menuitem', {name: 'Duplicate'}).click();
 
   await expect.poll(() => cloneCalls).toBe(1);
-  await expect(page.getByRole('button', {name: 'POC chat (copy)', exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Legacy chat (copy)', exact: true})).toBeVisible();
   await expect(page.getByText('Conversation duplicated.')).toBeVisible();
 
   await page.getByRole('button', {name: 'Fork from here'}).click();
@@ -1787,7 +1787,7 @@ test('duplicates conversations and forks from a user message', async ({page}) =>
   await expect.poll(() => forkCalls).toBe(1);
   expect(forkEntryId).toBe('user-1');
   await expect(
-    page.getByRole('button', {name: 'POC chat (copy) (fork)', exact: true}),
+    page.getByRole('button', {name: 'Legacy chat (copy) (fork)', exact: true}),
   ).toBeVisible();
   await expect(page.getByText('Conversation forked.')).toBeVisible();
   await expect(page.getByText('Plan router mode')).toBeVisible();
@@ -1812,7 +1812,7 @@ test('exports and imports conversation archives from the sidebar', async ({page}
     ],
     conversations: [
       {
-        id: 'poc-default',
+        id: 'legacy-default',
         title: 'Exportable chat',
         titleSource: 'fallback',
         pinned: false,
@@ -1904,7 +1904,7 @@ test('updates streamed tool calls and shows expandable input and output', async 
   });
   const chat: Array<{id: string; role: string; content: string; createdAt: string}> = [];
   await mockConversationRoutes(page, {chat});
-  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     const userMessage = {
       id: 'user-1',
       role: 'user',
@@ -2033,7 +2033,7 @@ test('routes compact slash command outside normal chat streaming', async ({page}
       compactCalls += 1;
     },
   });
-  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     streamCalls += 1;
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
@@ -2104,7 +2104,7 @@ test('rejects unsupported slash commands before they reach chat streaming', asyn
     await route.fulfill({json: runtime});
   });
   await mockConversationRoutes(page, {chat: []});
-  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     streamCalls += 1;
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
@@ -2214,7 +2214,7 @@ test('keeps the page frame fixed while only the chat region scrolls', async ({pa
 
 test('virtualizes and collapses the conversation sidebar', async ({page}) => {
   const conversations = Array.from({length: 180}, (_, index) => ({
-    id: index === 0 ? 'poc-default' : `chat-${index}`,
+    id: index === 0 ? 'legacy-default' : `chat-${index}`,
     title: `Chat ${String(index).padStart(3, '0')}`,
     titleSource: 'fallback',
     pinned: index < 3,
@@ -2229,11 +2229,11 @@ test('virtualizes and collapses the conversation sidebar', async ({page}) => {
   await expect(page.getByTestId('conversation-section-pinned')).toBeVisible();
   await expect(page.getByTestId('conversation-section-recent')).toBeVisible();
   await expect(
-    page.getByTestId('conversation-row-poc-default').getByText('running', {exact: true}),
+    page.getByTestId('conversation-row-legacy-default').getByText('running', {exact: true}),
   ).toBeVisible();
   await expect(
     page
-      .getByTestId('conversation-row-poc-default')
+      .getByTestId('conversation-row-legacy-default')
       .getByRole('status', {name: 'Conversation running in progress'}),
   ).toBeVisible();
   await expect
@@ -2272,16 +2272,16 @@ test('deleting the last conversation leaves an empty sidebar', async ({page}) =>
   page.on('dialog', dialog => void dialog.accept());
 
   await page.goto('/');
-  await expect(page.getByTestId('conversation-row-poc-default')).toBeVisible();
+  await expect(page.getByTestId('conversation-row-legacy-default')).toBeVisible();
 
-  await page.getByRole('button', {name: 'Actions for POC chat'}).click();
+  await page.getByRole('button', {name: 'Actions for Legacy chat'}).click();
   await page.getByRole('menuitem', {name: 'Delete'}).click();
 
   // Conversation routes are mocked here, so this covers the client half only:
   // no conversation to send to means an empty sidebar and a blocked composer.
-  // `syncPocConversationFromState` is covered by tests/unit/conversations.test.ts
+  // `syncLegacyDefaultConversationFromState` is covered by tests/unit/conversations.test.ts
   // and by the unmocked test below.
-  await expect(page.getByTestId('conversation-row-poc-default')).toHaveCount(0);
+  await expect(page.getByTestId('conversation-row-legacy-default')).toHaveCount(0);
   await expect(page.getByText('No chats yet')).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('Start a chat before sending a message.');
 });
@@ -2483,7 +2483,7 @@ test('keeps the composer opaque and interactive while a run streams', async ({pa
     });
   });
   await mockConversationRoutes(page, {chat: [], onAbort: () => releaseStream()});
-  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     await streamReleased;
     await route
       .fulfill({headers: {'content-type': 'text/event-stream; charset=utf-8'}, body: ''})
@@ -2559,8 +2559,8 @@ async function mockConversationRoutes(
   const contextByConversation = new Map<string, ReturnType<typeof contextFromChat>>();
   let conversations = input.conversations ?? [
     {
-      id: 'poc-default',
-      title: chat[0]?.content.slice(0, 80) || 'POC chat',
+      id: 'legacy-default',
+      title: chat[0]?.content.slice(0, 80) || 'Legacy chat',
       titleSource: 'fallback',
       pinned: false,
       status: 'ready',
@@ -2576,20 +2576,20 @@ async function mockConversationRoutes(
       await route.fallback();
       return;
     }
-    if (pathname === '/api/conversations/poc-default/abort' && request.method() === 'POST') {
+    if (pathname === '/api/conversations/legacy-default/abort' && request.method() === 'POST') {
       input.onAbort?.();
       await route.fulfill({
         json: {
           ok: true,
           aborted: true,
           warning: input.abortWarning,
-          snapshot: conversationSnapshot('poc-default', chat),
+          snapshot: conversationSnapshot('legacy-default', chat),
         },
       });
       return;
     }
     const runAbortMatch = pathname.match(
-      /^\/api\/conversations\/poc-default\/runs\/([^/]+)\/abort$/,
+      /^\/api\/conversations\/legacy-default\/runs\/([^/]+)\/abort$/,
     );
     if (runAbortMatch && request.method() === 'POST') {
       input.onAbort?.();
@@ -2599,7 +2599,7 @@ async function mockConversationRoutes(
           aborted: true,
           runId: decodeURIComponent(runAbortMatch[1]!),
           warning: input.abortWarning,
-          snapshot: conversationSnapshot('poc-default', chat),
+          snapshot: conversationSnapshot('legacy-default', chat),
         },
       });
       return;
@@ -2625,7 +2625,7 @@ async function mockConversationRoutes(
       return;
     }
     if (
-      pathname === '/api/conversations/poc-default/compact/stream' &&
+      pathname === '/api/conversations/legacy-default/compact/stream' &&
       request.method() === 'POST'
     ) {
       const body = request.postDataJSON() as {instructions?: string} | null;
@@ -2638,12 +2638,12 @@ async function mockConversationRoutes(
         source: 'estimate',
         updatedAt: createdAt,
       };
-      contextByConversation.set('poc-default', compactedContext);
+      contextByConversation.set('legacy-default', compactedContext);
       const events = [
         {
           type: 'run.started',
           runId,
-          conversationId: 'poc-default',
+          conversationId: 'legacy-default',
           kind: 'compact',
           modelId: 'model-1',
           status: 'running',
@@ -2652,27 +2652,27 @@ async function mockConversationRoutes(
         {
           type: 'compact.started',
           runId,
-          conversationId: 'poc-default',
+          conversationId: 'legacy-default',
           instructions: body?.instructions,
           createdAt,
         },
         {
           type: 'context.updated',
-          conversationId: 'poc-default',
+          conversationId: 'legacy-default',
           ...compactedContext,
           createdAt,
         },
         {
           type: 'compact.completed',
           runId,
-          conversationId: 'poc-default',
+          conversationId: 'legacy-default',
           compacted: true,
           createdAt,
         },
         {
           type: 'run.completed',
           runId,
-          conversationId: 'poc-default',
+          conversationId: 'legacy-default',
           status: 'completed',
           createdAt,
         },
@@ -2683,27 +2683,27 @@ async function mockConversationRoutes(
       });
       return;
     }
-    if (pathname === '/api/conversations/poc-default/compact' && request.method() === 'POST') {
+    if (pathname === '/api/conversations/legacy-default/compact' && request.method() === 'POST') {
       const body = request.postDataJSON() as {instructions?: string} | null;
       input.onCompact?.(body?.instructions);
       await route.fulfill({
         json: {
           ok: true,
           compacted: true,
-          snapshot: conversationSnapshot('poc-default', chat),
+          snapshot: conversationSnapshot('legacy-default', chat),
         },
       });
       return;
     }
     if (
-      pathname === '/api/conversations/poc-default/compact/abort' &&
+      pathname === '/api/conversations/legacy-default/compact/abort' &&
       request.method() === 'POST'
     ) {
       await route.fulfill({
         json: {
           ok: true,
           aborted: false,
-          snapshot: conversationSnapshot('poc-default', chat),
+          snapshot: conversationSnapshot('legacy-default', chat),
         },
       });
       return;
@@ -2726,7 +2726,7 @@ async function mockConversationRoutes(
       const source = conversations.find(conversation => conversation.id === sourceConversationId);
       const conversation = {
         id: `${sourceConversationId}-copy`,
-        title: body.title ?? `${source?.title ?? 'POC chat'} (copy)`,
+        title: body.title ?? `${source?.title ?? 'Legacy chat'} (copy)`,
         titleSource: 'fallback',
         pinned: false,
         status: 'ready',
@@ -2751,7 +2751,7 @@ async function mockConversationRoutes(
       chat = entryIndex >= 0 ? chat.slice(0, entryIndex + 1) : chat;
       const conversation = {
         id: `${sourceConversationId}-fork`,
-        title: body.title ?? `${source?.title ?? 'POC chat'} (fork)`,
+        title: body.title ?? `${source?.title ?? 'Legacy chat'} (fork)`,
         titleSource: 'fallback',
         pinned: false,
         status: 'ready',
@@ -2837,7 +2837,7 @@ function conversationSnapshot(
   return {
     conversation: {
       id,
-      title: conversation?.title ?? chat[0]?.content.slice(0, 80) ?? 'POC chat',
+      title: conversation?.title ?? chat[0]?.content.slice(0, 80) ?? 'Legacy chat',
       titleSource: conversation?.titleSource ?? 'fallback',
       pinned: conversation?.pinned ?? false,
       status: conversation?.status ?? 'ready',

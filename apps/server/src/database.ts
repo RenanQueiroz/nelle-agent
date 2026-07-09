@@ -9,7 +9,9 @@ type Migration = {
   version: number;
   name: string;
   checksum: string;
-  sql: string;
+  sql?: string;
+  /** For migrations that need conditional logic plain SQL cannot express. */
+  run?: (db: DatabaseSync) => void;
   isApplied?: (db: DatabaseSync) => boolean;
 };
 
@@ -144,7 +146,72 @@ const MIGRATIONS: Migration[] = [
     `,
     isApplied: db => tableHasColumn(db, 'conversations', 'context_usage_json'),
   },
+  {
+    version: 3,
+    name: 'rename_poc_default_conversation',
+    checksum: '2026-07-09-rename-poc-default-conversation',
+    run: renamePocDefaultConversation,
+    // Nothing to rename on a fresh database, or on one already migrated.
+    isApplied: db => countConversations(db, PREVIOUS_DEFAULT_CONVERSATION_ID) === 0,
+  },
 ];
+
+/** The proof-of-concept default chat was stored under this id. */
+const PREVIOUS_DEFAULT_CONVERSATION_ID = 'poc-default';
+const RENAMED_DEFAULT_CONVERSATION_ID = 'legacy-default';
+
+/**
+ * Renames the default conversation and every table that keys off it.
+ *
+ * `conversation_entry_projection`, `message_attachments` and `tool_audit_events`
+ * declare `FOREIGN KEY (conversation_id) REFERENCES conversations(id)` without
+ * `ON UPDATE CASCADE`, and the connection runs with `PRAGMA foreign_keys = ON`,
+ * so renaming the parent row would orphan its children mid-transaction. Defer
+ * the checks to COMMIT, by which point every child points at the new id.
+ */
+function renamePocDefaultConversation(db: DatabaseSync): void {
+  const from = PREVIOUS_DEFAULT_CONVERSATION_ID;
+  const to = RENAMED_DEFAULT_CONVERSATION_ID;
+  db.exec('PRAGMA defer_foreign_keys = ON');
+
+  db.prepare('UPDATE conversations SET id = ? WHERE id = ?').run(to, from);
+  db.prepare(
+    'UPDATE conversations SET parent_conversation_id = ? WHERE parent_conversation_id = ?',
+  ).run(to, from);
+  db.prepare(
+    "UPDATE conversations SET title = 'Legacy chat' WHERE id = ? AND title = 'POC chat'",
+  ).run(to);
+  for (const table of [
+    'conversation_entry_projection',
+    'message_attachments',
+    'tool_audit_events',
+  ]) {
+    db.prepare(`UPDATE ${table} SET conversation_id = ? WHERE conversation_id = ?`).run(to, from);
+  }
+
+  // The FTS index is created outside the migration runner, so it is absent on a
+  // fresh database -- where there is nothing to rename anyway.
+  if (tableExists(db, 'conversation_search')) {
+    db.prepare('DELETE FROM conversation_search WHERE conversation_id = ?').run(from);
+    const renamed = db.prepare('SELECT title FROM conversations WHERE id = ?').get(to) as
+      | {title: string}
+      | undefined;
+    if (renamed) {
+      db.prepare('INSERT INTO conversation_search(conversation_id, title) VALUES (?, ?)').run(
+        to,
+        renamed.title,
+      );
+    }
+  }
+}
+
+function countConversations(db: DatabaseSync, id: string): number {
+  return (
+    db.prepare('SELECT COUNT(*) AS count FROM conversations WHERE id = ?').get(id) as {
+      count: number;
+    }
+  ).count;
+}
 
 export class AppDatabase {
   #db: DatabaseSync | null = null;
@@ -212,7 +279,10 @@ export class AppDatabase {
       db.exec('BEGIN');
       try {
         if (!migration.isApplied?.(db)) {
-          db.exec(migration.sql);
+          if (migration.sql) {
+            db.exec(migration.sql);
+          }
+          migration.run?.(db);
         }
         insertMigration.run(
           migration.version,

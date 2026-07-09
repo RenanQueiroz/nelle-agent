@@ -153,7 +153,7 @@ export type ChatPerformance = {
   prompt?: ChatPerformanceMetric;
   generation?: ChatPerformanceMetric;
   /**
-   * Legacy generation throughput field. Kept so older persisted POC messages
+   * Legacy generation throughput field. Kept so older persisted messages
    * can still render throughput metadata after the timing shape change.
    */
   tokensPerSecond?: number;

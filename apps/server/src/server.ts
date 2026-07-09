@@ -18,7 +18,7 @@ import {exportConversationArchive, importConversationArchive} from './conversati
 import {HostToolRepository} from './hostTools';
 import {
   ConversationRepository,
-  POC_CONVERSATION_ID,
+  LEGACY_DEFAULT_CONVERSATION_ID,
   type ConversationDeleteResources,
 } from './conversations';
 import type {AppPaths} from './paths';
@@ -115,7 +115,7 @@ export async function createServer(paths: AppPaths) {
   const llama = new LlamaCppManager(paths, store);
   const hf = new HuggingFaceService(store);
   const pi = new PiHarness(paths, store, conversations, hostTools, llama);
-  conversations.syncPocConversationFromState(await store.getState());
+  conversations.syncLegacyDefaultConversationFromState(await store.getState());
   await pi.migrateLegacyDefaultConversation();
   await conversations.markInvalidPiSessionsUnavailable();
   const attachmentSweep = await sweepOrphanAttachmentFiles(
@@ -328,7 +328,7 @@ export async function createServer(paths: AppPaths) {
       });
     }
     await writePresetAndReloadRouter(llama);
-    conversations.syncPocConversationFromState(await store.getState());
+    conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {model, state: await store.getState()};
   });
 
@@ -346,7 +346,7 @@ export async function createServer(paths: AppPaths) {
       });
     }
     await writePresetAndReloadRouter(llama);
-    conversations.syncPocConversationFromState(await store.getState());
+    conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {model, state: await store.getState()};
   });
 
@@ -363,7 +363,7 @@ export async function createServer(paths: AppPaths) {
     }
     await llama.removeModelSection(id);
     await writePresetAndReloadRouter(llama);
-    conversations.syncPocConversationFromState(await store.getState());
+    conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {ok: true, removedModelId: id, state: await store.getState()};
   });
 
@@ -376,13 +376,13 @@ export async function createServer(paths: AppPaths) {
     const body = useHuggingFaceModelSchema.parse(request.body);
     const model = await hf.useHuggingFaceGguf(body);
     await writePresetAndReloadRouter(llama);
-    conversations.syncPocConversationFromState(await store.getState());
+    conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {model};
   });
 
   app.get('/api/conversations', async request => {
     const query = listConversationsQuerySchema.parse(request.query);
-    conversations.syncPocConversationFromState(await store.getState());
+    conversations.syncLegacyDefaultConversationFromState(await store.getState());
     await conversations.markInvalidPiSessionsUnavailable();
     return {conversations: conversations.listConversations(query)};
   });
@@ -522,7 +522,7 @@ export async function createServer(paths: AppPaths) {
       });
     }
     pi.resetSession(id);
-    if (id === POC_CONVERSATION_ID) {
+    if (id === LEGACY_DEFAULT_CONVERSATION_ID) {
       await store.clearChat();
     }
     const cleanup = await deleteConversationResources(paths, resources);
@@ -567,7 +567,7 @@ export async function createServer(paths: AppPaths) {
     pi.resetSession(id);
     conversations.clearConversationProjection(id);
     hostTools.deleteAuditEventsForConversation(id);
-    if (id === POC_CONVERSATION_ID) {
+    if (id === LEGACY_DEFAULT_CONVERSATION_ID) {
       await store.clearChat();
     }
     return {ok: true};
@@ -728,10 +728,10 @@ export async function createServer(paths: AppPaths) {
   });
 
   app.delete('/api/chat/messages', async () => {
-    pi.resetSession(POC_CONVERSATION_ID);
+    pi.resetSession(LEGACY_DEFAULT_CONVERSATION_ID);
     await store.clearChat();
-    hostTools.deleteAuditEventsForConversation(POC_CONVERSATION_ID);
-    conversations.syncPocConversationFromState(await store.getState());
+    hostTools.deleteAuditEventsForConversation(LEGACY_DEFAULT_CONVERSATION_ID);
+    conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {ok: true};
   });
 
@@ -764,7 +764,7 @@ export async function createServer(paths: AppPaths) {
       });
       await writeChatStream(reply.raw, streamResult.stream, id);
       if (streamResult.syncLegacyState) {
-        conversations.syncPocConversationFromState(await store.getState(), {
+        conversations.syncLegacyDefaultConversationFromState(await store.getState(), {
           forceLegacyProjection: true,
         });
       }
@@ -824,13 +824,13 @@ export async function createServer(paths: AppPaths) {
         app,
         store,
         pi,
-        conversationId: POC_CONVERSATION_ID,
+        conversationId: LEGACY_DEFAULT_CONVERSATION_ID,
         message: body.message,
         attachments: body.attachments ?? [],
       });
-      await writeChatStream(reply.raw, streamResult.stream, POC_CONVERSATION_ID);
+      await writeChatStream(reply.raw, streamResult.stream, LEGACY_DEFAULT_CONVERSATION_ID);
       if (streamResult.syncLegacyState) {
-        conversations.syncPocConversationFromState(await store.getState(), {
+        conversations.syncLegacyDefaultConversationFromState(await store.getState(), {
           forceLegacyProjection: true,
         });
       }
@@ -863,8 +863,8 @@ async function createChatStream(input: {
   attachments: ChatAttachmentInput[];
 }): Promise<{stream: AsyncIterable<ChatStreamEvent>; syncLegacyState: boolean}> {
   if (process.env.NELLE_PI_DISABLED === '1') {
-    if (input.conversationId !== POC_CONVERSATION_ID) {
-      throw new Error('Direct llama.cpp fallback only supports the default POC conversation.');
+    if (input.conversationId !== LEGACY_DEFAULT_CONVERSATION_ID) {
+      throw new Error('Direct llama.cpp fallback only supports the default conversation.');
     }
     return {
       stream: await streamDirectLlama(input.store, input.message, input.attachments),
@@ -878,7 +878,7 @@ async function createChatStream(input: {
     };
   } catch (error) {
     input.app.log.warn({err: error}, 'Pi harness failed before streaming');
-    if (input.conversationId !== POC_CONVERSATION_ID) {
+    if (input.conversationId !== LEGACY_DEFAULT_CONVERSATION_ID) {
       throw error;
     }
     return {

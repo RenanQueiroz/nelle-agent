@@ -1,12 +1,12 @@
 # Nelle Server
 
-Local-first server POC for Nelle Agent.
+Local-first MVP server for Nelle Agent.
 
 Nelle Server manages a local `llama.cpp` runtime, runs the Pi agent harness,
 serves a browser-based Astryx/React setup and chat UI, and exposes the API that
 the separate React Native mobile app (`nelle-client`) will consume later.
 
-## Current POC
+## Current MVP
 
 Implemented:
 
@@ -36,14 +36,14 @@ Implemented:
 - Stable llama.cpp/OpenAI model ids for new Hugging Face imports, plus a
   lossless `models.ini` catalog parser/writer that preserves comments and
   unknown keys while updating Nelle-managed fields. New imports, alias edits,
-  duplicates, removals, and free-form params write `models.ini` first; the POC
+  duplicates, removals, and free-form params write `models.ini` first; the app
   `state.json` mirrors that catalog as a compatibility backup.
 - SQLite schema/migration foundation in `.nelle/settings.sqlite`, including
   timestamped database backups under `.nelle/backups/` before applying schema
   migrations or repairing missing migration records. Conversation list/snapshot
   APIs bind each new conversation to a header-only Nelle-owned Pi JSONL session
   file under `.nelle/pi/sessions`, and SQLite stores the UI projection for the
-  active Pi branch. On Pi-enabled startup, any non-empty legacy `poc-default`
+  active Pi branch. On Pi-enabled startup, any non-empty legacy default
   chat still present in `.nelle/state.json` is migrated into a real Pi session
   before session validation; when there is no legacy chat to migrate, no
   placeholder conversation is created, so deleting every conversation leaves an
@@ -135,10 +135,10 @@ Not implemented yet:
   preserved in Pi session files.
 - Host-tool sandboxing and per-tool permission prompts. The current v1 gate is
   acknowledgement plus a global enable/disable switch.
-- Full SQLite app-state persistence. The POC still uses `.nelle/state.json` for
+- Full SQLite app-state persistence. Nelle still uses `.nelle/state.json` for
   runtime settings, catalog backup, and direct-fallback default-conversation
   compatibility, while Pi-enabled startup migrates a non-empty legacy
-  `poc-default` chat into a Pi session. Conversation projections live in
+  legacy default chat into a Pi session. Conversation projections live in
   `.nelle/settings.sqlite` and `models.ini` owns the model catalog. Existing
   SQLite schema migration paths back up `settings.sqlite`, but the broader
   state/Pi/attachment migration runner is still future work.
@@ -276,7 +276,7 @@ llama-server -hf unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 ```
 
 The model file download and cache are handled by `llama.cpp`.
-Nelle does not register local GGUF filesystem paths in the active POC; model
+Nelle does not register local GGUF filesystem paths; model
 selection is currently Hugging Face `hf-repo` only.
 Nelle keeps the exact Hugging Face ref for `hf-repo`, but canonicalizes the
 router section and OpenAI `model` id the same way llama.cpp does. For example,

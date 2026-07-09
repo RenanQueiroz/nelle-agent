@@ -782,13 +782,6 @@ export async function clearChat(): Promise<void> {
   await apiDelete('/api/chat/messages');
 }
 
-export async function streamChat(
-  message: string,
-  onEvent: (event: ChatStreamEvent) => void,
-): Promise<void> {
-  await streamConversationChat('poc-default', message, onEvent);
-}
-
 export async function streamConversationChat(
   conversationId: string,
   message: string,

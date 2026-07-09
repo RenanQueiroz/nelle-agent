@@ -9,7 +9,10 @@ import {SessionManager} from '@earendil-works/pi-coding-agent';
 import {strFromU8, unzipSync} from 'fflate';
 
 import {createAsyncQueue} from '../../apps/server/src/asyncQueue.ts';
-import {ConversationRepository, POC_CONVERSATION_ID} from '../../apps/server/src/conversations.ts';
+import {
+  ConversationRepository,
+  LEGACY_DEFAULT_CONVERSATION_ID,
+} from '../../apps/server/src/conversations.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {HostToolRepository} from '../../apps/server/src/hostTools.ts';
 import {PiHarness} from '../../apps/server/src/piHarness.ts';
@@ -45,12 +48,89 @@ test('SQLite migration creates conversation tables and migration records', async
       [
         [1, 'initial_conversation_schema'],
         [2, 'conversation_context_usage_cache'],
+        [3, 'rename_poc_default_conversation'],
       ],
     );
     assert.equal(table?.name, 'conversations');
     assert.equal(contextColumn, true);
   } finally {
     database.close();
+  }
+});
+
+test('SQLite migration renames poc-default and every table that references it', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  database.close();
+
+  // Rewind to a pre-rename database holding the old id and a child row in each
+  // referencing table, then reopen so the migration runs against real data.
+  const raw = new DatabaseSync(paths.settingsDbPath);
+  try {
+    raw.exec('PRAGMA foreign_keys = ON;');
+    raw.exec('DELETE FROM schema_migrations WHERE version = 3;');
+    raw
+      .prepare(
+        `INSERT INTO conversations(id, title, title_source, pinned, status, created_at, updated_at)
+         VALUES ('poc-default', 'POC chat', 'fallback', 0, 'ready', '2026-07-08T12:00:00.000Z', '2026-07-08T12:00:00.000Z')`,
+      )
+      .run();
+    raw
+      .prepare(
+        `INSERT INTO conversation_entry_projection(conversation_id, pi_entry_id, entry_type, created_at)
+         VALUES ('poc-default', 'entry-1', 'message', '2026-07-08T12:00:00.000Z')`,
+      )
+      .run();
+    raw
+      .prepare(
+        `INSERT INTO message_attachments(id, conversation_id, kind, name, created_at)
+         VALUES ('att-1', 'poc-default', 'text', 'notes.txt', '2026-07-08T12:00:00.000Z')`,
+      )
+      .run();
+    raw
+      .prepare(
+        `INSERT INTO tool_audit_events(id, conversation_id, pi_tool_call_id, tool_name, status, input_json, started_at)
+         VALUES ('audit-1', 'poc-default', 'call-1', 'bash', 'complete', '{}', '2026-07-08T12:00:00.000Z')`,
+      )
+      .run();
+  } finally {
+    raw.close();
+  }
+
+  const migrated = new AppDatabase(paths);
+  const db = await migrated.open();
+  try {
+    const count = (table: string, id: string) =>
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS count FROM ${table} WHERE ${
+              table === 'conversations' ? 'id' : 'conversation_id'
+            } = ?`,
+          )
+          .get(id) as {count: number}
+      ).count;
+
+    assert.equal(count('conversations', 'poc-default'), 0);
+    assert.equal(count('conversations', 'legacy-default'), 1);
+    for (const table of [
+      'conversation_entry_projection',
+      'message_attachments',
+      'tool_audit_events',
+    ]) {
+      assert.equal(count(table, 'poc-default'), 0, `${table} still references poc-default`);
+      assert.equal(count(table, 'legacy-default'), 1, `${table} lost its row`);
+    }
+
+    const renamed = db.prepare("SELECT title FROM conversations WHERE id = 'legacy-default'").get();
+    assert.equal((renamed as {title: string}).title, 'Legacy chat');
+
+    // Foreign keys are enforced; a rename that orphaned children would show here.
+    const violations = db.prepare('PRAGMA foreign_key_check').all();
+    assert.deepEqual(violations, []);
+  } finally {
+    migrated.close();
   }
 });
 
@@ -76,7 +156,7 @@ test('SQLite migration backs up existing databases before repairing migration re
       .all() as Array<{version: number}>;
     assert.deepEqual(
       migrations.map(migration => migration.version),
-      [1, 2],
+      [1, 2, 3],
     );
   } finally {
     repaired.close();
@@ -95,9 +175,11 @@ test('SQLite migration backs up existing databases before repairing migration re
       .all()
       .some(column => (column as {name?: string}).name === 'context_usage_json');
 
+    // The backup captures the database as found: version 2's record is the one
+    // this test deleted, so it is missing while 1 and 3 remain.
     assert.deepEqual(
       backupMigrations.map(migration => migration.version),
-      [1],
+      [1, 3],
     );
     assert.equal(contextColumn, true);
   } finally {
@@ -120,7 +202,7 @@ test('conversation state machine accepts planned transitions and rejects invalid
   );
 });
 
-test('repository mirrors current POC chat into a conversation snapshot', async () => {
+test('repository mirrors the legacy default chat into a conversation snapshot', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
   const database = new AppDatabase(paths);
@@ -145,10 +227,10 @@ test('repository mirrors current POC chat into a conversation snapshot', async (
     });
 
     const repository = new ConversationRepository(database);
-    repository.syncPocConversationFromState(await store.getState());
-    const snapshot = repository.getSnapshot('poc-default', await store.getState());
+    repository.syncLegacyDefaultConversationFromState(await store.getState());
+    const snapshot = repository.getSnapshot('legacy-default', await store.getState());
 
-    assert.equal(snapshot?.conversation.id, 'poc-default');
+    assert.equal(snapshot?.conversation.id, 'legacy-default');
     assert.deepEqual(snapshot?.activePathEntryIds, ['user-1', 'assistant-1']);
     assert.equal(snapshot?.entries[0]?.textPreview, 'Hello Nelle');
     assert.equal(snapshot?.models.available[0]?.id, 'repo/model:Q4_K_M');
@@ -158,7 +240,7 @@ test('repository mirrors current POC chat into a conversation snapshot', async (
   }
 });
 
-test('repository does not recreate the POC conversation after it is deleted', async () => {
+test('repository does not recreate the legacy default conversation after it is deleted', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
   const database = new AppDatabase(paths);
@@ -173,23 +255,23 @@ test('repository does not recreate the POC conversation after it is deleted', as
 
     const repository = new ConversationRepository(database);
     await repository.init();
-    repository.syncPocConversationFromState(await store.getState());
+    repository.syncLegacyDefaultConversationFromState(await store.getState());
     assert.equal(repository.listConversations({}).length, 1);
 
-    assert.equal(repository.hardDeleteConversation(POC_CONVERSATION_ID), true);
+    assert.equal(repository.hardDeleteConversation(LEGACY_DEFAULT_CONVERSATION_ID), true);
     await store.clearChat();
 
     // `GET /api/conversations` syncs before listing; that must not resurrect the
     // conversation the user just deleted.
-    assert.equal(repository.syncPocConversationFromState(await store.getState()), null);
+    assert.equal(repository.syncLegacyDefaultConversationFromState(await store.getState()), null);
     assert.equal(repository.listConversations({}).length, 0);
-    assert.equal(repository.getConversation(POC_CONVERSATION_ID), null);
+    assert.equal(repository.getConversation(LEGACY_DEFAULT_CONVERSATION_ID), null);
   } finally {
     database.close();
   }
 });
 
-test('repository still migrates a non-empty legacy chat into the POC conversation', async () => {
+test('repository still migrates a non-empty legacy chat into the default conversation', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
   const database = new AppDatabase(paths);
@@ -199,7 +281,7 @@ test('repository still migrates a non-empty legacy chat into the POC conversatio
     await repository.init();
 
     // No legacy chat: nothing to show, nothing to create.
-    assert.equal(repository.syncPocConversationFromState(await store.getState()), null);
+    assert.equal(repository.syncLegacyDefaultConversationFromState(await store.getState()), null);
     assert.equal(repository.listConversations({}).length, 0);
 
     await store.appendChatMessage({
@@ -209,8 +291,8 @@ test('repository still migrates a non-empty legacy chat into the POC conversatio
       createdAt: '2026-07-08T12:00:00.000Z',
     });
 
-    const migrated = repository.syncPocConversationFromState(await store.getState());
-    assert.equal(migrated?.id, POC_CONVERSATION_ID);
+    const migrated = repository.syncLegacyDefaultConversationFromState(await store.getState());
+    assert.equal(migrated?.id, LEGACY_DEFAULT_CONVERSATION_ID);
     assert.equal(migrated?.title, 'Legacy prompt');
     assert.equal(repository.listConversations({}).length, 1);
   } finally {
@@ -218,7 +300,7 @@ test('repository still migrates a non-empty legacy chat into the POC conversatio
   }
 });
 
-test('repository does not overwrite Pi-bound POC projection from legacy state', async () => {
+test('repository does not overwrite a Pi-bound legacy projection from state.json', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
   const database = new AppDatabase(paths);
@@ -231,15 +313,15 @@ test('repository does not overwrite Pi-bound POC projection from legacy state', 
       createdAt: '2026-07-08T12:00:00.000Z',
     });
     const repository = new ConversationRepository(database);
-    repository.createConversation({id: POC_CONVERSATION_ID, title: 'Pi default'});
-    repository.attachPiSession(POC_CONVERSATION_ID, {
-      piSessionPath: path.join(paths.piSessionsDir, 'poc.jsonl'),
-      piSessionId: 'pi-poc',
+    repository.createConversation({id: LEGACY_DEFAULT_CONVERSATION_ID, title: 'Pi default'});
+    repository.attachPiSession(LEGACY_DEFAULT_CONVERSATION_ID, {
+      piSessionPath: path.join(paths.piSessionsDir, 'legacy.jsonl'),
+      piSessionId: 'pi-legacy',
       activeLeafPiEntryId: 'pi-user',
     });
-    repository.replaceConversationProjection(POC_CONVERSATION_ID, {
-      piSessionPath: path.join(paths.piSessionsDir, 'poc.jsonl'),
-      piSessionId: 'pi-poc',
+    repository.replaceConversationProjection(LEGACY_DEFAULT_CONVERSATION_ID, {
+      piSessionPath: path.join(paths.piSessionsDir, 'legacy.jsonl'),
+      piSessionId: 'pi-legacy',
       activeLeafPiEntryId: 'pi-user',
       lastSyncedPiEntryId: 'pi-user',
       entries: [
@@ -253,10 +335,10 @@ test('repository does not overwrite Pi-bound POC projection from legacy state', 
       ],
     });
 
-    repository.syncPocConversationFromState(await store.getState());
-    const snapshot = repository.getSnapshot(POC_CONVERSATION_ID, await store.getState());
+    repository.syncLegacyDefaultConversationFromState(await store.getState());
+    const snapshot = repository.getSnapshot(LEGACY_DEFAULT_CONVERSATION_ID, await store.getState());
 
-    assert.equal(snapshot?.conversation.piSessionId, 'pi-poc');
+    assert.equal(snapshot?.conversation.piSessionId, 'pi-legacy');
     assert.equal(snapshot?.entries[0]?.piEntryId, 'pi-user');
     assert.equal(snapshot?.entries[0]?.textPreview, 'Pi prompt');
   } finally {
@@ -1875,11 +1957,11 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
     const listed = listResponse.json<{
       conversations: Array<{id: string; title: string}>;
     }>();
-    assert.equal(listed.conversations[0]?.id, 'poc-default');
+    assert.equal(listed.conversations[0]?.id, 'legacy-default');
 
     const snapshotResponse = await app.inject({
       method: 'GET',
-      url: '/api/conversations/poc-default',
+      url: '/api/conversations/legacy-default',
     });
     assert.equal(snapshotResponse.statusCode, 200);
     const defaultSnapshot = snapshotResponse.json<{

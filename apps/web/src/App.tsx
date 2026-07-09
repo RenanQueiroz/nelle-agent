@@ -292,7 +292,10 @@ export function App() {
   const [modelPropsById, setModelPropsById] = useState<Record<string, ModelPropsEntry>>({});
   const [favoriteModelIds, setFavoriteModelIds] = useState<string[]>(readFavoriteModelIds);
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState('poc-default');
+  const [activeConversationId, setActiveConversationId] = useState('');
+  // "Not fetched yet" is not the same as "there are none". Until the list
+  // arrives, the composer must not claim there is nothing to send to.
+  const [hasLoadedConversations, setHasLoadedConversations] = useState(false);
   const [messages, setMessages] = useState<ApiChatMessage[]>([]);
   const [commandRows, setCommandRows] = useState<CommandStatusRow[]>([]);
   const [contextUsage, setContextUsage] = useState<ConversationContextUsage>({});
@@ -441,8 +444,9 @@ export function App() {
           return;
         }
         setConversations(list);
-        const conversationId = list.find(conversation => conversation.id === 'poc-default')?.id;
-        const nextConversationId = conversationId ?? list[0]?.id ?? '';
+        setHasLoadedConversations(true);
+        // The server orders pinned first, then most recently updated.
+        const nextConversationId = list[0]?.id ?? '';
         setActiveConversationId(nextConversationId);
         if (!nextConversationId) {
           setMessages([]);
@@ -608,6 +612,7 @@ export function App() {
     try {
       const list = await getConversations();
       setConversations(list);
+      setHasLoadedConversations(true);
       // Falls back to '' when every conversation was deleted; nothing is bound
       // to a conversation id the server no longer knows about.
       const nextConversationId =
@@ -1641,7 +1646,7 @@ export function App() {
                       activeModelIsFavorite={activeModelIsFavorite}
                       activeComposerRouterStatus={activeComposerRouterStatus}
                       isRuntimeRunning={runtime?.running === true}
-                      hasActiveConversation={activeConversationId !== ''}
+                      hasActiveConversation={!hasLoadedConversations || activeConversationId !== ''}
                       contextUsage={displayedContextUsage}
                       isStreaming={isStreaming}
                       isCompacting={isCompacting}

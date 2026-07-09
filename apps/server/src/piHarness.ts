@@ -22,7 +22,7 @@ import {createErrorEvent} from './errors';
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
 import {
-  POC_CONVERSATION_ID,
+  LEGACY_DEFAULT_CONVERSATION_ID,
   type ConversationRepository,
   type SyncConversationEntry,
 } from './conversations';
@@ -150,8 +150,11 @@ export class PiHarness {
       return;
     }
     const state = await this.store.getState();
-    const existing = this.conversations.syncPocConversationFromState(state);
-    if (state.chat.length === 0 || this.conversations.getPiSessionBinding(POC_CONVERSATION_ID)) {
+    const existing = this.conversations.syncLegacyDefaultConversationFromState(state);
+    if (
+      state.chat.length === 0 ||
+      this.conversations.getPiSessionBinding(LEGACY_DEFAULT_CONVERSATION_ID)
+    ) {
       return;
     }
     if (!existing) {
@@ -189,7 +192,7 @@ export class PiHarness {
       previousEntryId = piEntryId;
     }
     await ensureSessionFile(sessionFile, sessionManager);
-    this.conversations.replaceConversationProjection(POC_CONVERSATION_ID, {
+    this.conversations.replaceConversationProjection(LEGACY_DEFAULT_CONVERSATION_ID, {
       piSessionPath: sessionFile,
       piSessionId: sessionManager.getSessionId(),
       activeLeafPiEntryId: sessionManager.getLeafId(),
@@ -200,8 +203,8 @@ export class PiHarness {
   }
 
   async getConversationSnapshot(conversationId: string): Promise<ConversationSnapshot | null> {
-    if (conversationId === POC_CONVERSATION_ID) {
-      this.conversations.syncPocConversationFromState(await this.store.getState());
+    if (conversationId === LEGACY_DEFAULT_CONVERSATION_ID) {
+      this.conversations.syncLegacyDefaultConversationFromState(await this.store.getState());
     }
     const row = this.conversations.getConversation(conversationId);
     if (!row) {
@@ -429,7 +432,7 @@ export class PiHarness {
 
   async streamPrompt(
     prompt: string,
-    conversationId = 'poc-default',
+    conversationId = 'legacy-default',
     attachments: ChatAttachmentInput[] = [],
   ): Promise<AsyncIterable<ChatStreamEvent>> {
     const activeModel = await this.store.getActiveModel();
@@ -469,7 +472,7 @@ export class PiHarness {
       toolCalls: [],
     };
 
-    if (conversationId === 'poc-default') {
+    if (conversationId === 'legacy-default') {
       await this.store.appendChatMessage(userMessage);
     }
     queue.push(createRunStartedEvent(run));
@@ -786,7 +789,7 @@ export class PiHarness {
           );
         }
       }
-      if (conversationId === 'poc-default' && options.appendLegacyState !== false) {
+      if (conversationId === 'legacy-default' && options.appendLegacyState !== false) {
         await this.store.appendChatMessage(assistantMessage);
       }
       const syncedEntries = this.syncPiConversation(
@@ -955,7 +958,7 @@ export class PiHarness {
             ? 'You may use host file and shell tools when needed.'
             : 'Host file and shell tools are disabled in Nelle settings.',
           toolsEnabled
-            ? 'This POC runs unsandboxed as the launching OS user, so be careful and explain destructive operations before running them.'
+            ? 'Nelle runs host tools unsandboxed as the launching OS user, so be careful and explain destructive operations before running them.'
             : 'Do not claim that you can inspect files or run shell commands unless host tools are enabled.',
         ].join('\n'),
     });

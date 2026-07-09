@@ -853,7 +853,7 @@ export class LlamaCppManager {
 
   private async getLatestRelease(): Promise<GithubRelease> {
     const response = await fetch(`https://api.github.com/repos/${LLAMA_REPO}/releases/latest`, {
-      headers: {'user-agent': 'nelle-server-poc'},
+      headers: {'user-agent': 'nelle-server'},
     });
     if (!response.ok) {
       throw new Error(`GitHub release lookup failed: ${response.status}`);
