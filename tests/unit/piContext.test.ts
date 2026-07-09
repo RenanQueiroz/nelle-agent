@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {performanceFromLlamaTimings} from '../../apps/server/src/llamaThroughput.ts';
+import {
+  performanceFromLlamaTimings,
+  sanitizeStoredPerformance,
+} from '../../apps/server/src/llamaThroughput.ts';
 import {
   availableReplyTokens,
   isReplyBudgetExhausted,
@@ -58,6 +61,42 @@ test('a one token burst reports no throughput instead of 1,000,000 t/s', () => {
   assert.equal(performance?.tokensPerSecond, undefined);
   // The prompt burst is long enough to time, and the rate is derived, not copied.
   assert.ok(Math.abs((performance?.prompt?.tokensPerSecond ?? 0) - 231.79) < 1);
+});
+
+test('stored 1,000,000 t/s rates are stripped when a conversation is reopened', () => {
+  const stored = {
+    source: 'llamacpp-timings',
+    prompt: {tokens: 4238, milliseconds: 18_283.784, tokensPerSecond: 231.79},
+    generation: {tokens: 1, milliseconds: 0.001, tokensPerSecond: 1_000_000},
+    tokensPerSecond: 1_000_000,
+    generatedTokens: 1,
+  };
+
+  const sanitized = sanitizeStoredPerformance(stored) as typeof stored;
+
+  assert.equal(sanitized.generation.tokensPerSecond, undefined);
+  assert.equal(sanitized.tokensPerSecond, undefined);
+  // Token counts and durations are a faithful record; only the rate was wrong.
+  assert.equal(sanitized.generation.tokens, 1);
+  assert.equal(sanitized.generation.milliseconds, 0.001);
+  assert.equal(sanitized.prompt.tokensPerSecond, 231.79);
+});
+
+test('sanitizing performance leaves measurable rates untouched', () => {
+  const stored = {
+    source: 'llamacpp-timings',
+    prompt: {tokens: 4337, milliseconds: 10_897.889, tokensPerSecond: 397.97},
+    generation: {tokens: 29, milliseconds: 850.407, tokensPerSecond: 34.1},
+    tokensPerSecond: 34.1,
+  };
+
+  assert.deepEqual(sanitizeStoredPerformance(stored), stored);
+  assert.equal(sanitizeStoredPerformance(undefined), undefined);
+  assert.equal(sanitizeStoredPerformance(null), null);
+
+  // A metric that never recorded a duration cannot be judged, so keep its rate.
+  const withoutDuration = {generation: {tokens: 3, tokensPerSecond: 12}};
+  assert.deepEqual(sanitizeStoredPerformance(withoutDuration), withoutDuration);
 });
 
 test('throughput is derived from tokens and milliseconds, not the upstream rate', () => {

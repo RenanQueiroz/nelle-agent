@@ -17,6 +17,7 @@ import {
 } from '../../../packages/shared/src/conversations.ts';
 import type {ChatAttachmentKind} from '../../../packages/shared/src/contracts.ts';
 import type {AppDatabase} from './database';
+import {sanitizeStoredPerformance} from './llamaThroughput';
 import type {AppState, ChatMessage, ConfiguredModel} from './types';
 
 export const POC_CONVERSATION_ID = 'poc-default';
@@ -1083,7 +1084,7 @@ export class ConversationRepository {
       modelId: row.model_id ?? undefined,
       modelRuntimeId: row.model_runtime_id ?? undefined,
       modelAliasSnapshot: row.model_alias_snapshot ?? undefined,
-      performance: parseJson(row.performance_json),
+      performance: sanitizeStoredPerformance(parseJson(row.performance_json)),
       toolCalls: parseJson(row.tool_calls_json),
       attachmentSummary: parseJson(row.attachment_summary_json),
       regeneratesPiEntryId: row.regenerates_pi_entry_id ?? undefined,

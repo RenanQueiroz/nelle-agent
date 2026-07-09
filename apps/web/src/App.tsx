@@ -2108,8 +2108,12 @@ function PerformanceStatistics({performance}: {performance: ChatPerformance}) {
   const generationMetric = getGenerationMetric(performance);
   const hasPrompt = hasPerformanceMetric(promptMetric);
   const hasGeneration = hasPerformanceMetric(generationMetric);
+  // Generation speed is what a reader cares about, so prefer it whenever it
+  // exists. A message restored from a snapshot always has it; a streaming
+  // message only gains it once the prompt has been processed, and until then
+  // Reading is the only metric with anything to report.
   const [view, setView] = useState<StatisticsView>(() =>
-    hasGeneration && !hasPrompt ? 'generation' : 'reading',
+    hasGeneration ? 'generation' : 'reading',
   );
   const sawGeneration = useRef(hasGeneration);
 

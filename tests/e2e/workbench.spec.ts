@@ -1252,22 +1252,25 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
   await expect(page.getByText('Response copied.')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Reading (prompt processing)'})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Generation (token output)'})).toBeVisible();
-  await expect(page.getByText('44 tokens')).toBeVisible();
-  await expect(page.getByText('1.36s')).toBeVisible();
-  await expect(page.getByText('32.30 t/s')).toBeVisible();
-  await page.getByTestId('composer-context-progress').hover();
-  await expect(page.getByText('Context: 134 / 8,192 tokens')).toBeVisible();
 
-  await page.getByText('32.30 t/s').hover();
-  await expect(page.getByText('Prompt processing speed')).toBeVisible();
-
-  await page.getByRole('button', {name: 'Generation (token output)'}).click();
+  // Generation is the default view whenever the message has generation metrics.
   await expect(page.getByText('6 tokens')).toBeVisible();
   await expect(page.getByText('279ms')).toBeVisible();
   await expect(page.getByText('21.53 t/s')).toBeVisible();
 
   await page.getByText('21.53 t/s').hover();
   await expect(page.getByText('Generation speed')).toBeVisible();
+
+  await page.getByTestId('composer-context-progress').hover();
+  await expect(page.getByText('Context: 134 / 8,192 tokens')).toBeVisible();
+
+  await page.getByRole('button', {name: 'Reading (prompt processing)'}).click();
+  await expect(page.getByText('44 tokens')).toBeVisible();
+  await expect(page.getByText('1.36s')).toBeVisible();
+  await expect(page.getByText('32.30 t/s')).toBeVisible();
+
+  await page.getByText('32.30 t/s').hover();
+  await expect(page.getByText('Prompt processing speed')).toBeVisible();
 });
 
 test('attaches text files and blocks images for text-only models', async ({page}) => {

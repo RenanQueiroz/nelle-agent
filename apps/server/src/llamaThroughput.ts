@@ -291,6 +291,40 @@ function promptMetricFromSlot(
  */
 const MIN_MEASURABLE_MILLISECONDS = 1;
 
+/**
+ * Strips throughput rates that were persisted before the derivation above
+ * existed, so old conversations stop reporting "1000000.00 t/s". The token
+ * counts and elapsed times are real; only the rate was nonsense.
+ */
+export function sanitizeStoredPerformance(performance: unknown): unknown {
+  if (!performance || typeof performance !== 'object') {
+    return performance;
+  }
+  const data = {...(performance as Record<string, unknown>)};
+  let generationRate: number | undefined;
+  for (const key of ['prompt', 'generation'] as const) {
+    const metric = data[key];
+    if (!metric || typeof metric !== 'object') {
+      continue;
+    }
+    const next = {...(metric as Record<string, unknown>)};
+    const milliseconds = numberOrNull(next.milliseconds);
+    // Only a recorded sub-millisecond duration is the bug signature. A metric
+    // that never carried a duration cannot be judged, so leave its rate alone.
+    if (milliseconds != null && milliseconds < MIN_MEASURABLE_MILLISECONDS) {
+      delete next.tokensPerSecond;
+    }
+    if (key === 'generation') {
+      generationRate = numberOrNull(next.tokensPerSecond) ?? undefined;
+    }
+    data[key] = next;
+  }
+  if ('tokensPerSecond' in data) {
+    data.tokensPerSecond = generationRate;
+  }
+  return data;
+}
+
 function metricFromTimingFields(input: {
   tokens: unknown;
   milliseconds?: unknown;
