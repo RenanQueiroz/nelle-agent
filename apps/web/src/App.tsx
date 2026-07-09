@@ -1981,7 +1981,14 @@ function RenderedMessage({
         variant={message.role === 'assistant' ? 'ghost' : undefined}
         metadata={
           <ChatMessageMetadata
-            timestamp={<Timestamp value={message.createdAt} format="time" />}
+            // Assistant footers carry the timestamp in their own first row.
+            // ChatMessageMetadata centers its slots on a single flex line, which
+            // would strand the timestamp beside a two-row footer.
+            timestamp={
+              message.role === 'assistant' ? undefined : (
+                <Timestamp value={message.createdAt} format="time" />
+              )
+            }
             footer={renderMessageFooter({
               message,
               models,
@@ -2046,9 +2053,9 @@ function renderMessageFooter(input: {
     return undefined;
   }
 
-  return (
-    <HStack gap={1} vAlign="center" wrap="wrap">
-      {canForkFromMessage && (
+  if (message.role !== 'assistant') {
+    return canForkFromMessage ? (
+      <HStack gap={1} vAlign="center" wrap="wrap">
         <IconButton
           label="Fork from here"
           tooltip="Fork from here"
@@ -2058,8 +2065,16 @@ function renderMessageFooter(input: {
           isDisabled={isActionDisabled}
           onClick={() => void onFork(message)}
         />
-      )}
-      {message.role === 'assistant' && (
+      </HStack>
+    ) : undefined;
+  }
+
+  // Two rows, as llama.cpp's own UI does: provenance and statistics on top,
+  // actions underneath. Packing all of it onto one line left no breathing room.
+  return (
+    <VStack gap={1} className="nelle-message-footer">
+      <HStack gap={1} vAlign="center" wrap="wrap">
+        <Timestamp value={message.createdAt} format="time" />
         <DropdownMenu
           button={{
             label: `Regenerate model: ${modelLabel ?? 'Unknown model'}`,
@@ -2073,31 +2088,29 @@ function renderMessageFooter(input: {
             isDisabled: isActionDisabled,
           }))}
         />
-      )}
-      {hasPerformance && <PerformanceStatistics performance={message.performance!} />}
-      {message.role === 'assistant' && (
-        <>
-          {message.variantLabel && <Token size="sm" color="blue" label={message.variantLabel} />}
-          <IconButton
-            label="Regenerate response"
-            tooltip="Regenerate response"
-            size="sm"
-            variant="ghost"
-            icon={<Icon icon={ArrowPathIcon} size="sm" />}
-            isDisabled={isActionDisabled}
-            onClick={() => void onRegenerate(message, message.modelId)}
-          />
-          <IconButton
-            label="Copy response"
-            tooltip="Copy response"
-            size="sm"
-            variant="ghost"
-            icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
-            onClick={() => void onCopy(message)}
-          />
-        </>
-      )}
-    </HStack>
+        {message.variantLabel && <Token size="sm" color="blue" label={message.variantLabel} />}
+        {hasPerformance && <PerformanceStatistics performance={message.performance!} />}
+      </HStack>
+      <HStack gap={0.5} vAlign="center" wrap="wrap">
+        <IconButton
+          label="Regenerate response"
+          tooltip="Regenerate response"
+          size="sm"
+          variant="ghost"
+          icon={<Icon icon={ArrowPathIcon} size="sm" />}
+          isDisabled={isActionDisabled}
+          onClick={() => void onRegenerate(message, message.modelId)}
+        />
+        <IconButton
+          label="Copy response"
+          tooltip="Copy response"
+          size="sm"
+          variant="ghost"
+          icon={<Icon icon={ClipboardDocumentIcon} size="sm" />}
+          onClick={() => void onCopy(message)}
+        />
+      </HStack>
+    </VStack>
   );
 }
 
