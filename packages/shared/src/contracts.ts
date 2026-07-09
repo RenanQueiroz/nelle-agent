@@ -31,6 +31,13 @@ export type NelleWarning = z.infer<typeof nelleWarningSchema>;
  * User-facing text comes from `message`; clients branch on `code`. Keeping the
  * set in one place is the only way a second client can know what it may see.
  */
+/** `PATCH /api/settings/preferences`. Preferences that follow the user. */
+export const preferencesSchema = z.object({
+  favoriteModelIds: z.array(z.string().min(1)).max(200).optional(),
+});
+
+export type PreferencesInput = z.infer<typeof preferencesSchema>;
+
 export const NELLE_ERROR_CODES = {
   // Conversation and session lifecycle.
   conversationBusy: 'conversation_busy',

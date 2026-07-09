@@ -20,6 +20,7 @@ import {AppStore} from './store';
 import {AppDatabase} from './database';
 import {exportConversationArchive, importConversationArchive} from './conversationArchive';
 import {HostToolRepository} from './hostTools';
+import {PreferencesRepository} from './preferences';
 import {ModelCacheRepository} from './modelCache';
 import {
   ConversationRepository,
@@ -32,6 +33,7 @@ import type {NelleError} from '../../../packages/shared/src/contracts.ts';
 import {
   chatRequestSchema,
   createEventEnvelope,
+  preferencesSchema,
   serializeSseEnvelope,
   NELLE_ERROR_CODES,
 } from '../../../packages/shared/src/contracts.ts';
@@ -128,6 +130,7 @@ export async function createServer(paths: AppPaths) {
   const conversations = new ConversationRepository(database);
   await conversations.init();
   const hostTools = new HostToolRepository(database);
+  const preferences = new PreferencesRepository(database);
   const modelCache = new ModelCacheRepository(database);
   const llama = new LlamaCppManager(paths, store);
   const hf = new HuggingFaceService(store);
@@ -199,6 +202,20 @@ export async function createServer(paths: AppPaths) {
   app.get('/api/settings/host-tools', async () => ({
     hostTools: hostTools.getSettings(),
   }));
+
+  // Favorites follow the user, not the browser profile that set them.
+  app.get('/api/settings/preferences', async () => {
+    const state = await store.getState();
+    return preferences.getPreferences(state.models.map(model => model.id));
+  });
+
+  app.patch('/api/settings/preferences', async request => {
+    const body = preferencesSchema.parse(request.body);
+    const saved = preferences.updatePreferences(body);
+    const state = await store.getState();
+    const known = new Set(state.models.map(model => model.id));
+    return {favoriteModelIds: saved.favoriteModelIds.filter(id => known.has(id))};
+  });
 
   app.patch('/api/settings/reasoning', async request => {
     const body = reasoningSettingsSchema.parse(request.body);

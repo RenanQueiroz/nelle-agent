@@ -1054,3 +1054,25 @@ export async function fetchSlashCommands(): Promise<SlashCommandRegistry> {
   }
   return (await response.json()) as SlashCommandRegistry;
 }
+
+export async function fetchPreferences(): Promise<{favoriteModelIds: string[]}> {
+  const response = await fetch('/api/settings/preferences');
+  if (!response.ok) {
+    throw new Error(`Preferences request failed: ${response.status}`);
+  }
+  return (await response.json()) as {favoriteModelIds: string[]};
+}
+
+export async function updatePreferences(input: {
+  favoriteModelIds: string[];
+}): Promise<{favoriteModelIds: string[]}> {
+  const response = await fetch('/api/settings/preferences', {
+    method: 'PATCH',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error(`Preferences update failed: ${response.status}`);
+  }
+  return (await response.json()) as {favoriteModelIds: string[]};
+}

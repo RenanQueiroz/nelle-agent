@@ -252,6 +252,13 @@ Project-specific guidance for AI coding agents.
   presentation helpers under `apps/web/src/utils/`.
 - Use Zustand for cross-cutting browser UI state, with narrow selectors so
   unrelated UI does not rerender when a slice changes.
+- Preferences that should follow the user live in the `settings` table under the
+  `preferences` key and are served by `GET`/`PATCH /api/settings/preferences`.
+  Favorite model ids are the first of them; do not put them back in
+  `localStorage`. A favorite for a model missing from `models.ini` is filtered
+  from the response, never deleted from storage. Genuinely client-local state --
+  sidebar collapse, open settings section, search text, drafts -- stays in the
+  browser stores.
 - Settings dialog draft state, search results, runtime input fields, and log
   visibility/output live in `apps/web/src/stores/settingsStore.ts`. Do not move
   modal draft fields back into `App.tsx`.

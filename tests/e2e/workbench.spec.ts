@@ -355,6 +355,14 @@ test('loads an unloaded router model from the composer selector', async ({page})
     await route.fulfill({json: {ok: true}});
   });
   await mockConversationRoutes(page, {chat: []});
+  let savedFavorites: string[] = [];
+  await page.route('**/api/settings/preferences', async route => {
+    if (route.request().method() === 'PATCH') {
+      savedFavorites = (route.request().postDataJSON() as {favoriteModelIds: string[]})
+        .favoriteModelIds;
+    }
+    await route.fulfill({json: {favoriteModelIds: savedFavorites}});
+  });
 
   await page.goto('/');
 
@@ -364,9 +372,8 @@ test('loads an unloaded router model from the composer selector', async ({page})
 
   await page.getByRole('button', {name: 'Favorite model'}).click();
   await expect(page.getByRole('button', {name: 'Unfavorite model'})).toBeVisible();
-  await expect
-    .poll(() => page.evaluate(() => window.localStorage.getItem('nelle.favoriteModelIds')))
-    .toContain(modelA.id);
+  // Favorites are stored on the server, so they follow the user to another client.
+  await expect.poll(() => savedFavorites).toEqual([modelA.id]);
 
   await composerModelButton.click();
   await expect(page.getByText('Favorites')).toBeVisible();
@@ -2097,6 +2104,80 @@ test('routes compact slash command outside normal chat streaming', async ({page}
   await expect(page.getByText('Conversation compacted.')).toBeVisible();
   await page.getByTestId('composer-context-progress').hover();
   await expect(page.getByText('Context: 73 / 8,192 tokens')).toBeVisible();
+});
+
+test('favorites starred in the browser are handed to the server once', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'Model One',
+    presetName: 'model-one',
+    source: 'huggingface',
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  const patched: Array<string[]> = [];
+  // The server has nothing yet; the browser is the only place these exist.
+  let stored: string[] = [];
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {state: {activeModelId: model.id, models: [model], chat: []}, runtime},
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await mockConversationRoutes(page, {chat: []});
+  await page.route('**/api/settings/preferences', async route => {
+    if (route.request().method() === 'PATCH') {
+      const body = route.request().postDataJSON() as {favoriteModelIds: string[]};
+      patched.push(body.favoriteModelIds);
+      stored = body.favoriteModelIds;
+    }
+    await route.fulfill({json: {favoriteModelIds: stored}});
+  });
+
+  await page.goto('/');
+  // Nothing to hand over, so nothing is written.
+  await expect(page.getByRole('button', {name: 'Favorite model'})).toBeVisible();
+  expect(patched).toHaveLength(0);
+
+  // A browser that starred a model before favorites moved to the server.
+  await page.evaluate(() => {
+    window.localStorage.setItem('nelle.favoriteModelIds', JSON.stringify(['model-1']));
+  });
+  await page.reload();
+
+  await expect.poll(() => patched).toEqual([['model-1']]);
+  // The local copy is surrendered, so the next load does not re-upload it and a
+  // favorite removed on another client cannot come back from this browser.
+  await expect
+    .poll(() => page.evaluate(() => window.localStorage.getItem('nelle.favoriteModelIds')))
+    .toBe(null);
+
+  await page.reload();
+  await expect(page.getByRole('button', {name: 'Unfavorite model'})).toBeVisible();
+  expect(patched).toHaveLength(1);
 });
 
 test('rejects unsupported slash commands before they reach chat streaming', async ({page}) => {

@@ -104,6 +104,8 @@ import {
   type ReasoningLevel,
   type RuntimeStatus,
   fetchSlashCommands,
+  fetchPreferences,
+  updatePreferences,
 } from './api';
 import {ChatComposerPanel} from './components/chat/ChatComposerPanel';
 import {ThinkingBlock} from './components/chat/ThinkingBlock';
@@ -316,7 +318,7 @@ export function App() {
   const [routerProps, setRouterProps] = useState<LlamaRouterProps | null>(null);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [modelPropsById, setModelPropsById] = useState<Record<string, ModelPropsEntry>>({});
-  const [favoriteModelIds, setFavoriteModelIds] = useState<string[]>(readFavoriteModelIds);
+  const [favoriteModelIds, setFavoriteModelIds] = useState<string[]>([]);
   const [activeConversationId, setActiveConversationId] = useState('');
   const [capabilities, setCapabilities] = useState<ConversationSnapshot['capabilities'] | null>(
     null,
@@ -390,6 +392,33 @@ export function App() {
         }
       } catch {
         // The bundled registry stands in until the server can be reached.
+      }
+    })();
+  }, []);
+
+  // Favorites live on the server so they follow the user to another client. A
+  // browser that starred models before this existed hands them over once.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const stored = await fetchPreferences();
+        const orphaned = readLegacyFavoriteModelIds();
+        const merged =
+          orphaned.length > 0
+            ? (
+                await updatePreferences({
+                  favoriteModelIds: [...new Set([...stored.favoriteModelIds, ...orphaned])],
+                })
+              ).favoriteModelIds
+            : stored.favoriteModelIds;
+        if (orphaned.length > 0) {
+          clearLegacyFavoriteModelIds();
+        }
+        if (isMountedRef.current) {
+          setFavoriteModelIds(merged);
+        }
+      } catch {
+        // Favorites only reorder the model selector; chat works without them.
       }
     })();
   }, []);
@@ -639,20 +668,6 @@ export function App() {
       }
     })();
   }, [modelPropsById, models, routerModelsByConfiguredId, runtime?.running]);
-
-  useEffect(() => {
-    if (models.length === 0) {
-      return;
-    }
-    const configuredModelIds = new Set(models.map(model => model.id));
-    setFavoriteModelIds(prev => {
-      const next = prev.filter(modelId => configuredModelIds.has(modelId));
-      if (next.length !== prev.length) {
-        writeFavoriteModelIds(next);
-      }
-      return next;
-    });
-  }, [models]);
 
   /**
    * Refreshing must never overwrite a settings draft: a save triggers a refresh,
@@ -1038,13 +1053,24 @@ export function App() {
     if (!activeModelId) {
       return;
     }
-    setFavoriteModelIds(prev => {
-      const next = prev.includes(activeModelId)
-        ? prev.filter(modelId => modelId !== activeModelId)
-        : [activeModelId, ...prev];
-      writeFavoriteModelIds(next);
-      return next;
-    });
+    const previous = favoriteModelIds;
+    const next = previous.includes(activeModelId)
+      ? previous.filter(modelId => modelId !== activeModelId)
+      : [activeModelId, ...previous];
+    setFavoriteModelIds(next);
+    void (async () => {
+      try {
+        const saved = await updatePreferences({favoriteModelIds: next});
+        if (isMountedRef.current) {
+          setFavoriteModelIds(saved.favoriteModelIds);
+        }
+      } catch {
+        // The star is a lie if the server never stored it.
+        if (isMountedRef.current) {
+          setFavoriteModelIds(previous);
+        }
+      }
+    })();
   }
 
   function handleArchivePickerChange(event: ChangeEvent<HTMLInputElement>) {
@@ -2621,7 +2647,8 @@ function createCompactCommandRow(conversationId: string, instructions: string): 
   };
 }
 
-function readFavoriteModelIds(): string[] {
+/** Favorites starred before they moved to the server. Read once, then dropped. */
+function readLegacyFavoriteModelIds(): string[] {
   if (typeof window === 'undefined') {
     return [];
   }
@@ -2637,14 +2664,11 @@ function readFavoriteModelIds(): string[] {
   }
 }
 
-function writeFavoriteModelIds(modelIds: string[]): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
+function clearLegacyFavoriteModelIds(): void {
   try {
-    window.localStorage.setItem(FAVORITE_MODEL_IDS_STORAGE_KEY, JSON.stringify(modelIds));
+    window.localStorage.removeItem(FAVORITE_MODEL_IDS_STORAGE_KEY);
   } catch {
-    // Favorites only affect composer ordering; chat should keep working if storage is blocked.
+    // Storage may be blocked. The favorites are already on the server.
   }
 }
 

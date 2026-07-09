@@ -411,13 +411,16 @@ Client keeps: the typeahead widget, and the local interception that routes
 
 ## Phase 6: Preferences Follow The User
 
-Favorite model ids move from `localStorage` to the `settings` table, which
-already has the right key/value shape and holds only `hostTools` today.
+**Status: done.**
 
-```http
-GET   /api/settings/preferences  -> {favoriteModelIds: string[]}
-PATCH /api/settings/preferences
-```
+Favorite model ids moved from `localStorage` to the `settings` table under a
+`preferences` key, served by `GET`/`PATCH /api/settings/preferences`.
+
+A favorite whose model has left `models.ini` is filtered out of the response but
+not deleted from storage, so a model that comes back brings its star with it. A
+browser that starred models before this existed hands them over on first load and
+then drops its local copy, so a favorite removed on another client cannot be
+resurrected by an old browser profile.
 
 Everything else in `settingsStore` and `uiStore` is genuinely client-local:
 sidebar collapse, open settings section, search text, drafts.
