@@ -1686,6 +1686,7 @@ export function App() {
           usedTokens: event.usedTokens,
           totalTokens: event.totalTokens,
           source: event.source,
+          status: event.status,
           updatedAt: event.updatedAt ?? event.createdAt,
         });
       }
@@ -1740,13 +1741,6 @@ export function App() {
     if (event.type === 'performance.updated') {
       if (!isVisibleConversation) {
         return;
-      }
-      const nextContext = contextUsageFromPerformance(
-        event.performance,
-        activeModelProps?.contextWindow ?? activeModel?.params.contextSize,
-      );
-      if (nextContext) {
-        setContextUsage(previous => mergeLiveContextUsage(previous, nextContext));
       }
       setMessages(prev =>
         prev.map(message =>
@@ -2024,36 +2018,6 @@ function mergeContextTotals(
   return {
     ...context,
     totalTokens: positiveTokenCount(totalTokens) ?? context.totalTokens,
-  };
-}
-
-function contextUsageFromPerformance(
-  performance: ChatPerformance,
-  totalTokens?: number,
-): ConversationContextUsage | null {
-  const promptTokens =
-    positiveTokenCount(performance.prompt?.totalTokens) ??
-    positiveTokenCount(performance.prompt?.tokens);
-  if (promptTokens == null) {
-    return null;
-  }
-  const generationTokens = positiveTokenCount(getGenerationMetric(performance)?.tokens) ?? 0;
-  return {
-    usedTokens: promptTokens + generationTokens,
-    totalTokens: positiveTokenCount(totalTokens),
-    source: performance.source === 'llamacpp-timings' ? 'timings' : 'prompt_progress',
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-function mergeLiveContextUsage(
-  current: ConversationContextUsage,
-  next: ConversationContextUsage,
-): ConversationContextUsage {
-  return {
-    ...current,
-    ...next,
-    totalTokens: next.totalTokens ?? current.totalTokens,
   };
 }
 

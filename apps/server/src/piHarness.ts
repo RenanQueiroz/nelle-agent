@@ -22,6 +22,7 @@ import {createErrorEvent} from './errors';
 import type {AppPaths} from './paths';
 import {AppStore, DEFAULT_CONTEXT_SIZE} from './store';
 import {
+  createLiveContextTracker,
   LEGACY_DEFAULT_CONVERSATION_ID,
   type ConversationRepository,
   type SyncConversationEntry,
@@ -755,11 +756,17 @@ export class PiHarness {
     session.setThinkingLevel?.(piThinkingLevel(reasoningLevel));
     const state = await this.store.getState();
     let warnedAboutReplyBudget = false;
+    const trackContext = createLiveContextTracker(activeModel.params.contextSize);
     const pushPerformance = (performance: ChatPerformance) => {
       assistantMessage.performance = mergeChatPerformance(
         assistantMessage.performance,
         performance,
       );
+      // The context bar follows the run, rather than waiting for compaction.
+      const context = trackContext(assistantMessage.performance);
+      if (context) {
+        queue.push(createContextUpdatedEvent(conversationId, context));
+      }
       // Pi silently clamps max_tokens to 1 once the prompt plus its 4k safety
       // reserve fills the context window, which looks like a one-word answer.
       // Say so, instead of letting the user guess.

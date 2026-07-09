@@ -3,6 +3,8 @@ import crypto from 'node:crypto';
 import {createAsyncQueue} from './asyncQueue';
 import {createErrorEvent} from './errors';
 import {NELLE_WARNING_CODES} from '../../../packages/shared/src/contracts.ts';
+import {withContextStatus} from '../../../packages/shared/src/context.ts';
+import {createLiveContextTracker} from './conversations';
 import {
   mergeChatPerformance,
   performanceFromLlamaPromptProgress,
@@ -73,11 +75,21 @@ export async function streamDirectLlama(
 
   void (async () => {
     const modelId = llamaRuntimeModelId(activeModel);
+    const trackContext = createLiveContextTracker(activeModel.params.contextSize);
     const pushPerformance = (performance: ChatPerformance) => {
       assistantMessage.performance = mergeChatPerformance(
         assistantMessage.performance,
         performance,
       );
+      const context = trackContext(assistantMessage.performance);
+      if (context) {
+        queue.push({
+          type: 'context.updated',
+          conversationId,
+          ...withContextStatus(context),
+          createdAt: new Date().toISOString(),
+        });
+      }
       queue.push({
         type: 'performance.updated',
         id: assistantMessage.id,

@@ -3112,6 +3112,20 @@ test('chat stream emits SSE envelopes with run lifecycle events', async () => {
     const runCompleted = envelopes.find(envelope => envelope.data?.type === 'run.completed');
     assert.equal(runStarted?.runId, runCompleted?.runId);
     assert.equal(runCompleted?.data?.status, 'completed');
+
+    // The context bar follows the run: the server reads llama.cpp's timings and
+    // emits the usage itself, rather than shipping the arithmetic to a client.
+    const contextUpdated = envelopes.filter(envelope => envelope.data?.type === 'context.updated');
+    assert.ok(contextUpdated.length > 0, 'the run streams a live context reading');
+    const context = contextUpdated.at(-1)?.data as {
+      usedTokens?: number;
+      totalTokens?: number;
+      status?: string;
+    };
+    // 4 prompt tokens + 2 predicted, from the mocked `timings` chunk.
+    assert.equal(context.usedTokens, 6);
+    assert.equal(context.totalTokens, DEFAULT_CONTEXT_SIZE);
+    assert.equal(context.status, 'ok');
   } finally {
     await app.close();
     globalThis.fetch = originalFetch;

@@ -1600,7 +1600,30 @@ function isContextNewer(
   return candidateTime >= currentTime;
 }
 
-function contextUsageFromPerformance(
+/**
+ * Turns each merged performance update into a live context reading.
+ *
+ * The browser used to do this, which meant it also had to know that
+ * `prompt.totalTokens` beats `prompt.tokens` and that generated tokens are added
+ * on top. Returns `null` for a tick that would repeat the last token count, so a
+ * stream does not carry one `context.updated` per generated token.
+ */
+export function createLiveContextTracker(
+  totalTokens: number | undefined,
+): (performance: unknown) => ConversationContextUsage | null {
+  let lastUsedTokens: number | undefined;
+  const total = positiveInteger(totalTokens);
+  return performance => {
+    const context = contextUsageFromPerformance(performance, new Date().toISOString());
+    if (!context || context.usedTokens === lastUsedTokens) {
+      return null;
+    }
+    lastUsedTokens = context.usedTokens;
+    return {...context, totalTokens: total};
+  };
+}
+
+export function contextUsageFromPerformance(
   performance: unknown,
   updatedAt: string,
 ): ConversationContextUsage | null {

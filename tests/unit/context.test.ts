@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import {createLiveContextTracker} from '../../apps/server/src/conversations.ts';
+
 import {
   CONTEXT_OVERFLOW_RATIO,
   CONTEXT_WARNING_RATIO,
@@ -78,4 +80,56 @@ test('the client colours the bar from the status the server sent', () => {
   const quiet = {usedTokens: 900, totalTokens: 1000, status: 'ok'} as const;
   assert.equal(contextProgressVariant(quiet), 'accent');
   assert.equal(getContextWarningMessage(quiet), null);
+});
+
+test('the live context tracker adds generated tokens and skips repeat ticks', () => {
+  const track = createLiveContextTracker(1000);
+  // `prompt.totalTokens` is the full prompt; `prompt.tokens` is only what was
+  // processed this turn, so the former wins when both are present.
+  const first = track({
+    source: 'llamacpp-timings',
+    prompt: {tokens: 10, totalTokens: 700},
+    generation: {tokens: 5},
+  });
+  assert.deepEqual(
+    {usedTokens: first?.usedTokens, totalTokens: first?.totalTokens, source: first?.source},
+    {usedTokens: 705, totalTokens: 1000, source: 'timings'},
+  );
+
+  // The same reading again would be one event per generated token. Skip it.
+  assert.equal(
+    track({
+      source: 'llamacpp-timings',
+      prompt: {tokens: 10, totalTokens: 700},
+      generation: {tokens: 5},
+    }),
+    null,
+  );
+
+  const grown = track({
+    source: 'llamacpp-timings',
+    prompt: {tokens: 10, totalTokens: 700},
+    generation: {tokens: 101},
+  });
+  assert.equal(grown?.usedTokens, 801);
+});
+
+test('the live context tracker stays silent until llama.cpp has counted a prompt', () => {
+  const track = createLiveContextTracker(1000);
+  assert.equal(track(undefined), null);
+  assert.equal(track({source: 'llamacpp-slots'}), null);
+  assert.equal(track({source: 'llamacpp-slots', generation: {tokens: 4}}), null);
+});
+
+test('an unknown context size still yields a usable reading', () => {
+  const track = createLiveContextTracker(undefined);
+  const reading = track({
+    source: 'llamacpp-timings',
+    prompt: {tokens: 40},
+    generation: {tokens: 2},
+  });
+  assert.equal(reading?.usedTokens, 42);
+  assert.equal(reading?.totalTokens, undefined);
+  // With no window, no threshold can be breached.
+  assert.equal(contextUsageStatus(reading ?? {}), 'ok');
 });

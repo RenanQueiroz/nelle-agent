@@ -4,6 +4,7 @@ import {fileURLToPath} from 'node:url';
 
 import {expect, test, type Page} from '@playwright/test';
 
+import {withContextStatus} from '../../packages/shared/src/context.ts';
 import {buildConversationMessages} from '../../packages/shared/src/messages.ts';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
@@ -1252,6 +1253,16 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
           type: 'performance.updated',
           id: assistantMessage.id,
           performance: assistantMessage.performance,
+        },
+        // The server, not the client, turns performance into a context reading.
+        {
+          type: 'context.updated',
+          conversationId: 'legacy-default',
+          usedTokens: 134,
+          totalTokens: 8192,
+          source: 'timings',
+          status: 'ok',
+          createdAt: new Date().toISOString(),
         },
         {type: 'message.assistant.completed', message: assistantMessage},
       ]
@@ -3557,12 +3568,13 @@ function contextFromChat(chat: MockChatMessage[]) {
       | undefined;
     const promptTokens = performance?.prompt?.totalTokens ?? performance?.prompt?.tokens;
     if (message?.role === 'assistant' && promptTokens != null) {
-      return {
+      // Mirrors the server: every context payload leaves stamped with a status.
+      return withContextStatus({
         usedTokens: promptTokens + (performance?.generation?.tokens ?? 0),
         totalTokens: 8192,
-        source: 'timings',
+        source: 'timings' as const,
         updatedAt: message.createdAt,
-      };
+      });
     }
   }
   return {};
