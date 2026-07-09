@@ -565,13 +565,19 @@ Model concurrency:
 version = 1
 
 [*]
-c = 8192
+c = 16384
 
 [unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL]
 hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 alias = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 stop-timeout = 10
 ```
+
+The default `c = 16384` is a Nelle constraint, not a llama.cpp one. Pi's agent
+system prompt costs roughly 4k tokens and Pi reserves a further 4096-token
+safety margin before it will allocate any reply tokens, so an 8k window clamps
+`max_tokens` to 1 and every reply stops after a single word. See
+`packages/shared/src/piContext.ts`.
 
 Open technical spikes:
 

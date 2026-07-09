@@ -15,6 +15,8 @@ import {
 } from '@astryxdesign/core/Chat';
 import {Markdown} from '@astryxdesign/core/Markdown';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
+import {ProgressBar} from '@astryxdesign/core/ProgressBar';
+import {Spinner} from '@astryxdesign/core/Spinner';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {type SelectorOptionData, type SelectorOptionType} from '@astryxdesign/core/Selector';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
@@ -294,6 +296,10 @@ export function App() {
   const [messages, setMessages] = useState<ApiChatMessage[]>([]);
   const [commandRows, setCommandRows] = useState<CommandStatusRow[]>([]);
   const [contextUsage, setContextUsage] = useState<ConversationContextUsage>({});
+  const [pendingPrompt, setPendingPrompt] = useState<{
+    conversationId: string;
+    text: string;
+  } | null>(null);
   const [hostTools, setHostTools] = useState<HostToolSettings | null>(null);
   const isSidebarCollapsed = useUiStore(state => state.isSidebarCollapsed);
   const setIsSidebarCollapsed = useUiStore(state => state.setSidebarCollapsed);
@@ -364,6 +370,11 @@ export function App() {
     [activeModel, routerModelsByConfiguredId, runtime],
   );
   const activeModelIsFavorite = activeModelId != null && favoriteModelIdSet.has(activeModelId);
+  const activePendingPrompt =
+    pendingPrompt?.conversationId === activeConversationId ? pendingPrompt.text : null;
+  const activeModelLoadPercent = normalizeRouterProgressPercent(
+    activeModelId == null ? undefined : routerModelsByConfiguredId.get(activeModelId)?.progress,
+  );
   const activeRunModelIdSet = useMemo(
     () => new Set(Object.values(activeRunModelsById)),
     [activeRunModelsById],
@@ -949,9 +960,17 @@ export function App() {
       restoreComposerDraft(prompt);
       return;
     }
+    // Loading a model can take tens of seconds. Show the prompt (and the load
+    // progress) straight away instead of an empty transcript.
+    setPendingPrompt({conversationId, text: prompt});
+    setConversationRunKind(conversationId, 'chat');
+    setConversationListStatus(conversationId, 'running');
     try {
       await ensureModelReadyForRun(activeModel.id);
     } catch (error) {
+      setPendingPrompt(null);
+      clearConversationRunKind(conversationId, 'chat');
+      setConversationListStatus(conversationId, 'ready');
       composer.setError(error instanceof Error ? error.message : String(error));
       restoreComposerDraft(prompt);
       return;
@@ -992,6 +1011,7 @@ export function App() {
           .setError(error instanceof Error ? error.message : String(error));
       }
     } finally {
+      setPendingPrompt(null);
       if (streamAbortControllers.current.get(conversationId) === abortController) {
         streamAbortControllers.current.delete(conversationId);
       }
@@ -1468,6 +1488,8 @@ export function App() {
       }
     }
     if (event.type === 'user_message') {
+      // The server has the prompt now; drop the optimistic copy.
+      setPendingPrompt(previous => (previous?.conversationId === conversationId ? null : previous));
       if (!isVisibleConversation) {
         return;
       }
@@ -1635,10 +1657,9 @@ export function App() {
                   }
                 >
                   <ChatMessageList>
-                    {messages.length === 0 && (
+                    {messages.length === 0 && !activePendingPrompt && (
                       <ChatSystemMessage>
-                        Install llama.cpp, add a GGUF model, start the server, then ask Nelle to
-                        work on this PC.
+                        {emptyTranscriptMessage(runtime, activeModel)}
                       </ChatSystemMessage>
                     )}
                     {messages.map(message => (
@@ -1652,6 +1673,13 @@ export function App() {
                         onFork={handleForkMessage}
                       />
                     ))}
+                    {activePendingPrompt && (
+                      <PendingPromptMessages
+                        text={activePendingPrompt}
+                        routerStatus={activeComposerRouterStatus}
+                        progressPercent={activeModelLoadPercent}
+                      />
+                    )}
                     {activeCommandRows.map(row => (
                       <CommandStatusMessage key={row.id} row={row} />
                     ))}
@@ -1812,6 +1840,70 @@ function normalizeRouterProgressPercent(progress: number | undefined): number | 
   }
   const percent = progress <= 1 ? progress * 100 : progress;
   return Math.min(100, Math.max(0, percent));
+}
+
+/**
+ * Shown between pressing send and the server accepting the prompt. Loading a
+ * model can take tens of seconds, and llama.cpp's own UI surfaces the progress
+ * in the transcript rather than only in a model picker.
+ */
+function PendingPromptMessages({
+  text,
+  routerStatus,
+  progressPercent,
+}: {
+  text: string;
+  routerStatus: string | null;
+  progressPercent: number | null;
+}) {
+  const isLoading = routerStatus === 'loading' || routerStatus === 'unloaded';
+  const label = isLoading ? 'Loading weights' : 'Preparing';
+  return (
+    <>
+      <ChatMessage sender="user">
+        <ChatMessageBubble>{text}</ChatMessageBubble>
+      </ChatMessage>
+      <ChatMessage sender="assistant" avatar={<Avatar name="Nelle" size="small" />}>
+        <ChatMessageBubble variant="ghost">
+          <VStack gap={2} className="nelle-model-loading">
+            <HStack gap={2} vAlign="center">
+              <Spinner size="sm" shade="subtle" aria-label={`${label} in progress`} />
+              <Text type="supporting" color="secondary">
+                {label}
+                {isLoading && progressPercent != null ? ` ${Math.round(progressPercent)}%` : ''}
+              </Text>
+            </HStack>
+            {isLoading && (
+              <ProgressBar
+                label="Model load progress"
+                isLabelHidden
+                value={progressPercent ?? 0}
+                isIndeterminate={progressPercent == null}
+                variant="accent"
+              />
+            )}
+          </VStack>
+        </ChatMessageBubble>
+      </ChatMessage>
+    </>
+  );
+}
+
+/** The old copy told users to install llama.cpp even when it was already running. */
+function emptyTranscriptMessage(
+  runtime: RuntimeStatus | null,
+  activeModel: ConfiguredModel | null,
+): string {
+  if (!runtime?.installed) {
+    return 'Install llama.cpp from Settings > Runtime to get started.';
+  }
+  if (!runtime.running) {
+    return 'Start llama.cpp from Settings > Runtime to get started.';
+  }
+  if (!activeModel) {
+    return 'Add a GGUF model from Settings > Models, then select it in the composer.';
+  }
+  return 'Ask Nelle to inspect files, run shell commands, or reason about this project.';
 }
 
 function CommandStatusMessage({row}: {row: CommandStatusRow}) {
@@ -2146,9 +2238,19 @@ function messagesFromSnapshot(snapshot: ConversationSnapshot): ApiChatMessage[] 
       .map(message => message.parentPiEntryId)
       .filter(id => id != null),
   );
-  const visibleMessages = messages.filter(
-    message => !(message.role === 'user' && replayedUserIds.has(message.id)),
-  );
+  const visibleMessages = messages.filter(message => {
+    if (message.role === 'user' && replayedUserIds.has(message.id)) {
+      return false;
+    }
+    // Pi persists a failed turn as an assistant entry with no content (for
+    // example when llama.cpp answers 500 while a model is still loading) and
+    // then retries. Rendering it produced a ghost "..." bubble above the real
+    // answer. A contentless assistant turn that ran no tools has nothing to show.
+    if (message.role === 'assistant' && !message.content.trim() && !message.toolCalls?.length) {
+      return false;
+    }
+    return true;
+  });
   const assistantGroups = new Map<string, ApiChatMessage[]>();
   for (const message of visibleMessages) {
     if (message.role !== 'assistant') {

@@ -15,7 +15,7 @@ import {HostToolRepository} from '../../apps/server/src/hostTools.ts';
 import {PiHarness} from '../../apps/server/src/piHarness.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {createServer} from '../../apps/server/src/server.ts';
-import {AppStore} from '../../apps/server/src/store.ts';
+import {AppStore, DEFAULT_CONTEXT_SIZE} from '../../apps/server/src/store.ts';
 import type {ChatMessage, ChatStreamEvent, ConfiguredModel} from '../../apps/server/src/types.ts';
 import {
   assertConversationTransition,
@@ -500,7 +500,7 @@ test('repository derives context usage from assistant performance metadata', asy
 
     assert.deepEqual(snapshot?.context, {
       usedTokens: 134,
-      totalTokens: 8192,
+      totalTokens: DEFAULT_CONTEXT_SIZE,
       source: 'timings',
       updatedAt: '2026-07-08T12:00:01.000Z',
     });
@@ -1459,7 +1459,7 @@ test('Pi compact stream emits run and compaction lifecycle events', async () => 
     assert.equal(events[1]?.instructions, 'keep setup details');
     assert.equal(events[2]?.type, 'context.updated');
     assert.equal(events[2]?.usedTokens, 42);
-    assert.equal(events[2]?.totalTokens, 8192);
+    assert.equal(events[2]?.totalTokens, DEFAULT_CONTEXT_SIZE);
     assert.equal(events[2]?.source, 'estimate');
     assert.equal(events[3]?.type, 'compact.completed');
     assert.equal(events[4]?.type, 'run.completed');
@@ -1470,7 +1470,7 @@ test('Pi compact stream emits run and compaction lifecycle events', async () => 
     assert.equal(snapshot?.conversation.activeLeafPiEntryId, 'entry-compaction');
     assert.equal(snapshot?.entries[2]?.entryType, 'compaction');
     assert.equal(snapshot?.context.usedTokens, 42);
-    assert.equal(snapshot?.context.totalTokens, 8192);
+    assert.equal(snapshot?.context.totalTokens, DEFAULT_CONTEXT_SIZE);
     assert.equal(snapshot?.context.source, 'estimate');
   } finally {
     database.close();

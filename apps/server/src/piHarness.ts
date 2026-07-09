@@ -37,6 +37,11 @@ import type {
   TerminalRunStatus,
 } from '../../../packages/shared/src/conversations.ts';
 import type {ChatAttachmentInput} from '../../../packages/shared/src/contracts.ts';
+import {
+  isReplyBudgetExhausted,
+  minimumUsableContextSize,
+  replyTokenBudget,
+} from '../../../packages/shared/src/piContext.ts';
 import type {
   AbortConversationResult,
   ChatMessage,
@@ -620,11 +625,34 @@ export class PiHarness {
       }
     }
     const state = await this.store.getState();
+    let warnedAboutReplyBudget = false;
     const pushPerformance = (performance: ChatPerformance) => {
       assistantMessage.performance = mergeChatPerformance(
         assistantMessage.performance,
         performance,
       );
+      // Pi silently clamps max_tokens to 1 once the prompt plus its 4k safety
+      // reserve fills the context window, which looks like a one-word answer.
+      // Say so, instead of letting the user guess.
+      const promptTokens =
+        assistantMessage.performance.prompt?.totalTokens ??
+        assistantMessage.performance.prompt?.tokens;
+      const contextSize = activeModel.params.contextSize;
+      if (
+        !warnedAboutReplyBudget &&
+        promptTokens != null &&
+        isReplyBudgetExhausted(contextSize, promptTokens)
+      ) {
+        warnedAboutReplyBudget = true;
+        queue.push({
+          type: 'warning',
+          message:
+            `This prompt uses ${promptTokens.toLocaleString()} of the model's ` +
+            `${contextSize.toLocaleString()} token context window, which leaves no room for a ` +
+            `reply. Raise the context size to at least ` +
+            `${minimumUsableContextSize(promptTokens).toLocaleString()} in Settings > Models.`,
+        });
+      }
       queue.push({
         type: 'assistant_metrics',
         id: assistantMessage.id,
@@ -1447,7 +1475,9 @@ export class PiHarness {
       reasoning: isQwenFamilyModel(model),
       input: ['text', 'image'],
       contextWindow: model.params.contextSize,
-      maxTokens: Math.min(512, Math.max(128, Math.floor(model.params.contextSize / 8))),
+      // Pi clamps this against the live context, so advertise a generous ceiling
+      // instead of a flat 512-token cap that truncated every long answer.
+      maxTokens: replyTokenBudget(model.params.contextSize),
       cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
       ...(isQwenFamilyModel(model)
         ? {compat: {thinkingFormat: 'qwen-chat-template' as const}}

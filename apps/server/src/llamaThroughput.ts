@@ -282,6 +282,15 @@ function promptMetricFromSlot(
   };
 }
 
+/**
+ * llama.cpp reports timings with millisecond resolution, so a burst shorter than
+ * a millisecond divides out to nonsense: a single token generated in "0.00 ms"
+ * is reported by llama.cpp itself as `predicted_per_second: 1000000`. Require a
+ * measurable duration before claiming a rate, and derive the rate rather than
+ * trusting the upstream field, which is what llama.cpp's own web UI does.
+ */
+const MIN_MEASURABLE_MILLISECONDS = 1;
+
 function metricFromTimingFields(input: {
   tokens: unknown;
   milliseconds?: unknown;
@@ -291,24 +300,23 @@ function metricFromTimingFields(input: {
 }): ChatPerformanceMetric | null {
   const tokens = numberOrNull(input.tokens);
   const milliseconds = numberOrNull(input.milliseconds);
-  const explicitRate = numberOrNull(input.tokensPerSecond);
   if (tokens == null || tokens <= 0) {
     return null;
   }
 
   const tokensPerSecond =
-    explicitRate != null && explicitRate > 0
-      ? explicitRate
-      : milliseconds != null && milliseconds > 0
-        ? (tokens / milliseconds) * 1000
-        : null;
-  if (tokensPerSecond == null || !Number.isFinite(tokensPerSecond)) {
+    milliseconds != null && milliseconds >= MIN_MEASURABLE_MILLISECONDS
+      ? (tokens / milliseconds) * 1000
+      : null;
+  if (tokensPerSecond != null && !Number.isFinite(tokensPerSecond)) {
     return null;
   }
 
+  // A metric without a rate is still worth showing: the token count and the
+  // elapsed time are real, only the throughput is unknowable.
   return {
     tokens,
-    tokensPerSecond,
+    tokensPerSecond: tokensPerSecond ?? undefined,
     milliseconds: milliseconds ?? undefined,
     totalTokens: numberOrNull(input.totalTokens) ?? undefined,
     cacheTokens: numberOrNull(input.cacheTokens) ?? undefined,

@@ -202,6 +202,16 @@ The conversation sidebar lists pinned and recent chats as Astryx `SideNavItem`
 rows with counts per section, a hover- and focus-revealed row action menu, and a
 search field that filters titles. Long lists stay virtualized.
 
+Submitting a prompt shows it in the transcript immediately, followed by a
+`Loading weights NN%` placeholder while llama.cpp loads the model, so a cold
+start is visible where the conversation is rather than only in the model picker.
+
+Models default to a 16384-token context window. That default exists because Pi's
+agent system prompt costs about 4k tokens and Pi reserves another 4096 before it
+allocates any reply tokens; with an 8k window Pi asks llama.cpp for a single
+token and the answer stops after one word. Nelle warns in the composer when a
+prompt leaves no usable reply budget.
+
 The chat composer uses Astryx's default up-arrow send/stop button. The footer is
 reserved for model selection so the composer exposes only one send affordance;
 conversation reset/delete/pin/rename live in the conversation row action menu.

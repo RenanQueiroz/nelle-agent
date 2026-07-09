@@ -144,7 +144,8 @@ export type ChatAttachmentInput = {
 
 export type ChatPerformanceMetric = {
   tokens: number;
-  tokensPerSecond: number;
+  /** Absent when the burst was too short for llama.cpp to time it. */
+  tokensPerSecond?: number;
   milliseconds?: number;
   totalTokens?: number;
   cacheTokens?: number;
@@ -449,10 +450,21 @@ export function subscribeLlamaModelEvents(
   };
 }
 
+/**
+ * llama.cpp's router streams `/models/sse` as:
+ *   {"model":"<id>","event":"status_change",
+ *    "data":{"status":"loading","progress":{"stages":[...],"current":"text_model","value":0.67}}}
+ *
+ * The model id is a top-level string and the progress fraction is nested under
+ * `data.progress.value`, so both the id and the percentage must be read from
+ * outside the `data` payload.
+ */
 function normalizeLlamaModelEvent(eventType: string, rawData: string): LlamaRouterModelEvent {
   const raw = parseEventData(rawData);
-  const modelPayload = objectProp(raw, 'model') ?? objectProp(raw, 'data') ?? raw;
+  const dataPayload = objectProp(raw, 'data');
+  const modelPayload = objectProp(raw, 'model') ?? dataPayload ?? raw;
   const id =
+    stringProp(raw, 'model') ??
     stringProp(modelPayload, 'sectionId') ??
     stringProp(modelPayload, 'section_id') ??
     stringProp(modelPayload, 'routerModelId') ??
@@ -464,12 +476,15 @@ function normalizeLlamaModelEvent(eventType: string, rawData: string): LlamaRout
     return {eventType, model: null, raw};
   }
 
-  const statusPayload = objectProp(modelPayload, 'status');
+  const statusPayload = objectProp(modelPayload, 'status') ?? objectProp(dataPayload, 'status');
   const status =
+    stringProp(dataPayload, 'status') ??
     stringProp(statusPayload, 'value') ??
     stringProp(modelPayload, 'status') ??
     statusFromRouterEventType(eventType);
   const progress =
+    numberProp(objectProp(dataPayload, 'progress'), 'value') ??
+    numberProp(dataPayload, 'progress') ??
     numberProp(modelPayload, 'progress') ??
     numberProp(statusPayload, 'progress') ??
     numberProp(raw, 'progress') ??

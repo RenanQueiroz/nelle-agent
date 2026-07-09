@@ -141,7 +141,8 @@ export type ChatMessage = {
 
 export type ChatPerformanceMetric = {
   tokens: number;
-  tokensPerSecond: number;
+  /** Absent when the burst was too short for llama.cpp to time it. */
+  tokensPerSecond?: number;
   milliseconds?: number;
   totalTokens?: number;
   cacheTokens?: number;

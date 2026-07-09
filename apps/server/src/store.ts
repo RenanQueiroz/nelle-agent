@@ -16,15 +16,38 @@ import {
   type ModelsIniDocument,
 } from '../../../packages/shared/src/modelsIni.ts';
 
+/**
+ * llama.cpp itself is happy with 8k, but Nelle drives it through Pi, whose agent
+ * system prompt costs ~4k tokens and whose max_tokens clamp reserves another 4k.
+ * Anything below ~12k leaves no reply budget at all, so 8k produced one-word
+ * answers. See `piContext.ts`. Kept at 16k rather than higher because KV cache
+ * is allocated per slot and users on small GPUs must still be able to load a
+ * model; raise it in Settings > Global Params when there is VRAM to spare.
+ */
+export const DEFAULT_CONTEXT_SIZE = 16_384;
+
+/**
+ * Read lazily: the e2e harness sets `NELLE_LLAMA_PORT` in its own module body,
+ * which runs after this module's imports have already been evaluated.
+ */
+function defaultLlamaPort(): number {
+  return Number(process.env.NELLE_LLAMA_PORT ?? 8080);
+}
+
 const DEFAULT_STATE: AppState = {
   version: 1,
   activeModelId: null,
   models: [],
   globalModelParams: {
-    c: '8192',
+    // Pi's agent system prompt is ~4k tokens and Pi reserves another 4k before
+    // it will allocate any reply tokens, so an 8k window yields one-word answers.
+    c: String(DEFAULT_CONTEXT_SIZE),
   },
   runtime: {
     host: '127.0.0.1',
+    // Placeholder; `defaultLlamaPort()` is what actually applies. Overridable so
+    // the e2e server does not health-probe (and adopt) a real llama-server that
+    // a developer happens to be running on the usual port.
     port: 8080,
     modelsMax: 1,
     sleepIdleSeconds: 90,
@@ -33,7 +56,7 @@ const DEFAULT_STATE: AppState = {
 };
 
 const DEFAULT_PARAMS: ModelParams = {
-  contextSize: 8192,
+  contextSize: DEFAULT_CONTEXT_SIZE,
   extra: {},
 };
 
@@ -56,6 +79,7 @@ export class AppStore {
         throw error;
       }
       this.#state = structuredClone(DEFAULT_STATE);
+      this.#state.runtime.port = defaultLlamaPort();
       await this.save();
     }
     await this.syncModelCatalogFromPreset(this.#state);
@@ -440,7 +464,7 @@ function isHuggingFaceModel(model: ConfiguredModel): boolean {
 function normalizeRuntime(input: Partial<AppState['runtime']> = {}): AppState['runtime'] {
   return {
     host: input.host || DEFAULT_STATE.runtime.host,
-    port: positiveInteger(input.port, DEFAULT_STATE.runtime.port),
+    port: positiveInteger(input.port, defaultLlamaPort()),
     modelsMax: positiveInteger(input.modelsMax, DEFAULT_STATE.runtime.modelsMax),
     sleepIdleSeconds: nonNegativeInteger(
       input.sleepIdleSeconds,

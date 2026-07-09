@@ -34,6 +34,21 @@ Project-specific guidance for AI coding agents.
   offload flags when the user explicitly configures them.
 - Launch llama-server with configurable `modelsMax` and `sleepIdleSeconds`
   settings. Defaults are `1` and `90`, and changes require a server restart.
+- The default context size is 16384, not llama.cpp's own default. Pi's agent
+  system prompt costs ~4k tokens and Pi's `clampMaxTokensToContext` reserves
+  another 4096 before allocating any reply tokens, so an 8k window clamps
+  `max_tokens` to 1 and every answer stops after one word with
+  `finish_reason: "length"`. Keep the arithmetic in
+  `packages/shared/src/piContext.ts` and warn when the reply budget is exhausted.
+- Never advertise a fixed `maxTokens` to Pi. Scale it with the context window
+  (`replyTokenBudget`); Pi clamps it down against the live context anyway.
+- Derive throughput from token counts and elapsed milliseconds. llama.cpp
+  reports `predicted_per_second: 1000000` for a single token generated in
+  "0.00 ms", so its own rate fields must not be trusted, and a burst shorter
+  than a millisecond has no measurable rate at all.
+- The e2e harness sets `NELLE_LLAMA_PORT=18080`. The runtime status probe treats
+  any healthy server on the configured port as a running llama.cpp, so leaving
+  e2e on 8080 makes the suite adopt a developer's real llama-server.
 - Do not reintroduce local GGUF path registration or Nelle-owned model downloads
   in the active product; model imports are Hugging Face `hf-repo` entries.
 - The web app uses React Compiler through `@vitejs/plugin-react`'s
@@ -149,6 +164,16 @@ Project-specific guidance for AI coding agents.
 - New Hugging Face imports should use the stable canonical section id as the
   model id; route clients must URL-encode model ids because they may contain
   `/` and `:`.
+- Show model load progress in the chat transcript, not only in the model
+  selector. Loading weights takes tens of seconds; render the submitted prompt
+  immediately and a `Loading weights NN%` placeholder beneath it, as llama.cpp's
+  own web UI does. Router load progress arrives on `/models/sse` as
+  `{"model":"<id>","data":{"status":"loading","progress":{"value":0.67}}}`; the
+  model id is a top-level string, not a field inside `data`.
+- Pi persists a failed turn as a contentless assistant entry (for example when
+  llama.cpp answers 500 while a model loads) and then retries. Do not render
+  contentless assistant entries that ran no tools; they show up as a ghost
+  bubble above the real answer.
 - Chat messages carry llama.cpp-style `performance.prompt` and
   `performance.generation` metrics. Pi calls go through Nelle's
   `/api/llama-proxy/v1` provider so streamed `prompt_progress` and `timings`

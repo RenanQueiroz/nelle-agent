@@ -24,6 +24,10 @@ if (build.status !== 0) {
 process.env.NELLE_DATA_DIR = dataDir;
 process.env.NELLE_PORT = '8799';
 process.env.NELLE_HOST = '127.0.0.1';
+// The runtime status probe treats any healthy server on this port as "llama.cpp
+// is already running". Keep e2e off 8080 so a developer's own llama-server does
+// not make the suite think a runtime is installed and running.
+process.env.NELLE_LLAMA_PORT = '18080';
 
 const app = await createServer(createAppPaths());
 await app.listen({host: '127.0.0.1', port: 8799});
