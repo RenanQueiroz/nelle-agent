@@ -130,7 +130,7 @@ export function ChatComposerPanel({
   composerModelDetailsById: Map<string, ComposerModelOptionDetail>;
   reasoningLevel: ReasoningLevel;
   reasoningBudgets: ReasoningBudgets;
-  canReason: boolean;
+  canReason: boolean | null;
   onSubmit: (value: string) => void | Promise<void>;
   onStop: () => void;
   onSelectModel: (modelId: string) => void | Promise<void>;
@@ -345,8 +345,10 @@ export function ChatComposerPanel({
 }
 
 /**
- * Whether a model can think is a property of its chat template, so the control
- * only appears once llama.cpp has reported one that declares thinking support.
+ * Whether a model can think is a property of its chat template. `canReason` is
+ * `null` until llama.cpp has reported one, and an unknown model stays editable:
+ * `enable_thinking` is inert on a template that does not declare it, so there is
+ * nothing to protect the user from.
  */
 function ReasoningSelector({
   level,
@@ -356,10 +358,11 @@ function ReasoningSelector({
 }: {
   level: ReasoningLevel;
   budgets: ReasoningBudgets;
-  canReason: boolean;
+  canReason: boolean | null;
   onSelect: (level: ReasoningLevel) => void | Promise<void>;
 }) {
   const options = useMemo(() => reasoningOptions(budgets), [budgets]);
+  const cannotReason = canReason === false;
   return (
     <Selector
       label="Reasoning"
@@ -372,8 +375,8 @@ function ReasoningSelector({
       // which pushes the last option below the viewport.
       placement="above"
       options={options}
-      value={canReason ? level : 'off'}
-      isDisabled={!canReason}
+      value={cannotReason ? 'off' : level}
+      isDisabled={cannotReason}
       // A disabled control swallows the hover events an external Tooltip needs.
       disabledMessage="This model's chat template has no thinking mode."
       changeAction={value => void onSelect(value as ReasoningLevel)}

@@ -1278,6 +1278,7 @@ export class PiHarness {
       parentConversationId: source.id,
       forkedFromPiEntryId: entryId,
       forkKind: input.kind,
+      reasoningLevel: this.conversations.getReasoningLevel(input.conversationId),
     });
     this.conversations.attachPiSession(conversation.id, {
       piSessionPath: branchedSessionPath,

@@ -18,7 +18,7 @@ import {
 import type {ChatAttachmentKind} from '../../../packages/shared/src/contracts.ts';
 import type {ReasoningLevel} from '../../../packages/shared/src/reasoning.ts';
 import {
-  DEFAULT_REASONING_LEVEL,
+  DEFAULT_NEW_CONVERSATION_REASONING_LEVEL,
   normalizeReasoningLevel,
 } from '../../../packages/shared/src/reasoning.ts';
 import type {AppDatabase} from './database';
@@ -195,7 +195,7 @@ export class ConversationRepository {
       forked_from_pi_entry_id: input.forkedFromPiEntryId ?? null,
       fork_kind: input.forkKind ?? null,
       context_usage_json: null,
-      reasoning_level: input.reasoningLevel ?? DEFAULT_REASONING_LEVEL,
+      reasoning_level: input.reasoningLevel ?? DEFAULT_NEW_CONVERSATION_REASONING_LEVEL,
       status: 'ready',
       created_at: now,
       updated_at: now,

@@ -24,7 +24,8 @@ Implemented:
   backdrop. Opening a conversation pins the transcript to the newest message.
 - Reasoning support for thinking models:
   - A per-conversation level (`off`, `low`, `medium`, `high`, `max`) switched
-    from the composer, driving Pi's thinking level on the fly.
+    from the composer, driving Pi's thinking level on the fly. New chats start
+    at `max`, which is inert on models whose chat template has no thinking mode.
   - Thinking renders as a collapsible block above the answer, streamed live from
     llama.cpp's `reasoning_content` field and persisted with the conversation.
   - Per-level token budgets in Settings (llama.cpp's own 512 / 2048 / 8192

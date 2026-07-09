@@ -15,7 +15,17 @@ export type ReasoningLevel = z.infer<typeof reasoningLevelSchema>;
 export type BudgetedReasoningLevel = Exclude<ReasoningLevel, 'off' | 'max'>;
 
 export const REASONING_LEVELS = reasoningLevelSchema.options;
+
+/** Fallback for a stored value that is not a level Nelle knows. */
 export const DEFAULT_REASONING_LEVEL: ReasoningLevel = 'off';
+
+/**
+ * New conversations think as hard as the model allows. On a model whose chat
+ * template has no thinking mode this is inert -- `enable_thinking` is just an
+ * unused kwarg, and `max` sends no budget -- so it needs no per-model default.
+ * Conversations that predate this setting keep the `off` migration 4 gave them.
+ */
+export const DEFAULT_NEW_CONVERSATION_REASONING_LEVEL: ReasoningLevel = 'max';
 
 /** Pi clamps an unsupported level to the nearest one the model advertises. */
 export function piThinkingLevel(level: ReasoningLevel): string {

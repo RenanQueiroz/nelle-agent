@@ -3,8 +3,10 @@ import test from 'node:test';
 
 import {
   createThinkingEndTagFilter,
+  DEFAULT_NEW_CONVERSATION_REASONING_LEVEL,
   DEFAULT_REASONING_BUDGETS,
   normalizeReasoningBudgets,
+  DEFAULT_REASONING_LEVEL,
   normalizeReasoningLevel,
   piThinkingLevel,
   reasoningBudgetTokens,
@@ -34,6 +36,11 @@ test('thinking support is read from the chat template, not the model name', () =
   );
   assert.equal(templateSupportsThinking(''), false);
   assert.equal(templateSupportsThinking(undefined), false);
+});
+
+test('new conversations think, and an unrecognised stored level does not', () => {
+  assert.equal(DEFAULT_NEW_CONVERSATION_REASONING_LEVEL, 'max');
+  assert.equal(DEFAULT_REASONING_LEVEL, 'off');
 });
 
 test('reasoning level normalization falls back to off', () => {

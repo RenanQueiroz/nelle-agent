@@ -210,9 +210,10 @@ body {
 }
 
 /* The thinking block is supporting material, so it reads quieter than the
-   answer bubble it sits above. */
+   answer bubble it sits above, and stands clear of it. */
 .nelle-thinking-block {
   width: 100%;
+  margin-bottom: var(--spacing-3);
   border-left: 2px solid var(--color-border);
   padding-left: var(--spacing-3);
   color: var(--color-text-secondary);

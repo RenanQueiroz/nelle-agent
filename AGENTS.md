@@ -129,6 +129,15 @@ Project-specific guidance for AI coding agents.
   truth. `AppStore` refreshes model records from parsed `models.ini` before
   returning model state; `.nelle/state.json` mirrors the catalog only as a
   compatibility backup.
+- New conversations default to `max` reasoning. `enable_thinking` is an inert
+  kwarg on a template that does not declare it, and `max` sends no budget, so
+  the default needs no per-model branch: a non-thinking model behaves exactly as
+  it did with `off`. Conversations created before migration 4 keep the `off` it
+  gave them. Forks and clones inherit their source's level.
+- The composer's reasoning selector reads `canReason` as a tri-state.
+  llama.cpp answers `/props` only for a model it has loaded at least once, so
+  `null` means "not known yet" and must stay editable; only a template that
+  provably has no thinking mode (`false`) locks the control to `off`.
 - Reasoning is per conversation (`conversations.reasoning_level`, one of `off`,
   `low`, `medium`, `high`, `max`) and drives Pi's thinking level:
   `createAgentSession({thinkingLevel})` at session creation and

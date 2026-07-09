@@ -352,7 +352,12 @@ export function App() {
   const activeModelProps =
     activeModelId == null ? null : (modelPropsById[activeModelId]?.props ?? null);
   const activeModelSupportsVision = activeModelProps?.modalities.vision === true;
-  const activeModelCanReason = templateSupportsThinking(activeModelProps?.chatTemplate);
+  // `null` while llama.cpp has not reported a chat template for this model: it
+  // only answers `/props` once the model has been loaded at least once, and an
+  // unknown model must not be presented as one that cannot think.
+  const activeModelCanReason = activeModelProps
+    ? templateSupportsThinking(activeModelProps.chatTemplate)
+    : null;
   const favoriteModelIdSet = useMemo(() => new Set(favoriteModelIds), [favoriteModelIds]);
   const activeCommandRows = useMemo(
     () => commandRows.filter(row => row.conversationId === activeConversationId),

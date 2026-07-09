@@ -2542,6 +2542,101 @@ test('stops re-requesting model props after llama.cpp rejects the call', async (
   expect(propsCalls).toBe(settledCalls);
 });
 
+test('only disables the reasoning selector for a template with no thinking mode', async ({
+  page,
+}) => {
+  const model = {
+    id: 'model-1',
+    name: 'Model One',
+    presetName: 'model-one',
+    source: 'huggingface',
+    repoId: 'repo/model-one',
+    quant: 'UD-Q4_K_XL',
+    hfRef: 'repo/model-one:UD-Q4_K_XL',
+    params: {contextSize: 16384},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {...RUNNING_RUNTIME, activeModelId: model.id};
+  // A new chat, so the server hands back the `max` default.
+  const conversations = [
+    {
+      id: 'fresh-chat',
+      title: 'New chat',
+      titleSource: 'fallback',
+      pinned: false,
+      status: 'ready',
+      updatedAt: '2026-07-07T12:10:00.000Z',
+      reasoningLevel: 'max',
+    },
+  ];
+  let propsFail = true;
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+          reasoning: {budgets: {low: 512, medium: 2048, high: 8192}},
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: model.id,
+            routerModelId: model.id,
+            alias: model.name,
+            hfRepo: model.hfRef,
+            status: 'loaded',
+            aliases: [model.id],
+          },
+        ],
+      },
+    });
+  });
+  await page.route('**/api/llama/models/**/props', async route => {
+    if (propsFail) {
+      // llama.cpp only answers /props once a model has been loaded at least once.
+      await route.fulfill({status: 502, json: {error: {code: 'llama_router_request_failed'}}});
+      return;
+    }
+    await route.fulfill({
+      json: {
+        modelId: model.id,
+        modalities: {vision: false, audio: false, video: false},
+        // A plain instruct template: no thinking kwarg, no thinking tags.
+        chatTemplate: '{% for message in messages %}{{ message.content }}{% endfor %}',
+        raw: {},
+      },
+    });
+  });
+  await mockConversationRoutes(page, {chat: [], conversations});
+
+  await page.goto('/');
+  await expect(page.getByLabel('Message input')).toBeVisible();
+
+  // Unknown template: the level is still the conversation's, and still editable.
+  const selector = page.getByTestId('composer-reasoning-selector');
+  await expect(selector).toContainText('Reasoning: max (unlimited)');
+  await expect(selector.getByRole('combobox')).toBeEnabled();
+
+  // A template that provably cannot think reads as off, and locks.
+  propsFail = false;
+  await page.reload();
+  await expect(page.getByLabel('Message input')).toBeVisible();
+  await expect.poll(() => selector.textContent()).toContain('No reasoning');
+  await expect(selector.getByRole('combobox')).toBeDisabled();
+});
+
 test('shows thinking blocks and switches reasoning level from the composer', async ({page}) => {
   const model = {
     id: 'model-1',

@@ -458,10 +458,17 @@ test('repository persists a conversation reasoning level and per-entry thinking 
   try {
     const repository = new ConversationRepository(database);
     const conversation = repository.createConversation({title: 'Thinking chat'});
-    assert.equal(repository.getReasoningLevel(conversation.id), 'off');
+    // New chats think as hard as the model allows; `enable_thinking` is inert on
+    // a template that has no thinking mode, so this needs no per-model default.
+    assert.equal(repository.getReasoningLevel(conversation.id), 'max');
 
     repository.setReasoningLevel(conversation.id, 'high');
     assert.equal(repository.getReasoningLevel(conversation.id), 'high');
+
+    // A conversation created before reasoning existed keeps the level migration
+    // 4 gave it, rather than silently switching on thinking.
+    const legacy = repository.createConversation({title: 'Legacy chat', reasoningLevel: 'off'});
+    assert.equal(repository.getReasoningLevel(legacy.id), 'off');
 
     repository.replaceConversationProjection(conversation.id, {
       piSessionPath: path.join(paths.piSessionsDir, 'session.jsonl'),
