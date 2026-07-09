@@ -1,14 +1,15 @@
+import {
+  ATTACHMENT_LIMITS,
+  ATTACHMENT_LIMIT_MESSAGES,
+} from '../../../../packages/shared/src/attachments.ts';
 import type {AttachmentMetadata, LlamaModelProps} from '../api';
 import type {DraftAttachment} from '../types';
 import {formatBytes} from './format';
 
-export const ATTACHMENT_LIMITS = {
-  maxFiles: 20,
-  maxFileBytes: 25 * 1024 * 1024,
-  maxDraftBytes: 100 * 1024 * 1024,
-  maxTextCharacters: 200_000,
-  maxRenderedPdfPages: 20,
-};
+// The limits are shared with `chatRequestSchema`, which enforces them again on
+// the server. Two copies of a number is how the composer came to allow eleven
+// files that the server answered with an HTTP 500.
+export {ATTACHMENT_LIMITS};
 
 export async function prepareDraftAttachments(
   files: File[],
@@ -24,7 +25,7 @@ export async function prepareDraftAttachments(
   for (const file of files) {
     const remainingSlots = ATTACHMENT_LIMITS.maxFiles - input.existing.length - attachments.length;
     if (remainingSlots <= 0) {
-      throw new Error(`Attach at most ${ATTACHMENT_LIMITS.maxFiles} files per message.`);
+      throw new Error(ATTACHMENT_LIMIT_MESSAGES.tooManyFiles);
     }
     if (file.size > ATTACHMENT_LIMITS.maxFileBytes) {
       throw new Error(

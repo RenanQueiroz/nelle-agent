@@ -35,6 +35,7 @@ class NodeFileReader {
 
 const {ATTACHMENT_LIMITS, getDraftAttachmentError, prepareDraftAttachments} =
   await import('../../apps/web/src/utils/attachments.ts');
+const {chatRequestSchema} = await import('../../packages/shared/src/contracts.ts');
 
 const textOnlyModel = {
   modelId: 'repo/model:Q4_K_M',
@@ -202,4 +203,48 @@ test('pending images are revalidated when the selected model changes', async () 
   // reported props, so the UI keeps images blocked until the model is loaded,
   // while the chat route refuses to reject a model it cannot disprove.
   assert.match(getDraftAttachmentError(pendingImage, null) ?? '', /vision support/i);
+});
+
+test('the composer and the chat schema agree on every attachment limit', () => {
+  // The composer used to allow 20 files while chatRequestSchema capped the array
+  // at 10, so the eleventh came back as an HTTP 500 carrying a zod dump.
+  const attachment = (index: number) => ({
+    id: `a${index}`,
+    kind: 'text' as const,
+    name: `f${index}.txt`,
+    text: 'hello',
+  });
+
+  const atLimit = chatRequestSchema.safeParse({
+    message: 'read these',
+    attachments: Array.from({length: ATTACHMENT_LIMITS.maxFiles}, (_, i) => attachment(i)),
+  });
+  assert.equal(atLimit.success, true, 'the composer maximum must be acceptable to the server');
+
+  const overLimit = chatRequestSchema.safeParse({
+    message: 'read these',
+    attachments: Array.from({length: ATTACHMENT_LIMITS.maxFiles + 1}, (_, i) => attachment(i)),
+  });
+  assert.equal(overLimit.success, false);
+  assert.match(
+    overLimit.error?.issues[0]?.message ?? '',
+    /Attach at most 20 files per message/,
+    'and one file past it must say so in words',
+  );
+
+  // Per-file and per-message byte caps, and the text cap, come from the same const.
+  assert.equal(
+    chatRequestSchema.safeParse({
+      message: 'x',
+      attachments: [{...attachment(0), sizeBytes: ATTACHMENT_LIMITS.maxFileBytes + 1}],
+    }).success,
+    false,
+  );
+  assert.equal(
+    chatRequestSchema.safeParse({
+      message: 'x',
+      attachments: [{...attachment(0), text: 'a'.repeat(ATTACHMENT_LIMITS.maxTextCharacters + 1)}],
+    }).success,
+    false,
+  );
 });

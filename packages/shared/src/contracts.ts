@@ -1,5 +1,7 @@
 import {z} from 'zod';
 
+import {ATTACHMENT_LIMITS, ATTACHMENT_LIMIT_MESSAGES} from './attachments.ts';
+
 export const nelleErrorSchema = z.object({
   code: z.string().min(1),
   message: z.string().min(1),
@@ -87,14 +89,9 @@ export const chatAttachmentInputSchema = z.object({
   kind: chatAttachmentKindSchema,
   name: z.string().min(1).max(255),
   mimeType: z.string().min(1).max(120).optional(),
-  sizeBytes: z
-    .number()
-    .int()
-    .nonnegative()
-    .max(25 * 1024 * 1024)
-    .optional(),
-  text: z.string().max(200_000).optional(),
-  data: z.string().max(40_000_000).optional(),
+  sizeBytes: z.number().int().nonnegative().max(ATTACHMENT_LIMITS.maxFileBytes).optional(),
+  text: z.string().max(ATTACHMENT_LIMITS.maxTextCharacters).optional(),
+  data: z.string().max(ATTACHMENT_LIMITS.maxImageDataCharacters).optional(),
 });
 
 export type ChatAttachmentKind = z.infer<typeof chatAttachmentKindSchema>;
@@ -103,17 +100,20 @@ export type ChatAttachmentInput = z.infer<typeof chatAttachmentInputSchema>;
 export const chatRequestSchema = z
   .object({
     message: z.string().min(1),
-    attachments: z.array(chatAttachmentInputSchema).max(10).optional(),
+    attachments: z
+      .array(chatAttachmentInputSchema)
+      .max(ATTACHMENT_LIMITS.maxFiles, {message: ATTACHMENT_LIMIT_MESSAGES.tooManyFiles})
+      .optional(),
   })
   .superRefine((value, context) => {
     const totalSize = (value.attachments ?? []).reduce(
       (sum, attachment) => sum + (attachment.sizeBytes ?? 0),
       0,
     );
-    if (totalSize > 100 * 1024 * 1024) {
+    if (totalSize > ATTACHMENT_LIMITS.maxDraftBytes) {
       context.addIssue({
         code: 'custom',
-        message: 'Attachments are limited to 100 MiB per message.',
+        message: ATTACHMENT_LIMIT_MESSAGES.draftTooLarge,
         path: ['attachments'],
       });
     }
