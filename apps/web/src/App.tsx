@@ -103,6 +103,7 @@ import {useSettingsStore} from './stores/settingsStore';
 import {useUiStore} from './stores/uiStore';
 import type {ActiveRunKind, AppNotice, CommandStatusRow, ComposerModelOptionDetail} from './types';
 import {attachmentTooltip, getDraftAttachmentError} from './utils/attachments';
+import {useScrollChatToBottomOnOpen} from './utils/chatScroll';
 import {getContextOverflowMessage, positiveTokenCount} from './utils/context';
 import {rowsToParams} from './utils/params';
 
@@ -321,7 +322,10 @@ export function App() {
   const activeConversationIdRef = useRef(activeConversationId);
   const modelPropsRequestsRef = useRef(new Set<string>());
   const isMountedRef = useRef(true);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const [notice, setNotice] = useState<AppNotice | null>(null);
+
+  useScrollChatToBottomOnOpen(chatScrollRef, activeConversationId);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1635,6 +1639,7 @@ export function App() {
             <HStack height="100%" className="nelle-workbench">
               <StackItem size="fill" className="nelle-chat-column">
                 <ChatLayout
+                  ref={chatScrollRef}
                   data-testid="chat-layout"
                   className="nelle-chat-layout"
                   density="spacious"

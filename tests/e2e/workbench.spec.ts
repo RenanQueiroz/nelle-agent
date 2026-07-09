@@ -2440,6 +2440,80 @@ test('stops re-requesting model props after llama.cpp rejects the call', async (
   expect(propsCalls).toBe(settledCalls);
 });
 
+test('opens conversations scrolled to the bottom of the transcript', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'Model One',
+    presetName: 'model-one',
+    source: 'huggingface',
+    repoId: 'repo/model-one',
+    quant: 'UD-Q4_K_XL',
+    hfRef: 'repo/model-one:UD-Q4_K_XL',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {...RUNNING_RUNTIME, activeModelId: model.id};
+  const chat = Array.from({length: 36}, (_, index) => ({
+    id: `message-${index}`,
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    content: `Scrollable chat message ${index + 1}`,
+    createdAt: new Date(Date.UTC(2026, 6, 7, 12, index)).toISOString(),
+  }));
+  const conversations = [
+    {
+      id: 'first-chat',
+      title: 'First chat',
+      titleSource: 'fallback',
+      pinned: false,
+      status: 'ready',
+      updatedAt: '2026-07-07T12:10:00.000Z',
+    },
+    {
+      id: 'second-chat',
+      title: 'Second chat',
+      titleSource: 'fallback',
+      pinned: false,
+      status: 'ready',
+      updatedAt: '2026-07-07T12:05:00.000Z',
+    },
+  ];
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {state: {activeModelId: model.id, models: [model], chat}, runtime},
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await mockConversationRoutes(page, {chat, conversations});
+
+  await page.goto('/');
+  const chatLayout = page.getByTestId('chat-layout');
+  await expect(page.getByLabel('Message input')).toBeVisible();
+  await expect(chatLayout.getByText('Scrollable chat message 36')).toBeVisible();
+
+  const distanceFromBottom = async () =>
+    chatLayout.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight);
+
+  expect(await chatLayout.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+  await expect.poll(distanceFromBottom, {timeout: 4000}).toBeLessThanOrEqual(1);
+
+  // Reading back through the transcript releases the pin instead of fighting it.
+  await chatLayout.hover();
+  await page.mouse.wheel(0, -400);
+  await page.waitForTimeout(400);
+  expect(await distanceFromBottom()).toBeGreaterThan(1);
+
+  // Opening another conversation starts at the bottom again, even though the
+  // ChatLayout is never remounted.
+  await page
+    .getByTestId('conversation-row-second-chat')
+    .getByRole('button', {name: 'Second chat', exact: true})
+    .click();
+  await expect.poll(distanceFromBottom, {timeout: 4000}).toBeLessThanOrEqual(1);
+});
+
 test('keeps the composer opaque and interactive while a run streams', async ({page}) => {
   const model = {
     id: 'model-a',

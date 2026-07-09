@@ -239,6 +239,11 @@ Project-specific guidance for AI coding agents.
 - Keep the workbench viewport-bounded. Do not reintroduce document-level
   scrolling; side panels and the chat history should scroll internally while
   the composer stays docked.
+- Astryx's `ChatLayout` scrolls to the bottom once on mount, inside a single
+  `requestAnimationFrame`. Nelle keeps one `ChatLayout` mounted across
+  conversation switches, so `useScrollChatToBottomOnOpen` re-pins the
+  transcript whenever a conversation is opened, re-measuring until the height
+  settles and releasing on the first wheel/touch/pointer input.
 - Never leave a `backdrop-filter` covering the viewport. Astryx's `Dialog`
   frosts its `::backdrop`, and every repaint inside the dialog re-blurs the
   whole screen: measured 13fps at 3840x2160 versus 63fps without it. The
