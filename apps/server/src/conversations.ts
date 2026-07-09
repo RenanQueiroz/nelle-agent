@@ -22,6 +22,7 @@ import {
   normalizeReasoningLevel,
 } from '../../../packages/shared/src/reasoning.ts';
 import type {AppDatabase} from './database';
+import {ModelCacheRepository} from './modelCache';
 import {sanitizeStoredPerformance} from './llamaThroughput';
 import type {AppState, ChatMessage, ConfiguredModel} from './types';
 
@@ -219,7 +220,12 @@ export type ConversationDiagnostics = {
 };
 
 export class ConversationRepository {
-  constructor(private readonly database: AppDatabase) {}
+  /** Answers "can this model see images?" without a live router. */
+  private readonly modelCache: ModelCacheRepository;
+
+  constructor(private readonly database: AppDatabase) {
+    this.modelCache = new ModelCacheRepository(database);
+  }
 
   async init(): Promise<void> {
     await this.database.open();
@@ -770,13 +776,14 @@ export class ConversationRepository {
         available: models,
       },
       capabilities: {
-        canSend: !unavailable && state.runtime != null,
+        // Conversation-level only. `state.runtime` is runtime state the client
+        // owns, and a `ready` conversation is by definition not unavailable.
+        canSend: row.status === 'ready',
         canAbort: row.status === 'running' || row.status === 'compacting',
         canCompact: row.status === 'ready',
         canFork: entries.length > 0 && !unavailable,
         canRepair: unavailable,
-        canAttachImages: false,
-        canAttachText: true,
+        canAttachImages: defaultModelId ? this.modelCache.getVisionSupport(defaultModelId) : null,
       },
       errors: unavailable
         ? [

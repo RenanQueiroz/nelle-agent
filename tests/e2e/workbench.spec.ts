@@ -3437,8 +3437,7 @@ function conversationSnapshot(
       canCompact: chat.length > 0,
       canFork: chat.length > 0 && conversation?.status !== 'unavailable',
       canRepair: conversation?.status === 'unavailable',
-      canAttachImages: false,
-      canAttachText: true,
+      canAttachImages: null,
     },
     errors:
       conversation?.status === 'unavailable'

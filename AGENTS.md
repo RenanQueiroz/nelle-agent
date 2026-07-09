@@ -102,6 +102,13 @@ Project-specific guidance for AI coding agents.
   malformed session files must mark the conversation `unavailable` and surface
   `session_unavailable`; no read path may create a replacement session under the
   same conversation id.
+- Conversation snapshot `capabilities` describe what the *conversation* permits,
+  never the runtime: `canSend` is `status === 'ready'`, and whether llama.cpp is
+  up or a model is selected is the client's half of the check. `canAttachImages`
+  is a tri-state from `model_cache` (`null` = never loaded, so unknown).
+  `canAbort`/`canCompact` are point-in-time; a client tracking live run state
+  should prefer its own. The browser reads `canRepair`, which stays true until a
+  repair or rebuild succeeds.
 - `unavailable` conversations recover through three explicit endpoints, never
   implicitly. `POST /api/conversations/:id/repair` re-checks the file and only
   succeeds if the user restored it. `POST /api/conversations/:id/rebuild`

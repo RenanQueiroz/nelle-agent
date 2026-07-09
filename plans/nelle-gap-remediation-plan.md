@@ -415,6 +415,13 @@ exists.
 
 ## G4: The Snapshot `capabilities` Block Is Unused, And One Field Lies
 
+**Status: done**, with one refinement discovered while building it. `canAbort` and
+`canCompact` describe a run that may have started _after_ the snapshot was taken,
+so a client with live run state — the browser — must prefer its own. The browser
+consumes `canRepair`, which is durable: it stays true until a repair or rebuild
+succeeds. The rest of the block is documented as the point-in-time contract for
+clients without live run state.
+
 ### Evidence
 
 - `apps/server/src/conversations.ts:614` — `canAttachImages: false`, hardcoded.

@@ -18,6 +18,7 @@ import {
   importConversationArchive,
 } from '../../apps/server/src/conversationArchive.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
+import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
 import {HostToolRepository} from '../../apps/server/src/hostTools.ts';
 import {PiHarness} from '../../apps/server/src/piHarness.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
@@ -716,6 +717,62 @@ async function writeSessionFile(sessionManager: SessionManager): Promise<string>
   await fs.writeFile(sessionPath, `${content}\n`);
   return sessionPath;
 }
+
+test('snapshot capabilities describe the conversation, not the runtime', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    await repository.init();
+    const model = await store.addHuggingFaceModel({
+      repoId: 'repo/model',
+      quant: 'UD-Q4_K_M',
+      name: 'Model Q4',
+    });
+    const conversation = repository.createConversation({
+      title: 'Capable',
+      defaultModelId: model.id,
+    });
+
+    // llama.cpp has never reported props, so vision is unknown, not absent.
+    const cold = repository.getSnapshot(conversation.id, await store.getState());
+    assert.equal(cold?.capabilities.canAttachImages, null);
+    // `canSend` no longer depends on the runtime being up; that is the client's
+    // half of the check.
+    assert.equal(cold?.capabilities.canSend, true);
+    assert.equal(cold?.capabilities.canAbort, false);
+    assert.equal(cold?.capabilities.canRepair, false);
+
+    const cache = new ModelCacheRepository(database);
+    cache.upsertModelProps(model.id, {
+      modelId: model.id,
+      modalities: {vision: true, audio: false, video: false},
+      contextWindow: 32_768,
+      raw: {},
+    });
+    const warm = repository.getSnapshot(conversation.id, await store.getState());
+    assert.equal(warm?.capabilities.canAttachImages, true);
+
+    cache.upsertModelProps(model.id, {
+      modelId: model.id,
+      modalities: {vision: false, audio: false, video: false},
+      raw: {},
+    });
+    const textOnly = repository.getSnapshot(conversation.id, await store.getState());
+    assert.equal(textOnly?.capabilities.canAttachImages, false);
+
+    // A running conversation can be aborted but not sent to.
+    repository.setConversationStatus(conversation.id, 'running');
+    const running = repository.getSnapshot(conversation.id, await store.getState());
+    assert.equal(running?.capabilities.canSend, false);
+    assert.equal(running?.capabilities.canAbort, true);
+    assert.equal(running?.capabilities.canCompact, false);
+  } finally {
+    database.close();
+  }
+});
 
 test('repair restores a conversation once its Pi session file is back', async () => {
   const paths = await createTempPaths();

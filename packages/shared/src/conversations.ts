@@ -113,6 +113,15 @@ export const conversationSnapshotSchema = z.object({
     defaultModelId: z.string().optional(),
     available: z.array(modelListItemSchema),
   }),
+  /**
+   * What the *conversation* permits, as of this snapshot.
+   *
+   * Runtime state is deliberately absent: whether llama.cpp is up, or a model is
+   * selected, belongs to the client, which ANDs it in. A client that tracks live
+   * run state (the browser does) should prefer its own `canAbort`/`canCompact`,
+   * because a run started after this snapshot was taken. Clients without one
+   * read these fields directly.
+   */
   capabilities: z.object({
     canSend: z.boolean(),
     canAbort: z.boolean(),
@@ -120,8 +129,13 @@ export const conversationSnapshotSchema = z.object({
     canFork: z.boolean(),
     /** The Pi session file is unreadable; offer repair and rebuild. */
     canRepair: z.boolean(),
-    canAttachImages: z.boolean(),
-    canAttachText: z.boolean(),
+    /**
+     * Last-known vision support for the conversation's model, from `model_cache`.
+     * `null` means llama.cpp has never reported props for it, so image support is
+     * unknown rather than absent. Best effort: a client that can reach the router
+     * should prefer live `/props`.
+     */
+    canAttachImages: z.boolean().nullable(),
   }),
   errors: z.array(nelleErrorSchema),
 });

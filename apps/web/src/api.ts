@@ -337,8 +337,8 @@ export type ConversationSnapshot = {
     canCompact: boolean;
     canFork: boolean;
     canRepair: boolean;
-    canAttachImages: boolean;
-    canAttachText: boolean;
+    /** `null` when llama.cpp has never reported props for the model. */
+    canAttachImages: boolean | null;
   };
   errors: Array<{code: string; message: string; retryable?: boolean}>;
 };

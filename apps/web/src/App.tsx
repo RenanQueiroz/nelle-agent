@@ -305,6 +305,9 @@ export function App() {
   const [modelPropsById, setModelPropsById] = useState<Record<string, ModelPropsEntry>>({});
   const [favoriteModelIds, setFavoriteModelIds] = useState<string[]>(readFavoriteModelIds);
   const [activeConversationId, setActiveConversationId] = useState('');
+  const [capabilities, setCapabilities] = useState<ConversationSnapshot['capabilities'] | null>(
+    null,
+  );
   // "Not fetched yet" is not the same as "there are none". Until the list
   // arrives, the composer must not claim there is nothing to send to.
   const [hasLoadedConversations, setHasLoadedConversations] = useState(false);
@@ -336,13 +339,11 @@ export function App() {
   const activeConversationIdRef = useRef(activeConversationId);
   const modelPropsRequestsRef = useRef(new Set<string>());
   const isMountedRef = useRef(true);
-  // A narrow selector: the workbench only redraws when the active conversation's
-  // status changes, not on every sidebar page or title update.
-  const activeConversationStatus = useConversationsStore(
-    state =>
-      state.conversations.find(conversation => conversation.id === activeConversationId)?.status,
-  );
-  const isActiveConversationUnavailable = activeConversationStatus === 'unavailable';
+  // The snapshot decides whether recovery is offered. `canRepair` is durable --
+  // it stays true until a repair or rebuild succeeds -- unlike `canAbort` and
+  // `canCompact`, which describe a run that may have started since the snapshot
+  // was taken, and for which the browser's own live state is fresher.
+  const isActiveConversationUnavailable = capabilities?.canRepair === true;
 
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const [notice, setNotice] = useState<AppNotice | null>(null);
@@ -484,11 +485,18 @@ export function App() {
           setMessages([]);
           setContextUsage({});
           setReasoningLevel('off');
+          setCapabilities(null);
           return;
         }
         const snapshot = await getConversation(nextConversationId);
         if (!isCancelled) {
-          applyConversationSnapshot(snapshot, setMessages, setContextUsage, setReasoningLevel);
+          applyConversationSnapshot(
+            snapshot,
+            setMessages,
+            setContextUsage,
+            setReasoningLevel,
+            setCapabilities,
+          );
         }
       } catch {
         if (!isCancelled) {
@@ -661,10 +669,17 @@ export function App() {
         setMessages([]);
         setContextUsage({});
         setReasoningLevel('off');
+        setCapabilities(null);
         return;
       }
       const snapshot = await getConversation(nextConversationId);
-      applyConversationSnapshot(snapshot, setMessages, setContextUsage, setReasoningLevel);
+      applyConversationSnapshot(
+        snapshot,
+        setMessages,
+        setContextUsage,
+        setReasoningLevel,
+        setCapabilities,
+      );
     } catch {
       setMessages(fallbackMessages);
       setContextUsage({});
@@ -1201,7 +1216,13 @@ export function App() {
       if (completed) {
         if (conversationId === activeConversationIdRef.current) {
           const snapshot = await getConversation(conversationId);
-          applyConversationSnapshot(snapshot, setMessages, setContextUsage, setReasoningLevel);
+          applyConversationSnapshot(
+            snapshot,
+            setMessages,
+            setContextUsage,
+            setReasoningLevel,
+            setCapabilities,
+          );
         }
         await refreshConversations(activeConversationIdRef.current);
       }
@@ -1381,7 +1402,13 @@ export function App() {
     await runAction('import-chat', async () => {
       const snapshot = await importConversationArchive(file);
       setActiveConversationId(snapshot.conversation.id);
-      applyConversationSnapshot(snapshot, setMessages, setContextUsage, setReasoningLevel);
+      applyConversationSnapshot(
+        snapshot,
+        setMessages,
+        setContextUsage,
+        setReasoningLevel,
+        setCapabilities,
+      );
       clearDraftAttachments();
       await refreshConversations(snapshot.conversation.id);
       setNotice({type: 'success', text: 'Conversation imported.'});
@@ -1392,7 +1419,13 @@ export function App() {
     await runAction(`clone:${conversation.id}`, async () => {
       const snapshot = await cloneConversation(conversation.id);
       setActiveConversationId(snapshot.conversation.id);
-      applyConversationSnapshot(snapshot, setMessages, setContextUsage, setReasoningLevel);
+      applyConversationSnapshot(
+        snapshot,
+        setMessages,
+        setContextUsage,
+        setReasoningLevel,
+        setCapabilities,
+      );
       clearDraftAttachments();
       await refreshConversations(snapshot.conversation.id);
       setNotice({type: 'success', text: 'Conversation duplicated.'});
@@ -1406,7 +1439,13 @@ export function App() {
     await runAction(`fork:${message.id}`, async () => {
       const snapshot = await forkConversation(activeConversationId, message.id);
       setActiveConversationId(snapshot.conversation.id);
-      applyConversationSnapshot(snapshot, setMessages, setContextUsage, setReasoningLevel);
+      applyConversationSnapshot(
+        snapshot,
+        setMessages,
+        setContextUsage,
+        setReasoningLevel,
+        setCapabilities,
+      );
       clearDraftAttachments();
       await refreshConversations(snapshot.conversation.id);
       setNotice({type: 'success', text: 'Conversation forked.'});
@@ -1938,10 +1977,12 @@ function applyConversationSnapshot(
   setMessages: (messages: ApiChatMessage[]) => void,
   setContextUsage: (context: ConversationContextUsage) => void,
   setReasoningLevel: (level: ReasoningLevel) => void,
+  setCapabilities: (capabilities: ConversationSnapshot['capabilities'] | null) => void,
 ) {
   setMessages(messagesFromSnapshot(snapshot));
   setContextUsage(snapshot.context ?? {});
   setReasoningLevel(snapshot.conversation.reasoningLevel ?? 'off');
+  setCapabilities(snapshot.capabilities);
 }
 
 function mergeContextTotals(
