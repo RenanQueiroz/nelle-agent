@@ -2133,6 +2133,69 @@ test('Pi compact stream reports busy conversations with stable error codes', asy
   }
 });
 
+test('schema failures come back as invalid_request, not a raw 500', async () => {
+  const paths = await createTempPaths();
+  const app = await createServer(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  new ConversationRepository(database).createConversation({
+    id: LEGACY_DEFAULT_CONVERSATION_ID,
+    title: 'Schema guard',
+  });
+  database.close();
+  try {
+    // Too many attachments: refused by the array cap, with the cap's own words.
+    const tooMany = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${LEGACY_DEFAULT_CONVERSATION_ID}/chat/stream`,
+      payload: {
+        message: 'read these',
+        attachments: Array.from({length: 21}, (_, index) => ({
+          id: `a${index}`,
+          kind: 'text',
+          name: `f${index}.txt`,
+          text: 'hi',
+        })),
+      },
+    });
+    assert.equal(tooMany.statusCode, 400);
+    const tooManyBody = tooMany.json<{error: {code: string; message: string; detail?: string}}>();
+    assert.equal(tooManyBody.error.code, 'invalid_request');
+    assert.match(tooManyBody.error.message, /Attach at most 20 files per message/);
+    assert.equal(tooManyBody.error.detail, 'attachments');
+
+    // A field-level failure names the field.
+    const badImage = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${LEGACY_DEFAULT_CONVERSATION_ID}/chat/stream`,
+      payload: {
+        message: 'look',
+        attachments: [{id: 'a1', kind: 'image', name: 'a.png', data: 'AAA'}],
+      },
+    });
+    assert.equal(badImage.statusCode, 400);
+    const badImageBody = badImage.json<{error: {code: string; detail?: string}}>();
+    assert.equal(badImageBody.error.code, 'invalid_request');
+    assert.equal(badImageBody.error.detail, 'attachments.0.mimeType');
+
+    // An ordinary JSON route gets the same treatment.
+    const badPatch = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/reasoning',
+      payload: {budgets: {low: -1, medium: 2048, high: 8192}},
+    });
+    assert.equal(badPatch.statusCode, 400);
+    assert.equal(badPatch.json<{error: {code: string}}>().error.code, 'invalid_request');
+
+    // Non-zod failures keep their own status.
+    const missing = await app.inject({method: 'GET', url: '/api/conversations/nope'});
+    assert.equal(missing.statusCode, 404);
+    assert.equal(missing.json<{error: {code: string}}>().error.code, 'conversation_not_found');
+  } finally {
+    await app.close();
+  }
+});
+
 test('a second chat run in the same conversation is rejected as busy', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);

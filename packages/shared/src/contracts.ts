@@ -44,6 +44,9 @@ export const NELLE_ERROR_CODES = {
   modelLoadFailed: 'model_load_failed',
   contextOverflow: 'context_overflow',
 
+  // Request validation.
+  invalidRequest: 'invalid_request',
+
   // Chat input.
   unsupportedAttachment: 'unsupported_attachment',
   unsupportedSlashCommand: 'unsupported_slash_command',

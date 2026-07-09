@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import cors from '@fastify/cors';
 import staticPlugin from '@fastify/static';
 import Fastify from 'fastify';
-import {z} from 'zod';
+import {ZodError, z} from 'zod';
 
 import {
   reasoningBudgetsSchema,
@@ -28,6 +28,7 @@ import {
 } from './conversations';
 import type {AppPaths} from './paths';
 import type {AppState, ChatAttachmentInput, ChatStreamEvent} from './types';
+import type {NelleError} from '../../../packages/shared/src/contracts.ts';
 import {
   chatRequestSchema,
   createEventEnvelope,
@@ -143,6 +144,18 @@ export async function createServer(paths: AppPaths) {
   if (attachmentSweep.deleted > 0 || attachmentSweep.failed.length > 0) {
     app.log.info({attachmentSweep}, 'completed orphan attachment sweep');
   }
+  // Every route validates its body with zod before it writes anything, including
+  // the SSE routes, which call `parse` above `writeHead`. So a schema failure can
+  // always become an ordinary response -- and it must, because Fastify's default
+  // turns it into an HTTP 500 whose body is a serialized zod issue array. A
+  // second client would get no code to branch on and a wall of JSON to read.
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof ZodError) {
+      return reply.status(400).send({error: nelleErrorFromZod(error)});
+    }
+    return reply.send(error);
+  });
+
   app.addContentTypeParser(
     ['application/zip', 'application/octet-stream'],
     {parseAs: 'buffer'},
@@ -1050,6 +1063,21 @@ function validateEditableParams(
     }
   }
   return null;
+}
+
+/** The first issue names the problem; the rest are usually consequences of it. */
+function nelleErrorFromZod(error: ZodError): NelleError {
+  const issue = error.issues[0];
+  const field = issue?.path.join('.') ?? '';
+  return {
+    code: NELLE_ERROR_CODES.invalidRequest,
+    message: issue?.message ?? 'The request body was not valid.',
+    detail:
+      [field || undefined, error.issues.length > 1 ? `${error.issues.length} problems` : undefined]
+        .filter(Boolean)
+        .join(' — ') || undefined,
+    retryable: false,
+  };
 }
 
 /** llama.cpp is not running, so no run of any kind can start. */
