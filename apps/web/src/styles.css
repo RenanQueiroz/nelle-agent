@@ -213,12 +213,6 @@ body {
   width: 100%;
 }
 
-.nelle-model-settings-row,
-.nelle-model-result {
-  border-block-start: 1px solid var(--color-border-subtle);
-  padding-block-start: var(--spacing-3);
-}
-
 /*
  * Astryx's Dialog frosts the whole viewport behind the modal with
  * `::backdrop { backdrop-filter: blur(2px) }`. Its cost scales with pixel count
@@ -246,8 +240,11 @@ dialog.astryx-dialog::backdrop {
   overflow: hidden;
 }
 
+/* The dialog is a fixed size, so each section scrolls inside this pane. */
 .nelle-settings-dialog-content {
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /*

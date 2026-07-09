@@ -2296,6 +2296,46 @@ test('a deleted conversation is not recreated by the server', async ({page}) => 
   await expect(rows).toHaveCount(0);
 });
 
+test('the settings dialog keeps one size across sections and scrolls its content', async ({
+  page,
+}) => {
+  await mockConversationRoutes(page, {chat: []});
+  await page.setViewportSize({width: 1500, height: 950});
+  await page.goto('/');
+  await page.getByRole('button', {name: 'Settings'}).click();
+  await expect(page.getByRole('heading', {name: 'llama.cpp'})).toBeVisible();
+
+  // offsetWidth/Height, not getBoundingClientRect: the dialog animates in from
+  // scale(0.95), and a transformed bounding box would report 95% of the layout.
+  const dialogSize = () =>
+    page.evaluate(() => {
+      const dialog = document.querySelector('dialog') as HTMLElement;
+      return {width: dialog.offsetWidth, height: dialog.offsetHeight};
+    });
+
+  const runtime = await dialogSize();
+  expect(runtime).toEqual({width: 1040, height: 760});
+
+  for (const section of ['Models', 'Global Params', 'Tools', 'Chats']) {
+    await page.getByRole('button', {name: section, exact: true}).click();
+    // Sections must not resize the modal around the user.
+    expect(await dialogSize()).toEqual(runtime);
+  }
+
+  // Long sections scroll inside the pane rather than growing the modal.
+  await page.getByRole('button', {name: 'Runtime', exact: true}).click();
+  await page.getByRole('button', {name: 'Show logs'}).click();
+  await expect(page.getByText('No llama-server log output yet.')).toBeVisible();
+  expect(await dialogSize()).toEqual(runtime);
+
+  // Responsive: it shrinks with the viewport instead of overflowing it.
+  await page.setViewportSize({width: 700, height: 560});
+  const small = await dialogSize();
+  expect(small.width).toBeLessThanOrEqual(700);
+  expect(small.height).toBeLessThanOrEqual(560);
+  expect(small.width).toBeLessThan(runtime.width);
+});
+
 test('no full-viewport backdrop blur repaints behind the settings dialog', async ({page}) => {
   await mockConversationRoutes(page, {chat: []});
   await page.goto('/');

@@ -1,8 +1,8 @@
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
-import {Card} from '@astryxdesign/core/Card';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
+import {Divider} from '@astryxdesign/core/Divider';
 import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {
@@ -86,6 +86,10 @@ type SettingsDialogProps = {
   onClearAllChats: () => void | Promise<void>;
 };
 
+/** Responsive, but a fixed size for any given viewport: sections never resize it. */
+const SETTINGS_DIALOG_WIDTH = 'min(92vw, 1040px)';
+const SETTINGS_DIALOG_HEIGHT = 'min(85vh, 760px)';
+
 const SETTINGS_SECTIONS: Array<{
   id: SettingsSection;
   icon: typeof Cog6ToothIcon;
@@ -141,8 +145,12 @@ export function SettingsDialog({
     <Dialog
       isOpen={isOpen}
       onOpenChange={onOpenChange}
-      width="min(calc(100vw - var(--spacing-8)), calc(var(--spacing-10) * 25))"
-      maxHeight="calc(100vh - var(--spacing-8))"
+      width={SETTINGS_DIALOG_WIDTH}
+      maxHeight={SETTINGS_DIALOG_HEIGHT}
+      // Dialog is `height: fit-content`, so the modal would resize as the user
+      // moves between sections. Pin it: inline styles outrank StyleX, which the
+      // dialog's own class cannot. Each section scrolls inside LayoutContent.
+      style={{height: SETTINGS_DIALOG_HEIGHT}}
       purpose="form"
       className="nelle-settings-dialog"
     >
@@ -221,32 +229,31 @@ export function SettingsDialog({
               />
             )}
             {section === 'chats' && (
-              <Card padding={3}>
-                <VStack gap={3}>
-                  <Heading level={3}>Chats</Heading>
-                  <Text type="supporting" color="secondary">
-                    {conversations.length.toLocaleString()} conversations stored locally.
-                  </Text>
-                  <HStack gap={2} wrap="wrap">
-                    <Button
-                      label="Import archive"
-                      size="sm"
-                      variant="secondary"
-                      icon={<Icon icon={ArrowUpTrayIcon} size="sm" />}
-                      isLoading={isImporting}
-                      onClick={onImportConversation}
-                    />
-                    <Button
-                      label="Clear all chats"
-                      size="sm"
-                      variant="secondary"
-                      icon={<Icon icon={TrashIcon} size="sm" />}
-                      isLoading={busyAction === 'clear-all-chats'}
-                      onClick={onClearAllChats}
-                    />
-                  </HStack>
-                </VStack>
-              </Card>
+              <VStack gap={3}>
+                <Heading level={3}>Chats</Heading>
+                <Divider />
+                <Text type="supporting" color="secondary">
+                  {conversations.length.toLocaleString()} conversations stored locally.
+                </Text>
+                <HStack gap={2} wrap="wrap">
+                  <Button
+                    label="Import archive"
+                    size="sm"
+                    variant="secondary"
+                    icon={<Icon icon={ArrowUpTrayIcon} size="sm" />}
+                    isLoading={isImporting}
+                    onClick={onImportConversation}
+                  />
+                  <Button
+                    label="Clear all chats"
+                    size="sm"
+                    variant="secondary"
+                    icon={<Icon icon={TrashIcon} size="sm" />}
+                    isLoading={busyAction === 'clear-all-chats'}
+                    onClick={onClearAllChats}
+                  />
+                </HStack>
+              </VStack>
             )}
           </LayoutContent>
         }
@@ -302,12 +309,13 @@ function RuntimeSettingsSection({
         : 'Router stopped';
 
   return (
-    <Card padding={3}>
+    <VStack gap={3}>
+      <HStack gap={2} vAlign="center">
+        <Icon icon={CpuChipIcon} size="sm" color="secondary" />
+        <Heading level={3}>llama.cpp</Heading>
+      </HStack>
+      <Divider />
       <VStack gap={3}>
-        <HStack gap={2} vAlign="center">
-          <Icon icon={CpuChipIcon} size="sm" color="secondary" />
-          <Heading level={3}>llama.cpp</Heading>
-        </HStack>
         <HStack gap={2} wrap="wrap" vAlign="center">
           <Token
             label={
@@ -387,6 +395,7 @@ function RuntimeSettingsSection({
             isWrapped
           />
         )}
+        <Divider />
         <VStack gap={2}>
           <TextInput
             label="Max loaded models"
@@ -411,7 +420,7 @@ function RuntimeSettingsSection({
           />
         </HStack>
       </VStack>
-    </Card>
+    </VStack>
   );
 }
 
@@ -429,14 +438,15 @@ function HostToolsSettingsSection({
   const acknowledged = hostTools?.acknowledged === true;
   const enabled = hostTools?.enabled === true;
   return (
-    <Card padding={3}>
+    <VStack gap={3}>
+      <HStack gap={2} vAlign="center">
+        <Icon icon={ShieldCheckIcon} size="sm" color="secondary" />
+        <Heading level={3}>Host Tools</Heading>
+        <StackItem size="fill" />
+        <Token label={enabled ? 'enabled' : 'disabled'} color={enabled ? 'yellow' : 'blue'} />
+      </HStack>
+      <Divider />
       <VStack gap={3}>
-        <HStack gap={2} vAlign="center">
-          <Icon icon={ShieldCheckIcon} size="sm" color="secondary" />
-          <Heading level={3}>Host Tools</Heading>
-          <StackItem size="fill" />
-          <Token label={enabled ? 'enabled' : 'disabled'} color={enabled ? 'yellow' : 'blue'} />
-        </HStack>
         {!acknowledged && (
           <Banner
             status="warning"
@@ -470,7 +480,7 @@ function HostToolsSettingsSection({
           </Text>
         )}
       </VStack>
-    </Card>
+    </VStack>
   );
 }
 
@@ -485,25 +495,24 @@ function GlobalSettingsSection({
   const setGlobalParamRows = useSettingsStore(state => state.setGlobalParamRows);
 
   return (
-    <Card padding={3}>
-      <VStack gap={3}>
-        <Heading level={3}>Global llama.cpp Params</Heading>
-        <Text type="supporting" color="secondary">
-          Written to the <code className="nelle-code">[*]</code> section of models.ini and applied
-          to every model.
-        </Text>
-        <KeyValueEditor rows={globalParamRows} onChange={setGlobalParamRows} />
-        <HStack gap={2}>
-          <Button
-            label="Save global params"
-            size="sm"
-            variant="primary"
-            isLoading={busyAction === 'global-params'}
-            onClick={onSaveGlobalParams}
-          />
-        </HStack>
-      </VStack>
-    </Card>
+    <VStack gap={3}>
+      <Heading level={3}>Global llama.cpp Params</Heading>
+      <Divider />
+      <Text type="supporting" color="secondary">
+        Written to the <code className="nelle-code">[*]</code> section of models.ini and applied to
+        every model.
+      </Text>
+      <KeyValueEditor rows={globalParamRows} onChange={setGlobalParamRows} />
+      <HStack gap={2}>
+        <Button
+          label="Save global params"
+          size="sm"
+          variant="primary"
+          isLoading={busyAction === 'global-params'}
+          onClick={onSaveGlobalParams}
+        />
+      </HStack>
+    </VStack>
   );
 }
 
@@ -546,31 +555,32 @@ function ModelSettingsSection({
   const setSearchQuery = useSettingsStore(state => state.setSearchQuery);
 
   return (
-    <VStack gap={3}>
-      <Card padding={3}>
-        <VStack gap={3}>
-          <HStack gap={2} vAlign="center">
-            <StackItem size="fill">
-              <Heading level={3}>Configured Models</Heading>
-            </StackItem>
-            <Button
-              label="Reload"
-              size="sm"
-              variant="ghost"
-              icon={<Icon icon={ArrowPathIcon} size="sm" />}
-              isDisabled={!runtime?.running}
-              isLoading={busyAction === 'router-reload'}
-              onClick={onReloadRouterModels}
-            />
-          </HStack>
-          {models.length === 0 && (
-            <Text type="supporting" color="secondary">
-              Search Hugging Face and choose a GGUF quant to create the first model.
-            </Text>
-          )}
-          {models.map(model => (
+    <VStack gap={5}>
+      <VStack gap={3}>
+        <HStack gap={2} vAlign="center">
+          <StackItem size="fill">
+            <Heading level={3}>Configured Models</Heading>
+          </StackItem>
+          <Button
+            label="Reload"
+            size="sm"
+            variant="ghost"
+            icon={<Icon icon={ArrowPathIcon} size="sm" />}
+            isDisabled={!runtime?.running}
+            isLoading={busyAction === 'router-reload'}
+            onClick={onReloadRouterModels}
+          />
+        </HStack>
+        <Divider />
+        {models.length === 0 && (
+          <Text type="supporting" color="secondary">
+            Search Hugging Face and choose a GGUF quant to create the first model.
+          </Text>
+        )}
+        {models.map((model, index) => (
+          <VStack key={model.id} gap={3}>
+            {index > 0 && <Divider />}
             <ModelSettingsRow
-              key={model.id}
               model={model}
               activeModelId={activeModelId}
               isRunLocked={activeRunModelIds.has(model.id)}
@@ -584,71 +594,71 @@ function ModelSettingsSection({
               onDuplicateModel={onDuplicateModel}
               onDeleteModel={onDeleteModel}
             />
+          </VStack>
+        ))}
+      </VStack>
+
+      <VStack gap={3}>
+        <HStack gap={2} vAlign="center">
+          <Icon icon={MagnifyingGlassIcon} size="sm" color="secondary" />
+          <Heading level={3}>Hugging Face GGUF Search</Heading>
+        </HStack>
+        <Divider />
+        <TextInput
+          label="Search query"
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="qwen coder gguf"
+          startIcon={MagnifyingGlassIcon}
+        />
+        <HStack gap={2}>
+          <Button
+            label="Search GGUF models"
+            size="sm"
+            variant="primary"
+            icon={<Icon icon={MagnifyingGlassIcon} size="sm" />}
+            isLoading={isSearching}
+            onClick={onSearch}
+          />
+        </HStack>
+        <VStack gap={3}>
+          {searchResults.map((result, index) => (
+            <VStack key={result.id} gap={2}>
+              {index > 0 && <Divider />}
+              <VStack gap={0}>
+                <Text type="label" weight="semibold">
+                  {result.id}
+                </Text>
+                <Text type="supporting" color="secondary">
+                  {result.downloads?.toLocaleString() ?? '0'} downloads
+                </Text>
+              </VStack>
+              {result.quants.map(quant => (
+                <HStack key={quant.quant} gap={2} vAlign="center">
+                  <StackItem size="fill" className="nelle-tight">
+                    <VStack gap={0}>
+                      <Text type="supporting" className="nelle-code">
+                        {quant.quant}
+                      </Text>
+                      <Text type="supporting" color="secondary">
+                        {formatBytes(quant.size)}
+                        {quant.files.length > 1 ? ` across ${quant.files.length} files` : ''}
+                      </Text>
+                    </VStack>
+                  </StackItem>
+                  <Button
+                    label="Use"
+                    size="sm"
+                    variant="secondary"
+                    isLoading={busyAction === `use:${result.id}:${quant.quant}`}
+                    onClick={() => onUseHuggingFaceModel(result.id, quant.quant)}
+                  />
+                </HStack>
+              ))}
+            </VStack>
           ))}
         </VStack>
-      </Card>
-
-      <Card padding={3}>
-        <VStack gap={3}>
-          <HStack gap={2} vAlign="center">
-            <Icon icon={MagnifyingGlassIcon} size="sm" color="secondary" />
-            <Heading level={3}>Hugging Face GGUF Search</Heading>
-          </HStack>
-          <TextInput
-            label="Search query"
-            value={searchQuery}
-            onChange={setSearchQuery}
-            placeholder="qwen coder gguf"
-            startIcon={MagnifyingGlassIcon}
-          />
-          <HStack gap={2}>
-            <Button
-              label="Search GGUF models"
-              size="sm"
-              variant="primary"
-              icon={<Icon icon={MagnifyingGlassIcon} size="sm" />}
-              isLoading={isSearching}
-              onClick={onSearch}
-            />
-          </HStack>
-          <VStack gap={3}>
-            {searchResults.map(result => (
-              <VStack key={result.id} gap={2} className="nelle-model-result">
-                <VStack gap={0}>
-                  <Text type="label" weight="semibold">
-                    {result.id}
-                  </Text>
-                  <Text type="supporting" color="secondary">
-                    {result.downloads?.toLocaleString() ?? '0'} downloads
-                  </Text>
-                </VStack>
-                {result.quants.map(quant => (
-                  <HStack key={quant.quant} gap={2} vAlign="center">
-                    <StackItem size="fill" className="nelle-tight">
-                      <VStack gap={0}>
-                        <Text type="supporting" className="nelle-code">
-                          {quant.quant}
-                        </Text>
-                        <Text type="supporting" color="secondary">
-                          {formatBytes(quant.size)}
-                          {quant.files.length > 1 ? ` across ${quant.files.length} files` : ''}
-                        </Text>
-                      </VStack>
-                    </StackItem>
-                    <Button
-                      label="Use"
-                      size="sm"
-                      variant="secondary"
-                      isLoading={busyAction === `use:${result.id}:${quant.quant}`}
-                      onClick={() => onUseHuggingFaceModel(result.id, quant.quant)}
-                    />
-                  </HStack>
-                ))}
-              </VStack>
-            ))}
-          </VStack>
-        </VStack>
-      </Card>
+      </VStack>
     </VStack>
   );
 }
@@ -689,7 +699,7 @@ function ModelSettingsRow({
   const isLoading = routerStatus === 'loading';
 
   return (
-    <VStack gap={2} className="nelle-model-settings-row">
+    <VStack gap={2}>
       <HStack gap={2} vAlign="center">
         <StackItem size="fill" className="nelle-tight">
           <Text type="label" weight="semibold">

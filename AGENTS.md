@@ -123,6 +123,12 @@ Project-specific guidance for AI coding agents.
   Settings writes free-form string params into `models.ini` through server APIs,
   reloads router models when llama-server is running, and keeps the persisted
   stable section id as the llama.cpp/OpenAI model id.
+- The settings dialog is a fixed size (`min(92vw, 1040px)` by
+  `min(85vh, 760px)`): responsive to the viewport, but never resized by the
+  section the user is on. Astryx `Dialog` is `height: fit-content`, so the height
+  is pinned through an inline style, and each section scrolls inside
+  `LayoutContent`. Separate items inside a section with `Divider`, not `Card`;
+  cards inside a modal section read as boxes within boxes.
 - Keep `apps/web/src/App.tsx` focused on app orchestration. Put extracted UI
   surfaces under `apps/web/src/components/`, shared client state under
   `apps/web/src/stores/`, shared types in `apps/web/src/types.ts`, and shared
