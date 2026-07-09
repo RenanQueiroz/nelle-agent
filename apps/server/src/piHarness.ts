@@ -17,7 +17,7 @@ import {
   startLlamaThroughputMonitor,
 } from './llamaThroughput';
 import {localLlamaProxyBaseUrl} from './llamaProxy';
-import {chatTemplateKwargsForModel, isQwenFamilyModel, llamaRuntimeModelId} from './modelCompat';
+import {chatTemplateKwargsForModel, llamaRuntimeModelId} from './modelCompat';
 import {createErrorEvent} from './errors';
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
@@ -42,6 +42,12 @@ import {
   minimumUsableContextSize,
   replyTokenBudget,
 } from '../../../packages/shared/src/piContext.ts';
+import {
+  createThinkingEndTagFilter,
+  isReasoningEnabled,
+  reasoningBudgetTokens,
+  stripLeadingThinkingEndTag,
+} from '../../../packages/shared/src/reasoning.ts';
 import type {
   AbortConversationResult,
   ChatMessage,
@@ -627,6 +633,10 @@ export class PiHarness {
         session.sessionManager.branch(options.branchFromPiEntryId);
       }
     }
+    // Pi clamps to the model's capabilities and records a `thinking_level_change`
+    // entry in the session file, so a cached session picks up an on-the-fly change.
+    const reasoningLevel = this.conversations.getReasoningLevel(conversationId);
+    session.setThinkingLevel?.(reasoningLevel);
     const state = await this.store.getState();
     let warnedAboutReplyBudget = false;
     const pushPerformance = (performance: ChatPerformance) => {
@@ -673,16 +683,25 @@ export class PiHarness {
     let thinkingText = '';
     let providerError: string | null = null;
     let resourcesStopped = false;
+    const answerFilter = createThinkingEndTagFilter();
+    const pushAnswerText = (text: string) => {
+      if (!text) {
+        return;
+      }
+      assistantMessage.content += text;
+      queue.push({type: 'assistant_delta', id: assistantMessage.id, delta: text});
+    };
     const unsubscribe = session.subscribe((event: any) => {
       if (event.type === 'message_update') {
         const assistantEvent = event.assistantMessageEvent;
         if (assistantEvent?.type === 'text_delta') {
-          const delta = String(assistantEvent.delta ?? '');
-          assistantMessage.content += delta;
-          queue.push({type: 'assistant_delta', id: assistantMessage.id, delta});
+          pushAnswerText(answerFilter.push(String(assistantEvent.delta ?? '')));
         }
         if (assistantEvent?.type === 'thinking_delta') {
-          thinkingText += String(assistantEvent.delta ?? '');
+          const delta = String(assistantEvent.delta ?? '');
+          thinkingText += delta;
+          assistantMessage.reasoning = thinkingText;
+          queue.push({type: 'assistant_reasoning', id: assistantMessage.id, delta});
         }
         if (assistantEvent?.type === 'error') {
           providerError =
@@ -760,6 +779,9 @@ export class PiHarness {
       if (resourcesStopped) {
         return;
       }
+      // Release any answer bytes still held by the end-tag filter, so an abort
+      // or a provider error does not silently swallow the start of the reply.
+      pushAnswerText(answerFilter.flush());
       resourcesStopped = true;
       monitor.stop();
       capture.stop();
@@ -771,10 +793,26 @@ export class PiHarness {
       await session.prompt(buildPiPrompt(prompt, promptAttachments.items), {
         images: promptAttachments.items.map(item => item.image).filter(item => item != null),
       });
+      pushAnswerText(answerFilter.flush());
       assistantMessage.toolCalls = toolCalls;
       if (!assistantMessage.content.trim()) {
         const fallback = thinkingText.trim();
-        if (fallback) {
+        if (!fallback) {
+          throw new Error(
+            providerError ??
+              'The Pi harness completed without assistant text. Check the llama.cpp model id and logs.',
+          );
+        }
+        if (isReasoningEnabled(reasoningLevel)) {
+          // The transcript already renders the thinking block, so promoting it
+          // to the answer would show the same text twice.
+          queue.push({
+            type: 'warning',
+            message:
+              'The model spent its whole reasoning budget without answering. Raise the ' +
+              `${reasoningLevel} budget in Settings > Reasoning, or lower the reasoning level.`,
+          });
+        } else {
           queue.push({
             type: 'warning',
             message:
@@ -782,11 +820,6 @@ export class PiHarness {
           });
           assistantMessage.content = fallback;
           queue.push({type: 'assistant_delta', id: assistantMessage.id, delta: fallback});
-        } else {
-          throw new Error(
-            providerError ??
-              'The Pi harness completed without assistant text. Check the llama.cpp model id and logs.',
-          );
         }
       }
       if (conversationId === 'legacy-default' && options.appendLegacyState !== false) {
@@ -929,6 +962,33 @@ export class PiHarness {
     }
   }
 
+  /**
+   * Pi's OpenAI-completions provider only ever sends
+   * `chat_template_kwargs.enable_thinking`; its `thinkingBudgets` setting is
+   * read by the Anthropic and Google providers alone. llama.cpp caps a thinking
+   * block from the top-level `thinking_budget_tokens` field, so inject it into
+   * the outgoing payload through Pi's own per-session payload hook.
+   */
+  private attachReasoningBudget(conversationId: string, session: any): void {
+    const agent = session.agent;
+    if (!agent) {
+      return;
+    }
+    const previous = agent.onPayload?.bind(agent);
+    agent.onPayload = async (payload: unknown, model: unknown) => {
+      const next = (await previous?.(payload, model)) ?? payload;
+      const state = await this.store.getState();
+      const budget = reasoningBudgetTokens(
+        this.conversations.getReasoningLevel(conversationId),
+        state.reasoning.budgets,
+      );
+      if (budget == null || next == null || typeof next !== 'object') {
+        return next;
+      }
+      return {...(next as Record<string, unknown>), thinking_budget_tokens: budget};
+    };
+  }
+
   private async ensureSession(conversationId: string, activeModel: ConfiguredModel): Promise<any> {
     const cached = this.#sessions.get(conversationId);
     if (cached && cached.modelId === activeModel.id) {
@@ -975,13 +1035,14 @@ export class PiHarness {
       agentDir: this.paths.piDir,
       cwd: this.paths.repoRoot,
       model,
-      thinkingLevel: 'off',
+      thinkingLevel: this.conversations.getReasoningLevel(conversationId),
       tools: toolsEnabled ? TOOL_ALLOWLIST : [],
       authStorage,
       modelRegistry,
       resourceLoader,
       sessionManager,
     } as any);
+    this.attachReasoningBudget(conversationId, session);
 
     const sessionFile = session.sessionFile ?? sessionManager.getSessionFile();
     if (sessionFile) {
@@ -1304,7 +1365,9 @@ export class PiHarness {
         continue;
       }
       const role = normalizeChatRole(entry.message?.role);
-      const text = extractMessageText(entry.message);
+      const rawText = extractMessageText(entry.message);
+      // Pi stores what llama.cpp emitted, echoed budget end tag and all.
+      const text = role === 'assistant' ? stripLeadingThinkingEndTag(rawText) : rawText;
       const projection: SyncConversationEntry = {
         piEntryId: String(entry.id),
         parentPiEntryId: entry.parentId ?? null,
@@ -1320,6 +1383,7 @@ export class PiHarness {
       projection.attachmentSummary = existingEntry?.attachmentSummary;
       projection.regeneratesPiEntryId = existingEntry?.regeneratesPiEntryId;
       projection.displayGroupId = existingEntry?.displayGroupId ?? projection.displayGroupId;
+      projection.reasoning = extractMessageThinking(entry.message) || existingEntry?.reasoning;
       if (role === 'assistant') {
         projection.modelId = existingEntry?.modelId ?? activeModel.id;
         projection.modelRuntimeId =
@@ -1338,6 +1402,7 @@ export class PiHarness {
         lastAssistant.modelAliasSnapshot = assistantMessage.modelAliasSnapshot;
         lastAssistant.performance = assistantMessage.performance;
         lastAssistant.toolCalls = assistantMessage.toolCalls;
+        lastAssistant.reasoning = lastAssistant.reasoning ?? assistantMessage.reasoning;
         lastAssistant.regeneratesPiEntryId = metadata.regeneratesPiEntryId;
         lastAssistant.displayGroupId = metadata.displayGroupId ?? metadata.regeneratesPiEntryId;
       }
@@ -1475,16 +1540,20 @@ export class PiHarness {
     const models = state.models.map(model => ({
       id: llamaRuntimeModelId(model),
       name: model.name,
-      reasoning: isQwenFamilyModel(model),
+      // Whether a model can actually think is decided by its chat template, not
+      // by its name. Declaring `reasoning` unlocks Pi's thinking levels for
+      // every model; a template that ignores `enable_thinking` just answers
+      // normally. `templateSupportsThinking` gates the UI control instead.
+      reasoning: true,
       input: ['text', 'image'],
       contextWindow: model.params.contextSize,
       // Pi clamps this against the live context, so advertise a generous ceiling
       // instead of a flat 512-token cap that truncated every long answer.
       maxTokens: replyTokenBudget(model.params.contextSize),
       cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
-      ...(isQwenFamilyModel(model)
-        ? {compat: {thinkingFormat: 'qwen-chat-template' as const}}
-        : {}),
+      // Pi's name for "pass `chat_template_kwargs.enable_thinking`", which is
+      // how Qwen3, Gemma 4, and every other llama.cpp thinking template read it.
+      compat: {thinkingFormat: 'qwen-chat-template' as const},
     }));
 
     const config = {
@@ -1976,6 +2045,34 @@ function extractMessageText(message: unknown): string {
         return `[tool call: ${(item as {name: string}).name}]`;
       }
       return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * Pi stores llama.cpp's `reasoning_content` as `{type: 'thinking', thinking}`
+ * content blocks alongside the answer text, so the session file stays the
+ * source of truth for a conversation's thinking history.
+ */
+function extractMessageThinking(message: unknown): string {
+  if (!message || typeof message !== 'object') {
+    return '';
+  }
+  const content = (message as {content?: unknown}).content;
+  if (!Array.isArray(content)) {
+    return '';
+  }
+  return content
+    .map(item => {
+      if (!item || typeof item !== 'object') {
+        return '';
+      }
+      const block = item as {type?: unknown; thinking?: unknown; redacted?: unknown};
+      if (block.type !== 'thinking' || block.redacted === true) {
+        return '';
+      }
+      return typeof block.thinking === 'string' ? block.thinking : '';
     })
     .filter(Boolean)
     .join('\n');

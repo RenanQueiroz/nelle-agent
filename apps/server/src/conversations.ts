@@ -16,6 +16,11 @@ import {
   conversationSnapshotSchema,
 } from '../../../packages/shared/src/conversations.ts';
 import type {ChatAttachmentKind} from '../../../packages/shared/src/contracts.ts';
+import type {ReasoningLevel} from '../../../packages/shared/src/reasoning.ts';
+import {
+  DEFAULT_REASONING_LEVEL,
+  normalizeReasoningLevel,
+} from '../../../packages/shared/src/reasoning.ts';
 import type {AppDatabase} from './database';
 import {sanitizeStoredPerformance} from './llamaThroughput';
 import type {AppState, ChatMessage, ConfiguredModel} from './types';
@@ -36,6 +41,7 @@ type ConversationRow = {
   forked_from_pi_entry_id: string | null;
   fork_kind: 'fork' | 'clone' | null;
   context_usage_json: string | null;
+  reasoning_level: ReasoningLevel;
   status: ConversationStatus;
   created_at: string;
   updated_at: string;
@@ -58,6 +64,7 @@ type EntryRow = {
   attachment_summary_json: string | null;
   regenerates_pi_entry_id: string | null;
   display_group_id: string | null;
+  reasoning_text: string | null;
 };
 
 type AttachmentRow = {
@@ -106,6 +113,7 @@ export type SyncConversationEntry = {
   attachmentSummary?: unknown;
   regeneratesPiEntryId?: string | null;
   displayGroupId?: string | null;
+  reasoning?: string | null;
 };
 
 export type CreateAttachmentInput = {
@@ -168,6 +176,7 @@ export class ConversationRepository {
       parentConversationId?: string | null;
       forkedFromPiEntryId?: string | null;
       forkKind?: 'fork' | 'clone' | null;
+      reasoningLevel?: ReasoningLevel;
     } = {},
   ): ConversationListItem {
     const now = new Date().toISOString();
@@ -186,6 +195,7 @@ export class ConversationRepository {
       forked_from_pi_entry_id: input.forkedFromPiEntryId ?? null,
       fork_kind: input.forkKind ?? null,
       context_usage_json: null,
+      reasoning_level: input.reasoningLevel ?? DEFAULT_REASONING_LEVEL,
       status: 'ready',
       created_at: now,
       updated_at: now,
@@ -581,6 +591,7 @@ export class ConversationRepository {
         parentConversationId: row.parent_conversation_id ?? undefined,
         forkedFromPiEntryId: row.forked_from_pi_entry_id ?? undefined,
         forkKind: row.fork_kind ?? undefined,
+        reasoningLevel: normalizeReasoningLevel(row.reasoning_level),
       },
       entries,
       activePathEntryIds,
@@ -711,6 +722,23 @@ export class ConversationRepository {
         next.updated_at,
         id,
       );
+    return mapConversationListItem(next);
+  }
+
+  getReasoningLevel(id: string): ReasoningLevel {
+    const row = this.getConversation(id);
+    return normalizeReasoningLevel(row?.reasoning_level);
+  }
+
+  setReasoningLevel(id: string, level: ReasoningLevel): ConversationListItem | null {
+    const row = this.getConversation(id);
+    if (!row) {
+      return null;
+    }
+    const next: ConversationRow = {...row, reasoning_level: level};
+    this.database.connection
+      .prepare('UPDATE conversations SET reasoning_level = ? WHERE id = ?')
+      .run(level, id);
     return mapConversationListItem(next);
   }
 
@@ -928,6 +956,7 @@ export class ConversationRepository {
       forked_from_pi_entry_id: existing?.forked_from_pi_entry_id ?? null,
       fork_kind: existing?.fork_kind ?? null,
       context_usage_json: existing?.context_usage_json ?? null,
+      reasoning_level: normalizeReasoningLevel(existing?.reasoning_level),
       status: existing?.status ?? 'ready',
       created_at: existing?.created_at ?? now,
       updated_at: now,
@@ -979,8 +1008,8 @@ export class ConversationRepository {
           id, title, title_source, pinned, pi_session_path, pi_session_id,
           active_leaf_pi_entry_id, last_synced_pi_entry_id, default_model_id,
           parent_conversation_id, forked_from_pi_entry_id, fork_kind,
-          context_usage_json, status, created_at, updated_at, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          context_usage_json, reasoning_level, status, created_at, updated_at, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -996,6 +1025,7 @@ export class ConversationRepository {
         row.forked_from_pi_entry_id,
         row.fork_kind,
         row.context_usage_json,
+        row.reasoning_level,
         row.status,
         row.created_at,
         row.updated_at,
@@ -1032,8 +1062,8 @@ export class ConversationRepository {
            conversation_id, pi_entry_id, parent_pi_entry_id, entry_type, role,
            text_preview, created_at, model_id, model_runtime_id, model_alias_snapshot,
            performance_json, tool_calls_json, attachment_summary_json,
-           regenerates_pi_entry_id, display_group_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           regenerates_pi_entry_id, display_group_id, reasoning_text
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(conversation_id, pi_entry_id) DO UPDATE SET
            parent_pi_entry_id = excluded.parent_pi_entry_id,
            entry_type = excluded.entry_type,
@@ -1047,7 +1077,8 @@ export class ConversationRepository {
            tool_calls_json = excluded.tool_calls_json,
            attachment_summary_json = excluded.attachment_summary_json,
            regenerates_pi_entry_id = excluded.regenerates_pi_entry_id,
-           display_group_id = excluded.display_group_id`,
+           display_group_id = excluded.display_group_id,
+           reasoning_text = excluded.reasoning_text`,
       )
       .run(
         conversationId,
@@ -1065,6 +1096,7 @@ export class ConversationRepository {
         jsonOrNull(entry.attachmentSummary),
         entry.regeneratesPiEntryId ?? null,
         entry.displayGroupId ?? entry.piEntryId,
+        entry.reasoning?.trim() ? entry.reasoning : null,
       );
   }
 
@@ -1093,6 +1125,7 @@ export class ConversationRepository {
       attachmentSummary: parseJson(row.attachment_summary_json),
       regeneratesPiEntryId: row.regenerates_pi_entry_id ?? undefined,
       displayGroupId: row.display_group_id ?? undefined,
+      reasoning: row.reasoning_text ?? undefined,
     }));
   }
 

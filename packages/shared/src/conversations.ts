@@ -1,6 +1,7 @@
 import {z} from 'zod';
 
 import {chatAttachmentKindSchema, nelleErrorSchema} from './contracts.ts';
+import {reasoningLevelSchema} from './reasoning.ts';
 
 export const conversationStatusSchema = z.enum([
   'ready',
@@ -37,6 +38,8 @@ export const conversationEntryProjectionSchema = z.object({
   attachmentSummary: z.unknown().optional(),
   regeneratesPiEntryId: z.string().optional(),
   displayGroupId: z.string().optional(),
+  /** Thinking text llama.cpp streamed as `reasoning_content`. */
+  reasoning: z.string().optional(),
 });
 
 export type ConversationEntryProjection = z.infer<typeof conversationEntryProjectionSchema>;
@@ -90,6 +93,7 @@ export const conversationSnapshotSchema = z.object({
     parentConversationId: z.string().optional(),
     forkedFromPiEntryId: z.string().optional(),
     forkKind: z.enum(['fork', 'clone']).optional(),
+    reasoningLevel: reasoningLevelSchema,
     currentRun: z
       .object({
         runId: z.string(),

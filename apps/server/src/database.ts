@@ -154,6 +154,18 @@ const MIGRATIONS: Migration[] = [
     // Nothing to rename on a fresh database, or on one already migrated.
     isApplied: db => countConversations(db, PREVIOUS_DEFAULT_CONVERSATION_ID) === 0,
   },
+  {
+    version: 4,
+    name: 'conversation_reasoning',
+    checksum: '2026-07-09-conversation-reasoning',
+    sql: `
+      ALTER TABLE conversations ADD COLUMN reasoning_level TEXT NOT NULL DEFAULT 'off';
+      ALTER TABLE conversation_entry_projection ADD COLUMN reasoning_text TEXT;
+    `,
+    isApplied: db =>
+      tableHasColumn(db, 'conversations', 'reasoning_level') &&
+      tableHasColumn(db, 'conversation_entry_projection', 'reasoning_text'),
+  },
 ];
 
 /** The proof-of-concept default chat was stored under this id. */

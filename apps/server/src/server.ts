@@ -6,6 +6,10 @@ import staticPlugin from '@fastify/static';
 import Fastify from 'fastify';
 import {z} from 'zod';
 
+import {
+  reasoningBudgetsSchema,
+  reasoningLevelSchema,
+} from '../../../packages/shared/src/reasoning.ts';
 import {HuggingFaceService} from './huggingface';
 import {LlamaCppManager} from './llamacpp';
 import {registerLlamaProxy} from './llamaProxy';
@@ -100,6 +104,10 @@ const patchConversationSchema = z.object({
   defaultModelId: z.string().nullable().optional(),
 });
 
+const conversationReasoningSchema = z.object({level: reasoningLevelSchema});
+
+const reasoningSettingsSchema = z.object({budgets: reasoningBudgetsSchema});
+
 const hostToolSettingsSchema = z.object({
   enabled: z.boolean().optional(),
   acknowledged: z.boolean().optional(),
@@ -163,6 +171,11 @@ export async function createServer(paths: AppPaths) {
   app.get('/api/settings/host-tools', async () => ({
     hostTools: hostTools.getSettings(),
   }));
+
+  app.patch('/api/settings/reasoning', async request => {
+    const body = reasoningSettingsSchema.parse(request.body);
+    return {budgets: await store.updateReasoningBudgets(body.budgets)};
+  });
 
   app.patch('/api/settings/host-tools', async (request, reply) => {
     const body = hostToolSettingsSchema.parse(request.body);
@@ -460,6 +473,24 @@ export async function createServer(paths: AppPaths) {
     const id = (request.params as {id: string}).id;
     const body = patchConversationSchema.parse(request.body);
     const conversation = conversations.patchConversation(id, body);
+    if (!conversation) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    return {
+      conversation,
+      snapshot: conversations.getSnapshot(id, await store.getState()),
+    };
+  });
+
+  app.put('/api/conversations/:id/reasoning', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    const body = conversationReasoningSchema.parse(request.body);
+    const conversation = conversations.setReasoningLevel(id, body.level);
     if (!conversation) {
       return reply.status(404).send({
         error: {

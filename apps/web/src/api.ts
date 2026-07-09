@@ -120,6 +120,10 @@ export type ChatMessage = {
   displayGroupId?: string;
   variantLabel?: string;
   performance?: ChatPerformance;
+  /** Thinking text llama.cpp streamed as `reasoning_content`. */
+  reasoning?: string;
+  /** True while thinking deltas are still arriving for this message. */
+  isReasoning?: boolean;
   toolCalls?: Array<{
     id: string;
     name: string;
@@ -216,6 +220,7 @@ export type ChatStreamEvent =
   | {type: 'user_message'; message: ChatMessage}
   | {type: 'assistant_start'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
   | {type: 'assistant_delta'; id: string; delta: string}
+  | {type: 'assistant_reasoning'; id: string; delta: string}
   | {type: 'assistant_metrics'; id: string; performance: ChatPerformance}
   | {type: 'tool'; call: NonNullable<ChatMessage['toolCalls']>[number]}
   | {type: 'conversation_title'; conversationId: string; title: string}
@@ -266,6 +271,7 @@ export type ConversationEntryProjection = {
   performance?: unknown;
   toolCalls?: unknown;
   attachmentSummary?: unknown;
+  reasoning?: string;
 };
 
 export type ConversationContextUsage = {
@@ -275,6 +281,22 @@ export type ConversationContextUsage = {
   updatedAt?: string;
 };
 
+/** Mirrors `packages/shared/src/reasoning.ts`; the web bundle stays zod-free. */
+export const REASONING_LEVELS = ['off', 'low', 'medium', 'high'] as const;
+
+export type ReasoningLevel = (typeof REASONING_LEVELS)[number];
+
+/** Reasoning tokens allowed before llama.cpp closes the thinking block; 0 is unlimited. */
+export type ReasoningBudgets = {low: number; medium: number; high: number};
+
+export const UNLIMITED_REASONING_BUDGET = 0;
+
+export const DEFAULT_REASONING_BUDGETS: ReasoningBudgets = {
+  low: 512,
+  medium: 2048,
+  high: UNLIMITED_REASONING_BUDGET,
+};
+
 export type ConversationSnapshot = {
   conversation: ConversationListItem & {
     piSessionId?: string;
@@ -282,6 +304,7 @@ export type ConversationSnapshot = {
     parentConversationId?: string;
     forkedFromPiEntryId?: string;
     forkKind?: 'fork' | 'clone';
+    reasoningLevel: ReasoningLevel;
   };
   entries: ConversationEntryProjection[];
   activePathEntryIds: string[];
@@ -323,6 +346,7 @@ export type AppStateResponse = {
     activeModelId: string | null;
     models: ConfiguredModel[];
     globalModelParams?: Record<string, string>;
+    reasoning?: {budgets: ReasoningBudgets};
     runtime?: {
       host: string;
       port: number;
@@ -387,6 +411,24 @@ export async function updateHostToolSettings(input: {
 }): Promise<HostToolSettings> {
   const response = await apiPatch<{hostTools: HostToolSettings}>('/api/settings/host-tools', input);
   return response.hostTools;
+}
+
+export async function updateReasoningBudgets(budgets: ReasoningBudgets): Promise<ReasoningBudgets> {
+  const response = await apiPatch<{budgets: ReasoningBudgets}>('/api/settings/reasoning', {
+    budgets,
+  });
+  return response.budgets;
+}
+
+export async function setConversationReasoningLevel(
+  id: string,
+  level: ReasoningLevel,
+): Promise<ConversationSnapshot> {
+  const response = await apiPut<{snapshot: ConversationSnapshot}>(
+    `/api/conversations/${encodeURIComponent(id)}/reasoning`,
+    {level},
+  );
+  return response.snapshot;
 }
 
 export async function getLlamaRouterProps(): Promise<LlamaRouterProps> {
@@ -896,6 +938,15 @@ async function apiGet<T>(url: string): Promise<T> {
 async function apiPost<T>(url: string, body?: unknown): Promise<T> {
   const response = await fetch(url, {
     method: 'POST',
+    headers: body == null ? undefined : {'content-type': 'application/json'},
+    body: body == null ? undefined : JSON.stringify(body),
+  });
+  return parseJson<T>(response);
+}
+
+async function apiPut<T>(url: string, body?: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: 'PUT',
     headers: body == null ? undefined : {'content-type': 'application/json'},
     body: body == null ? undefined : JSON.stringify(body),
   });

@@ -15,6 +15,11 @@ import {
   writeModelsIniAtomic,
   type ModelsIniDocument,
 } from '../../../packages/shared/src/modelsIni.ts';
+import type {ReasoningBudgets} from '../../../packages/shared/src/reasoning.ts';
+import {
+  DEFAULT_REASONING_SETTINGS,
+  normalizeReasoningBudgets,
+} from '../../../packages/shared/src/reasoning.ts';
 
 /**
  * llama.cpp itself is happy with 8k, but Nelle drives it through Pi, whose agent
@@ -43,6 +48,7 @@ const DEFAULT_STATE: AppState = {
     // it will allocate any reply tokens, so an 8k window yields one-word answers.
     c: String(DEFAULT_CONTEXT_SIZE),
   },
+  reasoning: DEFAULT_REASONING_SETTINGS,
   runtime: {
     host: '127.0.0.1',
     // Placeholder; `defaultLlamaPort()` is what actually applies. Overridable so
@@ -184,6 +190,13 @@ export class AppStore {
     await this.syncModelCatalogFromPreset(state);
     await this.save();
     return structuredClone(state.globalModelParams);
+  }
+
+  async updateReasoningBudgets(budgets: unknown): Promise<ReasoningBudgets> {
+    const state = await this.load();
+    state.reasoning = {budgets: normalizeReasoningBudgets(budgets)};
+    await this.save();
+    return structuredClone(state.reasoning.budgets);
   }
 
   async updateModel(
@@ -370,6 +383,7 @@ function normalizeState(input: Partial<AppState>): AppState {
     activeModelId,
     models,
     globalModelParams,
+    reasoning: {budgets: normalizeReasoningBudgets(input.reasoning?.budgets)},
     runtime: normalizeRuntime(input.runtime),
     chat: Array.isArray(input.chat) ? input.chat : [],
   };

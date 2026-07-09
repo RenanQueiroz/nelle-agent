@@ -4,6 +4,7 @@ import type {
 } from '../../../packages/shared/src/conversations.ts';
 import type {RunKind, TerminalRunStatus} from '../../../packages/shared/src/conversations.ts';
 import type {ChatAttachmentInput, NelleError} from '../../../packages/shared/src/contracts.ts';
+import type {ReasoningSettings} from '../../../packages/shared/src/reasoning.ts';
 
 export type {ChatAttachmentInput};
 
@@ -137,6 +138,8 @@ export type ChatMessage = {
   displayGroupId?: string;
   performance?: ChatPerformance;
   toolCalls?: ToolCallEvent[];
+  /** Thinking text llama.cpp streamed as `reasoning_content`. */
+  reasoning?: string;
 };
 
 export type ChatPerformanceMetric = {
@@ -229,6 +232,7 @@ export type ChatStreamEvent =
   | {type: 'user_message'; message: ChatMessage}
   | {type: 'assistant_start'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
   | {type: 'assistant_delta'; id: string; delta: string}
+  | {type: 'assistant_reasoning'; id: string; delta: string}
   | {type: 'assistant_metrics'; id: string; performance: ChatPerformance}
   | {type: 'tool'; call: ToolCallEvent}
   | {type: 'conversation_title'; conversationId: string; title: string}
@@ -242,6 +246,7 @@ export type AppState = {
   activeModelId: string | null;
   models: ConfiguredModel[];
   globalModelParams: Record<string, string>;
+  reasoning: ReasoningSettings;
   runtime: {
     host: string;
     port: number;

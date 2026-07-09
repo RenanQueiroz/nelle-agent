@@ -49,6 +49,7 @@ test('SQLite migration creates conversation tables and migration records', async
         [1, 'initial_conversation_schema'],
         [2, 'conversation_context_usage_cache'],
         [3, 'rename_poc_default_conversation'],
+        [4, 'conversation_reasoning'],
       ],
     );
     assert.equal(table?.name, 'conversations');
@@ -156,7 +157,7 @@ test('SQLite migration backs up existing databases before repairing migration re
       .all() as Array<{version: number}>;
     assert.deepEqual(
       migrations.map(migration => migration.version),
-      [1, 2, 3],
+      [1, 2, 3, 4],
     );
   } finally {
     repaired.close();
@@ -176,10 +177,10 @@ test('SQLite migration backs up existing databases before repairing migration re
       .some(column => (column as {name?: string}).name === 'context_usage_json');
 
     // The backup captures the database as found: version 2's record is the one
-    // this test deleted, so it is missing while 1 and 3 remain.
+    // this test deleted, so it is missing while the others remain.
     assert.deepEqual(
       backupMigrations.map(migration => migration.version),
-      [1, 3],
+      [1, 3, 4],
     );
     assert.equal(contextColumn, true);
   } finally {
@@ -444,6 +445,59 @@ test('repository stores Pi session bindings and replaces active branch projectio
     assert.equal(source?.branchFromPiEntryId, null);
     assert.equal(source?.regeneratesPiEntryId, 'entry-assistant');
     assert.equal(source?.displayGroupId, 'entry-assistant');
+  } finally {
+    database.close();
+  }
+});
+
+test('repository persists a conversation reasoning level and per-entry thinking text', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Thinking chat'});
+    assert.equal(repository.getReasoningLevel(conversation.id), 'off');
+
+    repository.setReasoningLevel(conversation.id, 'high');
+    assert.equal(repository.getReasoningLevel(conversation.id), 'high');
+
+    repository.replaceConversationProjection(conversation.id, {
+      piSessionPath: path.join(paths.piSessionsDir, 'session.jsonl'),
+      piSessionId: 'pi-session-thinking',
+      activeLeafPiEntryId: 'entry-assistant',
+      lastSyncedPiEntryId: 'entry-assistant',
+      entries: [
+        {
+          piEntryId: 'entry-user',
+          entryType: 'message',
+          role: 'user',
+          text: 'What is 17 times 23?',
+          createdAt: '2026-07-09T12:00:00.000Z',
+        },
+        {
+          piEntryId: 'entry-assistant',
+          parentPiEntryId: 'entry-user',
+          entryType: 'message',
+          role: 'assistant',
+          text: '391',
+          reasoning: '17 * 20 = 340, 17 * 3 = 51, so 391.',
+          createdAt: '2026-07-09T12:00:01.000Z',
+        },
+      ],
+    });
+
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+    assert.equal(snapshot?.conversation.reasoningLevel, 'high');
+    assert.equal(snapshot?.entries[0]?.reasoning, undefined);
+    assert.equal(snapshot?.entries[1]?.reasoning, '17 * 20 = 340, 17 * 3 = 51, so 391.');
+
+    // Setting a level is a preference, not activity: it must not reorder the sidebar.
+    const before = repository.getSnapshot(conversation.id, await store.getState());
+    repository.setReasoningLevel(conversation.id, 'low');
+    const after = repository.getSnapshot(conversation.id, await store.getState());
+    assert.equal(after?.conversation.updatedAt, before?.conversation.updatedAt);
   } finally {
     database.close();
   }
