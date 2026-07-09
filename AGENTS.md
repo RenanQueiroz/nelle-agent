@@ -151,7 +151,20 @@ Project-specific guidance for AI coding agents.
   not before.
 - Stream `error` events must carry stable `NelleError` fields (`code`,
   `message`, optional `detail`/`retryable`/`logRef`); do not emit message-only
-  errors from new server stream paths.
+  errors from new server stream paths. Every code lives in `NELLE_ERROR_CODES`
+  (`packages/shared/src/contracts.ts`); add new ones there so a second client can
+  know what it may see.
+- The chat route enforces the same three guards as the composer, because
+  enforcing them only in the browser leaves every other client able to bypass
+  them: `unsupported_slash_command` (only `/compact`, and it has its own
+  endpoint), `llama_server_stopped`, and `unsupported_attachment` (an image sent
+  to a model `model_cache` has *proven* cannot see; `null` means unproven, so it
+  passes).
+- `context_overflow` is detected by matching llama.cpp's
+  `"type":"exceed_context_size_error"`, which it emits with `n_prompt_tokens` and
+  `n_ctx` both as a 400 body and as an in-stream `error` chunk
+  (`tools/server/server-task.cpp`). Nelle's proxy relays it verbatim, so the
+  match happens in `normalizeNelleError` wherever the text resurfaces.
 - `models.ini` editing should use a lossless AST parser/writer that preserves
   comments, ordering, unknown keys, and untouched user edits. Keep exact
   `hf-repo` refs while deriving stable canonical section ids for router/OpenAI

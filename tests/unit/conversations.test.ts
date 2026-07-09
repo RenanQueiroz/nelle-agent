@@ -2635,6 +2635,83 @@ test('chat stream emits SSE envelopes with run lifecycle events', async () => {
   }
 });
 
+test('the chat route enforces the guards the composer enforces', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await store.setActiveModel(model.id);
+  const originalFetch = globalThis.fetch;
+  const previousPiDisabled = process.env.NELLE_PI_DISABLED;
+  process.env.NELLE_PI_DISABLED = '1';
+  let runtimeIsUp = true;
+  globalThis.fetch = (async () => {
+    if (!runtimeIsUp) {
+      throw new Error('connection refused');
+    }
+    return new Response('[]', {status: 200, headers: {'content-type': 'application/json'}});
+  }) as typeof fetch;
+
+  const app = await createServer(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const conversationId = LEGACY_DEFAULT_CONVERSATION_ID;
+    const streamError = async (payload: unknown): Promise<{code?: string}> => {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/conversations/${conversationId}/chat/stream`,
+        payload,
+      });
+      const envelopes = parseSseEnvelopes(response.body);
+      return (envelopes.find(envelope => envelope.data?.type === 'error')?.data ?? {}) as {
+        code?: string;
+      };
+    };
+
+    new ConversationRepository(database).createConversation({id: conversationId, title: 'Guards'});
+
+    // `/model` would otherwise reach Pi as a literal prompt.
+    assert.equal((await streamError({message: '/model gemma'})).code, 'unsupported_slash_command');
+    assert.equal((await streamError({message: '/compact'})).code, undefined);
+
+    // Image sent to a model llama.cpp has proven cannot see.
+    new ModelCacheRepository(database).upsertModelProps(model.id, {
+      modelId: model.id,
+      modalities: {vision: false, audio: false, video: false},
+      raw: {},
+    });
+    const rejected = await streamError({
+      message: 'look at this',
+      attachments: [
+        {
+          id: 'a1',
+          kind: 'image',
+          name: 'a.png',
+          mimeType: 'image/png',
+          data: 'data:image/png;base64,AAA',
+        },
+      ],
+    });
+    assert.equal(rejected.code, 'unsupported_attachment');
+
+    runtimeIsUp = false;
+    assert.equal((await streamError({message: 'hello'})).code, 'llama_server_stopped');
+  } finally {
+    database.close();
+    await app.close();
+    globalThis.fetch = originalFetch;
+    if (previousPiDisabled == null) {
+      delete process.env.NELLE_PI_DISABLED;
+    } else {
+      process.env.NELLE_PI_DISABLED = previousPiDisabled;
+    }
+  }
+});
+
 test('llama proxy forwards an abort signal to upstream chat completions', async () => {
   const paths = await createTempPaths();
   const originalFetch = globalThis.fetch;

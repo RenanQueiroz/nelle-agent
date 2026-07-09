@@ -23,6 +23,50 @@ export const nelleWarningSchema = z.object({
 
 export type NelleWarning = z.infer<typeof nelleWarningSchema>;
 
+/**
+ * Every stable `NelleError.code` Nelle emits.
+ *
+ * User-facing text comes from `message`; clients branch on `code`. Keeping the
+ * set in one place is the only way a second client can know what it may see.
+ */
+export const NELLE_ERROR_CODES = {
+  // Conversation and session lifecycle.
+  conversationBusy: 'conversation_busy',
+  conversationNotFound: 'conversation_not_found',
+  invalidConversationTransition: 'invalid_conversation_transition',
+  sessionUnavailable: 'session_unavailable',
+
+  // Runtime and model.
+  llamaServerStopped: 'llama_server_stopped',
+  modelNotFound: 'model_not_found',
+  modelLoadFailed: 'model_load_failed',
+  contextOverflow: 'context_overflow',
+
+  // Chat input.
+  unsupportedAttachment: 'unsupported_attachment',
+  unsupportedSlashCommand: 'unsupported_slash_command',
+
+  // Host tools.
+  hostToolsAcknowledgementRequired: 'host_tools_acknowledgement_required',
+  toolsDisabled: 'tools_disabled',
+
+  // Run failures.
+  piRunFailed: 'pi_run_failed',
+  llamaDirectFailed: 'llama_direct_failed',
+  compactFailed: 'compact_failed',
+  titleGenerationFailed: 'title_generation_failed',
+  streamFailed: 'stream_failed',
+
+  // Archives.
+  invalidArchive: 'invalid_archive',
+  invalidArchiveUpload: 'invalid_archive_upload',
+  archiveSessionMissing: 'archive_session_missing',
+
+  internalError: 'internal_error',
+} as const;
+
+export type NelleErrorCode = (typeof NELLE_ERROR_CODES)[keyof typeof NELLE_ERROR_CODES];
+
 export const NELLE_WARNING_CODES = {
   /** Pi failed; Nelle fell back to direct llama.cpp chat completions. */
   piHarnessFallback: 'pi_harness_fallback',

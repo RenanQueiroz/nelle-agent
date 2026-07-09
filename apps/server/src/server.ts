@@ -27,11 +27,12 @@ import {
   type ConversationDeleteResources,
 } from './conversations';
 import type {AppPaths} from './paths';
-import type {ChatAttachmentInput, ChatStreamEvent} from './types';
+import type {AppState, ChatAttachmentInput, ChatStreamEvent} from './types';
 import {
   chatRequestSchema,
   createEventEnvelope,
   serializeSseEnvelope,
+  NELLE_ERROR_CODES,
 } from '../../../packages/shared/src/contracts.ts';
 
 const useHuggingFaceModelSchema = z.object({
@@ -301,7 +302,11 @@ export async function createServer(paths: AppPaths) {
 
   app.post('/api/llama/models/:id/load', async (request, reply) => {
     const id = (request.params as {id: string}).id;
-    return handleLlamaRoute(reply, () => llama.loadRouterModel(id));
+    return handleLlamaRoute(
+      reply,
+      () => llama.loadRouterModel(id),
+      NELLE_ERROR_CODES.modelLoadFailed,
+    );
   });
 
   app.post('/api/llama/models/:id/unload', async (request, reply) => {
@@ -850,6 +855,13 @@ export async function createServer(paths: AppPaths) {
     });
 
     try {
+      // Enforced in the browser composer too. Enforcing them only there leaves
+      // every non-browser client able to post an image to a text-only model, or
+      // hand Pi `/model` as a literal prompt.
+      assertSupportedSlashCommand(body.message);
+      await assertRuntimeRunning(llama);
+      assertSupportedAttachments(body.attachments ?? [], modelCache, await store.getState());
+
       const streamResult = await createChatStream({
         app,
         store,
@@ -893,6 +905,7 @@ export async function createServer(paths: AppPaths) {
       if (process.env.NELLE_PI_DISABLED === '1') {
         throw new Error('Regeneration requires the Pi harness.');
       }
+      await assertRuntimeRunning(llama);
       const stream = await pi.regenerateMessage({
         conversationId: id,
         assistantMessageId: messageId,
@@ -1032,11 +1045,12 @@ function eventRunId(event: ChatStreamEvent): string | undefined {
 async function handleLlamaRoute<T>(
   reply: {status: (statusCode: number) => {send: (payload: unknown) => unknown}},
   action: () => Promise<T>,
+  code = 'llama_router_request_failed',
 ): Promise<T | unknown> {
   try {
     return await action();
   } catch (error) {
-    return sendLlamaError(reply, error);
+    return sendLlamaError(reply, error, code);
   }
 }
 
@@ -1077,6 +1091,59 @@ function validateEditableParams(
   return null;
 }
 
+/** llama.cpp is not running, so no run of any kind can start. */
+async function assertRuntimeRunning(llama: LlamaCppManager): Promise<void> {
+  if ((await llama.getStatus()).running) {
+    return;
+  }
+  const error = new Error('llama.cpp is not running. Start it in Settings > Runtime.');
+  Object.assign(error, {code: NELLE_ERROR_CODES.llamaServerStopped, retryable: true});
+  throw error;
+}
+
+/**
+ * Nelle's chat composer owns a slash-command allowlist. The server owns it too,
+ * or `/model` reaches Pi as a literal prompt from any other client.
+ */
+function assertSupportedSlashCommand(message: string): void {
+  const command = message
+    .trim()
+    .match(/^\/[^\s]+/)?.[0]
+    ?.toLowerCase();
+  if (!command || command === '/compact') {
+    return;
+  }
+  const error = new Error(
+    `${command} is not supported in Nelle chat. Only /compact is, and it has its own endpoint.`,
+  );
+  Object.assign(error, {code: NELLE_ERROR_CODES.unsupportedSlashCommand, retryable: false});
+  throw error;
+}
+
+/**
+ * Image attachments need a vision model. `null` means llama.cpp has never
+ * reported props, so the model is unproven rather than proven text-only; let it
+ * through and let llama.cpp reject it.
+ */
+function assertSupportedAttachments(
+  attachments: ChatAttachmentInput[],
+  modelCache: ModelCacheRepository,
+  state: AppState,
+): void {
+  const hasImage = attachments.some(attachment => attachment.kind === 'image');
+  if (!hasImage || !state.activeModelId) {
+    return;
+  }
+  if (modelCache.getVisionSupport(state.activeModelId) !== false) {
+    return;
+  }
+  const error = new Error(
+    'The selected model cannot read images. Choose a vision model, or remove the image attachments.',
+  );
+  Object.assign(error, {code: NELLE_ERROR_CODES.unsupportedAttachment, retryable: false});
+  throw error;
+}
+
 async function writePresetAndReloadRouter(
   llama: LlamaCppManager,
   store: AppStore,
@@ -1095,10 +1162,11 @@ async function writePresetAndReloadRouter(
 function sendLlamaError(
   reply: {status: (statusCode: number) => {send: (payload: unknown) => unknown}},
   error: unknown,
+  code = 'llama_router_request_failed',
 ): unknown {
   return reply.status(502).send({
     error: {
-      code: 'llama_router_request_failed',
+      code,
       message: error instanceof Error ? error.message : String(error),
       retryable: true,
     },

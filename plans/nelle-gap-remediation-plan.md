@@ -567,6 +567,8 @@ the stream and the REST path finally agree on one name.
 
 ## G6: Most Of The Specified `NelleError` Codes Do Not Exist
 
+**Status: done.**
+
 ### Evidence
 
 `apps/server/src/errors.ts:42-64` maps exactly three: `conversation_busy`,
