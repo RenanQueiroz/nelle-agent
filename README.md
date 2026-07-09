@@ -138,6 +138,10 @@ Implemented:
 Not implemented yet:
 
 - Mobile LAN pairing and Expo push.
+- Packaging and a launcher. There is no `bin` entrypoint or installer; `npm start`
+  runs the server and `--open` launches the system browser.
+- A first-run setup wizard. Runtime install, model import, and parameter editing
+  all live in the Settings dialog rather than a guided onboarding flow.
 - Full Pi branch tree explorer. The v1 browser UI shows the active path,
   regenerate variants, duplicate, and fork flows, while inactive branches remain
   preserved in Pi session files.
@@ -145,12 +149,15 @@ Not implemented yet:
   acknowledgement plus a global enable/disable switch.
 - Full SQLite app-state persistence. Nelle still uses `.nelle/state.json` for
   runtime settings, catalog backup, and direct-fallback default-conversation
-  compatibility, while Pi-enabled startup migrates a non-empty legacy
-  legacy default chat into a Pi session. Conversation projections live in
+  compatibility, while Pi-enabled startup migrates a non-empty legacy default
+  chat into a Pi session. Conversation projections live in
   `.nelle/settings.sqlite` and `models.ini` owns the model catalog. Existing
   SQLite schema migration paths back up `settings.sqlite`, but the broader
   state/Pi/attachment migration runner is still future work.
 - Progress streaming for long installs/builds.
+- Conversation list pagination. `GET /api/conversations` returns the 50 most
+  recently updated conversations and the sidebar filters them client-side, so
+  search cannot reach an older chat. Tracked as G1 in the gap remediation plan.
 
 ## Setup
 

@@ -224,26 +224,42 @@ Keep a seam for an alternate Pi runtime:
 - Keep `PiRpcHarness` as a possible later implementation if SDK coupling,
   process isolation, or Pi upgrade cadence becomes painful.
 
-## Proposed Repo Shape
+## Repo Shape
+
+This is a single-package repo, not a workspace monorepo. `apps/` and `packages/`
+are a folder convention, and one root `package.json` owns every dependency.
 
 ```text
 apps/
-  server/               Fastify API, Pi bridge, runtime managers, launcher
-  web/                  React setup/admin/chat UI
+  server/src/           Fastify API, Pi bridge, runtime managers, entrypoint
+    server.ts             routes
+    piHarness.ts          Pi SDK adapter and event normalization
+    llamacpp.ts           binary install/update, preset generation, process control
+    llamaProxy.ts         llama.cpp chat-completions proxy
+    llamaThroughput.ts    prompt/generation metric extraction
+    directLlama.ts        Pi-disabled fallback chat path
+    huggingface.ts        Hugging Face GGUF search/catalog helpers
+    database.ts           SQLite schema and migrations
+    conversations.ts      conversation repository and projections
+    store.ts              .nelle/state.json app state
+    hostTools.ts          host-tool settings and audit rows
+    index.ts              entrypoint; --open launches the system browser
+  web/src/              React setup/admin/chat UI
 packages/
-  shared/               Shared TypeScript types, Zod schemas, API contracts
-  db/                   SQLite schema and migrations
-  hf/                   Hugging Face search/catalog helpers
-  llamacpp/             Binary install, preset generation, process control
-  pi-bridge/            Pi SDK adapter and event normalization
-  notifications/        Pairing, LAN delivery, future push-provider adapter
-  launcher/             Open-browser helper and host integration utilities
+  shared/src/           Shared TypeScript types, Zod schemas, API contracts
 plans/
   nelle-agent-architecture.md
   nelle-router-chat-ui-plan.md
-AGENTS.md               Astryx-generated Codex agent UI guidance
-.claude/CLAUDE.md       Astryx-generated Claude Code UI guidance
+  nelle-gap-remediation-plan.md
+AGENTS.md               Single source of truth for shared agent guidance
+CLAUDE.md               Contains only `@AGENTS.md`
 ```
+
+An earlier draft of this plan proposed separate `db`, `hf`, `llamacpp`,
+`pi-bridge`, `notifications`, and `launcher` packages. None were created, and the
+flat modules above have not yet justified the split. Extracting them is not
+blocking any milestone; `notifications/` and `launcher/` do not exist because
+mobile pairing and packaging (Milestones 5 and 6) have not started.
 
 This repo owns the local server, browser UI, launcher, and host runtime
 management. `nelle-client` should consume a generated API client and shared
@@ -796,7 +812,7 @@ Exit criteria:
 
 Exit criteria:
 
-- `pnpm dev` starts server and web UI.
+- `npm run dev` starts server and web UI.
 - Health endpoint reports app version, platform, data paths, and runtime status.
 - Basic settings persistence works.
 - Web UI has runtime status and logs.

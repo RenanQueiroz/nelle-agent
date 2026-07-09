@@ -222,13 +222,18 @@ Minimum shape:
 version = 1
 
 [*]
-c = 8192
+c = 16384
 
 [unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL]
 hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL
 alias = Qwen 35B Q4 XL
 stop-timeout = 10
 ```
+
+`c = 16384` is a Nelle default, not llama.cpp's. Pi's agent system prompt costs
+roughly 4k tokens and `clampMaxTokensToContext` reserves a further 4096 before
+allocating any reply tokens, so an 8k window clamps `max_tokens` to 1 and every
+answer stops after one word. See `packages/shared/src/piContext.ts`.
 
 Rules:
 
@@ -477,14 +482,20 @@ Nelle should expose stable local APIs that wrap llama.cpp router endpoints:
   - server-sent event bridge for router `/models/sse`
 - `POST /api/llama/models/reload`
   - calls router `GET /models?reload=1`
-- `PUT /api/llama/models-ini`
-  - writes global and model-section params, then reloads if running
 - `POST /api/llama/tokenize`
   - done: proxies llama.cpp `/tokenize` and returns a normalized token count
   - used for text-only draft/context estimates and post-compaction context
     refreshes when exact Pi/llama compaction metrics are unavailable
   - estimates are marked with `source: "estimate"` and should not be presented
     as exact multimodal/chat-template/tool-history counts
+
+`models.ini` param editing does not live under `/api/llama/*`. An earlier draft
+proposed a single `PUT /api/llama/models-ini`; what was built instead writes
+scoped sections and reloads the router when it is running:
+
+- `PATCH /api/models/global-params` — writes the `[*]` section
+- `PATCH /api/models/:id` — writes one model section
+- `POST /api/models/:id/duplicate`, `DELETE /api/models/:id`
 
 Nelle's UI should not call llama.cpp directly except through the existing chat
 proxy path. This gives us one place to normalize errors, router-offline states,
