@@ -13,9 +13,9 @@ import {
 import {HuggingFaceService} from './huggingface';
 import {LlamaCppManager} from './llamacpp';
 import {registerLlamaProxy} from './llamaProxy';
-import {PiHarness} from './piHarness';
+import {PiHarness, isConversationNotFoundError} from './piHarness';
 import {streamDirectLlama} from './directLlama';
-import {createErrorEvent} from './errors';
+import {createErrorEvent, normalizeNelleError} from './errors';
 import {AppStore} from './store';
 import {AppDatabase} from './database';
 import {exportConversationArchive, importConversationArchive} from './conversationArchive';
@@ -468,6 +468,55 @@ export async function createServer(paths: AppPaths) {
       });
     }
     return {snapshot};
+  });
+
+  app.get('/api/conversations/:id/diagnostics', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    const diagnostics = await conversations.getConversationDiagnostics(id);
+    if (!diagnostics) {
+      return reply.status(404).send({
+        error: {
+          code: 'conversation_not_found',
+          message: `Conversation ${id} was not found.`,
+        },
+      });
+    }
+    return {diagnostics};
+  });
+
+  app.post('/api/conversations/:id/repair', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    try {
+      return {snapshot: await pi.repairConversation(id)};
+    } catch (error) {
+      if (isConversationNotFoundError(error)) {
+        return reply.status(404).send({
+          error: {
+            code: 'conversation_not_found',
+            message: `Conversation ${id} was not found.`,
+          },
+        });
+      }
+      // The session file is still unreadable. Repair never invents one.
+      return reply.status(409).send({error: normalizeNelleError(error)});
+    }
+  });
+
+  app.post('/api/conversations/:id/rebuild', async (request, reply) => {
+    const id = (request.params as {id: string}).id;
+    try {
+      return {snapshot: await pi.rebuildConversationFromProjection(id)};
+    } catch (error) {
+      if (isConversationNotFoundError(error)) {
+        return reply.status(404).send({
+          error: {
+            code: 'conversation_not_found',
+            message: `Conversation ${id} was not found.`,
+          },
+        });
+      }
+      return reply.status(500).send({error: normalizeNelleError(error)});
+    }
   });
 
   app.patch('/api/conversations/:id', async (request, reply) => {

@@ -205,6 +205,19 @@ export type ConversationDeleteResources = {
   attachmentStoragePaths: string[];
 };
 
+export type ConversationDiagnostics = {
+  conversationId: string;
+  status: ConversationStatus;
+  piSessionPath?: string;
+  piSessionId?: string;
+  exists: boolean;
+  reason?: string;
+  sizeBytes?: number;
+  projectionEntryCount: number;
+  attachmentCount: number;
+  toolAuditCount: number;
+};
+
 export class ConversationRepository {
   constructor(private readonly database: AppDatabase) {}
 
@@ -351,8 +364,102 @@ export class ConversationRepository {
     return this.setConversationStatus(id, 'unavailable');
   }
 
+  /** Why the bound Pi session file cannot be opened, or `null` if it can. */
+  async getPiSessionIssue(id: string): Promise<string | null> {
+    const row = this.getConversation(id);
+    if (!row) {
+      return null;
+    }
+    return piSessionFileError(row.pi_session_path);
+  }
+
+  /**
+   * Everything the user needs to decide between repairing, rebuilding, and
+   * deleting a conversation whose Pi session file went missing.
+   */
+  async getConversationDiagnostics(id: string): Promise<ConversationDiagnostics | null> {
+    const row = this.getConversation(id);
+    if (!row) {
+      return null;
+    }
+    const db = this.database.connection;
+    const count = (sql: string): number =>
+      (db.prepare(sql).get(id) as {total: number} | undefined)?.total ?? 0;
+
+    const reason = await piSessionFileError(row.pi_session_path);
+    let sizeBytes: number | undefined;
+    if (row.pi_session_path) {
+      try {
+        sizeBytes = (await fs.stat(row.pi_session_path)).size;
+      } catch {
+        sizeBytes = undefined;
+      }
+    }
+
+    return {
+      conversationId: row.id,
+      status: row.status,
+      piSessionPath: row.pi_session_path ?? undefined,
+      piSessionId: row.pi_session_id ?? undefined,
+      exists: reason == null,
+      reason: reason ?? undefined,
+      sizeBytes,
+      projectionEntryCount: count(
+        'SELECT COUNT(*) AS total FROM conversation_entry_projection WHERE conversation_id = ?',
+      ),
+      attachmentCount: count(
+        'SELECT COUNT(*) AS total FROM message_attachments WHERE conversation_id = ?',
+      ),
+      toolAuditCount: count(
+        'SELECT COUNT(*) AS total FROM tool_audit_events WHERE conversation_id = ?',
+      ),
+    };
+  }
+
+  /**
+   * Repoints attachment rows at the entry ids a rebuilt Pi session handed out.
+   *
+   * Rebuilding writes fresh Pi entries, so every `pi_entry_id` sidecar rows hold
+   * is stale. Attachments would otherwise stay bound to entries that no longer
+   * exist and quietly vanish from the transcript.
+   */
+  remapAttachmentEntryIds(conversationId: string, mapping: Map<string, string>): void {
+    const db = this.database.connection;
+    const statement = db.prepare(
+      'UPDATE message_attachments SET pi_entry_id = ? WHERE conversation_id = ? AND pi_entry_id = ?',
+    );
+    db.exec('BEGIN');
+    try {
+      for (const [previousId, nextId] of mapping) {
+        statement.run(nextId, conversationId, previousId);
+      }
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   getConversationEntries(id: string): ConversationEntryProjection[] {
     return this.getEntries(id);
+  }
+
+  /**
+   * The projection rows on the active branch, oldest first.
+   *
+   * Regenerate variants sit off this path and are deliberately excluded: a
+   * rebuilt Pi session is linear, so a variant would have nowhere to hang.
+   */
+  getActivePathEntries(id: string): ConversationEntryProjection[] {
+    const row = this.getConversation(id);
+    if (!row) {
+      return [];
+    }
+    const entries = this.getEntries(id);
+    const byId = new Map(entries.map(entry => [entry.piEntryId, entry] as const));
+    return buildActivePathEntryIds(entries, row.active_leaf_pi_entry_id)
+      .map(entryId => byId.get(entryId))
+      .filter((entry): entry is ConversationEntryProjection => entry != null);
   }
 
   getRegenerationSource(
@@ -667,6 +774,7 @@ export class ConversationRepository {
         canAbort: row.status === 'running' || row.status === 'compacting',
         canCompact: row.status === 'ready',
         canFork: entries.length > 0 && !unavailable,
+        canRepair: unavailable,
         canAttachImages: false,
         canAttachText: true,
       },
@@ -1558,7 +1666,14 @@ async function piSessionFileError(sessionPath: string | null): Promise<string | 
     if (!firstLine) {
       return 'Pi session file is empty.';
     }
-    const header = JSON.parse(firstLine) as unknown;
+    // These strings reach the user in the repair dialog, so a raw parser message
+    // like `Unexpected token 'o', "not-json" is not valid JSON` will not do.
+    let header: unknown;
+    try {
+      header = JSON.parse(firstLine) as unknown;
+    } catch {
+      return 'Pi session file is not valid JSON.';
+    }
     if (
       !header ||
       typeof header !== 'object' ||

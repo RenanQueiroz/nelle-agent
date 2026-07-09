@@ -209,6 +209,120 @@ export class PiHarness {
     });
   }
 
+  /**
+   * Re-checks an `unavailable` conversation's Pi session file.
+   *
+   * The only way back to `ready` is the file becoming readable again -- the user
+   * restored it from a backup, or remounted the disk it lived on. If it is still
+   * missing this throws rather than quietly writing a replacement under the same
+   * conversation id; losing a session silently is exactly what this status
+   * exists to prevent. `rebuildConversationFromProjection` is the explicit,
+   * user-initiated way to move forward without the file.
+   */
+  async repairConversation(conversationId: string): Promise<ConversationSnapshot> {
+    const row = this.conversations.getConversation(conversationId);
+    if (!row) {
+      throw new ConversationNotFoundError();
+    }
+    const issue = await this.conversations.getPiSessionIssue(conversationId);
+    if (issue) {
+      throw new SessionUnavailableError(issue, row.pi_session_path ?? undefined);
+    }
+    if (row.status === 'unavailable') {
+      this.conversations.setConversationStatus(conversationId, 'ready');
+    }
+    const snapshot = await this.getConversationSnapshot(conversationId);
+    if (!snapshot) {
+      throw new ConversationNotFoundError();
+    }
+    return snapshot;
+  }
+
+  /**
+   * Writes a fresh Pi session from Nelle's own projection rows.
+   *
+   * `conversation_entry_projection.text_preview` is misnamed: it holds the whole
+   * message, so SQLite can reconstruct the conversation llama.cpp and Pi lost.
+   * The rebuild is lossy in ways the caller must have already warned about:
+   * tool-call results and image content never reach the new entries, compaction
+   * summaries cannot be expressed through `appendMessage`, and only the active
+   * branch survives, so regenerate variants are dropped.
+   *
+   * The corrupt file is left on disk. It is the only remaining copy of whatever
+   * could not be recovered, and the diagnostics endpoint names its path.
+   */
+  async rebuildConversationFromProjection(conversationId: string): Promise<ConversationSnapshot> {
+    const row = this.conversations.getConversation(conversationId);
+    if (!row) {
+      throw new ConversationNotFoundError();
+    }
+
+    const source = this.conversations
+      .getActivePathEntries(conversationId)
+      // Pi's append API takes messages. A compaction summary is not one, so the
+      // rebuilt session keeps the messages that survived compaction and loses
+      // the summary that explains the gap.
+      .filter(entry => entry.entryType === 'message' && entry.role != null);
+
+    this.#sessions.get(conversationId)?.session.dispose?.();
+    this.#sessions.delete(conversationId);
+    this.#activeRuns.delete(conversationId);
+
+    await fs.mkdir(this.paths.piSessionsDir, {recursive: true});
+    const sessionManager = SessionManager.create(this.paths.repoRoot, this.paths.piSessionsDir);
+    const sessionFile = sessionManager.getSessionFile();
+    if (!sessionFile) {
+      throw new Error('Pi did not allocate a session file for the rebuilt conversation.');
+    }
+
+    const entries: SyncConversationEntry[] = [];
+    const entryIdMapping = new Map<string, string>();
+    let previousEntryId: string | null = null;
+    for (const entry of source) {
+      const piEntryId = sessionManager.appendMessage({
+        role: entry.role,
+        content: entry.textPreview ?? '',
+      } as any) as string;
+      entryIdMapping.set(entry.piEntryId, piEntryId);
+      entries.push({
+        piEntryId,
+        parentPiEntryId: previousEntryId,
+        entryType: 'message',
+        role: entry.role,
+        text: entry.textPreview ?? '',
+        createdAt: entry.createdAt,
+        modelId: entry.modelId,
+        modelRuntimeId: entry.modelRuntimeId,
+        modelAliasSnapshot: entry.modelAliasSnapshot,
+        performance: entry.performance,
+        toolCalls: entry.toolCalls,
+        attachmentSummary: entry.attachmentSummary,
+        reasoning: entry.reasoning,
+        // The branch is linear again, so nothing regenerates anything.
+        displayGroupId: piEntryId,
+      });
+      previousEntryId = piEntryId;
+    }
+
+    await ensureSessionFile(sessionFile, sessionManager);
+    // Sidecar rows key off Pi entry ids, and every one of them just changed.
+    this.conversations.remapAttachmentEntryIds(conversationId, entryIdMapping);
+    this.conversations.replaceConversationProjection(conversationId, {
+      piSessionPath: sessionFile,
+      piSessionId: sessionManager.getSessionId(),
+      activeLeafPiEntryId: sessionManager.getLeafId(),
+      lastSyncedPiEntryId: previousEntryId,
+      status: 'ready',
+      entries,
+    });
+
+    const snapshot = await this.getConversationSnapshot(conversationId);
+    if (!snapshot) {
+      throw new ConversationNotFoundError();
+    }
+    return snapshot;
+  }
+
   async getConversationSnapshot(conversationId: string): Promise<ConversationSnapshot | null> {
     if (conversationId === LEGACY_DEFAULT_CONVERSATION_ID) {
       this.conversations.syncLegacyDefaultConversationFromState(await this.store.getState());
@@ -2147,14 +2261,32 @@ function truncateToolDetail(value: string): string {
 }
 
 class SessionUnavailableError extends Error {
-  constructor() {
+  readonly detail?: string;
+
+  constructor(reason?: string, piSessionPath?: string) {
     super(
-      'The conversation session is unavailable. Restore or import the Pi session file, or delete the conversation.',
+      reason
+        ? `${reason} Restore the Pi session file, rebuild the conversation from its stored messages, or delete it.`
+        : 'The conversation session is unavailable. Restore or import the Pi session file, or delete the conversation.',
     );
     this.name = 'SessionUnavailableError';
+    this.detail = piSessionPath;
+  }
+}
+
+class ConversationNotFoundError extends Error {
+  readonly code = 'conversation_not_found';
+
+  constructor() {
+    super('Conversation not found.');
+    this.name = 'ConversationNotFoundError';
   }
 }
 
 function isSessionUnavailableError(error: unknown): boolean {
   return error instanceof SessionUnavailableError;
+}
+
+export function isConversationNotFoundError(error: unknown): boolean {
+  return error instanceof ConversationNotFoundError;
 }

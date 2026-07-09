@@ -33,6 +33,8 @@ const manifestSchema = z.object({
       platform: z.string(),
     })
     .optional(),
+  /** Exported from a conversation whose Pi session file was already lost. */
+  piSessionMissing: z.boolean().optional(),
   files: z.record(z.string(), z.string()),
 });
 
@@ -100,16 +102,18 @@ export async function exportConversationArchive(input: {
     return null;
   }
   const binding = input.conversations.getPiSessionBinding(input.conversationId);
-  const piSessionText = binding?.piSessionPath
-    ? await fs.readFile(binding.piSessionPath, 'utf8')
-    : '';
+  // An `unavailable` conversation must still export. Its SQLite sidecar is the
+  // only surviving copy of the messages, and refusing to export it would leave
+  // the user with nothing to salvage.
+  const piSessionText = await readPiSessionText(binding?.piSessionPath);
+  const piSessionMissing = piSessionText == null;
   const attachments = input.conversations.getStoredAttachmentsForConversation(input.conversationId);
   const sidecar = {
     ...snapshot,
     attachments,
   };
   const files: Record<string, Uint8Array> = {
-    'pi-session.jsonl': strToU8(piSessionText),
+    'pi-session.jsonl': strToU8(piSessionText ?? ''),
     'nelle-conversation.json': jsonBytes(sidecar),
     'models-manifest.json': jsonBytes(snapshot.models),
     'tool-audit.jsonl': strToU8(renderToolAuditJsonl(input.hostTools, input.conversationId)),
@@ -142,6 +146,10 @@ export async function exportConversationArchive(input: {
     source: {
       platform: process.platform,
     },
+    // An importer cannot tell an empty session file from a lost one, and
+    // restoring a lost one would silently produce a conversation with no
+    // history at all.
+    piSessionMissing,
     files: checksums,
   });
 
@@ -149,6 +157,21 @@ export async function exportConversationArchive(input: {
     filename: `${slugifyArchiveName(snapshot.conversation.title)}.nelle-chat.zip`,
     bytes: zipSync(files),
   };
+}
+
+/** `null` when the bound Pi session file is gone, rather than an empty string. */
+async function readPiSessionText(sessionPath: string | undefined): Promise<string | null> {
+  if (!sessionPath) {
+    return null;
+  }
+  try {
+    return await fs.readFile(sessionPath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function renderToolAuditJsonl(
@@ -174,6 +197,15 @@ export async function importConversationArchive(input: {
   validateArchivePaths(Object.keys(archive));
   const manifest = manifestSchema.parse(readJsonArchiveEntry(archive, 'manifest.json'));
   verifyManifestChecksums(archive, manifest.files);
+  if (manifest.piSessionMissing) {
+    // The archive is a salvage bundle, not a conversation. Importing it would
+    // produce an empty chat whose sidecar promises messages it cannot show.
+    const error = new Error(
+      'This archive was exported from a conversation whose Pi session file was missing, so it carries no message history to import.',
+    );
+    Object.assign(error, {code: 'archive_session_missing', retryable: false});
+    throw error;
+  }
   const sidecar = sidecarSchema.parse(readJsonArchiveEntry(archive, 'nelle-conversation.json'));
   const piSessionText = readTextArchiveEntry(archive, 'pi-session.jsonl');
   const importedSessionId = `import-${crypto.randomUUID()}`;

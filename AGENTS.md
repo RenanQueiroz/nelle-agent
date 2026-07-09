@@ -100,8 +100,20 @@ Project-specific guidance for AI coding agents.
   projection for compatibility.
 - Validate existing Pi session bindings before opening a runtime. Missing or
   malformed session files must mark the conversation `unavailable` and surface
-  `session_unavailable`; do not create a replacement session under the same
-  conversation id.
+  `session_unavailable`; no read path may create a replacement session under the
+  same conversation id.
+- `unavailable` conversations recover through three explicit endpoints, never
+  implicitly. `POST /api/conversations/:id/repair` re-checks the file and only
+  succeeds if the user restored it. `POST /api/conversations/:id/rebuild`
+  reconstructs a Pi session from `conversation_entry_projection`, which despite
+  the column name `text_preview` stores the full message text; it is lossy and
+  the UI must say so, dropping tool results, image content, compaction summaries,
+  and regenerate variants. `GET /api/conversations/:id/diagnostics` explains what
+  is wrong. Rebuild must remap `message_attachments.pi_entry_id`, because Pi
+  hands out new entry ids.
+- Exporting an `unavailable` conversation is allowed and sets
+  `manifest.piSessionMissing`; importing such an archive is rejected with
+  `archive_session_missing` rather than producing an empty conversation.
 - Chat UI streaming should use `/api/conversations/:id/chat/stream`; the legacy
   `/api/chat/stream` endpoint is only a default-conversation compatibility
   wrapper.

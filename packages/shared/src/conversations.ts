@@ -118,6 +118,8 @@ export const conversationSnapshotSchema = z.object({
     canAbort: z.boolean(),
     canCompact: z.boolean(),
     canFork: z.boolean(),
+    /** The Pi session file is unreadable; offer repair and rebuild. */
+    canRepair: z.boolean(),
     canAttachImages: z.boolean(),
     canAttachText: z.boolean(),
   }),

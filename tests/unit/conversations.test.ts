@@ -13,6 +13,10 @@ import {
   ConversationRepository,
   LEGACY_DEFAULT_CONVERSATION_ID,
 } from '../../apps/server/src/conversations.ts';
+import {
+  exportConversationArchive,
+  importConversationArchive,
+} from '../../apps/server/src/conversationArchive.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {HostToolRepository} from '../../apps/server/src/hostTools.ts';
 import {PiHarness} from '../../apps/server/src/piHarness.ts';
@@ -697,6 +701,176 @@ test('repository marks missing or corrupt Pi session files unavailable', async (
   }
 });
 
+/** `SessionManager` keeps a new session in memory until something flushes it. */
+async function writeSessionFile(sessionManager: SessionManager): Promise<string> {
+  const sessionPath = sessionManager.getSessionFile();
+  assert.ok(sessionPath);
+  const manager = sessionManager as unknown as {
+    getHeader: () => unknown;
+    getEntries: () => unknown[];
+  };
+  const content = [manager.getHeader(), ...manager.getEntries()]
+    .map(entry => JSON.stringify(entry))
+    .join('\n');
+  await fs.mkdir(path.dirname(sessionPath), {recursive: true});
+  await fs.writeFile(sessionPath, `${content}\n`);
+  return sessionPath;
+}
+
+test('repair restores a conversation once its Pi session file is back', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    await repository.init();
+    const conversation = repository.createConversation({title: 'Restorable'});
+    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const entryId = sessionManager.appendMessage({role: 'user', content: 'Hello'} as any);
+    const sessionPath = await writeSessionFile(sessionManager);
+    repository.attachPiSession(conversation.id, {
+      piSessionPath: sessionPath,
+      piSessionId: sessionManager.getSessionId(),
+      activeLeafPiEntryId: entryId,
+    });
+
+    const backup = await fs.readFile(sessionPath, 'utf8');
+    await fs.rm(sessionPath, {force: true});
+    await repository.markUnavailableIfPiSessionInvalid(conversation.id);
+    assert.equal(repository.getConversation(conversation.id)?.status, 'unavailable');
+
+    const harness = new PiHarness(paths, store, repository, new HostToolRepository(database));
+
+    // Still missing: repair must refuse, and must not paper over the loss by
+    // writing a fresh session under the same conversation id.
+    const before = await fs.readdir(paths.piSessionsDir);
+    await assert.rejects(
+      () => harness.repairConversation(conversation.id),
+      (error: Error) => error.name === 'SessionUnavailableError',
+    );
+    assert.deepEqual(await fs.readdir(paths.piSessionsDir), before);
+    assert.equal(repository.getConversation(conversation.id)?.status, 'unavailable');
+
+    // The user restored the file from a backup.
+    await fs.writeFile(sessionPath, backup);
+    const snapshot = await harness.repairConversation(conversation.id);
+    assert.equal(snapshot.conversation.status, 'ready');
+    assert.equal(snapshot.entries[0]?.textPreview, 'Hello');
+  } finally {
+    database.close();
+  }
+});
+
+test('rebuild reconstructs a Pi session from the stored projection', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    await repository.init();
+    const conversation = repository.createConversation({title: 'Rebuildable'});
+    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const userEntryId = sessionManager.appendMessage({role: 'user', content: 'Ask'} as any);
+    const assistantEntryId = sessionManager.appendMessage({
+      role: 'assistant',
+      content: 'Answer',
+    } as any);
+    const sessionPath = sessionManager.getSessionFile();
+    assert.ok(sessionPath);
+    repository.replaceConversationProjection(conversation.id, {
+      piSessionPath: sessionPath,
+      piSessionId: sessionManager.getSessionId(),
+      activeLeafPiEntryId: assistantEntryId,
+      lastSyncedPiEntryId: assistantEntryId,
+      entries: [
+        {
+          piEntryId: userEntryId,
+          parentPiEntryId: null,
+          entryType: 'message',
+          role: 'user',
+          text: 'Ask',
+          createdAt: '2026-07-09T12:00:00.000Z',
+        },
+        {
+          piEntryId: 'compaction-1',
+          parentPiEntryId: userEntryId,
+          entryType: 'compaction',
+          text: 'Context compacted.',
+          createdAt: '2026-07-09T12:00:01.000Z',
+        },
+        {
+          piEntryId: assistantEntryId,
+          parentPiEntryId: 'compaction-1',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'Answer',
+          createdAt: '2026-07-09T12:00:02.000Z',
+          modelId: 'repo/model:Q4_K_M',
+          modelAliasSnapshot: 'Model Q4',
+          reasoning: 'thinking out loud',
+        },
+      ],
+    });
+
+    await fs.rm(sessionPath, {force: true});
+    await repository.markUnavailableIfPiSessionInvalid(conversation.id);
+
+    const harness = new PiHarness(paths, store, repository, new HostToolRepository(database));
+    const snapshot = await harness.rebuildConversationFromProjection(conversation.id);
+
+    assert.equal(snapshot.conversation.status, 'ready');
+    assert.notEqual(snapshot.conversation.piSessionId, sessionManager.getSessionId());
+    assert.deepEqual(
+      snapshot.entries.map(entry => [entry.role, entry.textPreview]),
+      [
+        ['user', 'Ask'],
+        ['assistant', 'Answer'],
+      ],
+      'compaction rows cannot be appended as messages, so they are dropped',
+    );
+    assert.equal(snapshot.entries[1]?.reasoning, 'thinking out loud');
+    assert.equal(snapshot.entries[1]?.modelAliasSnapshot, 'Model Q4');
+
+    // The rebuilt file is a real Pi session that Nelle can reopen.
+    const rebuiltPath = repository.getPiSessionBinding(conversation.id)?.piSessionPath;
+    assert.ok(rebuiltPath);
+    assert.equal(await repository.getPiSessionIssue(conversation.id), null);
+    const reopened = SessionManager.open(rebuiltPath, paths.piSessionsDir, paths.repoRoot);
+    assert.equal(reopened.getBranch().length, 2);
+  } finally {
+    database.close();
+  }
+});
+
+test('conversation diagnostics report why a session is unavailable', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    await repository.init();
+    const conversation = repository.createConversation({title: 'Broken'});
+    const sessionPath = path.join(paths.piSessionsDir, 'broken.jsonl');
+    await fs.mkdir(path.dirname(sessionPath), {recursive: true});
+    await fs.writeFile(sessionPath, 'not-json\n');
+    repository.attachPiSession(conversation.id, {
+      piSessionPath: sessionPath,
+      piSessionId: 'broken-session',
+    });
+
+    const diagnostics = await repository.getConversationDiagnostics(conversation.id);
+    assert.equal(diagnostics?.exists, false);
+    assert.equal(diagnostics?.reason, 'Pi session file is not valid JSON.');
+    assert.equal(diagnostics?.piSessionPath, sessionPath);
+    assert.equal(diagnostics?.sizeBytes, Buffer.byteLength('not-json\n'));
+    assert.equal(diagnostics?.projectionEntryCount, 0);
+  } finally {
+    database.close();
+  }
+});
+
 test('repository applies generated titles without overwriting user titles', async () => {
   const paths = await createTempPaths();
   const database = new AppDatabase(paths);
@@ -1174,6 +1348,53 @@ test('server startup sweeps orphan attachment files and preserves referenced fil
     await fs.access(referencedAttachmentPath);
   } finally {
     await app.close();
+  }
+});
+
+test('an unavailable conversation still exports, and that archive refuses to import', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    await repository.init();
+    const conversation = repository.createConversation({title: 'Salvage me'});
+    repository.attachPiSession(conversation.id, {
+      piSessionPath: path.join(paths.piSessionsDir, 'gone.jsonl'),
+      piSessionId: 'gone-session',
+    });
+    await repository.markUnavailableIfPiSessionInvalid(conversation.id);
+
+    // Refusing to export would leave the user with no way to salvage the
+    // messages SQLite still holds.
+    const archive = await exportConversationArchive({
+      paths,
+      store,
+      conversations: repository,
+      conversationId: conversation.id,
+    });
+    assert.ok(archive);
+
+    const files = unzipSync(archive.bytes);
+    const manifest = JSON.parse(strFromU8(files['manifest.json']!)) as {piSessionMissing?: boolean};
+    assert.equal(manifest.piSessionMissing, true);
+    assert.equal(strFromU8(files['pi-session.jsonl']!), '');
+
+    // Importing it would create a chat whose sidecar promises messages the empty
+    // session file cannot show.
+    await assert.rejects(
+      () =>
+        importConversationArchive({
+          paths,
+          store,
+          conversations: repository,
+          bytes: archive.bytes,
+        }),
+      (error: Error & {code?: string}) => error.code === 'archive_session_missing',
+    );
+  } finally {
+    database.close();
   }
 });
 

@@ -322,6 +322,7 @@ export type ConversationSnapshot = {
     canAbort: boolean;
     canCompact: boolean;
     canFork: boolean;
+    canRepair: boolean;
     canAttachImages: boolean;
     canAttachText: boolean;
   };

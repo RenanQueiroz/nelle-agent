@@ -181,6 +181,8 @@ list.
 
 ## G2: `unavailable` Conversations Are A Dead End
 
+**Status: server done; web pending.**
+
 ### Symptom
 
 When a Pi session file goes missing or corrupt, the conversation is marked
@@ -288,13 +290,12 @@ What it loses, and the dialog must say so:
   and `appendMessage` cannot produce them. Rebuild skips them, so the session
   keeps the messages that survived compaction without the summary explaining the
   gap. This is a deliberate choice, not an oversight.
-- **Inactive Pi branches, in the session file.** Regenerate variants live in the
-  Pi JSONL as inactive branches, but `getBranch()` only returns the active path,
-  so `prependExistingVariantGroup` (`piHarness.ts:1421`) re-adds them to the
-  projection from SQLite on every sync. After a rebuild the UI therefore keeps
-  showing variants — they are sourced from SQLite — while the rebuilt Pi file
-  contains only a linear active path. The variants survive on screen and die in
-  the session tree; a future branch explorer would not see them.
+- **Regenerate variants.** A rebuilt Pi session is linear, so a variant has
+  nowhere to hang. `getActivePathEntries()` walks the active branch only, and
+  `replaceConversationProjection` deletes the rows it is not handed, so variants
+  leave both the session file and the projection. The rebuild also remaps every
+  `pi_entry_id` in `message_attachments`, because Pi hands out fresh ids and the
+  attachments would otherwise stay bound to entries that no longer exist.
 
 A blank `rebind` (fresh empty session under the same conversation id) is
 explicitly **rejected**. It preserves only the title and pin state versus
