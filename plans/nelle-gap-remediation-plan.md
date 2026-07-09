@@ -31,6 +31,28 @@ within expectations. It is **not** part of this plan:
 The last item is currently missing from README's "Not implemented yet" list; see
 G11.
 
+## Status
+
+**Every gap in this document is closed.** 110 unit tests and 36 e2e tests pass,
+along with `format:check`, `lint`, `check`, and `build:web`.
+
+Three things were decided against while implementing, each recorded in place:
+
+- `conversation.forked` (G5) was not added. Fork and clone are plain JSON routes
+  and Nelle has no conversation-level SSE channel, so the union member would be a
+  type nobody sends.
+- `state.json.chat[]` (G8) is still written by `directLlama`. The fallback runs
+  when Pi is unavailable and has no session file to persist into; removing the
+  write would make it amnesiac, not conversation-scoped. Pi's own duplicate
+  mirroring is gone.
+- `capabilities.canAbort`/`canCompact` (G4) stay point-in-time. They describe a
+  run that may have started after the snapshot, so the browser keeps using its
+  own live state and consumes the durable `canRepair` instead.
+
+One finding surfaced that is not in this plan and was left alone: an unknown
+`/api/...` path returns the SPA's `index.html` with a 200, because the static
+plugin's history fallback catches it. It deserves a route guard.
+
 ## How This Was Verified
 
 Audited against commit `c1476e3` with a clean working tree. `npm test` (77 unit
