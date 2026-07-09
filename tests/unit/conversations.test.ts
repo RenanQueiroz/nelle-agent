@@ -2196,6 +2196,121 @@ test('schema failures come back as invalid_request, not a raw 500', async () => 
   }
 });
 
+test('the image vision check goes through the facade and fills the model cache', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await store.setActiveModel(model.id);
+  const database = new AppDatabase(paths);
+  await database.open();
+
+  const originalFetch = globalThis.fetch;
+  let directLlamaFetches = 0;
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    if (String(url).includes('/props')) {
+      directLlamaFetches += 1;
+    }
+    return new Response('{}', {status: 200});
+  }) as typeof fetch;
+
+  try {
+    const repository = new ConversationRepository(database);
+    await repository.init();
+    const cache = new ModelCacheRepository(database);
+    const conversation = repository.createConversation({title: 'Vision', defaultModelId: model.id});
+
+    const propsCalls: string[] = [];
+    // `getModelProps` reads `this` -- as `LlamaCppManager`'s does, reaching for
+    // `this.fetchRouterJson`. A caller that destructures it off the manager loses
+    // the receiver and fails exactly as if llama.cpp were unreachable.
+    const facade = {
+      visionSupported: true,
+      async getModelProps(modelId: string) {
+        propsCalls.push(modelId);
+        return {
+          modelId,
+          modalities: {vision: this.visionSupported, audio: false, video: false},
+          contextWindow: 32_768,
+          raw: {},
+        };
+      },
+    };
+    const harness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+      facade,
+      cache,
+    ) as unknown as {
+      assertImageAttachmentsSupported: (model: unknown) => Promise<void>;
+    };
+
+    await harness.assertImageAttachmentsSupported(model);
+
+    // The facade answered; llama.cpp was never fetched behind its back.
+    assert.deepEqual(propsCalls, [model.id]);
+    assert.equal(directLlamaFetches, 0);
+
+    // And the answer was recorded, so nobody has to ask llama.cpp again.
+    assert.equal(cache.getVisionSupport(model.id), true);
+    assert.equal(cache.getModel(model.id)?.contextWindow, 32_768);
+
+    // A text-only model is refused, and that answer is cached too.
+    const textOnly = {
+      visionSupported: false,
+      async getModelProps(modelId: string) {
+        return {
+          modelId,
+          modalities: {vision: this.visionSupported, audio: false, video: false},
+          raw: {},
+        };
+      },
+    };
+    const strictHarness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+      textOnly,
+      cache,
+    ) as unknown as {assertImageAttachmentsSupported: (model: unknown) => Promise<void>};
+    await assert.rejects(
+      () => strictHarness.assertImageAttachmentsSupported(model),
+      /require a selected model with vision support/,
+    );
+    assert.equal(cache.getVisionSupport(model.id), false);
+
+    // Props that cannot be fetched are still an error: llama.cpp only answers for
+    // a model it has loaded at least once.
+    const unavailable = {
+      getModelProps: async () => {
+        throw new Error('502');
+      },
+    };
+    const blindHarness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+      unavailable,
+      cache,
+    ) as unknown as {assertImageAttachmentsSupported: (model: unknown) => Promise<void>};
+    await assert.rejects(
+      () => blindHarness.assertImageAttachmentsSupported(model),
+      /Could not verify image support/,
+    );
+    assert.equal(conversation.id.length > 0, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
 test('a second chat run in the same conversation is rejected as busy', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);

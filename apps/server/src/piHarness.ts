@@ -27,6 +27,7 @@ import {
   type SyncConversationEntry,
 } from './conversations';
 import type {HostToolRepository} from './hostTools';
+import type {ModelCacheRepository} from './modelCache';
 import type {
   AttachmentMetadata,
   ConversationContextUsage,
@@ -55,6 +56,7 @@ import type {
   ChatPerformance,
   ChatStreamEvent,
   ConfiguredModel,
+  LlamaModelProps,
   ToolCallEvent,
 } from './types';
 import type {NelleError} from '../../../packages/shared/src/contracts.ts';
@@ -82,6 +84,7 @@ type ActiveRun = {
 
 type LlamaRuntimeServices = {
   tokenize?: (content: string) => Promise<{tokens: number}>;
+  getModelProps?: (modelId: string) => Promise<LlamaModelProps>;
   verifyAbortIdle?: (input: {modelId?: string; graceMs?: number}) => Promise<{
     warning?: NelleError;
   }>;
@@ -114,6 +117,7 @@ export class PiHarness {
     private readonly conversations: ConversationRepository,
     private readonly hostTools: HostToolRepository,
     private readonly llamaRuntime?: LlamaRuntimeServices,
+    private readonly modelCache?: ModelCacheRepository,
   ) {}
 
   resetSession(conversationId?: string): void {
@@ -1281,24 +1285,41 @@ export class PiHarness {
     };
   }
 
+  /**
+   * Refuses image attachments for a model that cannot see them.
+   *
+   * This used to `fetch` llama.cpp `/props` directly, behind the back of both the
+   * `/api/llama` facade and `model_cache` -- a third implementation of a question
+   * the cache exists to answer. It now asks the facade and records the answer, so
+   * a later reader does not have to ask llama.cpp again.
+   *
+   * The behavior is unchanged: props that cannot be fetched are still an error,
+   * because llama.cpp only answers for a model it has loaded at least once. Once
+   * the server loads models itself, this whole method gives way to
+   * `modelCache.getVisionSupport()`.
+   */
   private async assertImageAttachmentsSupported(activeModel: ConfiguredModel): Promise<void> {
-    const state = await this.store.getState();
-    const response = await fetch(
-      `http://${state.runtime.host}:${state.runtime.port}/props?model=${encodeURIComponent(
-        llamaRuntimeModelId(activeModel),
-      )}&autoload=false`,
-    );
-    if (!response.ok) {
+    const llamaRuntime = this.llamaRuntime;
+    if (!llamaRuntime?.getModelProps) {
       throw new Error(
         'Could not verify image support for the selected model. Load the model before sending images.',
       );
     }
-    const raw = (await response.json()) as unknown;
-    const modalities = getObjectProp(raw, 'modalities');
-    const hasVision = booleanOrFalse(
-      getObjectProp(modalities, 'vision') ?? getObjectProp(raw, 'vision'),
-    );
-    if (!hasVision) {
+
+    let props: LlamaModelProps;
+    try {
+      // Called on the manager, not detached from it: `getModelProps` reaches for
+      // `this.fetchRouterJson`, and an unbound call fails as if llama.cpp were
+      // unreachable.
+      props = await llamaRuntime.getModelProps(llamaRuntimeModelId(activeModel));
+    } catch {
+      throw new Error(
+        'Could not verify image support for the selected model. Load the model before sending images.',
+      );
+    }
+
+    this.modelCache?.upsertModelProps(activeModel.id, props);
+    if (!props.modalities.vision) {
       throw new Error('Image attachments require a selected model with vision support.');
     }
   }
@@ -1938,14 +1959,6 @@ function parseImageData(
     throw new Error('Image attachments require an image MIME type.');
   }
   return {mimeType: fallbackMimeType, data: value};
-}
-
-function getObjectProp(value: unknown, key: string): unknown {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
-}
-
-function booleanOrFalse(value: unknown): boolean {
-  return value === true || value === 'true' || value === 1;
 }
 
 function extensionForMimeType(mimeType: string): string {

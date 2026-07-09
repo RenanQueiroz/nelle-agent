@@ -154,10 +154,14 @@ Small, independent, and correct regardless of whether anything else here ships.
    still needs the join for per-row status and progress (`App.tsx:404-443`).
    Only the two call sites inside the poll loop go away with Phase 3.
 
-Exit criteria: attaching 11 files succeeds; attaching 21 fails with
-`unsupported_attachment` and a readable message; a malformed chat body returns
-400 `invalid_request`; no `fetch` to llama.cpp outside `llamacpp.ts` and
-`llamaProxy.ts`.
+Exit criteria: attaching 11 files succeeds and 21 fails with a readable message;
+a malformed chat body returns 400 `invalid_request`; nothing fetches llama.cpp
+`/props` outside `llamacpp.ts`.
+
+`llamaThroughput.ts:212` still fetches `/slots` directly. That is not the same
+kind of bypass: AGENTS.md sanctions `/slots` as a best-effort fallback, and it is
+server-internal plumbing rather than a capability question `model_cache` can
+answer. Leave it.
 
 ## Phase 1: Attachment Ingestion Moves To The Server
 
