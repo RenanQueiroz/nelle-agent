@@ -20,7 +20,7 @@ import {localLlamaProxyBaseUrl} from './llamaProxy';
 import {chatTemplateKwargsForModel, llamaRuntimeModelId} from './modelCompat';
 import {createErrorEvent} from './errors';
 import type {AppPaths} from './paths';
-import {AppStore} from './store';
+import {AppStore, DEFAULT_CONTEXT_SIZE} from './store';
 import {
   LEGACY_DEFAULT_CONVERSATION_ID,
   type ConversationRepository,
@@ -1322,7 +1322,7 @@ export class PiHarness {
         name: 'Unknown model',
         presetName: 'unknown',
         source: 'huggingface',
-        params: {contextSize: 8192},
+        params: {contextSize: DEFAULT_CONTEXT_SIZE},
         createdAt: new Date().toISOString(),
       }
     );

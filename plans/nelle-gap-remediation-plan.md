@@ -668,6 +668,8 @@ Nothing special-cases it afterwards.
 
 ## G9: The No-Models Fallback Uses An 8192 Context
 
+**Status: done.**
+
 `apps/server/src/piHarness.ts:1325` — `getProjectionModel()` returns a synthetic
 model with `params: {contextSize: 8192}` when `state.models` is empty. Import
 `DEFAULT_CONTEXT_SIZE` from `apps/server/src/store.ts:32` (16384) instead.
