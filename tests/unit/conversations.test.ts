@@ -34,6 +34,7 @@ import {
   assertConversationTransition,
   canTransitionConversation,
 } from '../../packages/shared/src/conversations.ts';
+import {unsupportedSlashCommandMessage} from '../../packages/shared/src/commands.ts';
 
 process.env.LOG_LEVEL = 'silent';
 
@@ -3034,6 +3035,33 @@ test('host tool settings require acknowledgement before enabling tools', async (
   }
 });
 
+test('the server serves the slash command registry it enforces', async () => {
+  const paths = await createTempPaths();
+  const app = await createServer(paths);
+  try {
+    const body = (await app.inject({method: 'GET', url: '/api/commands'})).json<{
+      commands: Array<{name: string; argHint?: string; description: string}>;
+      unsupported: Array<{name: string; guidance: string}>;
+    }>();
+
+    assert.deepEqual(body.commands, [
+      {
+        name: '/compact',
+        argHint: '[instructions]',
+        description: 'Compact this conversation context',
+      },
+    ]);
+    // A client renders this copy; it must not have to invent it.
+    const model = body.unsupported.find(entry => entry.name === '/model');
+    assert.equal(model?.guidance, 'Use the model selector in the composer or assistant footer.');
+    assert.ok(body.unsupported.length > 1);
+    // Every command the server refuses must come with somewhere else to go.
+    assert.ok(body.unsupported.every(entry => entry.guidance.trim().length > 0));
+  } finally {
+    await app.close();
+  }
+});
+
 test('chat stream emits SSE envelopes with run lifecycle events', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
@@ -3177,7 +3205,7 @@ test('the chat route enforces the guards the composer enforces', async () => {
   await database.open();
   try {
     const conversationId = LEGACY_DEFAULT_CONVERSATION_ID;
-    const streamError = async (payload: unknown): Promise<{code?: string}> => {
+    const streamError = async (payload: unknown): Promise<{code?: string; message?: string}> => {
       const response = await app.inject({
         method: 'POST',
         url: `/api/conversations/${conversationId}/chat/stream`,
@@ -3186,13 +3214,17 @@ test('the chat route enforces the guards the composer enforces', async () => {
       const envelopes = parseSseEnvelopes(response.body);
       return (envelopes.find(envelope => envelope.data?.type === 'error')?.data ?? {}) as {
         code?: string;
+        message?: string;
       };
     };
 
     new ConversationRepository(database).createConversation({id: conversationId, title: 'Guards'});
 
-    // `/model` would otherwise reach Pi as a literal prompt.
-    assert.equal((await streamError({message: '/model gemma'})).code, 'unsupported_slash_command');
+    // `/model` would otherwise reach Pi as a literal prompt. The refusal is the
+    // registry's own copy, so the client and the server say the same thing.
+    const refused = await streamError({message: '/model gemma'});
+    assert.equal(refused.code, 'unsupported_slash_command');
+    assert.equal(refused.message, unsupportedSlashCommandMessage('/model gemma'));
     assert.equal((await streamError({message: '/compact'})).code, undefined);
 
     // Image sent to a model llama.cpp has proven cannot see.

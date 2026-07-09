@@ -103,6 +103,7 @@ import {
   type ReasoningBudgets,
   type ReasoningLevel,
   type RuntimeStatus,
+  fetchSlashCommands,
 } from './api';
 import {ChatComposerPanel} from './components/chat/ChatComposerPanel';
 import {ThinkingBlock} from './components/chat/ThinkingBlock';
@@ -115,6 +116,12 @@ import {useSettingsStore} from './stores/settingsStore';
 import {useUiStore} from './stores/uiStore';
 import type {ActiveRunKind, AppNotice, CommandStatusRow, ComposerModelOptionDetail} from './types';
 import {attachmentTooltip, getDraftAttachmentError} from './utils/attachments';
+import {
+  parseCompactCommand,
+  SLASH_COMMAND_REGISTRY,
+  unsupportedSlashCommandMessage,
+  type SlashCommandRegistry,
+} from '../../../packages/shared/src/commands.ts';
 import {isRunnableRouterStatus} from '../../../packages/shared/src/router.ts';
 import {useScrollChatToBottomOnOpen} from './utils/chatScroll';
 import {
@@ -368,6 +375,23 @@ export function App() {
     return () => {
       isMountedRef.current = false;
     };
+  }, []);
+
+  // The allowlist and its guidance copy live on the server, so a newly
+  // allowlisted command needs no client release. The bundled registry is only
+  // the fallback for the moment before the fetch resolves.
+  const [commandRegistry, setCommandRegistry] = useState<SlashCommandRegistry | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const registry = await fetchSlashCommands();
+        if (isMountedRef.current) {
+          setCommandRegistry(registry);
+        }
+      } catch {
+        // The bundled registry stands in until the server can be reached.
+      }
+    })();
   }, []);
 
   const activeModel = useMemo(
@@ -1054,7 +1078,10 @@ export function App() {
       await handleCompactConversation(compactInstructions);
       return;
     }
-    const unsupportedSlashCommand = getUnsupportedSlashCommandMessage(prompt);
+    const unsupportedSlashCommand = unsupportedSlashCommandMessage(
+      prompt,
+      commandRegistry ?? SLASH_COMMAND_REGISTRY,
+    );
     if (unsupportedSlashCommand) {
       composer.setSlashCommandError(unsupportedSlashCommand);
       restoreComposerDraft(prompt);
@@ -2577,60 +2604,9 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
-function parseCompactCommand(value: string): string | null {
-  if (value === '/compact') {
-    return '';
-  }
-  if (value.startsWith('/compact ')) {
-    return value.slice('/compact '.length).trim();
-  }
-  return null;
-}
-
 function normalizeComposerValue(value: string): string {
   return value.replace(/\u00a0/g, ' ').trim();
 }
-
-function getUnsupportedSlashCommandMessage(value: string): string | null {
-  const command = parseSlashCommandName(value);
-  if (!command || command === '/compact') {
-    return null;
-  }
-  const guidance = SLASH_COMMAND_GUIDANCE[command];
-  if (guidance) {
-    return `${command} is handled by Nelle UI. ${guidance}`;
-  }
-  return `${command} is not supported in Nelle chat. Use /compact for manual context compaction.`;
-}
-
-function parseSlashCommandName(value: string): string | null {
-  const match = value.trim().match(/^\/[^\s]+/);
-  return match?.[0]?.toLowerCase() ?? null;
-}
-
-const SLASH_COMMAND_GUIDANCE: Record<string, string> = {
-  '/new': 'Use the New chat button in the conversation sidebar.',
-  '/resume': 'Use the conversation sidebar and search to resume a chat.',
-  '/model': 'Use the model selector in the composer or assistant footer.',
-  '/scoped-models': 'Use Nelle model selectors and Settings instead.',
-  '/login': 'Nelle manages the local llama.cpp provider through Settings.',
-  '/logout': 'Nelle manages the local llama.cpp provider through Settings.',
-  '/settings': 'Use the Settings controls in the sidebar.',
-  '/fork': 'Use message and conversation menus for fork actions.',
-  '/clone': 'Use the conversation menu duplicate action.',
-  '/name': 'Use the conversation row rename action.',
-  '/session': 'Use the conversation sidebar.',
-  '/tree': 'Nelle does not expose the full Pi tree explorer in v1.',
-  '/export': 'Use the conversation export action when it is available.',
-  '/import': 'Use the conversation import action when it is available.',
-  '/share': 'Sharing is not exposed in this local-first version yet.',
-  '/copy': 'Use assistant message copy buttons.',
-  '/trust': 'Host tool trust is managed by Nelle settings.',
-  '/reload': 'Use the runtime and router refresh controls.',
-  '/hotkeys': 'Keyboard help is not exposed in the chat composer yet.',
-  '/changelog': 'Release notes are not exposed in the chat composer.',
-  '/quit': 'Stop the server from the host process or runtime controls.',
-};
 
 function createCompactCommandRow(conversationId: string, instructions: string): CommandStatusRow {
   const now = new Date().toISOString();

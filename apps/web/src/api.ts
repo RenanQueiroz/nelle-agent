@@ -1,3 +1,4 @@
+import type {SlashCommandRegistry} from '../../../packages/shared/src/commands.ts';
 import type {ContextUsageStatus} from '../../../packages/shared/src/context.ts';
 
 export type RuntimeStatus = {
@@ -1043,4 +1044,13 @@ async function parseJson<T>(response: Response): Promise<T> {
     throw new Error(text || `Request failed: ${response.status}`);
   }
   return text ? (JSON.parse(text) as T) : (undefined as T);
+}
+
+/** The slash-command allowlist and guidance copy, owned by the server. */
+export async function fetchSlashCommands(): Promise<SlashCommandRegistry> {
+  const response = await fetch('/api/commands');
+  if (!response.ok) {
+    throw new Error(`Command registry request failed: ${response.status}`);
+  }
+  return (await response.json()) as SlashCommandRegistry;
 }

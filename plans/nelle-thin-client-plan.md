@@ -389,6 +389,8 @@ run, and the first cut of the live context tracker flooded the stream.
 
 ## Phase 5: Server-Owned Command Registry
 
+**Status: done.**
+
 ```http
 GET /api/commands
   -> {commands: [{name: '/compact', argHint: '[instructions]',
@@ -396,10 +398,13 @@ GET /api/commands
       unsupported: [{name: '/model', guidance: 'Use the model selector…'}, …]}
 ```
 
-The chat route already rejects unsupported commands with
-`unsupported_slash_command` (see G6). This gives the client the typeahead source
-and the guidance copy it currently hardcodes in a 21-entry table, and it means a
-new allowlisted command ships without touching any client.
+`packages/shared/src/commands.ts` owns the allowlist, the 21 guidance entries,
+`parseSlashCommandName`, `parseCompactCommand`, and
+`unsupportedSlashCommandMessage`. The chat route's `assertSupportedSlashCommand`
+and the composer's refusal now render the same string from the same table, and
+the client takes the registry from `GET /api/commands`, falling back to the
+bundled copy only until that request resolves. Allowlisting a command server-side
+needs no client release, which is what the e2e test pins.
 
 Client keeps: the typeahead widget, and the local interception that routes
 `/compact` to the compact endpoint rather than the chat endpoint.

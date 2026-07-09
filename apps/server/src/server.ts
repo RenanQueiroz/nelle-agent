@@ -35,6 +35,10 @@ import {
   serializeSseEnvelope,
   NELLE_ERROR_CODES,
 } from '../../../packages/shared/src/contracts.ts';
+import {
+  SLASH_COMMAND_REGISTRY,
+  unsupportedSlashCommandMessage,
+} from '../../../packages/shared/src/commands.ts';
 
 const useHuggingFaceModelSchema = z.object({
   repoId: z.string().min(1),
@@ -177,6 +181,13 @@ export async function createServer(paths: AppPaths) {
     app: 'nelle-server',
     dataDir: paths.dataDir,
     runtime: await llama.getStatus(),
+  }));
+
+  // The composer's typeahead and its refusal copy come from here, so
+  // allowlisting a command ships without touching a client.
+  app.get('/api/commands', async () => ({
+    commands: SLASH_COMMAND_REGISTRY.commands,
+    unsupported: SLASH_COMMAND_REGISTRY.unsupported,
   }));
 
   app.get('/api/state', async () => ({
@@ -1176,16 +1187,11 @@ async function assertRuntimeRunning(llama: LlamaCppManager): Promise<void> {
  * or `/model` reaches Pi as a literal prompt from any other client.
  */
 function assertSupportedSlashCommand(message: string): void {
-  const command = message
-    .trim()
-    .match(/^\/[^\s]+/)?.[0]
-    ?.toLowerCase();
-  if (!command || command === '/compact') {
+  const refusal = unsupportedSlashCommandMessage(message);
+  if (!refusal) {
     return;
   }
-  const error = new Error(
-    `${command} is not supported in Nelle chat. Only /compact is, and it has its own endpoint.`,
-  );
+  const error = new Error(refusal);
   Object.assign(error, {code: NELLE_ERROR_CODES.unsupportedSlashCommand, retryable: false});
   throw error;
 }

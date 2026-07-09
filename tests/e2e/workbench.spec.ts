@@ -2154,14 +2154,93 @@ test('rejects unsupported slash commands before they reach chat streaming', asyn
     });
   });
 
+  // The refusal copy comes from the server's registry, not a table in the bundle.
+  await page.route('**/api/commands', async route => {
+    await route.fulfill({
+      json: {
+        commands: [{name: '/compact', argHint: '[instructions]', description: 'Compact'}],
+        unsupported: [{name: '/model', guidance: 'Pick a model from the composer selector.'}],
+      },
+    });
+  });
+
   await page.goto('/');
   await page.getByLabel('Message input').fill('/model qwen');
   await page.getByLabel('Message input').press('Enter');
 
   expect(streamCalls).toBe(0);
   await expect(page.getByRole('alert')).toContainText('/model is handled by Nelle UI');
-  await expect(page.getByRole('alert')).toContainText('Use the model selector');
+  await expect(page.getByRole('alert')).toContainText('Pick a model from the composer selector.');
   await expect(page.getByLabel('Message input')).toContainText('/model qwen');
+});
+
+test('a command the server allowlists is sent, without a client release', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'Model One',
+    presetName: 'model-one',
+    source: 'huggingface',
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  let streamCalls = 0;
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {state: {activeModelId: model.id, models: [model], chat: []}, runtime},
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await mockConversationRoutes(page, {chat: []});
+  await page.route('**/api/commands', async route => {
+    await route.fulfill({
+      json: {
+        // `/summarise` exists only in this response. The bundled registry does
+        // not know it, and the client must not refuse it anyway.
+        commands: [
+          {name: '/compact', argHint: '[instructions]', description: 'Compact'},
+          {name: '/summarise', description: 'Summarise this conversation'},
+        ],
+        unsupported: [{name: '/model', guidance: 'Use the model selector.'}],
+      },
+    });
+  });
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
+    streamCalls += 1;
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: '',
+    });
+  });
+
+  await page.goto('/');
+  await page.getByLabel('Message input').fill('/summarise the thread');
+  await page.getByLabel('Message input').press('Enter');
+
+  await expect.poll(() => streamCalls).toBe(1);
+  await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
 test('keeps the page frame fixed while only the chat region scrolls', async ({page}) => {
