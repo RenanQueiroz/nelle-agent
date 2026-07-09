@@ -18,6 +18,7 @@ import {AppStore} from './store';
 import {llamaRuntimeModelId} from './modelCompat';
 import {commandExists, runCommand} from './process';
 import {NELLE_ERROR_CODES} from '../../../packages/shared/src/contracts.ts';
+import {templateSupportsThinking} from '../../../packages/shared/src/reasoning.ts';
 import {
   MODEL_LOAD_POLL_MS,
   MODEL_LOAD_TIMEOUT_MS,
@@ -180,6 +181,10 @@ export class LlamaCppManager {
       numberOrNull(getProp(raw, 'n_ctx')) ??
       numberOrNull(getProp(raw, 'nCtx'));
 
+    const chatTemplate = stringOrUndefined(
+      getProp(raw, 'chat_template') ?? getProp(raw, 'chatTemplate'),
+    );
+
     return {
       modelId,
       modalities: {
@@ -188,9 +193,10 @@ export class LlamaCppManager {
         video: booleanOrFalse(getProp(modalities, 'video') ?? getProp(raw, 'video')),
       },
       contextWindow: contextWindow ?? undefined,
-      chatTemplate: stringOrUndefined(
-        getProp(raw, 'chat_template') ?? getProp(raw, 'chatTemplate'),
-      ),
+      chatTemplate,
+      // Whether a model can think is a property of its chat template, and only
+      // llama.cpp has it. No template reported means unknown, not "cannot".
+      canReason: chatTemplate == null ? null : templateSupportsThinking(chatTemplate),
       defaultGenerationSettings,
       raw,
     };

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import {ConversationRepository} from '../../apps/server/src/conversations.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';
 import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
@@ -349,6 +350,77 @@ test('a load that never finishes times out rather than hanging the run', async (
   }
 });
 
+test('the server decides whether a model can reason, and caches the answer', async () => {
+  // Whether a model can think is a property of its chat template. llama.cpp ships
+  // the template; the client used to carry llama.cpp's detector to read it.
+  const thinking = await createMockRouter({
+    chatTemplate: '{%- if enable_thinking is defined and enable_thinking -%}',
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: thinking.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+  const app = await createServer(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+
+  try {
+    const cache = new ModelCacheRepository(database);
+    assert.equal(cache.getReasoningSupport(model.id), null, 'unknown until llama.cpp answers');
+
+    const props = (
+      await app.inject({
+        method: 'GET',
+        url: `/api/llama/models/${encodeURIComponent(model.id)}/props`,
+      })
+    ).json<{canReason: boolean | null; chatTemplate: string}>();
+    assert.equal(props.canReason, true);
+
+    // Cached, so a client that never fetches props still learns it.
+    assert.equal(cache.getReasoningSupport(model.id), true);
+
+    const conversation = new ConversationRepository(database).createConversation({
+      title: 'Reasoning capability',
+      defaultModelId: model.id,
+    });
+    const snapshot = (
+      await app.inject({method: 'GET', url: `/api/conversations/${conversation.id}`})
+    ).json<{snapshot: {capabilities: {canReason: boolean | null}}}>().snapshot;
+    assert.equal(snapshot.capabilities.canReason, true);
+  } finally {
+    database.close();
+    await app.close();
+    await thinking.close();
+  }
+});
+
+test('a template with no thinking mode reports canReason false, not null', async () => {
+  const router = await createMockRouter({chatTemplate: 'chatml'});
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+
+  try {
+    const props = await new LlamaCppManager(paths, store).getModelProps(model.id);
+    // `false` locks the reasoning control; `null` would leave it editable. They
+    // are not the same answer.
+    assert.equal(props.canReason, false);
+  } finally {
+    await router.close();
+  }
+});
+
 test('llama abort verifier warns when slots keep processing after grace window', async () => {
   const processingSlot = {
     id: 2,
@@ -480,6 +552,7 @@ async function createMockRouter(
     models?: unknown[];
     /** Called per `/models` request, so a status can change between polls. */
     modelsFactory?: () => unknown[];
+    chatTemplate?: string;
   } = {},
 ): Promise<{
   port: number;
@@ -505,7 +578,7 @@ async function createMockRouter(
       sendJson(response, {
         modalities: {vision: true, audio: false, video: false},
         default_generation_settings: {n_ctx: 32768},
-        chat_template: 'chatml',
+        chat_template: input.chatTemplate ?? 'chatml',
       });
       return;
     }

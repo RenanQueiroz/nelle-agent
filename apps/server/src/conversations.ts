@@ -785,6 +785,7 @@ export class ConversationRepository {
         canFork: entries.length > 0 && !unavailable,
         canRepair: unavailable,
         canAttachImages: defaultModelId ? this.modelCache.getVisionSupport(defaultModelId) : null,
+        canReason: defaultModelId ? this.modelCache.getReasoningSupport(defaultModelId) : null,
       },
       errors: unavailable
         ? [

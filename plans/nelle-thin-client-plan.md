@@ -338,12 +338,27 @@ its props are cached. That deletion belongs here, not in Phase 1.
 
 ## Phase 4: Derived Capabilities Move Into The Payload
 
-- **`canReason`.** Compute `templateSupportsThinking(chatTemplate)` in
-  `LlamaCppManager.getModelProps()`, persist it in `model_cache`, and expose it
-  as `LlamaModelProps.canReason: boolean | null` and
-  `snapshot.capabilities.canReason`. `null` keeps its meaning: llama.cpp has
-  never reported a template, so the control stays editable. Delete
-  `apps/web/src/utils/reasoning.ts`'s detector.
+### Phase 4a — `canReason`
+
+**Status: done.**
+
+`templateSupportsThinking` moved to `packages/shared/src/reasoning.ts`.
+`LlamaCppManager.getModelProps()` calls it and returns
+`LlamaModelProps.canReason: boolean | null`; migration 7 added
+`model_cache.can_reason`, written by `upsertModelProps` and read by
+`ModelCacheRepository.getReasoningSupport()`, which feeds
+`snapshot.capabilities.canReason`. `null` keeps its meaning: llama.cpp has never
+reported a template, so the control stays editable. The client prefers live props
+and falls back to the snapshot capability; `apps/web/src/utils/reasoning.ts` now
+holds only `parseReasoningBudgets`.
+
+Verified against the real router: gemma-4-26B's template declares
+`enable_thinking`, so `/api/llama/models/:id/props` answers `canReason: true`,
+`model_cache.can_reason` becomes `1`, and the conversation snapshot reports
+`canReason: true` with no client-side template parsing.
+
+### Phase 4b — the rest
+
 - **Context thresholds.** Put `CONTEXT_WARNING_RATIO = 0.8` and
   `CONTEXT_OVERFLOW_RATIO = 1` in `packages/shared`, and add
   `status: 'ok' | 'warning' | 'overflow'` to `ConversationContextUsage`, computed

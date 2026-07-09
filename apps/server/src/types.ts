@@ -67,6 +67,11 @@ export type LlamaModelProps = {
   };
   contextWindow?: number;
   chatTemplate?: string;
+  /**
+   * Whether the chat template declares a thinking mode. `null` when llama.cpp
+   * reported no template, which means unknown rather than "cannot think".
+   */
+  canReason: boolean | null;
   defaultGenerationSettings?: unknown;
   raw: unknown;
 };

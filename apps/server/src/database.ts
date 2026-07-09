@@ -192,6 +192,18 @@ const MIGRATIONS: Migration[] = [
     `,
     isApplied: db => !tableHasColumn(db, 'conversations', 'deleted_at'),
   },
+  {
+    version: 7,
+    name: 'model_cache_can_reason',
+    checksum: '2026-07-09-model-cache-can-reason',
+    // Whether a model can think is a property of its chat template, which
+    // llama.cpp only reports for a model it has loaded. Cache the answer so a
+    // client that never fetches props still learns it.
+    sql: `
+      ALTER TABLE model_cache ADD COLUMN can_reason INTEGER;
+    `,
+    isApplied: db => tableHasColumn(db, 'model_cache', 'can_reason'),
+  },
 ];
 
 /** The proof-of-concept default chat was stored under this id. */

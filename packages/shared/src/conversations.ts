@@ -132,6 +132,12 @@ export const conversationSnapshotSchema = z.object({
      * should prefer live `/props`.
      */
     canAttachImages: z.boolean().nullable(),
+    /**
+     * Whether the conversation's model declares a thinking mode, from
+     * `model_cache`. `null` means llama.cpp has never reported its chat template,
+     * so the reasoning control stays editable rather than locking to `off`.
+     */
+    canReason: z.boolean().nullable(),
   }),
   errors: z.array(nelleErrorSchema),
 });

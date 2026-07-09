@@ -2811,6 +2811,7 @@ test('only disables the reasoning selector for a template with no thinking mode'
         modalities: {vision: false, audio: false, video: false},
         // A plain instruct template: no thinking kwarg, no thinking tags.
         chatTemplate: '{% for message in messages %}{{ message.content }}{% endfor %}',
+        canReason: false,
         raw: {},
       },
     });
@@ -2914,6 +2915,7 @@ test('shows thinking blocks and switches reasoning level from the composer', asy
         contextWindow: 16384,
         // The kwarg in the template is what unlocks the control, not the name.
         chatTemplate: '{%- if enable_thinking is defined and enable_thinking -%}',
+        canReason: true,
         raw: {},
       },
     });
@@ -3535,6 +3537,7 @@ function conversationSnapshot(
       canFork: chat.length > 0 && conversation?.status !== 'unavailable',
       canRepair: conversation?.status === 'unavailable',
       canAttachImages: null,
+      canReason: null,
     },
     errors:
       conversation?.status === 'unavailable'

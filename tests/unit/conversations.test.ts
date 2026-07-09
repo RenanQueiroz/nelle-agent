@@ -62,6 +62,7 @@ test('SQLite migration creates conversation tables and migration records', async
         [4, 'conversation_reasoning'],
         [5, 'conversation_keyset_index'],
         [6, 'drop_conversation_deleted_at'],
+        [7, 'model_cache_can_reason'],
       ],
     );
     assert.equal(table?.name, 'conversations');
@@ -169,7 +170,7 @@ test('SQLite migration backs up existing databases before repairing migration re
       .all() as Array<{version: number}>;
     assert.deepEqual(
       migrations.map(migration => migration.version),
-      [1, 2, 3, 4, 5, 6],
+      [1, 2, 3, 4, 5, 6, 7],
     );
   } finally {
     repaired.close();
@@ -192,7 +193,7 @@ test('SQLite migration backs up existing databases before repairing migration re
     // this test deleted, so it is missing while the others remain.
     assert.deepEqual(
       backupMigrations.map(migration => migration.version),
-      [1, 3, 4, 5, 6],
+      [1, 3, 4, 5, 6, 7],
     );
     assert.equal(contextColumn, true);
   } finally {
@@ -790,24 +791,30 @@ test('snapshot capabilities describe the conversation, not the runtime', async (
     assert.equal(cold?.capabilities.canSend, true);
     assert.equal(cold?.capabilities.canAbort, false);
     assert.equal(cold?.capabilities.canRepair, false);
+    // canReason mirrors canAttachImages: derived from the cached chat template.
+    assert.equal(cold?.capabilities.canReason, null);
 
     const cache = new ModelCacheRepository(database);
     cache.upsertModelProps(model.id, {
       modelId: model.id,
       modalities: {vision: true, audio: false, video: false},
       contextWindow: 32_768,
+      canReason: true,
       raw: {},
     });
     const warm = repository.getSnapshot(conversation.id, await store.getState());
     assert.equal(warm?.capabilities.canAttachImages, true);
+    assert.equal(warm?.capabilities.canReason, true);
 
     cache.upsertModelProps(model.id, {
       modelId: model.id,
       modalities: {vision: false, audio: false, video: false},
+      canReason: false,
       raw: {},
     });
     const textOnly = repository.getSnapshot(conversation.id, await store.getState());
     assert.equal(textOnly?.capabilities.canAttachImages, false);
+    assert.equal(textOnly?.capabilities.canReason, false);
 
     // A running conversation can be aborted but not sent to.
     repository.setConversationStatus(conversation.id, 'running');
@@ -2235,6 +2242,7 @@ test('the image vision check goes through the facade and fills the model cache',
           modelId,
           modalities: {vision: this.visionSupported, audio: false, video: false},
           contextWindow: 32_768,
+          canReason: null,
           raw: {},
         };
       },
@@ -2267,6 +2275,7 @@ test('the image vision check goes through the facade and fills the model cache',
         return {
           modelId,
           modalities: {vision: this.visionSupported, audio: false, video: false},
+          canReason: null,
           raw: {},
         };
       },

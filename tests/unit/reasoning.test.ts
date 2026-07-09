@@ -13,10 +13,8 @@ import {
   stripLeadingThinkingEndTag,
   UNLIMITED_REASONING_BUDGET,
 } from '../../packages/shared/src/reasoning.ts';
-import {
-  parseReasoningBudgets,
-  templateSupportsThinking,
-} from '../../apps/web/src/utils/reasoning.ts';
+import {templateSupportsThinking} from '../../packages/shared/src/reasoning.ts';
+import {parseReasoningBudgets} from '../../apps/web/src/utils/reasoning.ts';
 
 test('thinking support is read from the chat template, not the model name', () => {
   // Qwen3 and Gemma 4 both gate their thinking channel on this kwarg.

@@ -70,6 +70,8 @@ export type LlamaModelProps = {
   };
   contextWindow?: number;
   chatTemplate?: string;
+  /** Computed by the server from the chat template; `null` when unknown. */
+  canReason: boolean | null;
   defaultGenerationSettings?: unknown;
   raw: unknown;
 };
@@ -349,6 +351,8 @@ export type ConversationSnapshot = {
     canRepair: boolean;
     /** `null` when llama.cpp has never reported props for the model. */
     canAttachImages: boolean | null;
+    /** `null` when llama.cpp has never reported a chat template for the model. */
+    canReason: boolean | null;
   };
   errors: Array<{code: string; message: string; retryable?: boolean}>;
 };

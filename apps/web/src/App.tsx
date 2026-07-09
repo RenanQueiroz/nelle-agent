@@ -124,7 +124,7 @@ import {
   schedulePendingDelete,
 } from './utils/pendingDeletes';
 import {formatInteger, getContextOverflowMessage, positiveTokenCount} from './utils/context';
-import {parseReasoningBudgets, templateSupportsThinking} from './utils/reasoning';
+import {parseReasoningBudgets} from './utils/reasoning';
 import {rowsToParams} from './utils/params';
 
 const FAVORITE_MODEL_IDS_STORAGE_KEY = 'nelle.favoriteModelIds';
@@ -377,12 +377,11 @@ export function App() {
   const activeModelProps =
     activeModelId == null ? null : (modelPropsById[activeModelId]?.props ?? null);
   const activeModelSupportsVision = activeModelProps?.modalities.vision === true;
-  // `null` while llama.cpp has not reported a chat template for this model: it
-  // only answers `/props` once the model has been loaded at least once, and an
-  // unknown model must not be presented as one that cannot think.
-  const activeModelCanReason = activeModelProps
-    ? templateSupportsThinking(activeModelProps.chatTemplate)
-    : null;
+  // The server decides this from the chat template and caches it, so no client
+  // carries llama.cpp's thinking detector. `null` while llama.cpp has not
+  // reported a template -- it only answers `/props` for a model it has loaded --
+  // and an unknown model must not be presented as one that cannot think.
+  const activeModelCanReason = activeModelProps?.canReason ?? capabilities?.canReason ?? null;
   const favoriteModelIdSet = useMemo(() => new Set(favoriteModelIds), [favoriteModelIds]);
   const activeCommandRows = useMemo(
     () => commandRows.filter(row => row.conversationId === activeConversationId),

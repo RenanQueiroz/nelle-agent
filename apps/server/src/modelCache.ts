@@ -9,6 +9,8 @@ export type CachedModel = {
   status?: string;
   modalities?: LlamaModelProps['modalities'];
   contextWindow?: number;
+  /** `null` when llama.cpp has never reported a chat template for this model. */
+  canReason: boolean | null;
   updatedAt: string;
 };
 
@@ -20,6 +22,7 @@ type ModelCacheRow = {
   status: string | null;
   modalities_json: string | null;
   context_window: number | null;
+  can_reason: number | null;
   updated_at: string;
 };
 
@@ -77,17 +80,19 @@ export class ModelCacheRepository {
     this.database.connection
       .prepare(
         `INSERT INTO model_cache (
-           section_id, modalities_json, context_window, updated_at
-         ) VALUES (?, ?, ?, ?)
+           section_id, modalities_json, context_window, can_reason, updated_at
+         ) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(section_id) DO UPDATE SET
            modalities_json = excluded.modalities_json,
            context_window = excluded.context_window,
+           can_reason = excluded.can_reason,
            updated_at = excluded.updated_at`,
       )
       .run(
         sectionId,
         JSON.stringify(props.modalities),
         props.contextWindow ?? null,
+        props.canReason == null ? null : Number(props.canReason),
         new Date().toISOString(),
       );
   }
@@ -105,6 +110,11 @@ export class ModelCacheRepository {
    */
   getVisionSupport(sectionId: string): boolean | null {
     return this.getModel(sectionId)?.modalities?.vision ?? null;
+  }
+
+  /** `null` until llama.cpp has reported a chat template for the model. */
+  getReasoningSupport(sectionId: string): boolean | null {
+    return this.getModel(sectionId)?.canReason ?? null;
   }
 
   /** Drops rows for sections that no longer exist in `models.ini`. */
@@ -130,6 +140,7 @@ function mapRow(row: ModelCacheRow): CachedModel {
     status: row.status ?? undefined,
     modalities: parseModalities(row.modalities_json),
     contextWindow: row.context_window ?? undefined,
+    canReason: row.can_reason == null ? null : row.can_reason === 1,
     updatedAt: row.updated_at,
   };
 }

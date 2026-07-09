@@ -32,8 +32,12 @@ Project-specific guidance for AI coding agents.
   to `.pi/models.json` with `reasoning: true` and Pi's `qwen-chat-template`
   compatibility, which is Pi's name for "send
   `chat_template_kwargs.enable_thinking`". Whether a model can actually think is
-  a property of its chat template, not its name: gate UI on
-  `templateSupportsThinking(props.chatTemplate)`, never on a `qwen` substring.
+  a property of its chat template, not its name, and the server decides:
+  `LlamaCppManager.getModelProps()` runs shared
+  `templateSupportsThinking(chatTemplate)` and reports `canReason`, which is
+  cached in `model_cache.can_reason` and surfaced as
+  `snapshot.capabilities.canReason`. Clients read that answer; they never
+  re-derive it from the template, and never gate on a `qwen` substring.
 - Generated llama.cpp presets omit `n-gpu-layers` by default. Only write GPU
   offload flags when the user explicitly configures them.
 - Launch llama-server with configurable `modelsMax` and `sleepIdleSeconds`
@@ -187,10 +191,11 @@ Project-specific guidance for AI coding agents.
   the default needs no per-model branch: a non-thinking model behaves exactly as
   it did with `off`. Conversations created before migration 4 keep the `off` it
   gave them. Forks and clones inherit their source's level.
-- The composer's reasoning selector reads `canReason` as a tri-state.
-  llama.cpp answers `/props` only for a model it has loaded at least once, so
-  `null` means "not known yet" and must stay editable; only a template that
-  provably has no thinking mode (`false`) locks the control to `off`.
+- The composer's reasoning selector reads `canReason` as a tri-state, preferring
+  live props and falling back to `snapshot.capabilities.canReason`. llama.cpp
+  answers `/props` only for a model it has loaded at least once, so `null` means
+  "not known yet" and must stay editable; only a template that provably has no
+  thinking mode (`false`) locks the control to `off`.
 - Reasoning is per conversation (`conversations.reasoning_level`, one of `off`,
   `low`, `medium`, `high`, `max`) and drives Pi's thinking level:
   `createAgentSession({thinkingLevel})` at session creation and
