@@ -395,13 +395,13 @@ export class PiHarness {
       return {aborted: true};
     }
     this.conversations.setConversationStatus(conversationId, 'aborting');
-    await managed.session.abortRetry?.().catch(() => undefined);
+    await abortSessionRetry(managed.session);
     if (run.kind === 'compact') {
       managed.session.abortCompaction?.();
     } else {
       await managed.session.abort?.();
     }
-    await managed.session.abortRetry?.().catch(() => undefined);
+    await abortSessionRetry(managed.session);
     run.abortWarning = await this.verifyLlamaAbortIdle(run);
     return {
       aborted: true,
@@ -2334,6 +2334,22 @@ class SessionUnavailableError extends Error {
 }
 
 /** `tool_execution_start`, `_update` and `_end` are the only tool events Pi emits. */
+/**
+ * Cancels a pending Pi retry before aborting the run itself.
+ *
+ * Pi's in-process `AgentSession.abortRetry()` returns `void`; its RPC client
+ * returns a promise. `await` covers both shapes, where calling `.catch()` on the
+ * void one throws a TypeError and takes the whole abort down with it. A retry
+ * that cannot be cancelled must not stop the abort that follows.
+ */
+export async function abortSessionRetry(session: {abortRetry?: () => unknown}): Promise<void> {
+  try {
+    await session.abortRetry?.();
+  } catch {
+    // Best effort: the caller aborts the session next regardless.
+  }
+}
+
 export function isToolExecutionEvent(eventType: unknown): boolean {
   return typeof eventType === 'string' && eventType.startsWith('tool_execution_');
 }
