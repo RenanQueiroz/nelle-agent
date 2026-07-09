@@ -125,6 +125,8 @@ installed, which will matter when Electron packaging arrives.
 
 ## Phase 0: Fix What Is Already Wrong
 
+**Status: done.**
+
 Small, independent, and correct regardless of whether anything else here ships.
 
 1. **Attachment count.** Raise `chatRequestSchema`'s array cap to 20 to match the
@@ -254,6 +256,8 @@ entirely.
   a `pdf-*.js` chunk.
 
 ## Phase 2: The Snapshot Returns Messages, Not Entries
+
+**Status: done.**
 
 `messagesFromSnapshot` is a pure function of the snapshot. Move it to
 `packages/shared/src/messages.ts` and call it from

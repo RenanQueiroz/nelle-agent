@@ -219,6 +219,19 @@ Project-specific guidance for AI coding agents.
   is pinned through an inline style, and each section scrolls inside
   `LayoutContent`. Separate items inside a section with `Divider`, not `Card`;
   cards inside a modal section read as boxes within boxes.
+- Conversation snapshots carry `messages` as well as `entries`. `messages` is
+  what a client renders, built by `buildConversationMessages`
+  (`packages/shared/src/messages.ts`): it hides user turns a regenerate replayed,
+  drops contentless assistant entries that ran no tools and produced no
+  reasoning, groups regenerate variants by
+  `displayGroupId ?? regeneratesPiEntryId ?? id` and labels them `variant N/M`,
+  and joins attachments by `piEntryId`. `entries` stays for a future branch
+  explorer; nothing in a normal client should read it. The e2e mock builds its
+  `messages` with the same function so it cannot drift.
+- `packages/shared/src/attachments.ts` (the limits) must stay zod-free: the web
+  app imports it directly and the bundle carries no zod. `attachmentMetadata.ts`
+  exists so `conversations.ts` and `messages.ts` can both import the metadata
+  schema at runtime without becoming circular.
 - Keep `apps/web/src/App.tsx` focused on app orchestration. Put extracted UI
   surfaces under `apps/web/src/components/`, shared client state under
   `apps/web/src/stores/`, shared types in `apps/web/src/types.ts`, and shared

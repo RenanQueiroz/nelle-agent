@@ -4,6 +4,8 @@ import {fileURLToPath} from 'node:url';
 
 import {expect, test, type Page} from '@playwright/test';
 
+import {buildConversationMessages} from '../../packages/shared/src/messages.ts';
+
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
@@ -3466,6 +3468,24 @@ function conversationSnapshot(
       piEntryId: message.id,
     })),
   );
+  const entries = chat.map((message, index) => ({
+    conversationId: id,
+    piEntryId: message.id,
+    parentPiEntryId: index > 0 ? chat[index - 1]?.id : undefined,
+    entryType: 'message',
+    role: message.role,
+    textPreview: message.content,
+    createdAt: message.createdAt,
+    reasoning: message.reasoning,
+    performance: message.performance,
+    toolCalls: message.toolCalls,
+    modelId: message.modelId,
+    modelRuntimeId: message.modelRuntimeId,
+    modelAliasSnapshot: message.modelAliasSnapshot,
+    regeneratesPiEntryId: message.regeneratesPiEntryId,
+    displayGroupId: message.displayGroupId,
+  }));
+
   return {
     conversation: {
       id,
@@ -3477,23 +3497,13 @@ function conversationSnapshot(
       updatedAt: conversation?.updatedAt ?? '2026-07-07T12:00:00.000Z',
       reasoningLevel: conversation?.reasoningLevel ?? 'off',
     },
-    entries: chat.map((message, index) => ({
-      conversationId: id,
-      piEntryId: message.id,
-      parentPiEntryId: index > 0 ? chat[index - 1]?.id : undefined,
-      entryType: 'message',
-      role: message.role,
-      textPreview: message.content,
-      createdAt: message.createdAt,
-      reasoning: message.reasoning,
-      performance: message.performance,
-      toolCalls: message.toolCalls,
-      modelId: message.modelId,
-      modelRuntimeId: message.modelRuntimeId,
-      modelAliasSnapshot: message.modelAliasSnapshot,
-      regeneratesPiEntryId: message.regeneratesPiEntryId,
-      displayGroupId: message.displayGroupId,
-    })),
+    entries,
+    // Built with the same function the server uses, so the mock cannot drift
+    // from the projection rules the UI depends on.
+    messages: buildConversationMessages(
+      entries as Parameters<typeof buildConversationMessages>[0],
+      attachments as Parameters<typeof buildConversationMessages>[1],
+    ),
     activePathEntryIds: chat.map(message => message.id),
     attachments,
     context: context ?? contextFromChat(chat),

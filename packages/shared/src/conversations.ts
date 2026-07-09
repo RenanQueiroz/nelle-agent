@@ -1,6 +1,12 @@
 import {z} from 'zod';
 
-import {chatAttachmentKindSchema, nelleErrorSchema} from './contracts.ts';
+import {conversationMessageSchema} from './messages.ts';
+
+import {attachmentMetadataSchema} from './attachmentMetadata.ts';
+import {nelleErrorSchema} from './contracts.ts';
+
+export {attachmentMetadataSchema};
+export type {AttachmentMetadata} from './attachmentMetadata.ts';
 import {reasoningLevelSchema} from './reasoning.ts';
 
 export const conversationStatusSchema = z.enum([
@@ -43,23 +49,6 @@ export const conversationEntryProjectionSchema = z.object({
 });
 
 export type ConversationEntryProjection = z.infer<typeof conversationEntryProjectionSchema>;
-
-export const attachmentMetadataSchema = z.object({
-  id: z.string(),
-  conversationId: z.string(),
-  piEntryId: z.string().optional(),
-  uploadId: z.string().optional(),
-  kind: chatAttachmentKindSchema,
-  name: z.string(),
-  mimeType: z.string().optional(),
-  sizeBytes: z.number().int().nonnegative().optional(),
-  storagePath: z.string().optional(),
-  textPreview: z.string().optional(),
-  processing: z.unknown().optional(),
-  createdAt: z.string(),
-});
-
-export type AttachmentMetadata = z.infer<typeof attachmentMetadataSchema>;
 
 export const conversationContextUsageSchema = z.object({
   usedTokens: z.number().int().nonnegative().optional(),
@@ -105,6 +94,13 @@ export const conversationSnapshotSchema = z.object({
       .optional(),
   }),
   entries: z.array(conversationEntryProjectionSchema),
+  /**
+   * What a client renders. Derived from `entries` by `buildConversationMessages`,
+   * which hides replayed user turns, drops ghost assistant entries, and labels
+   * regenerate variants. `entries` stays for a future branch explorer; nothing in
+   * a normal client should read it.
+   */
+  messages: z.array(conversationMessageSchema),
   activePathEntryIds: z.array(z.string()),
   attachments: z.array(attachmentMetadataSchema),
   context: conversationContextUsageSchema,

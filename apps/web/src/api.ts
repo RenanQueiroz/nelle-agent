@@ -323,6 +323,8 @@ export type ConversationSnapshot = {
     reasoningLevel: ReasoningLevel;
   };
   entries: ConversationEntryProjection[];
+  /** Rendered by the client verbatim; the server applied the projection rules. */
+  messages: ChatMessage[];
   activePathEntryIds: string[];
   attachments: AttachmentMetadata[];
   context: ConversationContextUsage;

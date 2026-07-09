@@ -22,6 +22,7 @@ import {
   normalizeReasoningLevel,
 } from '../../../packages/shared/src/reasoning.ts';
 import type {AppDatabase} from './database';
+import {buildConversationMessages} from '../../../packages/shared/src/messages.ts';
 import {ModelCacheRepository} from './modelCache';
 import {sanitizeStoredPerformance} from './llamaThroughput';
 import type {AppState, ChatMessage, ConfiguredModel} from './types';
@@ -760,6 +761,9 @@ export class ConversationRepository {
         reasoningLevel: normalizeReasoningLevel(row.reasoning_level),
       },
       entries,
+      // The rules that turn entries into renderable messages are shared, so a
+      // second client renders exactly what the browser does.
+      messages: buildConversationMessages(entries, attachments),
       activePathEntryIds,
       attachments,
       context: buildContextUsage(
