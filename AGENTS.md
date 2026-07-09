@@ -75,7 +75,13 @@ Project-specific guidance for AI coding agents.
   metadata.
 - Projection sync may rebuild the active SQLite view from Pi's current branch,
   but must not rewrite the Pi session file or drop inactive branches from the
-  append-only JSONL history.
+  append-only JSONL history. A sync with no regenerate metadata -- a snapshot
+  refresh, a restart -- must still keep the variant rows the projection already
+  holds. `getBranch()` walks only the active path, so a metadata-less rebuild
+  rediscovers each group from the branch entries' own `regeneratesPiEntryId`.
+  Without that, the first snapshot read after a regenerate drops the older answer,
+  and the prompt vanishes with it: it is hidden as a replayed user turn, leaving
+  a bare reply on screen.
 - Conversation snapshot reads should refresh the active projection from the
   bound Pi session file when possible. After a server restart, stale
   `running`/`compacting`/`aborting` rows without an active in-memory run should

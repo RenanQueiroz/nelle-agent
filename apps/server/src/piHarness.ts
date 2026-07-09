@@ -1565,12 +1565,31 @@ export class PiHarness {
       }
     }
 
-    prependExistingVariantGroup(
-      entries,
-      existingEntries,
-      metadata.regeneratesPiEntryId,
-      metadata.displayGroupId,
-    );
+    if (metadata.regeneratesPiEntryId) {
+      prependExistingVariantGroup(
+        entries,
+        existingEntries,
+        metadata.regeneratesPiEntryId,
+        metadata.displayGroupId,
+      );
+    } else {
+      // A sync with no metadata -- a snapshot refresh, a restart -- rebuilds the
+      // projection from `getBranch()`, which only walks the active path. Without
+      // this, the very next snapshot read after a regenerate drops the older
+      // answer and its prompt: the prompt is hidden as a replayed user turn, and
+      // the transcript shows a bare reply. The branch entries carry the group ids
+      // back from the projection, so the groups can be rediscovered from them.
+      for (const entry of [...entries]) {
+        if (entry.role === 'assistant' && entry.regeneratesPiEntryId) {
+          prependExistingVariantGroup(
+            entries,
+            existingEntries,
+            entry.regeneratesPiEntryId,
+            entry.displayGroupId ?? undefined,
+          );
+        }
+      }
+    }
 
     this.conversations.replaceConversationProjection(conversationId, {
       piSessionPath: session.sessionFile,

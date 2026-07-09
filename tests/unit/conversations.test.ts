@@ -2442,6 +2442,132 @@ test('conversation snapshots keep variant rows separate from active path', async
   }
 });
 
+test('a snapshot refresh after a regenerate does not drop the older answer', async () => {
+  // The bug: `getConversationSnapshot` re-syncs with no metadata, rebuilding the
+  // projection from `getBranch()`, which only walks the active path. The older
+  // answer vanished, and with it the prompt -- hidden as a replayed user turn --
+  // leaving a bare reply on screen.
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Refresh after regenerate'});
+    repository.replaceConversationProjection(conversation.id, {
+      activeLeafPiEntryId: 'assistant-2',
+      lastSyncedPiEntryId: 'assistant-2',
+      entries: [
+        {
+          piEntryId: 'user-1',
+          parentPiEntryId: null,
+          entryType: 'message',
+          role: 'user',
+          text: 'Original prompt',
+          createdAt: '2026-07-08T12:00:00.000Z',
+        },
+        {
+          piEntryId: 'assistant-1',
+          parentPiEntryId: 'user-1',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'First answer',
+          createdAt: '2026-07-08T12:00:01.000Z',
+          displayGroupId: 'assistant-1',
+        },
+        {
+          piEntryId: 'user-2',
+          parentPiEntryId: null,
+          entryType: 'message',
+          role: 'user',
+          text: 'Original prompt',
+          createdAt: '2026-07-08T12:00:02.000Z',
+        },
+        {
+          piEntryId: 'assistant-2',
+          parentPiEntryId: 'user-2',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'Regenerated answer',
+          createdAt: '2026-07-08T12:00:03.000Z',
+          regeneratesPiEntryId: 'assistant-1',
+          displayGroupId: 'assistant-1',
+        },
+      ],
+    });
+
+    const activeModel: ConfiguredModel = {
+      id: 'repo/model:UD-Q4_K_M',
+      name: 'Model Q4',
+      presetName: 'repo/model:UD-Q4_K_M',
+      source: 'huggingface',
+      params: {contextSize: 8192},
+      createdAt: '2026-07-08T12:00:00.000Z',
+    };
+    // Pi's active branch after a regenerate holds only the replayed turn.
+    const session = {
+      sessionFile: 'pi-session.json',
+      sessionId: 'pi-session-1',
+      sessionManager: {
+        getLeafId: () => 'assistant-2',
+        getBranch: () => [
+          {
+            id: 'user-2',
+            parentId: null,
+            type: 'message',
+            timestamp: '2026-07-08T12:00:02.000Z',
+            message: {role: 'user', content: 'Original prompt'},
+          },
+          {
+            id: 'assistant-2',
+            parentId: 'user-2',
+            type: 'message',
+            timestamp: '2026-07-08T12:00:03.000Z',
+            message: {role: 'assistant', content: 'Regenerated answer'},
+          },
+        ],
+      },
+    };
+
+    const harness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+    ) as unknown as {
+      syncPiConversation: (
+        conversationId: string,
+        session: unknown,
+        activeModel: ConfiguredModel,
+        assistantMessage: undefined,
+        status: string,
+      ) => unknown;
+    };
+
+    // Exactly the call `getConversationSnapshot` makes: no metadata at all.
+    harness.syncPiConversation(conversation.id, session, activeModel, undefined, 'ready');
+
+    const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+    assert.deepEqual(
+      snapshot?.entries.map(entry => entry.piEntryId),
+      ['user-1', 'assistant-1', 'user-2', 'assistant-2'],
+      'the inactive branch survives a metadata-less rebuild',
+    );
+
+    // And the rendered transcript keeps the prompt and labels both answers.
+    assert.deepEqual(
+      snapshot?.messages.map(message => [message.role, message.content, message.variantLabel]),
+      [
+        ['user', 'Original prompt', undefined],
+        ['assistant', 'First answer', 'variant 1/2'],
+        ['assistant', 'Regenerated answer', 'variant 2/2'],
+      ],
+    );
+  } finally {
+    database.close();
+  }
+});
+
 test('Pi sync preserves existing answer variants when regenerating again', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
