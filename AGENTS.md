@@ -371,9 +371,14 @@ Project-specific guidance for AI coding agents.
   inside the row's own `<button>`, so a nested menu button would break semantics
   and select the chat on every menu click. Keep the menu mounted (fade it with
   opacity) so keyboard users and e2e tests can reach it.
-- The composer slash-command allowlist currently exposes only `/compact`.
-  Unsupported slash commands must be blocked client-side with composer status
-  guidance and must not be sent to Pi as prompts.
+- The slash-command allowlist lives in `packages/shared/src/commands.ts` and is
+  served by `GET /api/commands`; it currently exposes only `/compact`. The chat
+  route's `assertSupportedSlashCommand` and the composer render the same refusal
+  through `unsupportedSlashCommandMessage`, so allowlisting a command needs no
+  client release. The client prefers the fetched registry and falls back to the
+  bundled one only until that request resolves. Unsupported slash commands must
+  be blocked client-side with composer status guidance and must not be sent to Pi
+  as prompts.
 - Assistant performance metadata should render as a toggleable Reading
   (prompt processing) / Generation (token output) stats widget with icon
   controls and Astryx tooltips, not as a plain text throughput string.
