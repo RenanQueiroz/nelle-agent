@@ -814,7 +814,12 @@ export class PiHarness {
         return;
       }
       assistantMessage.content += text;
-      queue.push({type: 'message.assistant.delta', id: assistantMessage.id, delta: text});
+      queue.push({
+        type: 'message.assistant.delta',
+        id: assistantMessage.id,
+        delta: text,
+        isReasoning: false,
+      });
     };
     const unsubscribe = session.subscribe((event: any) => {
       // `tools: []` at session construction is a build-time gate, not a runtime
@@ -838,7 +843,12 @@ export class PiHarness {
           const delta = String(assistantEvent.delta ?? '');
           thinkingText += delta;
           assistantMessage.reasoning = thinkingText;
-          queue.push({type: 'message.assistant.reasoning_delta', id: assistantMessage.id, delta});
+          queue.push({
+            type: 'message.assistant.reasoning_delta',
+            id: assistantMessage.id,
+            delta,
+            isReasoning: true,
+          });
         }
         if (assistantEvent?.type === 'error') {
           providerError =
@@ -958,7 +968,12 @@ export class PiHarness {
               'The model returned reasoning content without final text; showing the reasoning output.',
           });
           assistantMessage.content = fallback;
-          queue.push({type: 'message.assistant.delta', id: assistantMessage.id, delta: fallback});
+          queue.push({
+            type: 'message.assistant.delta',
+            id: assistantMessage.id,
+            delta: fallback,
+            isReasoning: false,
+          });
         }
       }
       const syncedEntries = this.syncPiConversation(

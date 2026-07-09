@@ -159,7 +159,12 @@ export async function streamDirectLlama(
             const delta = parsed.choices?.[0]?.delta?.content ?? '';
             if (delta) {
               assistantMessage.content += delta;
-              queue.push({type: 'message.assistant.delta', id: assistantMessage.id, delta});
+              queue.push({
+                type: 'message.assistant.delta',
+                id: assistantMessage.id,
+                delta,
+                isReasoning: false,
+              });
             }
             const performance = performanceFromLlamaTimings(parsed.timings);
             if (performance) {

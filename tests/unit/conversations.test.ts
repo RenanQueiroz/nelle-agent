@@ -3113,6 +3113,14 @@ test('chat stream emits SSE envelopes with run lifecycle events', async () => {
     assert.equal(runStarted?.runId, runCompleted?.runId);
     assert.equal(runCompleted?.data?.status, 'completed');
 
+    // The server says which phase each delta belongs to, so a client never has
+    // to infer it from the order the events arrived in.
+    const deltas = envelopes.filter(envelope => envelope.data?.type === 'message.assistant.delta');
+    assert.ok(deltas.length > 0);
+    assert.ok(
+      deltas.every(envelope => (envelope.data as {isReasoning?: unknown}).isReasoning === false),
+    );
+
     // The context bar follows the run: the server reads llama.cpp's timings and
     // emits the usage itself, rather than shipping the arithmetic to a client.
     const contextUpdated = envelopes.filter(envelope => envelope.data?.type === 'context.updated');

@@ -250,8 +250,11 @@ export type ChatStreamEvent =
     }
   | {type: 'message.user.created'; message: ChatMessage}
   | {type: 'message.assistant.started'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
-  | {type: 'message.assistant.delta'; id: string; delta: string}
-  | {type: 'message.assistant.reasoning_delta'; id: string; delta: string}
+  // `isReasoning` says which phase the turn is in. llama.cpp is the one that
+  // separates thinking from the answer, so the server states it rather than
+  // letting each client infer it from the order events happen to arrive in.
+  | {type: 'message.assistant.delta'; id: string; delta: string; isReasoning: false}
+  | {type: 'message.assistant.reasoning_delta'; id: string; delta: string; isReasoning: true}
   | {type: 'message.assistant.completed'; message: ChatMessage}
   | {type: 'performance.updated'; id: string; performance: ChatPerformance}
   | {type: 'tool_call.updated'; call: ToolCallEvent}

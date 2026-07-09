@@ -231,8 +231,8 @@ export type ChatStreamEvent =
     }
   | {type: 'message.user.created'; message: ChatMessage}
   | {type: 'message.assistant.started'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
-  | {type: 'message.assistant.delta'; id: string; delta: string}
-  | {type: 'message.assistant.reasoning_delta'; id: string; delta: string}
+  | {type: 'message.assistant.delta'; id: string; delta: string; isReasoning: false}
+  | {type: 'message.assistant.reasoning_delta'; id: string; delta: string; isReasoning: true}
   | {type: 'message.assistant.completed'; message: ChatMessage}
   | {type: 'performance.updated'; id: string; performance: ChatPerformance}
   | {type: 'tool_call.updated'; call: NonNullable<ChatMessage['toolCalls']>[number]}

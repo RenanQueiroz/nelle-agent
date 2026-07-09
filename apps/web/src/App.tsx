@@ -1721,7 +1721,11 @@ export function App() {
       setMessages(prev =>
         prev.map(message =>
           message.id === event.id
-            ? {...message, reasoning: (message.reasoning ?? '') + event.delta, isReasoning: true}
+            ? {
+                ...message,
+                reasoning: (message.reasoning ?? '') + event.delta,
+                isReasoning: event.isReasoning,
+              }
             : message,
         ),
       );
@@ -1733,7 +1737,7 @@ export function App() {
       setMessages(prev =>
         prev.map(message =>
           message.id === event.id
-            ? {...message, content: message.content + event.delta, isReasoning: false}
+            ? {...message, content: message.content + event.delta, isReasoning: event.isReasoning}
             : message,
         ),
       );
@@ -1742,14 +1746,12 @@ export function App() {
       if (!isVisibleConversation) {
         return;
       }
+      // `performance.updated` already carries the merged reading: both harnesses
+      // merge into the assistant message before emitting. Merging again here
+      // used a second, subtly different rule.
       setMessages(prev =>
         prev.map(message =>
-          message.id === event.id
-            ? {
-                ...message,
-                performance: mergeChatPerformance(message.performance, event.performance),
-              }
-            : message,
+          message.id === event.id ? {...message, performance: event.performance} : message,
         ),
       );
     }
@@ -2561,44 +2563,6 @@ function formatTokensPerSecond(value: number | undefined): string {
     return '--';
   }
   return `${value.toFixed(2)} t/s`;
-}
-
-function mergeChatPerformance(
-  current: ChatPerformance | undefined,
-  next: ChatPerformance,
-): ChatPerformance {
-  if (!current) {
-    return next;
-  }
-  const source =
-    current.source === 'llamacpp-timings' || next.source === 'llamacpp-timings'
-      ? 'llamacpp-timings'
-      : 'llamacpp-slots';
-  const generation = mergeMetric(current.generation, next.generation, next.source);
-  return {
-    source,
-    prompt: mergeMetric(current.prompt, next.prompt, next.source),
-    generation,
-    tokensPerSecond: generation?.tokensPerSecond ?? next.tokensPerSecond ?? current.tokensPerSecond,
-    generatedTokens: generation?.tokens ?? next.generatedTokens ?? current.generatedTokens,
-  };
-}
-
-function mergeMetric(
-  current: ChatPerformanceMetric | undefined,
-  next: ChatPerformanceMetric | undefined,
-  nextSource: ChatPerformance['source'],
-): ChatPerformanceMetric | undefined {
-  if (!current) {
-    return next;
-  }
-  if (!next) {
-    return current;
-  }
-  if (nextSource === 'llamacpp-slots') {
-    return current;
-  }
-  return next;
 }
 
 function looksLikeJson(value: string): boolean {
