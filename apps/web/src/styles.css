@@ -150,6 +150,19 @@ body {
   background-color: var(--color-background-surface);
 }
 
+/*
+ * That opaque backdrop sits between the transcript and ChatLayout's frosted
+ * layer, so the frost now blurs a solid color: it changes no pixels and only
+ * costs a compositor pass. Turn it off. `!important` for the same StyleX
+ * specificity reason as the dialog backdrop below.
+ *
+ * Declare only the unprefixed property: the CSS minifier emits both aliases for
+ * it, but drops the unprefixed one if `-webkit-backdrop-filter` is written out.
+ */
+.nelle-chat-layout > *:has(.nelle-chat-composer) > * {
+  backdrop-filter: none !important;
+}
+
 .nelle-chat-layout > *:has(.nelle-chat-composer)::before {
   content: '';
   position: absolute;
@@ -204,6 +217,29 @@ body {
 .nelle-model-result {
   border-block-start: 1px solid var(--color-border-subtle);
   padding-block-start: var(--spacing-3);
+}
+
+/*
+ * Astryx's Dialog frosts the whole viewport behind the modal with
+ * `::backdrop { backdrop-filter: blur(2px) }`. Its cost scales with pixel count
+ * and every repaint inside the dialog -- a row hover, a caret blink -- forces
+ * the compositor to re-blur the entire screen. Sweeping the settings section
+ * list measured, with blur versus without:
+ *
+ *   1280x800    30 fps  ->  63 fps
+ *   1920x1080   21 fps  ->  63 fps
+ *   2560x1440   17 fps  ->  63 fps
+ *   3840x2160   13 fps  ->  63 fps   (100ms per frame; a 240Hz display wants 4ms)
+ *
+ * `--color-overlay` is already 80% opaque, so the blur is close to invisible.
+ * Not worth a frame budget.
+ *
+ * StyleX inflates its own specificity with a `:not(#\#)` chain that no ordinary
+ * selector can outrank, so overriding it takes `!important`. Declare only the
+ * unprefixed property; see the note on the dock rule above.
+ */
+dialog.astryx-dialog::backdrop {
+  backdrop-filter: none !important;
 }
 
 .nelle-settings-dialog {

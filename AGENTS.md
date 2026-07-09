@@ -220,6 +220,13 @@ Project-specific guidance for AI coding agents.
 - Keep the workbench viewport-bounded. Do not reintroduce document-level
   scrolling; side panels and the chat history should scroll internally while
   the composer stays docked.
+- Never leave a `backdrop-filter` covering the viewport. Astryx's `Dialog`
+  frosts its `::backdrop`, and every repaint inside the dialog re-blurs the
+  whole screen: measured 13fps at 3840x2160 versus 63fps without it. The
+  overlay colour alone reads as a modal. Overriding StyleX needs `!important`
+  (it inflates specificity with a `:not(#\#)` chain), and only the unprefixed
+  `backdrop-filter` should be declared, because the CSS minifier drops it when
+  `-webkit-backdrop-filter` is also written out.
 - Sidebar conversation history virtualization uses `@tanstack/react-virtual`
   with an Astryx-styled `SideNav`/`List` row surface. Keep row keys stable and
   model pinned/search/group headers as one flattened virtual list.

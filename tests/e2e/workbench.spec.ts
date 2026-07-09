@@ -2296,6 +2296,36 @@ test('a deleted conversation is not recreated by the server', async ({page}) => 
   await expect(rows).toHaveCount(0);
 });
 
+test('no full-viewport backdrop blur repaints behind the settings dialog', async ({page}) => {
+  await mockConversationRoutes(page, {chat: []});
+  await page.goto('/');
+  await page.getByRole('button', {name: 'Settings'}).click();
+  await expect(page.getByRole('heading', {name: 'llama.cpp'})).toBeVisible();
+
+  // Astryx's Dialog frosts the whole viewport behind the modal. Every repaint
+  // inside the dialog then re-blurs the screen, which collapsed a 4K display to
+  // 13fps while hovering the section list. The overlay alone is enough.
+  const backdrop = await page.evaluate(() => {
+    const dialog = document.querySelector('dialog');
+    const style = getComputedStyle(dialog!, '::backdrop');
+    return {filter: style.backdropFilter, background: style.backgroundColor};
+  });
+  expect(backdrop.filter).toBe('none');
+  expect(backdrop.background).not.toBe('rgba(0, 0, 0, 0)');
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', {name: 'llama.cpp'})).toHaveCount(0);
+
+  // The docked composer paints an opaque backdrop, so ChatLayout's frosted layer
+  // would blur a solid colour: pure compositor cost for no visible change.
+  const dockFilters = await page.evaluate(() => {
+    const dock = document.querySelector('.nelle-chat-layout > *:has(.nelle-chat-composer)');
+    return [...(dock?.children ?? [])].map(child => getComputedStyle(child).backdropFilter);
+  });
+  expect(dockFilters.length).toBeGreaterThan(0);
+  expect(dockFilters.every(filter => filter === 'none')).toBe(true);
+});
+
 test('stops re-requesting model props after llama.cpp rejects the call', async ({page}) => {
   const model = {
     id: 'model-a',
