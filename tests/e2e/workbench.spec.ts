@@ -99,10 +99,8 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
   await expect
     .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
     .toContain('c = 12288');
-  // The save refreshes app state, which re-seeds the settings drafts. Editing
-  // before that lands would have the refresh overwrite what was just typed.
-  await expect(page.getByText('Global params saved')).toBeVisible();
 
+  // Editing straight after a save must survive the refresh that save triggers.
   await page.getByRole('button', {name: 'Models'}).click();
   await page.getByLabel('Alias').fill('Qwen alias');
   await page.getByLabel('Key').fill('ctx-size');
@@ -2349,6 +2347,68 @@ test('the settings dialog keeps one size across sections and scrolls its content
   expect(small.width).toBeLessThanOrEqual(700);
   expect(small.height).toBeLessThanOrEqual(560);
   expect(small.width).toBeLessThan(runtime.width);
+});
+
+test('a settings refresh in flight does not overwrite what the user is typing', async ({page}) => {
+  const model = {
+    id: 'model-a',
+    name: 'Model A',
+    presetName: 'model-a',
+    source: 'huggingface',
+    repoId: 'repo/model-a',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model-a:UD-Q4_K_M',
+    params: {contextSize: 8192, extra: {}},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  let stateCalls = 0;
+  let savedModel: {name?: string} | null = null;
+
+  await page.route('**/api/state', async route => {
+    stateCalls += 1;
+    // The refresh a save triggers lands well after the user starts typing.
+    if (stateCalls > 1) {
+      await new Promise(resolve => setTimeout(resolve, 700));
+    }
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+          globalModelParams: {c: '8192'},
+        },
+        runtime: {...RUNNING_RUNTIME, activeModelId: model.id},
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: {...RUNNING_RUNTIME, activeModelId: model.id}});
+  });
+  await page.route('**/api/models/global-params', async route => {
+    await route.fulfill({json: {globalModelParams: {c: '12288'}}});
+  });
+  await page.route('**/api/models/model-a', async route => {
+    savedModel = route.request().postDataJSON() as {name?: string};
+    await route.fulfill({json: {model: {...model, name: savedModel.name ?? model.name}}});
+  });
+  await mockConversationRoutes(page, {chat: []});
+
+  await page.goto('/');
+  await page.getByRole('button', {name: 'Settings'}).click();
+
+  // Kick off a save, then type into another section while its refresh is still
+  // in flight. The refresh used to re-seed every draft and discard this edit.
+  await page.getByRole('button', {name: 'Global Params'}).click();
+  await page.getByRole('button', {name: 'Save global params'}).click();
+  await page.getByRole('button', {name: 'Models'}).click();
+  await page.getByLabel('Alias').fill('Edited while refreshing');
+
+  await expect(page.getByText('Global params saved')).toBeVisible();
+  await expect(page.getByLabel('Alias')).toHaveValue('Edited while refreshing');
+
+  await page.getByRole('button', {name: 'Save'}).click();
+  await expect.poll(() => savedModel?.name).toBe('Edited while refreshing');
 });
 
 test('edits reasoning budgets in settings and rejects invalid token counts', async ({page}) => {

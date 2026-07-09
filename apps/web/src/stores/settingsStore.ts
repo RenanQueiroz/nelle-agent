@@ -5,6 +5,12 @@ import {DEFAULT_REASONING_BUDGETS} from '../api';
 import type {ParamRow} from '../types';
 import {paramsToRows} from '../utils/params';
 
+/**
+ * Settings drafts are what the user is currently typing, so nothing may
+ * overwrite them except the save that made them stale. `seed*` runs once on
+ * load; `reset*` runs after the matching save, from the values the server
+ * returned; `reconcileModelDrafts` only adds and removes whole models.
+ */
 type SettingsStore = {
   globalParamRows: ParamRow[];
   isLogVisible: boolean;
@@ -28,12 +34,16 @@ type SettingsStore = {
   setSearchQuery: (query: string) => void;
   setSearchResults: (results: HuggingFaceModelResult[]) => void;
   setSleepIdleInput: (value: string) => void;
-  syncModelDrafts: (
+  seedModelDrafts: (
     globalParams: Record<string, string> | undefined,
     models: ConfiguredModel[],
   ) => void;
-  syncReasoningDrafts: (budgets: ReasoningBudgets | undefined) => void;
-  syncRuntimeDrafts: (modelsMax: number | undefined, sleepIdleSeconds: number | undefined) => void;
+  /** Adds drafts for new models and drops them for removed ones. */
+  reconcileModelDrafts: (models: ConfiguredModel[]) => void;
+  resetGlobalParamRows: (globalParams: Record<string, string> | undefined) => void;
+  resetModelDraft: (model: ConfiguredModel) => void;
+  resetReasoningDrafts: (budgets: ReasoningBudgets | undefined) => void;
+  resetRuntimeDrafts: (modelsMax: number | undefined, sleepIdleSeconds: number | undefined) => void;
 };
 
 function budgetInputs(budgets: ReasoningBudgets): Record<keyof ReasoningBudgets, string> {
@@ -44,8 +54,10 @@ function budgetInputs(budgets: ReasoningBudgets): Record<keyof ReasoningBudgets,
   };
 }
 
+const DEFAULT_GLOBAL_PARAMS = {c: '8192'};
+
 export const useSettingsStore = create<SettingsStore>(set => ({
-  globalParamRows: paramsToRows({c: '8192'}),
+  globalParamRows: paramsToRows(DEFAULT_GLOBAL_PARAMS),
   isLogVisible: false,
   isSearching: false,
   modelAliasDrafts: {},
@@ -76,17 +88,38 @@ export const useSettingsStore = create<SettingsStore>(set => ({
   setSearchQuery: query => set({searchQuery: query}),
   setSearchResults: results => set({searchResults: results}),
   setSleepIdleInput: value => set({sleepIdleInput: value}),
-  syncModelDrafts: (globalParams, models) =>
+  seedModelDrafts: (globalParams, models) =>
     set({
-      globalParamRows: paramsToRows(globalParams ?? {c: '8192'}),
+      globalParamRows: paramsToRows(globalParams ?? DEFAULT_GLOBAL_PARAMS),
       modelAliasDrafts: Object.fromEntries(models.map(model => [model.id, model.name])),
       modelParamRows: Object.fromEntries(
         models.map(model => [model.id, paramsToRows(model.params.extra ?? {})]),
       ),
     }),
-  syncReasoningDrafts: budgets =>
+  reconcileModelDrafts: models =>
+    set(state => {
+      const modelAliasDrafts: Record<string, string> = {};
+      const modelParamRows: Record<string, ParamRow[]> = {};
+      for (const model of models) {
+        modelAliasDrafts[model.id] = state.modelAliasDrafts[model.id] ?? model.name;
+        modelParamRows[model.id] =
+          state.modelParamRows[model.id] ?? paramsToRows(model.params.extra ?? {});
+      }
+      return {modelAliasDrafts, modelParamRows};
+    }),
+  resetGlobalParamRows: globalParams =>
+    set({globalParamRows: paramsToRows(globalParams ?? DEFAULT_GLOBAL_PARAMS)}),
+  resetModelDraft: model =>
+    set(state => ({
+      modelAliasDrafts: {...state.modelAliasDrafts, [model.id]: model.name},
+      modelParamRows: {
+        ...state.modelParamRows,
+        [model.id]: paramsToRows(model.params.extra ?? {}),
+      },
+    })),
+  resetReasoningDrafts: budgets =>
     set({reasoningBudgetInputs: budgetInputs(budgets ?? DEFAULT_REASONING_BUDGETS)}),
-  syncRuntimeDrafts: (modelsMax, sleepIdleSeconds) =>
+  resetRuntimeDrafts: (modelsMax, sleepIdleSeconds) =>
     set({
       modelsMaxInput: String(modelsMax ?? 1),
       sleepIdleInput: String(sleepIdleSeconds ?? 90),

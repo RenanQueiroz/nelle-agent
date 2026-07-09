@@ -445,17 +445,16 @@ export function App() {
       }
       setRuntime(response.runtime);
       setReasoningBudgets(response.state.reasoning?.budgets ?? DEFAULT_REASONING_BUDGETS);
-      useSettingsStore.getState().syncReasoningDrafts(response.state.reasoning?.budgets);
-      useSettingsStore
-        .getState()
-        .syncRuntimeDrafts(
-          response.runtime.modelsMax ?? response.state.runtime?.modelsMax,
-          response.runtime.sleepIdleSeconds ?? response.state.runtime?.sleepIdleSeconds,
-        );
+      const settings = useSettingsStore.getState();
+      settings.resetReasoningDrafts(response.state.reasoning?.budgets);
+      settings.resetRuntimeDrafts(
+        response.runtime.modelsMax ?? response.state.runtime?.modelsMax,
+        response.runtime.sleepIdleSeconds ?? response.state.runtime?.sleepIdleSeconds,
+      );
+      settings.seedModelDrafts(response.state.globalModelParams, response.state.models);
       setModels(response.state.models);
       setActiveModelId(response.state.activeModelId);
       setHostTools(response.hostTools ?? (await getHostToolSettings()));
-      syncSettingsDrafts(response.state.globalModelParams, response.state.models);
       try {
         const list = await getConversations();
         if (isCancelled) {
@@ -593,28 +592,20 @@ export function App() {
     });
   }, [models]);
 
-  function syncSettingsDrafts(
-    globalParams: Record<string, string> | undefined,
-    nextModels: ConfiguredModel[],
-  ) {
-    useSettingsStore.getState().syncModelDrafts(globalParams, nextModels);
-  }
-
+  /**
+   * Refreshing must never overwrite a settings draft: a save triggers a refresh,
+   * and the user may already be typing in another section by the time it lands.
+   * Only whole models appearing or disappearing changes the draft set; each save
+   * re-seeds its own fields from the values the server returned.
+   */
   async function refreshState() {
     const response = await getState();
     setRuntime(response.runtime);
     setReasoningBudgets(response.state.reasoning?.budgets ?? DEFAULT_REASONING_BUDGETS);
-    useSettingsStore.getState().syncReasoningDrafts(response.state.reasoning?.budgets);
-    useSettingsStore
-      .getState()
-      .syncRuntimeDrafts(
-        response.runtime.modelsMax ?? response.state.runtime?.modelsMax,
-        response.runtime.sleepIdleSeconds ?? response.state.runtime?.sleepIdleSeconds,
-      );
+    useSettingsStore.getState().reconcileModelDrafts(response.state.models);
     setModels(response.state.models);
     setActiveModelId(response.state.activeModelId);
     setHostTools(response.hostTools ?? (await getHostToolSettings()));
-    syncSettingsDrafts(response.state.globalModelParams, response.state.models);
     // Model params may have changed on disk, so cached llama.cpp props are stale.
     setModelPropsById(previous => (Object.keys(previous).length === 0 ? previous : {}));
     await refreshConversations(activeConversationId, response.state.chat);
@@ -719,8 +710,14 @@ export function App() {
     }
 
     await runAction('runtime-settings', async () => {
-      await updateRuntimeSettings({modelsMax, sleepIdleSeconds});
+      const saved = await updateRuntimeSettings({modelsMax, sleepIdleSeconds});
       await refreshState();
+      useSettingsStore
+        .getState()
+        .resetRuntimeDrafts(
+          saved?.modelsMax ?? modelsMax,
+          saved?.sleepIdleSeconds ?? sleepIdleSeconds,
+        );
       setNotice({
         type: 'success',
         text: runtime?.running
@@ -732,8 +729,11 @@ export function App() {
 
   async function handleSaveGlobalParams() {
     await runAction('global-params', async () => {
-      await updateGlobalModelParams(rowsToParams(useSettingsStore.getState().globalParamRows));
+      const saved = await updateGlobalModelParams(
+        rowsToParams(useSettingsStore.getState().globalParamRows),
+      );
       await refreshState();
+      useSettingsStore.getState().resetGlobalParamRows(saved);
       setNotice({
         type: 'success',
         text: runtime?.running
@@ -756,7 +756,7 @@ export function App() {
       }
       const saved = await updateReasoningBudgets(budgets);
       setReasoningBudgets(saved);
-      useSettingsStore.getState().syncReasoningDrafts(saved);
+      useSettingsStore.getState().resetReasoningDrafts(saved);
       setNotice({type: 'success', text: 'Reasoning budgets saved.'});
     });
   }
@@ -764,11 +764,12 @@ export function App() {
   async function handleSaveModelSettings(model: ConfiguredModel) {
     await runAction(`model-save:${model.id}`, async () => {
       const {modelAliasDrafts, modelParamRows} = useSettingsStore.getState();
-      await updateConfiguredModel(model.id, {
+      const saved = await updateConfiguredModel(model.id, {
         name: modelAliasDrafts[model.id] ?? model.name,
         params: rowsToParams(modelParamRows[model.id] ?? []),
       });
       await refreshState();
+      useSettingsStore.getState().resetModelDraft(saved);
       setNotice({
         type: 'success',
         text: runtime?.running

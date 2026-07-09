@@ -621,8 +621,8 @@ Initial implementation:
   `compat.thinkingFormat = "qwen-chat-template"` and `reasoning = true`. That
   compat name is Pi's label for "send `chat_template_kwargs.enable_thinking`",
   which Qwen3 and Gemma 4 both read and other templates ignore. Nelle drives the
-  switch from a per-conversation reasoning level: `createAgentSession({
-  thinkingLevel })` when the session opens, and `session.setThinkingLevel()`
+  switch from a per-conversation reasoning level: the `thinkingLevel` option to
+  `createAgentSession()` when the session opens, and `session.setThinkingLevel()`
   before each prompt so a cached session honours an on-the-fly change. Nelle's
   `max` level maps onto Pi's `xhigh`, which needs a `thinkingLevelMap` entry to
   be offered at all.

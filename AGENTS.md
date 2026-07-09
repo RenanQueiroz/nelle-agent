@@ -169,6 +169,12 @@ Project-specific guidance for AI coding agents.
 - Settings dialog draft state, search results, runtime input fields, and log
   visibility/output live in `apps/web/src/stores/settingsStore.ts`. Do not move
   modal draft fields back into `App.tsx`.
+- A settings draft is what the user is typing, so only the save that made it
+  stale may overwrite it. `refreshState()` runs after every save and after model
+  activation, so it must not re-seed drafts: it only calls
+  `reconcileModelDrafts`, which adds and drops whole models. Seeding happens once
+  on load; each save calls the matching `reset*` with the values the server
+  returned.
 - Composer draft text, attachments, PDF-as-image mode, and composer
   error/warning/slash status live in `apps/web/src/stores/composerStore.ts`, and
   the composer surface is `apps/web/src/components/chat/ChatComposerPanel.tsx`.
