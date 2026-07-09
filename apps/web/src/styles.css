@@ -209,6 +209,20 @@ body {
   width: 100%;
 }
 
+/* The thinking block is supporting material, so it reads quieter than the
+   answer bubble it sits above. */
+.nelle-thinking-block {
+  width: 100%;
+  border-left: 2px solid var(--color-border);
+  padding-left: var(--spacing-3);
+  color: var(--color-text-secondary);
+}
+
+.nelle-thinking-block .astryx-markdown {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
 /*
  * Astryx's Dialog frosts the whole viewport behind the modal with
  * `::backdrop { backdrop-filter: blur(2px) }`. Its cost scales with pixel count

@@ -23,7 +23,14 @@ import {Tooltip} from '@astryxdesign/core/Tooltip';
 import {createStaticSource, TypeaheadItem, type SearchableItem} from '@astryxdesign/core/Typeahead';
 import {DocumentTextIcon, PaperClipIcon, PhotoIcon, StarIcon} from '@heroicons/react/24/outline';
 
-import type {ConfiguredModel, ConversationContextUsage, LlamaModelProps} from '../../api';
+import type {
+  ConfiguredModel,
+  ConversationContextUsage,
+  LlamaModelProps,
+  ReasoningBudgets,
+  ReasoningLevel,
+} from '../../api';
+import {UNLIMITED_REASONING_BUDGET} from '../../api';
 import {useComposerStore} from '../../stores/composerStore';
 import type {ComposerModelOptionDetail, DraftAttachment} from '../../types';
 import {
@@ -57,6 +64,18 @@ const SUPPORTED_SLASH_COMMANDS: SearchableItem<SlashCommandData>[] = [
 
 const slashCommandSource = createStaticSource(SUPPORTED_SLASH_COMMANDS);
 
+function reasoningOptions(budgets: ReasoningBudgets): SelectorOptionType[] {
+  const budgetLabel = (tokens: number) =>
+    tokens === UNLIMITED_REASONING_BUDGET ? 'unlimited' : `${formatInteger(tokens)} tokens`;
+  return [
+    {value: 'off', label: 'No reasoning'},
+    {value: 'low', label: `Reasoning: low (${budgetLabel(budgets.low)})`},
+    {value: 'medium', label: `Reasoning: medium (${budgetLabel(budgets.medium)})`},
+    {value: 'high', label: `Reasoning: high (${budgetLabel(budgets.high)})`},
+    {value: 'max', label: 'Reasoning: max (unlimited)'},
+  ];
+}
+
 const slashCommandTrigger: ChatComposerTrigger = {
   character: '/',
   searchSource: slashCommandSource,
@@ -88,9 +107,13 @@ export function ChatComposerPanel({
   isCompacting,
   composerModelSelectorOptions,
   composerModelDetailsById,
+  reasoningLevel,
+  reasoningBudgets,
+  canReason,
   onSubmit,
   onStop,
   onSelectModel,
+  onSelectReasoningLevel,
   onToggleFavorite,
 }: {
   activeModel: ConfiguredModel | null;
@@ -105,9 +128,13 @@ export function ChatComposerPanel({
   isCompacting: boolean;
   composerModelSelectorOptions: SelectorOptionType[];
   composerModelDetailsById: Map<string, ComposerModelOptionDetail>;
+  reasoningLevel: ReasoningLevel;
+  reasoningBudgets: ReasoningBudgets;
+  canReason: boolean;
   onSubmit: (value: string) => void | Promise<void>;
   onStop: () => void;
   onSelectModel: (modelId: string) => void | Promise<void>;
+  onSelectReasoningLevel: (level: ReasoningLevel) => void | Promise<void>;
   onToggleFavorite: () => void;
 }) {
   const draft = useComposerStore(state => state.draft);
@@ -269,6 +296,7 @@ export function ChatComposerPanel({
             isLabelHidden
             size="sm"
             className="nelle-composer-model-selector"
+            placement="above"
             hasSearch
             searchPlaceholder="Search models"
             placeholder="Select model"
@@ -281,6 +309,12 @@ export function ChatComposerPanel({
                 detail={composerModelDetailsById.get(option.value)}
               />
             )}
+          />
+          <ReasoningSelector
+            level={reasoningLevel}
+            budgets={reasoningBudgets}
+            canReason={canReason}
+            onSelect={onSelectReasoningLevel}
           />
           {activeModel && (
             <IconButton
@@ -306,6 +340,43 @@ export function ChatComposerPanel({
           </Tooltip>
         </HStack>
       }
+    />
+  );
+}
+
+/**
+ * Whether a model can think is a property of its chat template, so the control
+ * only appears once llama.cpp has reported one that declares thinking support.
+ */
+function ReasoningSelector({
+  level,
+  budgets,
+  canReason,
+  onSelect,
+}: {
+  level: ReasoningLevel;
+  budgets: ReasoningBudgets;
+  canReason: boolean;
+  onSelect: (level: ReasoningLevel) => void | Promise<void>;
+}) {
+  const options = useMemo(() => reasoningOptions(budgets), [budgets]);
+  return (
+    <Selector
+      label="Reasoning"
+      isLabelHidden
+      size="sm"
+      className="nelle-composer-reasoning-selector"
+      data-testid="composer-reasoning-selector"
+      // The composer is a bottom-fixed toolbar, so the dropdown must open
+      // upward. Astryx's default overlays the selected item on the trigger,
+      // which pushes the last option below the viewport.
+      placement="above"
+      options={options}
+      value={canReason ? level : 'off'}
+      isDisabled={!canReason}
+      // A disabled control swallows the hover events an external Tooltip needs.
+      disabledMessage="This model's chat template has no thinking mode."
+      changeAction={value => void onSelect(value as ReasoningLevel)}
     />
   );
 }

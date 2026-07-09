@@ -2440,6 +2440,125 @@ test('stops re-requesting model props after llama.cpp rejects the call', async (
   expect(propsCalls).toBe(settledCalls);
 });
 
+test('shows thinking blocks and switches reasoning level from the composer', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'Model One',
+    presetName: 'model-one',
+    source: 'huggingface',
+    repoId: 'repo/model-one',
+    quant: 'UD-Q4_K_XL',
+    hfRef: 'repo/model-one:UD-Q4_K_XL',
+    params: {contextSize: 16384},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {...RUNNING_RUNTIME, activeModelId: model.id};
+  const chat = [
+    {
+      id: 'user-1',
+      role: 'user',
+      content: 'What is 31 times 47?',
+      createdAt: '2026-07-07T12:00:00.000Z',
+    },
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '31 x 47 = 1457',
+      reasoning: 'Break it up: 31 x 40 = 1240, then 31 x 7 = 217.',
+      createdAt: '2026-07-07T12:00:01.000Z',
+    },
+  ];
+  const conversations = [
+    {
+      id: 'thinking-chat',
+      title: 'Thinking chat',
+      titleSource: 'fallback',
+      pinned: false,
+      status: 'ready',
+      updatedAt: '2026-07-07T12:10:00.000Z',
+      reasoningLevel: 'medium',
+    },
+  ];
+  const reasoningWrites: Array<[string, string]> = [];
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: model.id,
+          models: [model],
+          chat: [],
+          reasoning: {budgets: {low: 512, medium: 2048, high: 8192}},
+        },
+        runtime,
+      },
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: model.id,
+            routerModelId: model.id,
+            alias: model.name,
+            hfRepo: model.hfRef,
+            status: 'loaded',
+            aliases: [model.id],
+          },
+        ],
+      },
+    });
+  });
+  await page.route('**/api/llama/models/**/props', async route => {
+    await route.fulfill({
+      json: {
+        modelId: model.id,
+        modalities: {vision: false, audio: false, video: false},
+        contextWindow: 16384,
+        // The kwarg in the template is what unlocks the control, not the name.
+        chatTemplate: '{%- if enable_thinking is defined and enable_thinking -%}',
+        raw: {},
+      },
+    });
+  });
+  await mockConversationRoutes(page, {
+    chat,
+    conversations,
+    onReasoningLevel: (conversationId, level) => reasoningWrites.push([conversationId, level]),
+  });
+
+  await page.goto('/');
+  await expect(page.getByLabel('Message input')).toBeVisible();
+
+  // A completed turn shows its thinking folded away, never inlined in the answer.
+  const thinkingTrigger = page.getByRole('button', {name: 'Reasoning', exact: true});
+  await expect(thinkingTrigger).toBeVisible();
+  await expect(page.getByText('Break it up: 31 x 40 = 1240', {exact: false})).toBeHidden();
+  await thinkingTrigger.click();
+  await expect(page.getByText('Break it up: 31 x 40 = 1240', {exact: false})).toBeVisible();
+
+  // The level comes from the conversation, and each tier spells out its budget.
+  const reasoningSelector = page.getByTestId('composer-reasoning-selector');
+  await expect(reasoningSelector).toContainText('Reasoning: medium (2,048 tokens)');
+  await reasoningSelector.getByRole('combobox').click();
+  await expect(page.getByRole('option', {name: 'Reasoning: high (8,192 tokens)'})).toBeVisible();
+
+  // The composer is a bottom-fixed toolbar, so the dropdown must open above it.
+  const maxOption = page.getByRole('option', {name: 'Reasoning: max (unlimited)'});
+  const optionBox = await maxOption.boundingBox();
+  const viewportHeight = page.viewportSize()?.height ?? 0;
+  expect(optionBox).not.toBeNull();
+  expect((optionBox?.y ?? 0) + (optionBox?.height ?? 0)).toBeLessThanOrEqual(viewportHeight);
+
+  await maxOption.click();
+  await expect.poll(() => reasoningWrites).toEqual([['thinking-chat', 'max']]);
+  await expect(reasoningSelector).toContainText('Reasoning: max (unlimited)');
+});
+
 test('opens conversations scrolled to the bottom of the transcript', async ({page}) => {
   const model = {
     id: 'model-1',
@@ -2627,6 +2746,7 @@ async function mockConversationRoutes(
     onImport?: () => void;
     abortWarning?: {code: string; message: string};
     onAbort?: () => void;
+    onReasoningLevel?: (conversationId: string, level: string) => void;
   },
 ): Promise<void> {
   let chat = input.chat;
@@ -2840,6 +2960,25 @@ async function mockConversationRoutes(
       });
       return;
     }
+    const reasoningMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/reasoning$/);
+    if (reasoningMatch && request.method() === 'PUT') {
+      const conversationId = decodeURIComponent(reasoningMatch[1]!);
+      const body = request.postDataJSON() as {level: string};
+      input.onReasoningLevel?.(conversationId, body.level);
+      conversations = conversations.map(conversation =>
+        conversation.id === conversationId
+          ? {...conversation, reasoningLevel: body.level}
+          : conversation,
+      );
+      const conversation = conversations.find(item => item.id === conversationId);
+      await route.fulfill({
+        json: {
+          conversation,
+          snapshot: conversationSnapshot(conversationId, chat, conversation),
+        },
+      });
+      return;
+    }
     if (pathname === '/api/conversations' && request.method() === 'GET') {
       await route.fulfill({json: {conversations}});
       return;
@@ -2917,6 +3056,7 @@ function conversationSnapshot(
       status: conversation?.status ?? 'ready',
       createdAt: '2026-07-07T12:00:00.000Z',
       updatedAt: conversation?.updatedAt ?? '2026-07-07T12:00:00.000Z',
+      reasoningLevel: conversation?.reasoningLevel ?? 'off',
     },
     entries: chat.map((message, index) => ({
       conversationId: id,
@@ -2926,6 +3066,7 @@ function conversationSnapshot(
       role: message.role,
       textPreview: message.content,
       createdAt: message.createdAt,
+      reasoning: message.reasoning,
       performance: message.performance,
       toolCalls: message.toolCalls,
       modelId: message.modelId,
@@ -3003,6 +3144,7 @@ type MockChatMessage = {
   content: string;
   createdAt: string;
   attachments?: MockAttachment[];
+  reasoning?: string;
   performance?: unknown;
   toolCalls?: unknown;
   modelId?: string;
@@ -3042,4 +3184,5 @@ type MockConversation = {
   pinned: boolean;
   status: string;
   updatedAt: string;
+  reasoningLevel?: string;
 };

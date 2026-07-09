@@ -45,6 +45,7 @@ import {
 import {
   createThinkingEndTagFilter,
   isReasoningEnabled,
+  piThinkingLevel,
   reasoningBudgetTokens,
   stripLeadingThinkingEndTag,
 } from '../../../packages/shared/src/reasoning.ts';
@@ -636,7 +637,7 @@ export class PiHarness {
     // Pi clamps to the model's capabilities and records a `thinking_level_change`
     // entry in the session file, so a cached session picks up an on-the-fly change.
     const reasoningLevel = this.conversations.getReasoningLevel(conversationId);
-    session.setThinkingLevel?.(reasoningLevel);
+    session.setThinkingLevel?.(piThinkingLevel(reasoningLevel));
     const state = await this.store.getState();
     let warnedAboutReplyBudget = false;
     const pushPerformance = (performance: ChatPerformance) => {
@@ -1035,7 +1036,7 @@ export class PiHarness {
       agentDir: this.paths.piDir,
       cwd: this.paths.repoRoot,
       model,
-      thinkingLevel: this.conversations.getReasoningLevel(conversationId),
+      thinkingLevel: piThinkingLevel(this.conversations.getReasoningLevel(conversationId)),
       tools: toolsEnabled ? TOOL_ALLOWLIST : [],
       authStorage,
       modelRegistry,
@@ -1551,6 +1552,9 @@ export class PiHarness {
       // instead of a flat 512-token cap that truncated every long answer.
       maxTokens: replyTokenBudget(model.params.contextSize),
       cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
+      // Pi hides `xhigh` unless the model maps it, and Nelle's `max` level maps
+      // onto it. The value is never sent: `supportsReasoningEffort` is false.
+      thinkingLevelMap: {xhigh: 'xhigh'},
       // Pi's name for "pass `chat_template_kwargs.enable_thinking`", which is
       // how Qwen3, Gemma 4, and every other llama.cpp thinking template read it.
       compat: {thinkingFormat: 'qwen-chat-template' as const},

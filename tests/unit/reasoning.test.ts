@@ -6,11 +6,12 @@ import {
   DEFAULT_REASONING_BUDGETS,
   normalizeReasoningBudgets,
   normalizeReasoningLevel,
+  piThinkingLevel,
   reasoningBudgetTokens,
   stripLeadingThinkingEndTag,
-  templateSupportsThinking,
   UNLIMITED_REASONING_BUDGET,
 } from '../../packages/shared/src/reasoning.ts';
+import {templateSupportsThinking} from '../../apps/web/src/utils/reasoning.ts';
 
 test('thinking support is read from the chat template, not the model name', () => {
   // Qwen3 and Gemma 4 both gate their thinking channel on this kwarg.
@@ -34,9 +35,18 @@ test('thinking support is read from the chat template, not the model name', () =
 
 test('reasoning level normalization falls back to off', () => {
   assert.equal(normalizeReasoningLevel('high'), 'high');
+  assert.equal(normalizeReasoningLevel('max'), 'max');
   assert.equal(normalizeReasoningLevel('minimal'), 'off');
   assert.equal(normalizeReasoningLevel(undefined), 'off');
   assert.equal(normalizeReasoningLevel(null), 'off');
+});
+
+test('only the max level maps onto a Pi thinking level Nelle does not name', () => {
+  assert.equal(piThinkingLevel('off'), 'off');
+  assert.equal(piThinkingLevel('low'), 'low');
+  assert.equal(piThinkingLevel('medium'), 'medium');
+  assert.equal(piThinkingLevel('high'), 'high');
+  assert.equal(piThinkingLevel('max'), 'xhigh');
 });
 
 test('reasoning budgets clamp per level and reject junk', () => {
@@ -53,12 +63,16 @@ test('reasoning budgets clamp per level and reject junk', () => {
   assert.deepEqual(normalizeReasoningBudgets(undefined), DEFAULT_REASONING_BUDGETS);
 });
 
-test('a disabled level and a zero budget both mean no thinking_budget_tokens', () => {
-  const budgets = {low: 512, medium: 2048, high: UNLIMITED_REASONING_BUDGET};
+test('off, max, and a zero budget all mean no thinking_budget_tokens', () => {
+  const budgets = {low: 512, medium: 2048, high: 8192};
   assert.equal(reasoningBudgetTokens('off', budgets), null);
-  assert.equal(reasoningBudgetTokens('high', budgets), null);
+  // `max` is uncapped by definition, so llama.cpp gets no budget field.
+  assert.equal(reasoningBudgetTokens('max', budgets), null);
   assert.equal(reasoningBudgetTokens('low', budgets), 512);
   assert.equal(reasoningBudgetTokens('medium', budgets), 2048);
+  assert.equal(reasoningBudgetTokens('high', budgets), 8192);
+  // A tier explicitly zeroed in Settings also means "do not cap".
+  assert.equal(reasoningBudgetTokens('high', {...budgets, high: UNLIMITED_REASONING_BUDGET}), null);
 });
 
 test('a leading thinking end tag is dropped from a completed answer', () => {

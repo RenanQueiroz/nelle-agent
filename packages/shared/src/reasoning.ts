@@ -1,18 +1,26 @@
 import {z} from 'zod';
 
 /**
- * Nelle exposes a subset of Pi's `ThinkingLevel`. Pi also knows `minimal` and
- * `xhigh`; neither maps onto anything llama.cpp does differently, because the
- * only lever an OpenAI-completions provider has is `enable_thinking` plus a
- * token budget.
+ * Nelle's reasoning levels, matching llama.cpp's UI: three capped tiers plus an
+ * uncapped one. `max` has no budget by definition, so only the capped tiers are
+ * configurable.
+ *
+ * Pi's `ThinkingLevel` also knows `minimal` and `xhigh`; neither maps onto
+ * anything llama.cpp does differently, because the only lever an
+ * OpenAI-completions provider has is `enable_thinking` plus a token budget.
  */
-export const reasoningLevelSchema = z.enum(['off', 'low', 'medium', 'high']);
+export const reasoningLevelSchema = z.enum(['off', 'low', 'medium', 'high', 'max']);
 
 export type ReasoningLevel = z.infer<typeof reasoningLevelSchema>;
-export type ThinkingReasoningLevel = Exclude<ReasoningLevel, 'off'>;
+export type BudgetedReasoningLevel = Exclude<ReasoningLevel, 'off' | 'max'>;
 
 export const REASONING_LEVELS = reasoningLevelSchema.options;
 export const DEFAULT_REASONING_LEVEL: ReasoningLevel = 'off';
+
+/** Pi clamps an unsupported level to the nearest one the model advertises. */
+export function piThinkingLevel(level: ReasoningLevel): string {
+  return level === 'max' ? 'xhigh' : level;
+}
 
 /**
  * Reasoning tokens allowed before llama.cpp forces the thinking block closed.
@@ -30,10 +38,11 @@ export const reasoningBudgetsSchema = z.object({
 
 export type ReasoningBudgets = z.infer<typeof reasoningBudgetsSchema>;
 
+/** The same tiers llama.cpp's built-in UI ships with. */
 export const DEFAULT_REASONING_BUDGETS: ReasoningBudgets = {
   low: 512,
   medium: 2048,
-  high: UNLIMITED_REASONING_BUDGET,
+  high: 8192,
 };
 
 export const reasoningSettingsSchema = z.object({
@@ -59,7 +68,7 @@ export function normalizeReasoningBudgets(value: unknown): ReasoningBudgets {
   if (parsed.success) {
     return parsed.data;
   }
-  const partial = (value ?? {}) as Partial<Record<ThinkingReasoningLevel, unknown>>;
+  const partial = (value ?? {}) as Partial<Record<BudgetedReasoningLevel, unknown>>;
   const clamp = (input: unknown, fallback: number): number => {
     const numeric = typeof input === 'number' ? input : Number(input);
     if (!Number.isFinite(numeric) || numeric < 0) {
@@ -88,38 +97,11 @@ export function reasoningBudgetTokens(
   level: ReasoningLevel,
   budgets: ReasoningBudgets,
 ): number | null {
-  if (level === 'off') {
+  if (level === 'off' || level === 'max') {
     return null;
   }
   const budget = budgets[level];
   return budget > UNLIMITED_REASONING_BUDGET ? budget : null;
-}
-
-/**
- * Kwargs a chat template reads to turn thinking on or off, mirroring
- * llama.cpp's own `chat-template-thinking-detector`. Qwen3 and Gemma 4 both
- * declare `enable_thinking`; a template that declares none of these cannot
- * think, so Nelle hides the reasoning control for it.
- */
-const THINKING_KWARG_VARS = ['enable_thinking', 'reasoning_effort', 'thinking_budget'] as const;
-
-/** Templates that carry no kwarg but still emit a thinking block. */
-const THINKING_TAG_PAIRS = [
-  ['<think>', '</think>'],
-  ['<thinking>', '</thinking>'],
-  ['<|channel>thought', '<channel|>'],
-] as const;
-
-export function templateSupportsThinking(chatTemplate: string | null | undefined): boolean {
-  if (!chatTemplate) {
-    return false;
-  }
-  if (THINKING_KWARG_VARS.some(variable => chatTemplate.includes(variable))) {
-    return true;
-  }
-  return THINKING_TAG_PAIRS.some(
-    ([open, close]) => chatTemplate.includes(open) && chatTemplate.includes(close),
-  );
 }
 
 const THINKING_END_TAGS = [

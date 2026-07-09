@@ -65,7 +65,9 @@ import {
   loadLlamaModel,
   reloadLlamaModels,
   searchHuggingFace,
+  DEFAULT_REASONING_BUDGETS,
   setConversationPinned,
+  setConversationReasoningLevel,
   startRuntime,
   stopRuntime,
   subscribeLlamaModelEvents,
@@ -93,9 +95,12 @@ import {
   type LlamaRouterModel,
   type LlamaRouterModelUpdate,
   type LlamaRouterProps,
+  type ReasoningBudgets,
+  type ReasoningLevel,
   type RuntimeStatus,
 } from './api';
 import {ChatComposerPanel} from './components/chat/ChatComposerPanel';
+import {ThinkingBlock} from './components/chat/ThinkingBlock';
 import {NelleSideNav} from './components/sidebar/NelleSideNav';
 import {SettingsDialog} from './components/settings/SettingsDialog';
 import {restoreComposerDraft, useComposerStore} from './stores/composerStore';
@@ -105,6 +110,7 @@ import type {ActiveRunKind, AppNotice, CommandStatusRow, ComposerModelOptionDeta
 import {attachmentTooltip, getDraftAttachmentError} from './utils/attachments';
 import {useScrollChatToBottomOnOpen} from './utils/chatScroll';
 import {getContextOverflowMessage, positiveTokenCount} from './utils/context';
+import {templateSupportsThinking} from './utils/reasoning';
 import {rowsToParams} from './utils/params';
 
 const FAVORITE_MODEL_IDS_STORAGE_KEY = 'nelle.favoriteModelIds';
@@ -300,6 +306,9 @@ export function App() {
   const [messages, setMessages] = useState<ApiChatMessage[]>([]);
   const [commandRows, setCommandRows] = useState<CommandStatusRow[]>([]);
   const [contextUsage, setContextUsage] = useState<ConversationContextUsage>({});
+  const [reasoningLevel, setReasoningLevel] = useState<ReasoningLevel>('off');
+  const [reasoningBudgets, setReasoningBudgets] =
+    useState<ReasoningBudgets>(DEFAULT_REASONING_BUDGETS);
   const [pendingPrompt, setPendingPrompt] = useState<{
     conversationId: string;
     text: string;
@@ -341,6 +350,7 @@ export function App() {
   const activeModelProps =
     activeModelId == null ? null : (modelPropsById[activeModelId]?.props ?? null);
   const activeModelSupportsVision = activeModelProps?.modalities.vision === true;
+  const activeModelCanReason = templateSupportsThinking(activeModelProps?.chatTemplate);
   const favoriteModelIdSet = useMemo(() => new Set(favoriteModelIds), [favoriteModelIds]);
   const activeCommandRows = useMemo(
     () => commandRows.filter(row => row.conversationId === activeConversationId),
@@ -432,6 +442,7 @@ export function App() {
         return;
       }
       setRuntime(response.runtime);
+      setReasoningBudgets(response.state.reasoning?.budgets ?? DEFAULT_REASONING_BUDGETS);
       useSettingsStore
         .getState()
         .syncRuntimeDrafts(
@@ -455,11 +466,12 @@ export function App() {
         if (!nextConversationId) {
           setMessages([]);
           setContextUsage({});
+          setReasoningLevel('off');
           return;
         }
         const snapshot = await getConversation(nextConversationId);
         if (!isCancelled) {
-          applyConversationSnapshot(snapshot, setMessages, setContextUsage);
+          applyConversationSnapshot(snapshot, setMessages, setContextUsage, setReasoningLevel);
         }
       } catch {
         if (!isCancelled) {
@@ -588,6 +600,7 @@ export function App() {
   async function refreshState() {
     const response = await getState();
     setRuntime(response.runtime);
+    setReasoningBudgets(response.state.reasoning?.budgets ?? DEFAULT_REASONING_BUDGETS);
     useSettingsStore
       .getState()
       .syncRuntimeDrafts(
@@ -627,10 +640,11 @@ export function App() {
       if (!nextConversationId) {
         setMessages([]);
         setContextUsage({});
+        setReasoningLevel('off');
         return;
       }
       const snapshot = await getConversation(nextConversationId);
-      applyConversationSnapshot(snapshot, setMessages, setContextUsage);
+      applyConversationSnapshot(snapshot, setMessages, setContextUsage, setReasoningLevel);
     } catch {
       setMessages(fallbackMessages);
       setContextUsage({});
@@ -901,6 +915,24 @@ export function App() {
     }
   }
 
+  async function handleSelectReasoningLevel(level: ReasoningLevel) {
+    const conversationId = activeConversationIdRef.current;
+    if (!conversationId) {
+      return;
+    }
+    const previous = reasoningLevel;
+    setReasoningLevel(level);
+    try {
+      const snapshot = await setConversationReasoningLevel(conversationId, level);
+      if (conversationId === activeConversationIdRef.current) {
+        setReasoningLevel(snapshot.conversation.reasoningLevel);
+      }
+    } catch (error) {
+      setReasoningLevel(previous);
+      setComposerError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   function handleToggleActiveModelFavorite() {
     if (!activeModelId) {
       return;
@@ -1127,7 +1159,7 @@ export function App() {
       if (completed) {
         if (conversationId === activeConversationIdRef.current) {
           const snapshot = await getConversation(conversationId);
-          applyConversationSnapshot(snapshot, setMessages, setContextUsage);
+          applyConversationSnapshot(snapshot, setMessages, setContextUsage, setReasoningLevel);
         }
         await refreshConversations(activeConversationIdRef.current);
       }
@@ -1249,7 +1281,7 @@ export function App() {
     await runAction('import-chat', async () => {
       const snapshot = await importConversationArchive(file);
       setActiveConversationId(snapshot.conversation.id);
-      applyConversationSnapshot(snapshot, setMessages, setContextUsage);
+      applyConversationSnapshot(snapshot, setMessages, setContextUsage, setReasoningLevel);
       clearDraftAttachments();
       await refreshConversations(snapshot.conversation.id);
       setNotice({type: 'success', text: 'Conversation imported.'});
@@ -1260,7 +1292,7 @@ export function App() {
     await runAction(`clone:${conversation.id}`, async () => {
       const snapshot = await cloneConversation(conversation.id);
       setActiveConversationId(snapshot.conversation.id);
-      applyConversationSnapshot(snapshot, setMessages, setContextUsage);
+      applyConversationSnapshot(snapshot, setMessages, setContextUsage, setReasoningLevel);
       clearDraftAttachments();
       await refreshConversations(snapshot.conversation.id);
       setNotice({type: 'success', text: 'Conversation duplicated.'});
@@ -1274,7 +1306,7 @@ export function App() {
     await runAction(`fork:${message.id}`, async () => {
       const snapshot = await forkConversation(activeConversationId, message.id);
       setActiveConversationId(snapshot.conversation.id);
-      applyConversationSnapshot(snapshot, setMessages, setContextUsage);
+      applyConversationSnapshot(snapshot, setMessages, setContextUsage, setReasoningLevel);
       clearDraftAttachments();
       await refreshConversations(snapshot.conversation.id);
       setNotice({type: 'success', text: 'Conversation forked.'});
@@ -1510,13 +1542,27 @@ export function App() {
       }
       setMessages(prev => [...prev, event.message]);
     }
+    if (event.type === 'assistant_reasoning') {
+      if (!isVisibleConversation) {
+        return;
+      }
+      setMessages(prev =>
+        prev.map(message =>
+          message.id === event.id
+            ? {...message, reasoning: (message.reasoning ?? '') + event.delta, isReasoning: true}
+            : message,
+        ),
+      );
+    }
     if (event.type === 'assistant_delta') {
       if (!isVisibleConversation) {
         return;
       }
       setMessages(prev =>
         prev.map(message =>
-          message.id === event.id ? {...message, content: message.content + event.delta} : message,
+          message.id === event.id
+            ? {...message, content: message.content + event.delta, isReasoning: false}
+            : message,
         ),
       );
     }
@@ -1657,11 +1703,15 @@ export function App() {
                       isCompacting={isCompacting}
                       composerModelSelectorOptions={composerModelSelectorOptions}
                       composerModelDetailsById={composerModelDetailsById}
+                      reasoningLevel={reasoningLevel}
+                      reasoningBudgets={reasoningBudgets}
+                      canReason={activeModelCanReason}
                       onSubmit={handleChatSubmit}
                       onStop={() =>
                         void (isCompacting ? handleStopCompaction() : handleStopGeneration())
                       }
                       onSelectModel={handleComposerModelSelectorChange}
+                      onSelectReasoningLevel={handleSelectReasoningLevel}
                       onToggleFavorite={handleToggleActiveModelFavorite}
                     />
                   }
@@ -1777,9 +1827,11 @@ function applyConversationSnapshot(
   snapshot: ConversationSnapshot,
   setMessages: (messages: ApiChatMessage[]) => void,
   setContextUsage: (context: ConversationContextUsage) => void,
+  setReasoningLevel: (level: ReasoningLevel) => void,
 ) {
   setMessages(messagesFromSnapshot(snapshot));
   setContextUsage(snapshot.context ?? {});
+  setReasoningLevel(snapshot.conversation.reasoningLevel ?? 'off');
 }
 
 function mergeContextTotals(
@@ -1983,6 +2035,12 @@ function RenderedMessage({
       sender={message.role === 'assistant' ? 'assistant' : 'user'}
       avatar={message.role === 'assistant' ? <Avatar name="Nelle" size="small" /> : undefined}
     >
+      {message.role === 'assistant' && message.reasoning?.trim() && (
+        <ThinkingBlock
+          reasoning={message.reasoning}
+          isStreaming={message.isReasoning === true && !message.content.trim()}
+        />
+      )}
       {message.toolCalls && message.toolCalls.length > 0 && <ToolCalls calls={message.toolCalls} />}
       {message.attachments && message.attachments.length > 0 && (
         <MessageAttachments attachments={message.attachments} />
@@ -2011,13 +2069,29 @@ function RenderedMessage({
         }
       >
         {message.role === 'assistant' ? (
-          <Markdown density="compact">{message.content || '...'}</Markdown>
+          <AssistantMessageBody message={message} />
         ) : (
           message.content
         )}
       </ChatMessageBubble>
     </ChatMessage>
   );
+}
+
+/**
+ * An assistant turn has nothing to render only in the gap between
+ * `assistant_start` and its first token. Reasoning and tool calls have their own
+ * progress affordances above the bubble, so the spinner is for that gap alone --
+ * which also means it cannot outlive a completed turn.
+ */
+function AssistantMessageBody({message}: {message: ApiChatMessage}) {
+  if (message.content) {
+    return <Markdown density="compact">{message.content}</Markdown>;
+  }
+  if (message.reasoning?.trim() || message.toolCalls?.length) {
+    return null;
+  }
+  return <Spinner size="sm" aria-label="Waiting for the model's response" />;
 }
 
 function MessageAttachments({attachments}: {attachments: AttachmentMetadata[]}) {
@@ -2257,6 +2331,7 @@ function messagesFromSnapshot(snapshot: ConversationSnapshot): ApiChatMessage[] 
       displayGroupId: entry.displayGroupId,
       performance: entry.performance as ChatPerformance | undefined,
       toolCalls: entry.toolCalls as ApiChatMessage['toolCalls'],
+      reasoning: entry.reasoning,
       attachments: attachmentsByEntry.get(entry.piEntryId),
     }));
   const replayedUserIds = new Set(
@@ -2272,8 +2347,14 @@ function messagesFromSnapshot(snapshot: ConversationSnapshot): ApiChatMessage[] 
     // Pi persists a failed turn as an assistant entry with no content (for
     // example when llama.cpp answers 500 while a model is still loading) and
     // then retries. Rendering it produced a ghost "..." bubble above the real
-    // answer. A contentless assistant turn that ran no tools has nothing to show.
-    if (message.role === 'assistant' && !message.content.trim() && !message.toolCalls?.length) {
+    // answer. A contentless assistant turn with nothing to show is dropped; one
+    // that exhausted its reasoning budget still has its thinking block.
+    if (
+      message.role === 'assistant' &&
+      !message.content.trim() &&
+      !message.toolCalls?.length &&
+      !message.reasoning?.trim()
+    ) {
       return false;
     }
     return true;

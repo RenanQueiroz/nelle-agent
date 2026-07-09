@@ -282,7 +282,7 @@ export type ConversationContextUsage = {
 };
 
 /** Mirrors `packages/shared/src/reasoning.ts`; the web bundle stays zod-free. */
-export const REASONING_LEVELS = ['off', 'low', 'medium', 'high'] as const;
+export const REASONING_LEVELS = ['off', 'low', 'medium', 'high', 'max'] as const;
 
 export type ReasoningLevel = (typeof REASONING_LEVELS)[number];
 
@@ -291,10 +291,11 @@ export type ReasoningBudgets = {low: number; medium: number; high: number};
 
 export const UNLIMITED_REASONING_BUDGET = 0;
 
+/** The same tiers llama.cpp's built-in UI ships with; `max` is uncapped. */
 export const DEFAULT_REASONING_BUDGETS: ReasoningBudgets = {
   low: 512,
   medium: 2048,
-  high: UNLIMITED_REASONING_BUDGET,
+  high: 8192,
 };
 
 export type ConversationSnapshot = {
