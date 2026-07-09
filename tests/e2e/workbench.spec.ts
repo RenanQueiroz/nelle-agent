@@ -1403,6 +1403,14 @@ test('attaches text files and blocks images for text-only models', async ({page}
 
   await page.locator('input[aria-label="Attach files"]').setInputFiles(textFilePath);
   await expect(page.getByTestId('attachment-drawer')).toContainText('attachment-note.txt');
+
+  // Removing an attachment takes it out of the draft, not just off the screen:
+  // the drawer unmounts once the last one is gone.
+  await page.getByTestId('attachment-drawer').locator('.astryx-token button').first().click();
+  await expect(page.getByTestId('attachment-drawer')).toHaveCount(0);
+
+  await page.locator('input[aria-label="Attach files"]').setInputFiles(textFilePath);
+  await expect(page.getByTestId('attachment-drawer')).toContainText('attachment-note.txt');
   await page.getByLabel('Message input').fill('summarize this file');
   await page.getByLabel('Message input').press('Enter');
 

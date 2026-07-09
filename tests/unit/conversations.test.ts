@@ -2133,6 +2133,75 @@ test('Pi compact stream reports busy conversations with stable error codes', asy
   }
 });
 
+test('a second chat run in the same conversation is rejected as busy', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  const database = new AppDatabase(paths);
+  await database.open();
+  let releasePrompt: (() => void) | undefined;
+  try {
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'Busy chat'});
+    const promptGate = new Promise<void>(resolve => {
+      releasePrompt = resolve;
+    });
+    const fakeSession = {
+      messages: [],
+      sessionFile: path.join(paths.piSessionsDir, 'busy-chat.jsonl'),
+      sessionId: 'pi-busy-chat',
+      subscribe: () => () => {},
+      setThinkingLevel: () => {},
+      prompt: async () => {
+        await promptGate;
+      },
+      sessionManager: {
+        getBranch: () => [],
+        getLeafId: () => null,
+      },
+    };
+    const harness = new PiHarness(paths, store, repository, new HostToolRepository(database), {
+      tokenize: async () => ({tokens: 1}),
+    } as unknown as ConstructorParameters<typeof PiHarness>[4]);
+    (harness as unknown as {ensureSession: () => Promise<unknown>}).ensureSession = async () =>
+      fakeSession;
+
+    const firstIterator = (await harness.streamPrompt('first', conversation.id))[
+      Symbol.asyncIterator
+    ]();
+    assert.equal((await firstIterator.next()).value?.type, 'run.started');
+
+    // Only `/compact` had coverage for this; a second chat is the case users hit.
+    // Chat rejects rather than streaming the error -- the route turns the throw
+    // into the same `error` event compact emits directly.
+    await assert.rejects(
+      () => harness.streamPrompt('second', conversation.id),
+      /conversation_busy/,
+    );
+    const asEvent = createErrorEvent(new Error('conversation_busy'));
+    assert.equal(asEvent.code, 'conversation_busy');
+    assert.equal(asEvent.retryable, true);
+    assert.equal(asEvent.message, 'This conversation already has an active run.');
+
+    // Draining the first run releases the conversation. The fake session is not
+    // faithful enough to finish cleanly, and it does not need to be: what matters
+    // is that the run held the conversation while it was open.
+    releasePrompt?.();
+    const remaining = await collectAsyncIterator(firstIterator);
+    assert.ok(
+      remaining.some(event => event.type === 'run.completed' || event.type === 'error'),
+      'the first run reaches a terminal event',
+    );
+  } finally {
+    releasePrompt?.();
+    database.close();
+  }
+});
+
 test('conversation snapshots keep variant rows separate from active path', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);

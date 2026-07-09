@@ -718,6 +718,20 @@ someone to copy it.
 
 ## G10: Test Coverage Gaps
 
+**Status: done**, with two items closed as not-applicable and one deferred.
+
+- _Clipboard text formatting_ has no logic to test: `copyMessageText` writes the
+  message content verbatim, with a `document.execCommand` fallback for
+  non-secure contexts. The e2e click is the right level for it.
+- _Unknown Pi event tolerance_ is structural: the subscriber is a chain of `if`
+  blocks keyed on `event.type`, so an unrecognised event is ignored by
+  construction. Driving one through a real Pi session would need a live model.
+- _Regenerate model-override validation_ and _fork/clone source-entry
+  eligibility_ remain covered only at e2e. Deferred rather than faked.
+
+`buildConversationRows` moved to `apps/web/src/utils/conversationRows.ts` so it
+could be tested without mounting Astryx.
+
 No coverage at all:
 
 - attachment file classification, size/count limits, content-hash storage, and
