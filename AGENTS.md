@@ -98,10 +98,24 @@ Project-specific guidance for AI coding agents.
   truth. `AppStore` refreshes model records from parsed `models.ini` before
   returning model state; `.nelle/state.json` mirrors the catalog only as a POC
   compatibility backup.
-- Runtime/model/global/chats controls live in the right-side Settings panel.
+- Runtime/model/global/chats controls live in the modal Astryx Settings dialog.
   Settings writes free-form string params into `models.ini` through server APIs,
   reloads router models when llama-server is running, and keeps the persisted
   stable section id as the llama.cpp/OpenAI model id.
+- Keep `apps/web/src/App.tsx` focused on app orchestration. Put extracted UI
+  surfaces under `apps/web/src/components/`, shared client state under
+  `apps/web/src/stores/`, shared types in `apps/web/src/types.ts`, and shared
+  presentation helpers under `apps/web/src/utils/`.
+- Use Zustand for cross-cutting browser UI state, with narrow selectors so
+  unrelated UI does not rerender when a slice changes.
+- Settings dialog draft state, search results, runtime input fields, and log
+  visibility/output live in `apps/web/src/stores/settingsStore.ts`. Do not move
+  modal draft fields back into `App.tsx`.
+- Composer draft text, attachments, PDF-as-image mode, and composer
+  error/warning/slash status live in `apps/web/src/stores/composerStore.ts`, and
+  the composer surface is `apps/web/src/components/chat/ChatComposerPanel.tsx`.
+  Conversation search lives in `uiStore`. Keep them out of `App.tsx` so typing
+  and stream status updates do not rerender the chat transcript.
 - Model param update payloads are full replacements for editable params in a
   section. Preserve a free-form key by including it in the submitted key/value
   draft; omit it to delete it.
@@ -120,6 +134,12 @@ Project-specific guidance for AI coding agents.
   is still running.
 - Ongoing conversations in the sidebar use an Astryx `Spinner` plus status text,
   not only a status dot, so users can spot running agents after switching chats.
+- Cache llama.cpp model props per `(model id, router status)` and store failures
+  as `null` instead of retrying. A `sleeping` model answers `/props` with an
+  error, and an uncached failure turns the props effect into an unbounded fetch
+  and rerender loop that stalls the whole UI.
+- Router SSE updates must not rebuild `routerModels` when nothing the UI renders
+  changed; every event carries a fresh `raw` object, so compare rendered fields.
 - New Hugging Face imports should use the stable canonical section id as the
   model id; route clients must URL-encode model ids because they may contain
   `/` and `:`.
@@ -149,6 +169,11 @@ Project-specific guidance for AI coding agents.
 - The web UI conversation pane is collapsible and uses `@tanstack/react-virtual`
   for pinned/recent conversation sections. Keep row actions and e2e tests aligned
   when changing the sidebar.
+- Conversation rows are Astryx `SideNavItem`s with a hover/focus-revealed
+  `MoreMenu` rendered as a sibling, not as `endContent`: Astryx puts `endContent`
+  inside the row's own `<button>`, so a nested menu button would break semantics
+  and select the chat on every menu click. Keep the menu mounted (fade it with
+  opacity) so keyboard users and e2e tests can reach it.
 - The composer slash-command allowlist currently exposes only `/compact`.
   Unsupported slash commands must be blocked client-side with composer status
   guidance and must not be sent to Pi as prompts.
@@ -187,6 +212,15 @@ Project-specific guidance for AI coding agents.
 - Show context-window usage through the Astryx `ChatComposer` header
   `ProgressBar` with tooltip token counts. Use composer top status for
   send-blocking errors and bottom status for non-blocking warnings.
+- Do not set `ChatComposer` `isDisabled` while a run streams or compacts. Astryx
+  dims the composer to 0.6 opacity and sets `pointer-events: none` on the whole
+  subtree, which makes the stop button unclickable and lets the transcript show
+  through. Keep the composer enabled during runs and reject sends with a
+  composer warning instead.
+- The docked composer paints an opaque backdrop over Astryx's `ChatLayout` blur
+  layer, and the composer scopes the alpha-based `--color-error-muted` /
+  `--color-warning-muted` tokens to opaque mixes. Chat content must never be
+  legible through the composer or its status bars.
 - Do not pass arbitrary Pi slash commands through chat input. Nelle supports
   only its allowlist, initially `/compact [instructions]`; session, model, auth,
   settings, export, and copy flows belong to Nelle UI controls.

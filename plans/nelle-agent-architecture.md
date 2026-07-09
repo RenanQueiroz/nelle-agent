@@ -201,8 +201,15 @@ import {neutralTheme} from '@astryxdesign/theme-neutral/built';
   controls to the left of send and should not render another send affordance.
 - Astryx does not currently provide a reusable virtual sidebar list primitive
   for conversation history. Use `@tanstack/react-virtual` for the conversation
-  sidebar's flattened row model, while keeping Astryx `SideNav`/`List` styling,
-  tokens, menus, and tooltips around those rows.
+  sidebar's flattened row model, while keeping Astryx `SideNav`/`SideNavItem`
+  styling, tokens, menus, and tooltips around those rows. Astryx renders
+  `SideNavItem` `endContent` inside the row's own `<button>`, so row action
+  menus must be positioned siblings rather than `endContent` children.
+- Astryx `ChatComposer` `isDisabled` dims the composer and disables pointer
+  events across its whole subtree, including the stop button. Reserve it for
+  genuinely unusable states (no model, llama.cpp stopped), never for an active
+  run, and paint an opaque backdrop behind the docked composer so the scrolling
+  transcript cannot show through it or its `*-muted` status bars.
 - Do not introduce Tailwind, StyleX, or custom styling systems unless a concrete
   Astryx limitation forces that decision.
 
@@ -276,11 +283,19 @@ attachment sweeps under `.nelle/attachments/`,
 host-tool acknowledgement/global disable settings, SQLite tool audit rows, and
 tool-audit archive export,
 Nelle-owned llama.cpp router facade APIs, and Playwright e2e coverage for the
-browser workbench. The runtime UI also exposes a llama-server log tail and
+browser workbench. Browser UI surfaces are split into focused component
+directories, with cross-cutting UI state such as settings/sidebar controls
+managed through Zustand selectors. Settings dialog drafts, search results, and
+runtime log UI state live outside `App.tsx` so modal edits do not rerender the
+full workbench, and the composer draft, attachments, and status live in a
+composer store consumed by `components/chat/ChatComposerPanel.tsx` so typing a
+prompt does not rerender the chat transcript. llama.cpp model props are cached
+per `(model id, router status)`, including failures, so a model that rejects
+`/props` while sleeping cannot drive an unbounded fetch/rerender loop. The runtime UI also exposes a llama-server log tail and
 router-reported loaded/maximum model capacity for startup and configuration
-diagnostics. Runtime/model/global/chats controls live in a right-side Settings
-panel with router model status plus reload/load/unload actions, while the
-compact composer model selector is
+diagnostics. Runtime/model/global/chats controls live in a modal Astryx
+Settings dialog with router model status plus reload/load/unload actions, while
+the compact composer model selector is
 searchable, groups browser-local favorites first, shows router status/progress
 and loaded-model metadata from the router SSE store, and loads unloaded router
 models before activation. Settings rows for models with active runs are locked
@@ -305,13 +320,15 @@ Intentional POC limitations:
   marks the conversation unavailable and surfaces `session_unavailable`; Nelle
   does not create a replacement session under that conversation id.
 - The web UI uses an Astryx `SideNav` shell with a collapsible, virtualized
-  conversation sidebar, new-chat, search, pin/rename/reset/duplicate/delete row
-  actions, pinned/recent sections, and spinner-backed running indicators.
+  conversation sidebar built from `SideNavItem` rows, new-chat, search,
+  hover/focus-revealed pin/rename/reset/duplicate/export/delete row actions,
+  counted pinned/recent sections, and spinner-backed running indicators.
   User-message fork and conversation duplicate create new Pi session files, and local
   `.nelle-chat.zip` export/import creates new conversations. Browser run state
   is conversation-scoped, so one conversation can keep streaming with a sidebar
   indicator while another ready conversation is active. Settings is implemented
-  as a right-side panel; full branch tree exploration is still pending.
+  as an Astryx dialog with left-side section navigation; full branch tree
+  exploration is still pending.
 - Chat/regenerate streams now emit SSE envelopes with stable run ids, terminal
   run events, `message.assistant.completed` final assistant events, and
   first-turn title generation `title` run events. Stream `error` events carry

@@ -1,17 +1,10 @@
 import {type ChangeEvent, useEffect, useMemo, useRef, useState} from 'react';
-import {useVirtualizer} from '@tanstack/react-virtual';
 
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {HStack, VStack, StackItem, Layout, LayoutContent} from '@astryxdesign/core/Layout';
-import {Text, Heading} from '@astryxdesign/core/Text';
-import {Button} from '@astryxdesign/core/Button';
+import {Text} from '@astryxdesign/core/Text';
 import {IconButton} from '@astryxdesign/core/IconButton';
-import {Banner} from '@astryxdesign/core/Banner';
-import {Card} from '@astryxdesign/core/Card';
 import {
-  ChatComposer,
-  ChatComposerDrawer,
-  ChatComposerInput,
   ChatLayout,
   ChatMessage,
   ChatMessageBubble,
@@ -19,58 +12,27 @@ import {
   ChatMessageMetadata,
   ChatSystemMessage,
   ChatToolCalls,
-  type ChatComposerTrigger,
 } from '@astryxdesign/core/Chat';
 import {Markdown} from '@astryxdesign/core/Markdown';
 import {CodeBlock} from '@astryxdesign/core/CodeBlock';
-import {TextInput} from '@astryxdesign/core/TextInput';
-import {createStaticSource, TypeaheadItem, type SearchableItem} from '@astryxdesign/core/Typeahead';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
-import {
-  Selector,
-  SelectorOption,
-  type SelectorOptionData,
-  type SelectorOptionType,
-} from '@astryxdesign/core/Selector';
-import {ProgressBar} from '@astryxdesign/core/ProgressBar';
-import {SideNav, SideNavHeading} from '@astryxdesign/core/SideNav';
-import {Switch} from '@astryxdesign/core/Switch';
+import {type SelectorOptionData, type SelectorOptionType} from '@astryxdesign/core/Selector';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Token} from '@astryxdesign/core/Token';
 import {Tooltip} from '@astryxdesign/core/Tooltip';
 import {useToast} from '@astryxdesign/core/Toast';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Icon} from '@astryxdesign/core/Icon';
-import {Spinner} from '@astryxdesign/core/Spinner';
-import {StatusDot} from '@astryxdesign/core/StatusDot';
-import {VisuallyHidden} from '@astryxdesign/core/VisuallyHidden';
 import {
   ArrowPathIcon,
-  ArrowDownTrayIcon,
-  ArrowUpTrayIcon,
   ArrowTrendingUpIcon,
   BookOpenIcon,
   ChatBubbleLeftRightIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   ClipboardDocumentIcon,
-  Cog6ToothIcon,
   ClockIcon,
-  CpuChipIcon,
-  DocumentDuplicateIcon,
   DocumentTextIcon,
-  EllipsisHorizontalIcon,
-  MagnifyingGlassIcon,
-  PaperClipIcon,
   PhotoIcon,
-  PlusIcon,
-  PlayIcon,
-  ShieldCheckIcon,
   SparklesIcon,
-  StarIcon,
-  StopIcon,
-  TrashIcon,
-  XMarkIcon,
 } from '@heroicons/react/24/outline';
 
 import {
@@ -117,7 +79,6 @@ import {
   useHuggingFaceModel,
   type ChatMessage as ApiChatMessage,
   type AttachmentMetadata,
-  type ChatAttachmentInput,
   type ChatPerformance,
   type ChatPerformanceMetric,
   type ChatStreamEvent,
@@ -125,7 +86,6 @@ import {
   type ConversationContextUsage,
   type ConversationListItem,
   type ConversationSnapshot,
-  type HuggingFaceModelResult,
   type HostToolSettings,
   type LlamaModelProps,
   type LlamaRouterModel,
@@ -133,91 +93,36 @@ import {
   type LlamaRouterProps,
   type RuntimeStatus,
 } from './api';
+import {ChatComposerPanel} from './components/chat/ChatComposerPanel';
+import {NelleSideNav} from './components/sidebar/NelleSideNav';
+import {SettingsDialog} from './components/settings/SettingsDialog';
+import {restoreComposerDraft, useComposerStore} from './stores/composerStore';
+import {useSettingsStore} from './stores/settingsStore';
+import {useUiStore} from './stores/uiStore';
+import type {ActiveRunKind, AppNotice, CommandStatusRow, ComposerModelOptionDetail} from './types';
+import {attachmentTooltip, getDraftAttachmentError} from './utils/attachments';
+import {getContextOverflowMessage, positiveTokenCount} from './utils/context';
+import {rowsToParams} from './utils/params';
 
-const ATTACHMENT_LIMITS = {
-  maxFiles: 20,
-  maxFileBytes: 25 * 1024 * 1024,
-  maxDraftBytes: 100 * 1024 * 1024,
-  maxTextCharacters: 200_000,
-  maxRenderedPdfPages: 20,
-};
 const FAVORITE_MODEL_IDS_STORAGE_KEY = 'nelle.favoriteModelIds';
 
-type DraftAttachment = ChatAttachmentInput & {
-  warning?: string;
-};
+// Composer status lives in the composer store so run/stream updates do not
+// re-render the transcript. These wrappers keep the orchestration code readable.
+function setComposerError(message: string | null): void {
+  useComposerStore.getState().setError(message);
+}
 
-type ComposerModelOptionDetail = {
-  model: ConfiguredModel;
-  routerStatus: string;
-  routerModel?: LlamaRouterModel;
-  props?: LlamaModelProps | null;
-  isFavorite: boolean;
-  progressPercent: number | null;
-};
+function setComposerWarning(message: string | null): void {
+  useComposerStore.getState().setWarning(message);
+}
 
-type SettingsSection = 'runtime' | 'models' | 'global' | 'tools' | 'chats';
+function setSlashCommandError(message: string | null): void {
+  useComposerStore.getState().setSlashCommandError(message);
+}
 
-type ActiveRunKind = Extract<ChatStreamEvent, {type: 'run.started'}>['kind'];
-
-type AppNotice = {
-  type: 'info' | 'warning' | 'error' | 'success';
-  text: string;
-};
-
-type ParamRow = {
-  id: string;
-  key: string;
-  value: string;
-};
-
-const formatBytes = (value: number | null) => {
-  if (value == null) {
-    return 'unknown size';
-  }
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = value;
-  let unit = 0;
-  while (size > 1024 && unit < units.length - 1) {
-    size /= 1024;
-    unit += 1;
-  }
-  return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
-};
-
-type SlashCommandData = {
-  description: string;
-};
-
-const SUPPORTED_SLASH_COMMANDS: SearchableItem<SlashCommandData>[] = [
-  {
-    id: 'compact',
-    label: 'compact',
-    auxiliaryData: {
-      description: 'Compact this conversation context',
-    },
-  },
-];
-
-const slashCommandSource = createStaticSource(SUPPORTED_SLASH_COMMANDS);
-
-const slashCommandTrigger: ChatComposerTrigger = {
-  character: '/',
-  searchSource: slashCommandSource,
-  renderItem: item => (
-    <TypeaheadItem
-      item={item}
-      description={(item.auxiliaryData as SlashCommandData | undefined)?.description}
-    />
-  ),
-  onSelect: item => ({
-    value: `/${item.label}`,
-    label: `/${item.label}`,
-    variant: 'yellow' as const,
-  }),
-  emptySearchResultsText: 'Only /compact is supported in Nelle chat.',
-  menuLabel: 'Nelle slash commands',
-};
+function clearDraftAttachments(): void {
+  useComposerStore.getState().setAttachments([]);
+}
 
 function findRouterModelForConfiguredModel(
   model: ConfiguredModel,
@@ -231,26 +136,6 @@ function findRouterModelForConfiguredModel(
       routerModel.aliases.includes(model.id) ||
       (model.hfRef != null && routerModel.aliases.includes(model.hfRef)),
   );
-}
-
-function formatRouterStatus(status: string): string {
-  if (status === 'stopped') {
-    return 'router stopped';
-  }
-  return status.replace(/_/g, ' ');
-}
-
-function routerStatusColor(status: string): 'green' | 'yellow' | 'red' | 'blue' {
-  if (status === 'loaded' || status === 'sleeping') {
-    return 'green';
-  }
-  if (status === 'failed') {
-    return 'red';
-  }
-  if (status === 'loading' || status === 'unloaded') {
-    return 'yellow';
-  }
-  return 'blue';
 }
 
 function routerStatusForModel(
@@ -268,6 +153,21 @@ function routerStatusForModel(
 
 function isRunnableRouterStatus(status: string | null | undefined): boolean {
   return status === 'loaded' || status === 'sleeping';
+}
+
+/**
+ * Cached `/api/llama/models/:id/props` result for one router status. `props` is
+ * null when llama.cpp could not answer for that status, which keeps a failing
+ * model from being re-requested on every render. A status change (for example
+ * `sleeping` to `loaded`) invalidates the entry so props are fetched again.
+ */
+type ModelPropsEntry = {
+  status: string;
+  props: LlamaModelProps | null;
+};
+
+function modelPropsRequestKey(modelId: string, status: string): string {
+  return `${modelId}:${status}`;
 }
 
 function mergeRouterModelUpdate(
@@ -309,7 +209,30 @@ function mergeRouterModelUpdate(
     architecture: update.architecture ?? existing.architecture,
     raw: update.raw ?? existing.raw,
   };
+  if (routerModelRenderEquals(existing, next)) {
+    return routerModels;
+  }
   return routerModels.map((model, modelIndex) => (modelIndex === index ? next : model));
+}
+
+/**
+ * Router SSE events repeat the same payload while a model idles, and every event
+ * carries a fresh `raw` object. Compare only the fields the UI renders so that a
+ * no-op event does not rebuild `routerModels` and re-render the whole workbench.
+ */
+function routerModelRenderEquals(left: LlamaRouterModel, right: LlamaRouterModel): boolean {
+  return (
+    left.sectionId === right.sectionId &&
+    left.routerModelId === right.routerModelId &&
+    left.alias === right.alias &&
+    left.hfRepo === right.hfRepo &&
+    left.status === right.status &&
+    left.progress === right.progress &&
+    left.source === right.source &&
+    left.architecture === right.architecture &&
+    left.aliases.length === right.aliases.length &&
+    left.aliases.every((alias, index) => alias === right.aliases[index])
+  );
 }
 
 function routerModelMatchesUpdate(
@@ -364,54 +287,46 @@ export function App() {
   const [routerModels, setRouterModels] = useState<LlamaRouterModel[]>([]);
   const [routerProps, setRouterProps] = useState<LlamaRouterProps | null>(null);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
-  const [activeModelProps, setActiveModelProps] = useState<LlamaModelProps | null>(null);
-  const [modelPropsById, setModelPropsById] = useState<Record<string, LlamaModelProps>>({});
+  const [modelPropsById, setModelPropsById] = useState<Record<string, ModelPropsEntry>>({});
   const [favoriteModelIds, setFavoriteModelIds] = useState<string[]>(readFavoriteModelIds);
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [activeConversationId, setActiveConversationId] = useState('poc-default');
   const [messages, setMessages] = useState<ApiChatMessage[]>([]);
   const [commandRows, setCommandRows] = useState<CommandStatusRow[]>([]);
   const [contextUsage, setContextUsage] = useState<ConversationContextUsage>({});
-  const [conversationSearch, setConversationSearch] = useState('');
-  const [composerDraft, setComposerDraft] = useState('');
-  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
-  const [pdfImageModeEnabled, setPdfImageModeEnabled] = useState(false);
-  const [slashCommandError, setSlashCommandError] = useState<string | null>(null);
-  const [composerError, setComposerError] = useState<string | null>(null);
-  const [composerWarning, setComposerWarning] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('qwen gguf');
-  const [searchResults, setSearchResults] = useState<HuggingFaceModelResult[]>([]);
-  const [modelsMaxInput, setModelsMaxInput] = useState('1');
-  const [sleepIdleInput, setSleepIdleInput] = useState('90');
-  const [isLogVisible, setIsLogVisible] = useState(false);
-  const [runtimeLogs, setRuntimeLogs] = useState('');
   const [hostTools, setHostTools] = useState<HostToolSettings | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>('runtime');
-  const [globalParamRows, setGlobalParamRows] = useState<ParamRow[]>(() =>
-    paramsToRows({c: '8192'}),
-  );
-  const [modelParamRows, setModelParamRows] = useState<Record<string, ParamRow[]>>({});
-  const [modelAliasDrafts, setModelAliasDrafts] = useState<Record<string, string>>({});
+  const isSidebarCollapsed = useUiStore(state => state.isSidebarCollapsed);
+  const setIsSidebarCollapsed = useUiStore(state => state.setSidebarCollapsed);
+  const isSettingsOpen = useUiStore(state => state.isSettingsOpen);
+  const setSettingsOpen = useUiStore(state => state.setSettingsOpen);
+  const toggleSettings = useUiStore(state => state.toggleSettings);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [activeRunIds, setActiveRunIds] = useState<Record<string, string>>({});
   const [activeRunKindsByConversation, setActiveRunKindsByConversation] = useState<
     Record<string, ActiveRunKind>
   >({});
   const [activeRunModelsById, setActiveRunModelsById] = useState<Record<string, string>>({});
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const archiveInputRef = useRef<HTMLInputElement | null>(null);
   const streamAbortControllers = useRef(new Map<string, AbortController>());
   const compactAbortControllers = useRef(new Map<string, AbortController>());
   const activeConversationIdRef = useRef(activeConversationId);
+  const modelPropsRequestsRef = useRef(new Set<string>());
+  const isMountedRef = useRef(true);
   const [notice, setNotice] = useState<AppNotice | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const activeModel = useMemo(
     () => models.find(model => model.id === activeModelId) ?? null,
     [activeModelId, models],
   );
+  const activeModelProps =
+    activeModelId == null ? null : (modelPropsById[activeModelId]?.props ?? null);
   const activeModelSupportsVision = activeModelProps?.modalities.vision === true;
   const favoriteModelIdSet = useMemo(() => new Set(favoriteModelIds), [favoriteModelIds]);
   const activeCommandRows = useMemo(
@@ -434,47 +349,6 @@ export function App() {
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
   }, [activeConversationId]);
-  const composerBlockingMessage = useMemo(() => {
-    if (slashCommandError) {
-      return slashCommandError;
-    }
-    if (composerError) {
-      return composerError;
-    }
-    const attachmentError = getDraftAttachmentError(draftAttachments, activeModelProps);
-    if (attachmentError) {
-      return attachmentError;
-    }
-    if (!runtime?.running) {
-      return 'Start llama.cpp before chatting.';
-    }
-    if (!activeModel) {
-      return 'Select a GGUF model before chatting.';
-    }
-    return getContextOverflowMessage(displayedContextUsage);
-  }, [
-    activeModel,
-    activeModelProps,
-    composerError,
-    displayedContextUsage,
-    draftAttachments,
-    runtime?.running,
-    slashCommandError,
-  ]);
-  const composerWarningMessage =
-    composerBlockingMessage == null
-      ? (composerWarning ?? getContextWarningMessage(displayedContextUsage))
-      : null;
-  const composerStatus = useMemo(() => {
-    if (composerBlockingMessage) {
-      return {type: 'error' as const, message: composerBlockingMessage};
-    }
-    if (composerWarningMessage) {
-      return {type: 'warning' as const, message: composerWarningMessage};
-    }
-    return undefined;
-  }, [composerBlockingMessage, composerWarningMessage]);
-  const composerStatusPosition = composerBlockingMessage ? 'top' : 'bottom';
   const routerModelsByConfiguredId = useMemo(() => {
     const entries = new Map<string, LlamaRouterModel>();
     for (const model of models) {
@@ -503,21 +377,13 @@ export function App() {
         model,
         routerModel,
         routerStatus: routerStatus ?? 'stopped',
-        props: modelPropsById[model.id] ?? (model.id === activeModelId ? activeModelProps : null),
+        props: modelPropsById[model.id]?.props ?? null,
         isFavorite: favoriteModelIdSet.has(model.id),
         progressPercent: normalizeRouterProgressPercent(routerModel?.progress),
       });
     }
     return details;
-  }, [
-    activeModelId,
-    activeModelProps,
-    favoriteModelIdSet,
-    modelPropsById,
-    models,
-    routerModelsByConfiguredId,
-    runtime,
-  ]);
+  }, [favoriteModelIdSet, modelPropsById, models, routerModelsByConfiguredId, runtime]);
   const composerModelSelectorOptions = useMemo<SelectorOptionType[]>(() => {
     const favoriteOptions: SelectorOptionData[] = [];
     const otherOptions: SelectorOptionData[] = [];
@@ -548,12 +414,12 @@ export function App() {
         return;
       }
       setRuntime(response.runtime);
-      setModelsMaxInput(
-        String(response.runtime.modelsMax ?? response.state.runtime?.modelsMax ?? 1),
-      );
-      setSleepIdleInput(
-        String(response.runtime.sleepIdleSeconds ?? response.state.runtime?.sleepIdleSeconds ?? 90),
-      );
+      useSettingsStore
+        .getState()
+        .syncRuntimeDrafts(
+          response.runtime.modelsMax ?? response.state.runtime?.modelsMax,
+          response.runtime.sleepIdleSeconds ?? response.state.runtime?.sleepIdleSeconds,
+        );
       setModels(response.state.models);
       setActiveModelId(response.state.activeModelId);
       setHostTools(response.hostTools ?? (await getHostToolSettings()));
@@ -622,80 +488,56 @@ export function App() {
   }, [runtime?.running]);
 
   useEffect(() => {
-    let isCancelled = false;
-    setActiveModelProps(null);
-    if (!activeModel || !runtime?.running || !isRunnableRouterStatus(activeComposerRouterStatus)) {
-      return () => {
-        isCancelled = true;
-      };
-    }
-    void (async () => {
-      try {
-        const props = await getLlamaModelProps(activeModel.id);
-        if (!isCancelled) {
-          setActiveModelProps(props);
-          setModelPropsById(prev => ({...prev, [activeModel.id]: props}));
-        }
-      } catch {
-        if (!isCancelled) {
-          setActiveModelProps(null);
-        }
-      }
-    })();
-    return () => {
-      isCancelled = true;
-    };
-  }, [activeComposerRouterStatus, activeModel, runtime?.running]);
-
-  useEffect(() => {
     if (!activeModelSupportsVision) {
-      setPdfImageModeEnabled(false);
+      useComposerStore.getState().setPdfImageModeEnabled(false);
     }
   }, [activeModelSupportsVision]);
 
   useEffect(() => {
-    let isCancelled = false;
     if (!runtime?.running) {
-      return () => {
-        isCancelled = true;
-      };
+      modelPropsRequestsRef.current.clear();
+      setModelPropsById(previous => (Object.keys(previous).length === 0 ? previous : {}));
+      return;
     }
-    const modelsNeedingProps = models.filter(
-      model =>
-        isRunnableRouterStatus(routerModelsByConfiguredId.get(model.id)?.status) &&
-        modelPropsById[model.id] == null,
-    );
-    if (modelsNeedingProps.length === 0) {
-      return () => {
-        isCancelled = true;
-      };
+    const pending = models
+      .map(model => ({model, status: routerModelsByConfiguredId.get(model.id)?.status}))
+      .filter(
+        (candidate): candidate is {model: ConfiguredModel; status: string} =>
+          isRunnableRouterStatus(candidate.status) &&
+          modelPropsById[candidate.model.id]?.status !== candidate.status &&
+          !modelPropsRequestsRef.current.has(
+            modelPropsRequestKey(candidate.model.id, candidate.status!),
+          ),
+      );
+    if (pending.length === 0) {
+      return;
+    }
+    for (const {model, status} of pending) {
+      modelPropsRequestsRef.current.add(modelPropsRequestKey(model.id, status));
     }
     void (async () => {
       const entries = await Promise.all(
-        modelsNeedingProps.map(async model => {
+        pending.map(async ({model, status}) => {
           try {
-            return [model.id, await getLlamaModelProps(model.id)] as const;
+            return [model.id, {status, props: await getLlamaModelProps(model.id)}] as const;
           } catch {
-            return null;
+            return [model.id, {status, props: null}] as const;
           }
         }),
       );
-      if (isCancelled) {
-        return;
-      }
-      setModelPropsById(prev => {
-        const next = {...prev};
-        for (const entry of entries) {
-          if (entry) {
-            next[entry[0]] = entry[1];
+      if (isMountedRef.current) {
+        setModelPropsById(previous => {
+          const next = {...previous};
+          for (const [modelId, entry] of entries) {
+            next[modelId] = entry;
           }
-        }
-        return next;
-      });
+          return next;
+        });
+      }
+      for (const {model, status} of pending) {
+        modelPropsRequestsRef.current.delete(modelPropsRequestKey(model.id, status));
+      }
     })();
-    return () => {
-      isCancelled = true;
-    };
   }, [modelPropsById, models, routerModelsByConfiguredId, runtime?.running]);
 
   useEffect(() => {
@@ -716,26 +558,24 @@ export function App() {
     globalParams: Record<string, string> | undefined,
     nextModels: ConfiguredModel[],
   ) {
-    setGlobalParamRows(paramsToRows(globalParams ?? {c: '8192'}));
-    setModelParamRows(
-      Object.fromEntries(
-        nextModels.map(model => [model.id, paramsToRows(model.params.extra ?? {})]),
-      ),
-    );
-    setModelAliasDrafts(Object.fromEntries(nextModels.map(model => [model.id, model.name])));
+    useSettingsStore.getState().syncModelDrafts(globalParams, nextModels);
   }
 
   async function refreshState() {
     const response = await getState();
     setRuntime(response.runtime);
-    setModelsMaxInput(String(response.runtime.modelsMax ?? response.state.runtime?.modelsMax ?? 1));
-    setSleepIdleInput(
-      String(response.runtime.sleepIdleSeconds ?? response.state.runtime?.sleepIdleSeconds ?? 90),
-    );
+    useSettingsStore
+      .getState()
+      .syncRuntimeDrafts(
+        response.runtime.modelsMax ?? response.state.runtime?.modelsMax,
+        response.runtime.sleepIdleSeconds ?? response.state.runtime?.sleepIdleSeconds,
+      );
     setModels(response.state.models);
     setActiveModelId(response.state.activeModelId);
     setHostTools(response.hostTools ?? (await getHostToolSettings()));
     syncSettingsDrafts(response.state.globalModelParams, response.state.models);
+    // Model params may have changed on disk, so cached llama.cpp props are stale.
+    setModelPropsById(previous => (Object.keys(previous).length === 0 ? previous : {}));
     await refreshConversations(activeConversationId, response.state.chat);
     if (response.runtime.running) {
       await refreshRouterModels({silent: true});
@@ -800,21 +640,23 @@ export function App() {
   }
 
   async function handleSearch() {
-    setIsSearching(true);
+    const settingsStore = useSettingsStore.getState();
+    settingsStore.setIsSearching(true);
     setNotice(null);
     try {
-      setSearchResults(await searchHuggingFace(searchQuery));
+      settingsStore.setSearchResults(await searchHuggingFace(settingsStore.searchQuery));
     } catch (error) {
       setNotice({
         type: 'error',
         text: error instanceof Error ? error.message : String(error),
       });
     } finally {
-      setIsSearching(false);
+      useSettingsStore.getState().setIsSearching(false);
     }
   }
 
   async function handleSaveRuntimeSettings() {
+    const {modelsMaxInput, sleepIdleInput} = useSettingsStore.getState();
     const modelsMax = Number.parseInt(modelsMaxInput, 10);
     const sleepIdleSeconds = Number.parseInt(sleepIdleInput, 10);
     if (!Number.isInteger(modelsMax) || modelsMax < 1) {
@@ -840,7 +682,7 @@ export function App() {
 
   async function handleSaveGlobalParams() {
     await runAction('global-params', async () => {
-      await updateGlobalModelParams(rowsToParams(globalParamRows));
+      await updateGlobalModelParams(rowsToParams(useSettingsStore.getState().globalParamRows));
       await refreshState();
       setNotice({
         type: 'success',
@@ -853,6 +695,7 @@ export function App() {
 
   async function handleSaveModelSettings(model: ConfiguredModel) {
     await runAction(`model-save:${model.id}`, async () => {
+      const {modelAliasDrafts, modelParamRows} = useSettingsStore.getState();
       await updateConfiguredModel(model.id, {
         name: modelAliasDrafts[model.id] ?? model.name,
         params: rowsToParams(modelParamRows[model.id] ?? []),
@@ -964,6 +807,7 @@ export function App() {
 
   async function handleToggleLogs() {
     await runAction('runtime-logs', async () => {
+      const {isLogVisible, setIsLogVisible, setRuntimeLogs} = useSettingsStore.getState();
       if (!isLogVisible) {
         const logs = await getRuntimeLogs();
         setRuntimeLogs(logs.text);
@@ -975,6 +819,7 @@ export function App() {
   async function handleRefreshLogs() {
     await runAction('runtime-logs', async () => {
       const logs = await getRuntimeLogs();
+      const {setIsLogVisible, setRuntimeLogs} = useSettingsStore.getState();
       setRuntimeLogs(logs.text);
       setIsLogVisible(true);
     });
@@ -1037,51 +882,6 @@ export function App() {
     });
   }
 
-  function handleComposerDraftChange(value: string) {
-    setComposerDraft(value);
-    if (slashCommandError) {
-      setSlashCommandError(null);
-    }
-    if (composerError) {
-      setComposerError(null);
-    }
-  }
-
-  async function handleComposerFiles(files: File[]) {
-    setComposerError(null);
-    setComposerWarning(null);
-    try {
-      const result = await prepareDraftAttachments(files, {
-        existing: draftAttachments,
-        canAttachImages: activeModelSupportsVision,
-        renderPdfImages: pdfImageModeEnabled && activeModelSupportsVision,
-      });
-      if (result.attachments.length > 0) {
-        setDraftAttachments(prev => [...prev, ...result.attachments]);
-      }
-      if (result.warning) {
-        setComposerWarning(result.warning);
-      }
-    } catch (error) {
-      setComposerError(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  function handleRemoveDraftAttachment(id: string) {
-    setDraftAttachments(prev => prev.filter(attachment => attachment.id !== id));
-    if (composerError) {
-      setComposerError(null);
-    }
-  }
-
-  function handleFilePickerChange(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.currentTarget.files ?? []);
-    event.currentTarget.value = '';
-    if (files.length > 0) {
-      void handleComposerFiles(files);
-    }
-  }
-
   function handleArchivePickerChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = '';
@@ -1093,7 +893,19 @@ export function App() {
   async function handleChatSubmit(value: string) {
     const prompt = normalizeComposerValue(value);
     const conversationId = activeConversationId;
-    if (!prompt || isActiveConversationBusy) {
+    const composer = useComposerStore.getState();
+    if (!prompt) {
+      return;
+    }
+    if (isActiveConversationBusy) {
+      // The composer stays interactive during a run so stop remains clickable.
+      // Put the draft back instead of silently swallowing it.
+      restoreComposerDraft(prompt);
+      composer.setWarning(
+        isCompacting
+          ? 'Wait for compaction to finish, or stop it before sending.'
+          : 'Wait for the current response, or stop it before sending.',
+      );
       return;
     }
     const compactInstructions = parseCompactCommand(prompt);
@@ -1103,39 +915,40 @@ export function App() {
     }
     const unsupportedSlashCommand = getUnsupportedSlashCommandMessage(prompt);
     if (unsupportedSlashCommand) {
-      setSlashCommandError(unsupportedSlashCommand);
-      restoreComposerDraft(prompt, setComposerDraft);
+      composer.setSlashCommandError(unsupportedSlashCommand);
+      restoreComposerDraft(prompt);
       return;
     }
     const contextOverflow = getContextOverflowMessage(displayedContextUsage);
     if (contextOverflow) {
-      setComposerError(`${contextOverflow} Run /compact to make room before sending.`);
-      restoreComposerDraft(prompt, setComposerDraft);
+      composer.setError(`${contextOverflow} Run /compact to make room before sending.`);
+      restoreComposerDraft(prompt);
       return;
     }
+    const draftAttachments = composer.attachments;
     const attachmentError = getDraftAttachmentError(draftAttachments, activeModelProps);
     if (attachmentError) {
-      setComposerError(attachmentError);
-      restoreComposerDraft(prompt, setComposerDraft);
+      composer.setError(attachmentError);
+      restoreComposerDraft(prompt);
       return;
     }
     if (!activeModel) {
-      setComposerError('Select a GGUF model before chatting.');
-      restoreComposerDraft(prompt, setComposerDraft);
+      composer.setError('Select a GGUF model before chatting.');
+      restoreComposerDraft(prompt);
       return;
     }
     try {
       await ensureModelReadyForRun(activeModel.id);
     } catch (error) {
-      setComposerError(error instanceof Error ? error.message : String(error));
-      restoreComposerDraft(prompt, setComposerDraft);
+      composer.setError(error instanceof Error ? error.message : String(error));
+      restoreComposerDraft(prompt);
       return;
     }
     setConversationRunKind(conversationId, 'chat');
     setConversationListStatus(conversationId, 'running');
     setNotice(null);
-    setComposerError(null);
-    setComposerWarning(null);
+    composer.setError(null);
+    composer.setWarning(null);
     const abortController = new AbortController();
     streamAbortControllers.current.set(conversationId, abortController);
     let receivedRunStarted = false;
@@ -1153,7 +966,7 @@ export function App() {
         draftAttachments,
       );
       if (conversationId === activeConversationIdRef.current) {
-        setDraftAttachments([]);
+        useComposerStore.getState().setAttachments([]);
       }
       setRuntime(await getRuntime());
       await refreshConversations(activeConversationIdRef.current);
@@ -1162,7 +975,9 @@ export function App() {
         return;
       }
       if (conversationId === activeConversationIdRef.current) {
-        setComposerError(error instanceof Error ? error.message : String(error));
+        useComposerStore
+          .getState()
+          .setError(error instanceof Error ? error.message : String(error));
       }
     } finally {
       if (streamAbortControllers.current.get(conversationId) === abortController) {
@@ -1322,7 +1137,7 @@ export function App() {
       setActiveConversationId(created.id);
       setMessages([]);
       setContextUsage({});
-      setDraftAttachments([]);
+      clearDraftAttachments();
       await refreshConversations(created.id);
     });
   }
@@ -1331,7 +1146,7 @@ export function App() {
     setSlashCommandError(null);
     setComposerError(null);
     setComposerWarning(null);
-    setDraftAttachments([]);
+    clearDraftAttachments();
     setActiveConversationId(conversationId);
     await refreshConversations(conversationId);
   }
@@ -1394,7 +1209,7 @@ export function App() {
       const snapshot = await importConversationArchive(file);
       setActiveConversationId(snapshot.conversation.id);
       applyConversationSnapshot(snapshot, setMessages, setContextUsage);
-      setDraftAttachments([]);
+      clearDraftAttachments();
       await refreshConversations(snapshot.conversation.id);
       setNotice({type: 'success', text: 'Conversation imported.'});
     });
@@ -1405,7 +1220,7 @@ export function App() {
       const snapshot = await cloneConversation(conversation.id);
       setActiveConversationId(snapshot.conversation.id);
       applyConversationSnapshot(snapshot, setMessages, setContextUsage);
-      setDraftAttachments([]);
+      clearDraftAttachments();
       await refreshConversations(snapshot.conversation.id);
       setNotice({type: 'success', text: 'Conversation duplicated.'});
     });
@@ -1419,7 +1234,7 @@ export function App() {
       const snapshot = await forkConversation(activeConversationId, message.id);
       setActiveConversationId(snapshot.conversation.id);
       applyConversationSnapshot(snapshot, setMessages, setContextUsage);
-      setDraftAttachments([]);
+      clearDraftAttachments();
       await refreshConversations(snapshot.conversation.id);
       setNotice({type: 'success', text: 'Conversation forked.'});
     });
@@ -1755,18 +1570,16 @@ export function App() {
           notice={notice}
           onDismissNotice={() => setNotice(null)}
           isSettingsOpen={isSettingsOpen}
-          onToggleSettings={() => setIsSettingsOpen(value => !value)}
+          onToggleSettings={toggleSettings}
           onNewConversation={handleNewConversation}
           isNewConversationBusy={busyAction === 'new-chat'}
           onImportConversation={() => archiveInputRef.current?.click()}
           isImportBusy={busyAction === 'import-chat'}
           archiveInputRef={archiveInputRef}
           onArchivePickerChange={handleArchivePickerChange}
-          conversationSearch={conversationSearch}
-          onConversationSearchChange={setConversationSearch}
           conversations={conversations}
           activeConversationId={activeConversationId}
-          onSelectConversation={handleSelectConversation}
+          onSelect={handleSelectConversation}
           onTogglePin={handleToggleConversationPin}
           onRename={handleRenameConversation}
           onReset={handleResetConversation}
@@ -1787,108 +1600,24 @@ export function App() {
                   className="nelle-chat-layout"
                   density="spacious"
                   composer={
-                    <ChatComposer
+                    <ChatComposerPanel
+                      activeModel={activeModel}
+                      activeModelProps={activeModelProps}
+                      activeModelId={activeModelId}
+                      activeModelIsFavorite={activeModelIsFavorite}
+                      activeComposerRouterStatus={activeComposerRouterStatus}
+                      isRuntimeRunning={runtime?.running === true}
+                      contextUsage={displayedContextUsage}
+                      isStreaming={isStreaming}
+                      isCompacting={isCompacting}
+                      composerModelSelectorOptions={composerModelSelectorOptions}
+                      composerModelDetailsById={composerModelDetailsById}
                       onSubmit={handleChatSubmit}
-                      value={composerDraft}
-                      onChange={handleComposerDraftChange}
-                      placeholder={
-                        activeModel
-                          ? 'Ask Nelle to inspect files, run shell commands, or reason about the project'
-                          : 'Select a GGUF model before chatting'
-                      }
-                      isDisabled={!activeModel || !runtime?.running || isStreaming || isCompacting}
-                      isStopShown={isStreaming || isCompacting}
                       onStop={() =>
                         void (isCompacting ? handleStopCompaction() : handleStopGeneration())
                       }
-                      headerActions={
-                        <HStack gap={1} vAlign="center">
-                          <IconButton
-                            label="Attach files"
-                            tooltip="Attach files"
-                            size="sm"
-                            variant="ghost"
-                            icon={<Icon icon={PaperClipIcon} size="sm" />}
-                            isDisabled={isStreaming || isCompacting}
-                            onClick={() => fileInputRef.current?.click()}
-                          />
-                          <input
-                            ref={fileInputRef}
-                            aria-label="Attach files"
-                            className="nelle-hidden-file-input"
-                            type="file"
-                            multiple
-                            accept="text/*,.txt,.md,.json,.csv,.log,.pdf,application/pdf,image/png,image/jpeg,image/webp,image/gif"
-                            onChange={handleFilePickerChange}
-                          />
-                        </HStack>
-                      }
-                      headerContext={<ContextWindowUsage context={displayedContextUsage} />}
-                      drawer={
-                        draftAttachments.length > 0 || activeModelSupportsVision ? (
-                          <AttachmentDrawer
-                            attachments={draftAttachments}
-                            canRenderPdfImages={activeModelSupportsVision}
-                            pdfImageModeEnabled={pdfImageModeEnabled}
-                            onRemove={handleRemoveDraftAttachment}
-                            onPdfImageModeChange={setPdfImageModeEnabled}
-                          />
-                        ) : undefined
-                      }
-                      input={
-                        <ChatComposerInput
-                          triggers={[slashCommandTrigger]}
-                          onFiles={files => void handleComposerFiles(files)}
-                        />
-                      }
-                      status={composerStatus}
-                      statusPosition={composerStatusPosition}
-                      footerActions={
-                        <HStack gap={1} vAlign="center" wrap="wrap">
-                          <Selector
-                            label="Model"
-                            isLabelHidden
-                            size="sm"
-                            className="nelle-composer-model-selector"
-                            hasSearch
-                            searchPlaceholder="Search models"
-                            placeholder="Select model"
-                            options={composerModelSelectorOptions}
-                            value={activeModelId ?? undefined}
-                            changeAction={handleComposerModelSelectorChange}
-                            renderOption={option => (
-                              <ComposerModelSelectorOption
-                                option={option}
-                                detail={composerModelDetailsById.get(option.value)}
-                              />
-                            )}
-                          />
-                          {activeModel && (
-                            <IconButton
-                              label={activeModelIsFavorite ? 'Unfavorite model' : 'Favorite model'}
-                              tooltip={
-                                activeModelIsFavorite ? 'Unfavorite model' : 'Favorite model'
-                              }
-                              size="sm"
-                              variant={activeModelIsFavorite ? 'primary' : 'ghost'}
-                              icon={<Icon icon={StarIcon} size="sm" />}
-                              onClick={handleToggleActiveModelFavorite}
-                            />
-                          )}
-                          {activeComposerRouterStatus && (
-                            <Tooltip content="Selected model router status">
-                              <Token
-                                size="sm"
-                                color={routerStatusColor(activeComposerRouterStatus)}
-                                label={formatRouterStatus(activeComposerRouterStatus)}
-                              />
-                            </Tooltip>
-                          )}
-                          <Tooltip content="Supported command: compact this conversation context">
-                            <Token size="sm" color="yellow" label="/compact" />
-                          </Tooltip>
-                        </HStack>
-                      }
+                      onSelectModel={handleComposerModelSelectorChange}
+                      onToggleFavorite={handleToggleActiveModelFavorite}
                     />
                   }
                 >
@@ -1916,992 +1645,80 @@ export function App() {
                   </ChatMessageList>
                 </ChatLayout>
               </StackItem>
-
-              {isSettingsOpen && (
-                <SettingsPanel
-                  section={settingsSection}
-                  onSectionChange={setSettingsSection}
-                  onClose={() => setIsSettingsOpen(false)}
-                  runtime={runtime}
-                  routerProps={routerProps}
-                  routerModels={routerModels}
-                  runtimeTone={runtimeTone}
-                  runtimeLogs={runtimeLogs}
-                  isLogVisible={isLogVisible}
-                  modelsMaxInput={modelsMaxInput}
-                  sleepIdleInput={sleepIdleInput}
-                  onModelsMaxInputChange={setModelsMaxInput}
-                  onSleepIdleInputChange={setSleepIdleInput}
-                  onInstall={() =>
-                    runAction('install', async () => {
-                      setRuntime(await installRuntime());
-                    })
-                  }
-                  onStart={() =>
-                    runAction('start', async () => {
-                      setRuntime(await startRuntime());
-                      await refreshState();
-                    })
-                  }
-                  onStop={() =>
-                    runAction('stop', async () => {
-                      setRuntime(await stopRuntime());
-                      setRouterModels([]);
-                      setRouterProps(null);
-                    })
-                  }
-                  onRefresh={() =>
-                    runAction('refresh', async () => {
-                      await refreshState();
-                    })
-                  }
-                  onToggleLogs={handleToggleLogs}
-                  onRefreshLogs={handleRefreshLogs}
-                  onSaveRuntimeSettings={handleSaveRuntimeSettings}
-                  models={models}
-                  activeModelId={activeModelId}
-                  activeRunModelIds={activeRunModelIdSet}
-                  routerModelsByConfiguredId={routerModelsByConfiguredId}
-                  busyAction={busyAction}
-                  onActivateModel={model =>
-                    runAction('activate', async () => {
-                      const updated = await activateModel(model.id);
-                      setActiveModelId(updated.id);
-                      await refreshState();
-                    })
-                  }
-                  onLoadModel={handleLoadRouterModel}
-                  onUnloadModel={handleUnloadRouterModel}
-                  onReloadRouterModels={handleReloadRouterModels}
-                  modelAliasDrafts={modelAliasDrafts}
-                  modelParamRows={modelParamRows}
-                  onModelAliasChange={(modelId, value) =>
-                    setModelAliasDrafts(previous => ({...previous, [modelId]: value}))
-                  }
-                  onModelParamRowsChange={(modelId, rows) =>
-                    setModelParamRows(previous => ({...previous, [modelId]: rows}))
-                  }
-                  onSaveModel={handleSaveModelSettings}
-                  onDuplicateModel={handleDuplicateConfiguredModel}
-                  onDeleteModel={handleDeleteConfiguredModel}
-                  globalParamRows={globalParamRows}
-                  onGlobalParamRowsChange={setGlobalParamRows}
-                  onSaveGlobalParams={handleSaveGlobalParams}
-                  hostTools={hostTools}
-                  onAcknowledgeHostTools={handleHostToolsAcknowledgement}
-                  onHostToolsToggle={handleHostToolsToggle}
-                  searchQuery={searchQuery}
-                  searchResults={searchResults}
-                  isSearching={isSearching}
-                  onSearchQueryChange={setSearchQuery}
-                  onSearch={handleSearch}
-                  onUseHuggingFaceModel={(repoId, quant) =>
-                    runAction(`use:${repoId}:${quant}`, async () => {
-                      await useHuggingFaceModel({repoId, quant});
-                      await refreshState();
-                    })
-                  }
-                  conversations={conversations}
-                  onImportConversation={() => archiveInputRef.current?.click()}
-                  isImporting={busyAction === 'import-chat'}
-                  onClearAllChats={() => void handleClearAllConversations()}
-                />
-              )}
             </HStack>
+            {isSettingsOpen && (
+              <SettingsDialog
+                isOpen={isSettingsOpen}
+                onOpenChange={setSettingsOpen}
+                runtime={runtime}
+                routerProps={routerProps}
+                routerModels={routerModels}
+                runtimeTone={runtimeTone}
+                onInstall={() =>
+                  runAction('install', async () => {
+                    setRuntime(await installRuntime());
+                  })
+                }
+                onStart={() =>
+                  runAction('start', async () => {
+                    setRuntime(await startRuntime());
+                    await refreshState();
+                  })
+                }
+                onStop={() =>
+                  runAction('stop', async () => {
+                    setRuntime(await stopRuntime());
+                    setRouterModels([]);
+                    setRouterProps(null);
+                  })
+                }
+                onRefresh={() =>
+                  runAction('refresh', async () => {
+                    await refreshState();
+                  })
+                }
+                onToggleLogs={handleToggleLogs}
+                onRefreshLogs={handleRefreshLogs}
+                onSaveRuntimeSettings={handleSaveRuntimeSettings}
+                models={models}
+                activeModelId={activeModelId}
+                activeRunModelIds={activeRunModelIdSet}
+                routerModelsByConfiguredId={routerModelsByConfiguredId}
+                busyAction={busyAction}
+                onActivateModel={model =>
+                  runAction('activate', async () => {
+                    const updated = await activateModel(model.id);
+                    setActiveModelId(updated.id);
+                    await refreshState();
+                  })
+                }
+                onLoadModel={handleLoadRouterModel}
+                onUnloadModel={handleUnloadRouterModel}
+                onReloadRouterModels={handleReloadRouterModels}
+                onSaveModel={handleSaveModelSettings}
+                onDuplicateModel={handleDuplicateConfiguredModel}
+                onDeleteModel={handleDeleteConfiguredModel}
+                onSaveGlobalParams={handleSaveGlobalParams}
+                hostTools={hostTools}
+                onAcknowledgeHostTools={handleHostToolsAcknowledgement}
+                onHostToolsToggle={handleHostToolsToggle}
+                onSearch={handleSearch}
+                onUseHuggingFaceModel={(repoId, quant) =>
+                  runAction(`use:${repoId}:${quant}`, async () => {
+                    await useHuggingFaceModel({repoId, quant});
+                    await refreshState();
+                  })
+                }
+                conversations={conversations}
+                onImportConversation={() => archiveInputRef.current?.click()}
+                isImporting={busyAction === 'import-chat'}
+                onClearAllChats={() => void handleClearAllConversations()}
+              />
+            )}
           </LayoutContent>
         }
       />
     </AppShell>
-  );
-}
-
-type CommandStatusRow = {
-  id: string;
-  conversationId: string;
-  kind: 'compact';
-  runId?: string;
-  status: 'pending' | 'compacting' | 'completed' | 'failed' | 'aborted';
-  instructions: string;
-  message: string;
-  createdAt: string;
-  completedAt?: string;
-};
-
-function SettingsPanel({
-  section,
-  onSectionChange,
-  onClose,
-  runtime,
-  routerProps,
-  routerModels,
-  runtimeTone,
-  runtimeLogs,
-  isLogVisible,
-  modelsMaxInput,
-  sleepIdleInput,
-  onModelsMaxInputChange,
-  onSleepIdleInputChange,
-  onInstall,
-  onStart,
-  onStop,
-  onRefresh,
-  onToggleLogs,
-  onRefreshLogs,
-  onSaveRuntimeSettings,
-  models,
-  activeModelId,
-  activeRunModelIds,
-  routerModelsByConfiguredId,
-  busyAction,
-  onActivateModel,
-  onLoadModel,
-  onUnloadModel,
-  onReloadRouterModels,
-  modelAliasDrafts,
-  modelParamRows,
-  onModelAliasChange,
-  onModelParamRowsChange,
-  onSaveModel,
-  onDuplicateModel,
-  onDeleteModel,
-  globalParamRows,
-  onGlobalParamRowsChange,
-  onSaveGlobalParams,
-  hostTools,
-  onAcknowledgeHostTools,
-  onHostToolsToggle,
-  searchQuery,
-  searchResults,
-  isSearching,
-  onSearchQueryChange,
-  onSearch,
-  onUseHuggingFaceModel,
-  conversations,
-  onImportConversation,
-  isImporting,
-  onClearAllChats,
-}: {
-  section: SettingsSection;
-  onSectionChange: (section: SettingsSection) => void;
-  onClose: () => void;
-  runtime: RuntimeStatus | null;
-  routerProps: LlamaRouterProps | null;
-  routerModels: LlamaRouterModel[];
-  runtimeTone: 'green' | 'yellow' | 'blue';
-  runtimeLogs: string;
-  isLogVisible: boolean;
-  modelsMaxInput: string;
-  sleepIdleInput: string;
-  onModelsMaxInputChange: (value: string) => void;
-  onSleepIdleInputChange: (value: string) => void;
-  onInstall: () => void | Promise<void>;
-  onStart: () => void | Promise<void>;
-  onStop: () => void | Promise<void>;
-  onRefresh: () => void | Promise<void>;
-  onToggleLogs: () => void | Promise<void>;
-  onRefreshLogs: () => void | Promise<void>;
-  onSaveRuntimeSettings: () => void | Promise<void>;
-  models: ConfiguredModel[];
-  activeModelId: string | null;
-  activeRunModelIds: Set<string>;
-  routerModelsByConfiguredId: Map<string, LlamaRouterModel>;
-  busyAction: string | null;
-  onActivateModel: (model: ConfiguredModel) => void | Promise<void>;
-  onLoadModel: (model: ConfiguredModel) => void | Promise<void>;
-  onUnloadModel: (model: ConfiguredModel) => void | Promise<void>;
-  onReloadRouterModels: () => void | Promise<void>;
-  modelAliasDrafts: Record<string, string>;
-  modelParamRows: Record<string, ParamRow[]>;
-  onModelAliasChange: (modelId: string, value: string) => void;
-  onModelParamRowsChange: (modelId: string, rows: ParamRow[]) => void;
-  onSaveModel: (model: ConfiguredModel) => void | Promise<void>;
-  onDuplicateModel: (model: ConfiguredModel) => void | Promise<void>;
-  onDeleteModel: (model: ConfiguredModel) => void | Promise<void>;
-  globalParamRows: ParamRow[];
-  onGlobalParamRowsChange: (rows: ParamRow[]) => void;
-  onSaveGlobalParams: () => void | Promise<void>;
-  hostTools: HostToolSettings | null;
-  onAcknowledgeHostTools: () => void | Promise<void>;
-  onHostToolsToggle: (enabled: boolean) => void | Promise<void>;
-  searchQuery: string;
-  searchResults: HuggingFaceModelResult[];
-  isSearching: boolean;
-  onSearchQueryChange: (value: string) => void;
-  onSearch: () => void | Promise<void>;
-  onUseHuggingFaceModel: (repoId: string, quant: string) => void | Promise<void>;
-  conversations: ConversationListItem[];
-  onImportConversation: () => void;
-  isImporting: boolean;
-  onClearAllChats: () => void | Promise<void>;
-}) {
-  return (
-    <VStack gap={4} className="nelle-search-panel nelle-panel-content nelle-scroll">
-      <HStack gap={2} vAlign="center">
-        <Icon icon={Cog6ToothIcon} size="sm" color="secondary" />
-        <StackItem size="fill">
-          <Heading level={3}>Settings</Heading>
-        </StackItem>
-        <IconButton
-          label="Close settings"
-          tooltip="Close settings"
-          size="sm"
-          variant="ghost"
-          icon={<Icon icon={XMarkIcon} size="sm" />}
-          onClick={onClose}
-        />
-      </HStack>
-      <HStack gap={1} wrap="wrap">
-        {(['runtime', 'models', 'global', 'tools', 'chats'] as SettingsSection[]).map(item => (
-          <Button
-            key={item}
-            label={settingsSectionLabel(item)}
-            size="sm"
-            variant={section === item ? 'primary' : 'ghost'}
-            onClick={() => onSectionChange(item)}
-          />
-        ))}
-      </HStack>
-
-      {section === 'runtime' && (
-        <RuntimeSettingsSection
-          runtime={runtime}
-          routerProps={routerProps}
-          routerModels={routerModels}
-          runtimeTone={runtimeTone}
-          runtimeLogs={runtimeLogs}
-          isLogVisible={isLogVisible}
-          modelsMaxInput={modelsMaxInput}
-          sleepIdleInput={sleepIdleInput}
-          busyAction={busyAction}
-          onModelsMaxInputChange={onModelsMaxInputChange}
-          onSleepIdleInputChange={onSleepIdleInputChange}
-          onInstall={onInstall}
-          onStart={onStart}
-          onStop={onStop}
-          onRefresh={onRefresh}
-          onToggleLogs={onToggleLogs}
-          onRefreshLogs={onRefreshLogs}
-          onSaveRuntimeSettings={onSaveRuntimeSettings}
-        />
-      )}
-      {section === 'models' && (
-        <ModelSettingsSection
-          models={models}
-          activeModelId={activeModelId}
-          activeRunModelIds={activeRunModelIds}
-          runtime={runtime}
-          routerModelsByConfiguredId={routerModelsByConfiguredId}
-          busyAction={busyAction}
-          modelAliasDrafts={modelAliasDrafts}
-          modelParamRows={modelParamRows}
-          searchQuery={searchQuery}
-          searchResults={searchResults}
-          isSearching={isSearching}
-          onActivateModel={onActivateModel}
-          onLoadModel={onLoadModel}
-          onUnloadModel={onUnloadModel}
-          onReloadRouterModels={onReloadRouterModels}
-          onModelAliasChange={onModelAliasChange}
-          onModelParamRowsChange={onModelParamRowsChange}
-          onSaveModel={onSaveModel}
-          onDuplicateModel={onDuplicateModel}
-          onDeleteModel={onDeleteModel}
-          onSearchQueryChange={onSearchQueryChange}
-          onSearch={onSearch}
-          onUseHuggingFaceModel={onUseHuggingFaceModel}
-        />
-      )}
-      {section === 'global' && (
-        <Card padding={3}>
-          <VStack gap={3}>
-            <Heading level={3}>Global llama.cpp Params</Heading>
-            <KeyValueEditor rows={globalParamRows} onChange={onGlobalParamRowsChange} />
-            <Button
-              label="Save global params"
-              size="sm"
-              variant="primary"
-              isLoading={busyAction === 'global-params'}
-              onClick={onSaveGlobalParams}
-            />
-          </VStack>
-        </Card>
-      )}
-      {section === 'tools' && (
-        <HostToolsSettingsSection
-          hostTools={hostTools}
-          busyAction={busyAction}
-          onAcknowledgeHostTools={onAcknowledgeHostTools}
-          onHostToolsToggle={onHostToolsToggle}
-        />
-      )}
-      {section === 'chats' && (
-        <Card padding={3}>
-          <VStack gap={3}>
-            <Heading level={3}>Chats</Heading>
-            <Text type="supporting" color="secondary">
-              {conversations.length.toLocaleString()} conversations stored locally.
-            </Text>
-            <HStack gap={2} wrap="wrap">
-              <Button
-                label="Import archive"
-                size="sm"
-                variant="secondary"
-                icon={<Icon icon={ArrowUpTrayIcon} size="sm" />}
-                isLoading={isImporting}
-                onClick={onImportConversation}
-              />
-              <Button
-                label="Clear all chats"
-                size="sm"
-                variant="secondary"
-                icon={<Icon icon={TrashIcon} size="sm" />}
-                isLoading={busyAction === 'clear-all-chats'}
-                onClick={onClearAllChats}
-              />
-            </HStack>
-          </VStack>
-        </Card>
-      )}
-    </VStack>
-  );
-}
-
-function RuntimeSettingsSection({
-  runtime,
-  routerProps,
-  routerModels,
-  runtimeTone,
-  runtimeLogs,
-  isLogVisible,
-  modelsMaxInput,
-  sleepIdleInput,
-  busyAction,
-  onModelsMaxInputChange,
-  onSleepIdleInputChange,
-  onInstall,
-  onStart,
-  onStop,
-  onRefresh,
-  onToggleLogs,
-  onRefreshLogs,
-  onSaveRuntimeSettings,
-}: {
-  runtime: RuntimeStatus | null;
-  routerProps: LlamaRouterProps | null;
-  routerModels: LlamaRouterModel[];
-  runtimeTone: 'green' | 'yellow' | 'blue';
-  runtimeLogs: string;
-  isLogVisible: boolean;
-  modelsMaxInput: string;
-  sleepIdleInput: string;
-  busyAction: string | null;
-  onModelsMaxInputChange: (value: string) => void;
-  onSleepIdleInputChange: (value: string) => void;
-  onInstall: () => void | Promise<void>;
-  onStart: () => void | Promise<void>;
-  onStop: () => void | Promise<void>;
-  onRefresh: () => void | Promise<void>;
-  onToggleLogs: () => void | Promise<void>;
-  onRefreshLogs: () => void | Promise<void>;
-  onSaveRuntimeSettings: () => void | Promise<void>;
-}) {
-  const loadedRouterModelCount = routerModels.filter(
-    model => model.status === 'loaded' || model.status === 'sleeping',
-  ).length;
-  const loadingRouterModelCount = routerModels.filter(model => model.status === 'loading').length;
-  const routerCapacityLabel =
-    runtime?.running && routerProps?.maxInstances != null
-      ? `Router capacity: ${loadedRouterModelCount}/${routerProps.maxInstances} loaded${
-          loadingRouterModelCount > 0 ? `, ${loadingRouterModelCount} loading` : ''
-        }`
-      : runtime?.running
-        ? 'Router capacity unavailable'
-        : 'Router stopped';
-
-  return (
-    <Card padding={3}>
-      <VStack gap={3}>
-        <HStack gap={2} vAlign="center">
-          <Icon icon={CpuChipIcon} size="sm" color="secondary" />
-          <Heading level={3}>llama.cpp</Heading>
-        </HStack>
-        <Token
-          label={
-            runtime?.running
-              ? `Running on ${runtime.host}:${runtime.port}`
-              : runtime?.installed
-                ? 'Installed, stopped'
-                : 'Not installed'
-          }
-          color={runtimeTone}
-        />
-        <Token label={routerCapacityLabel} color={runtime?.running ? 'blue' : 'yellow'} />
-        <Text type="supporting" color="secondary" className="nelle-code">
-          {runtime?.binaryPath ?? 'No llama-server binary detected'}
-        </Text>
-        <Text type="supporting" color="secondary" className="nelle-code">
-          {runtime?.logPath ?? 'llama-server log path unavailable'}
-        </Text>
-        <HStack gap={2} wrap="wrap">
-          <Button
-            label={runtime?.installed ? 'Update' : 'Install'}
-            size="sm"
-            variant="secondary"
-            icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-            isLoading={busyAction === 'install'}
-            onClick={onInstall}
-          />
-          <Button
-            label="Start"
-            size="sm"
-            variant="primary"
-            icon={<Icon icon={PlayIcon} size="sm" />}
-            isDisabled={!runtime?.installed || runtime.running}
-            isLoading={busyAction === 'start'}
-            onClick={onStart}
-          />
-          <Button
-            label="Stop"
-            size="sm"
-            variant="secondary"
-            icon={<Icon icon={StopIcon} size="sm" />}
-            isDisabled={!runtime?.running}
-            isLoading={busyAction === 'stop'}
-            onClick={onStop}
-          />
-          <Button
-            label="Refresh"
-            size="sm"
-            variant="ghost"
-            icon={<Icon icon={ArrowPathIcon} size="sm" />}
-            onClick={onRefresh}
-          />
-          <Button
-            label={isLogVisible ? 'Hide logs' : 'Show logs'}
-            size="sm"
-            variant="ghost"
-            isLoading={busyAction === 'runtime-logs'}
-            onClick={onToggleLogs}
-          />
-          {isLogVisible && (
-            <Button
-              label="Refresh logs"
-              size="sm"
-              variant="ghost"
-              isLoading={busyAction === 'runtime-logs'}
-              onClick={onRefreshLogs}
-            />
-          )}
-        </HStack>
-        {isLogVisible && (
-          <CodeBlock
-            code={runtimeLogs || 'No llama-server log output yet.'}
-            language="text"
-            width="100%"
-            maxHeight="calc(var(--spacing-10) * 8)"
-            isWrapped
-          />
-        )}
-        <VStack gap={2}>
-          <TextInput
-            label="Max loaded models"
-            value={modelsMaxInput}
-            onChange={onModelsMaxInputChange}
-            description="Default is 1. Requires a llama.cpp restart."
-          />
-          <TextInput
-            label="Sleep idle seconds"
-            value={sleepIdleInput}
-            onChange={onSleepIdleInputChange}
-            description="Default is 90. Requires a llama.cpp restart."
-          />
-        </VStack>
-        <Button
-          label="Save runtime settings"
-          size="sm"
-          variant="secondary"
-          isLoading={busyAction === 'runtime-settings'}
-          onClick={onSaveRuntimeSettings}
-        />
-      </VStack>
-    </Card>
-  );
-}
-
-function HostToolsSettingsSection({
-  hostTools,
-  busyAction,
-  onAcknowledgeHostTools,
-  onHostToolsToggle,
-}: {
-  hostTools: HostToolSettings | null;
-  busyAction: string | null;
-  onAcknowledgeHostTools: () => void | Promise<void>;
-  onHostToolsToggle: (enabled: boolean) => void | Promise<void>;
-}) {
-  const acknowledged = hostTools?.acknowledged === true;
-  const enabled = hostTools?.enabled === true;
-  return (
-    <Card padding={3}>
-      <VStack gap={3}>
-        <HStack gap={2} vAlign="center">
-          <Icon icon={ShieldCheckIcon} size="sm" color="secondary" />
-          <Heading level={3}>Host Tools</Heading>
-          <StackItem size="fill" />
-          <Token label={enabled ? 'enabled' : 'disabled'} color={enabled ? 'yellow' : 'blue'} />
-        </HStack>
-        {!acknowledged && (
-          <Banner
-            status="warning"
-            title="Host file and shell tools run with the same OS permissions as the user who launched Nelle."
-          />
-        )}
-        <Switch
-          label="Enable host file and shell tools"
-          description="Allows Pi to read files, edit files, search the project, and run shell commands from Nelle conversations."
-          value={enabled}
-          isDisabled={!acknowledged}
-          disabledMessage="Acknowledge the host tool warning first."
-          isLoading={busyAction === 'host-tools'}
-          changeAction={checked => onHostToolsToggle(checked)}
-        />
-        {!acknowledged && (
-          <Button
-            label="Acknowledge and enable"
-            size="sm"
-            variant="primary"
-            icon={<Icon icon={ShieldCheckIcon} size="sm" />}
-            isLoading={busyAction === 'host-tools'}
-            onClick={onAcknowledgeHostTools}
-          />
-        )}
-        {acknowledged && (
-          <Text type="supporting" color="secondary">
-            Tool calls are shown in chat and stored in the local audit log for each conversation.
-          </Text>
-        )}
-      </VStack>
-    </Card>
-  );
-}
-
-function ModelSettingsSection({
-  models,
-  activeModelId,
-  activeRunModelIds,
-  runtime,
-  routerModelsByConfiguredId,
-  busyAction,
-  modelAliasDrafts,
-  modelParamRows,
-  searchQuery,
-  searchResults,
-  isSearching,
-  onActivateModel,
-  onLoadModel,
-  onUnloadModel,
-  onReloadRouterModels,
-  onModelAliasChange,
-  onModelParamRowsChange,
-  onSaveModel,
-  onDuplicateModel,
-  onDeleteModel,
-  onSearchQueryChange,
-  onSearch,
-  onUseHuggingFaceModel,
-}: {
-  models: ConfiguredModel[];
-  activeModelId: string | null;
-  activeRunModelIds: Set<string>;
-  runtime: RuntimeStatus | null;
-  routerModelsByConfiguredId: Map<string, LlamaRouterModel>;
-  busyAction: string | null;
-  modelAliasDrafts: Record<string, string>;
-  modelParamRows: Record<string, ParamRow[]>;
-  searchQuery: string;
-  searchResults: HuggingFaceModelResult[];
-  isSearching: boolean;
-  onActivateModel: (model: ConfiguredModel) => void | Promise<void>;
-  onLoadModel: (model: ConfiguredModel) => void | Promise<void>;
-  onUnloadModel: (model: ConfiguredModel) => void | Promise<void>;
-  onReloadRouterModels: () => void | Promise<void>;
-  onModelAliasChange: (modelId: string, value: string) => void;
-  onModelParamRowsChange: (modelId: string, rows: ParamRow[]) => void;
-  onSaveModel: (model: ConfiguredModel) => void | Promise<void>;
-  onDuplicateModel: (model: ConfiguredModel) => void | Promise<void>;
-  onDeleteModel: (model: ConfiguredModel) => void | Promise<void>;
-  onSearchQueryChange: (value: string) => void;
-  onSearch: () => void | Promise<void>;
-  onUseHuggingFaceModel: (repoId: string, quant: string) => void | Promise<void>;
-}) {
-  return (
-    <VStack gap={3}>
-      <Card padding={3}>
-        <VStack gap={3}>
-          <HStack gap={2} vAlign="center">
-            <StackItem size="fill">
-              <Heading level={3}>Configured Models</Heading>
-            </StackItem>
-            <Button
-              label="Reload"
-              size="sm"
-              variant="ghost"
-              icon={<Icon icon={ArrowPathIcon} size="sm" />}
-              isDisabled={!runtime?.running}
-              isLoading={busyAction === 'router-reload'}
-              onClick={onReloadRouterModels}
-            />
-          </HStack>
-          {models.length === 0 && (
-            <Text type="supporting" color="secondary">
-              Search Hugging Face and choose a GGUF quant to create the first model.
-            </Text>
-          )}
-          {models.map(model => (
-            <ModelSettingsRow
-              key={model.id}
-              model={model}
-              activeModelId={activeModelId}
-              isRunLocked={activeRunModelIds.has(model.id)}
-              runtime={runtime}
-              routerModel={routerModelsByConfiguredId.get(model.id)}
-              busyAction={busyAction}
-              aliasDraft={modelAliasDrafts[model.id] ?? model.name}
-              paramRows={modelParamRows[model.id] ?? []}
-              onActivateModel={onActivateModel}
-              onLoadModel={onLoadModel}
-              onUnloadModel={onUnloadModel}
-              onAliasChange={value => onModelAliasChange(model.id, value)}
-              onParamRowsChange={rows => onModelParamRowsChange(model.id, rows)}
-              onSaveModel={onSaveModel}
-              onDuplicateModel={onDuplicateModel}
-              onDeleteModel={onDeleteModel}
-            />
-          ))}
-        </VStack>
-      </Card>
-
-      <Card padding={3}>
-        <VStack gap={3}>
-          <HStack gap={2} vAlign="center">
-            <Icon icon={MagnifyingGlassIcon} size="sm" color="secondary" />
-            <Heading level={3}>Hugging Face GGUF Search</Heading>
-          </HStack>
-          <TextInput
-            label="Search query"
-            value={searchQuery}
-            onChange={onSearchQueryChange}
-            placeholder="qwen coder gguf"
-          />
-          <Button
-            label="Search GGUF models"
-            variant="primary"
-            icon={<Icon icon={MagnifyingGlassIcon} size="sm" />}
-            isLoading={isSearching}
-            onClick={onSearch}
-          />
-          <VStack gap={3}>
-            {searchResults.map(result => (
-              <VStack key={result.id} gap={2} className="nelle-model-result">
-                <VStack gap={0}>
-                  <Text type="label" weight="semibold">
-                    {result.id}
-                  </Text>
-                  <Text type="supporting" color="secondary">
-                    {result.downloads?.toLocaleString() ?? '0'} downloads
-                  </Text>
-                </VStack>
-                {result.quants.map(quant => (
-                  <HStack key={quant.quant} gap={2} vAlign="center">
-                    <StackItem size="fill" className="nelle-tight">
-                      <VStack gap={0}>
-                        <Text type="supporting" className="nelle-code">
-                          {quant.quant}
-                        </Text>
-                        <Text type="supporting" color="secondary">
-                          {formatBytes(quant.size)}
-                          {quant.files.length > 1 ? ` across ${quant.files.length} files` : ''}
-                        </Text>
-                      </VStack>
-                    </StackItem>
-                    <Button
-                      label="Use"
-                      size="sm"
-                      variant="secondary"
-                      isLoading={busyAction === `use:${result.id}:${quant.quant}`}
-                      onClick={() => onUseHuggingFaceModel(result.id, quant.quant)}
-                    />
-                  </HStack>
-                ))}
-              </VStack>
-            ))}
-          </VStack>
-        </VStack>
-      </Card>
-    </VStack>
-  );
-}
-
-function ModelSettingsRow({
-  model,
-  activeModelId,
-  isRunLocked,
-  runtime,
-  routerModel,
-  busyAction,
-  aliasDraft,
-  paramRows,
-  onActivateModel,
-  onLoadModel,
-  onUnloadModel,
-  onAliasChange,
-  onParamRowsChange,
-  onSaveModel,
-  onDuplicateModel,
-  onDeleteModel,
-}: {
-  model: ConfiguredModel;
-  activeModelId: string | null;
-  isRunLocked: boolean;
-  runtime: RuntimeStatus | null;
-  routerModel?: LlamaRouterModel;
-  busyAction: string | null;
-  aliasDraft: string;
-  paramRows: ParamRow[];
-  onActivateModel: (model: ConfiguredModel) => void | Promise<void>;
-  onLoadModel: (model: ConfiguredModel) => void | Promise<void>;
-  onUnloadModel: (model: ConfiguredModel) => void | Promise<void>;
-  onAliasChange: (value: string) => void;
-  onParamRowsChange: (rows: ParamRow[]) => void;
-  onSaveModel: (model: ConfiguredModel) => void | Promise<void>;
-  onDuplicateModel: (model: ConfiguredModel) => void | Promise<void>;
-  onDeleteModel: (model: ConfiguredModel) => void | Promise<void>;
-}) {
-  const routerStatus = routerModel?.status ?? (runtime?.running ? 'unlisted' : 'stopped');
-  const isLoaded = routerStatus === 'loaded' || routerStatus === 'sleeping';
-  const isLoading = routerStatus === 'loading';
-
-  return (
-    <VStack gap={2} className="nelle-model-settings-row">
-      <HStack gap={2} vAlign="center">
-        <StackItem size="fill">
-          <TextInput label="Alias" value={aliasDraft} onChange={onAliasChange} />
-        </StackItem>
-        <Token label={formatRouterStatus(routerStatus)} color={routerStatusColor(routerStatus)} />
-        {isRunLocked && <Token label="active run" color="yellow" />}
-      </HStack>
-      <Text type="supporting" color="secondary" className="nelle-code">
-        {model.hfRef ?? model.presetName}
-      </Text>
-      {routerModel && (
-        <Text type="supporting" color="secondary" className="nelle-code">
-          router id: {routerModel.routerModelId ?? routerModel.sectionId}
-        </Text>
-      )}
-      <KeyValueEditor rows={paramRows} onChange={onParamRowsChange} />
-      <HStack gap={1} wrap="wrap">
-        <Button
-          label={model.id === activeModelId ? 'Selected' : 'Select'}
-          size="sm"
-          variant={model.id === activeModelId ? 'primary' : 'secondary'}
-          isLoading={busyAction === 'activate'}
-          onClick={() => onActivateModel(model)}
-        />
-        <Button
-          label="Load"
-          size="sm"
-          variant="secondary"
-          isDisabled={!runtime?.running || isLoaded || isLoading}
-          isLoading={busyAction === `load:${model.id}`}
-          onClick={() => onLoadModel(model)}
-        />
-        <Button
-          label="Unload"
-          size="sm"
-          variant="ghost"
-          isDisabled={!runtime?.running || !isLoaded || isRunLocked}
-          isLoading={busyAction === `unload:${model.id}`}
-          onClick={() => onUnloadModel(model)}
-        />
-        <Button
-          label="Save"
-          size="sm"
-          variant="secondary"
-          isDisabled={isRunLocked}
-          isLoading={busyAction === `model-save:${model.id}`}
-          onClick={() => onSaveModel(model)}
-        />
-        <IconButton
-          label="Duplicate model"
-          tooltip="Duplicate model"
-          size="sm"
-          variant="ghost"
-          icon={<Icon icon={DocumentDuplicateIcon} size="sm" />}
-          isLoading={busyAction === `model-duplicate:${model.id}`}
-          onClick={() => onDuplicateModel(model)}
-        />
-        <IconButton
-          label="Remove model"
-          tooltip="Remove model"
-          size="sm"
-          variant="ghost"
-          icon={<Icon icon={TrashIcon} size="sm" />}
-          isDisabled={isRunLocked}
-          isLoading={busyAction === `model-delete:${model.id}`}
-          onClick={() => onDeleteModel(model)}
-        />
-      </HStack>
-    </VStack>
-  );
-}
-
-function KeyValueEditor({
-  rows,
-  onChange,
-}: {
-  rows: ParamRow[];
-  onChange: (rows: ParamRow[]) => void;
-}) {
-  const visibleRows = rows.length > 0 ? rows : [{id: createParamRowId(), key: '', value: ''}];
-  return (
-    <VStack gap={2}>
-      {visibleRows.map(row => (
-        <HStack key={row.id} gap={1} vAlign="end">
-          <StackItem size="fill">
-            <TextInput
-              label="Key"
-              value={row.key}
-              onChange={value => onChange(updateParamRows(visibleRows, row.id, {key: value}))}
-            />
-          </StackItem>
-          <StackItem size="fill">
-            <TextInput
-              label="Value"
-              value={row.value}
-              onChange={value => onChange(updateParamRows(visibleRows, row.id, {value}))}
-            />
-          </StackItem>
-          <IconButton
-            label="Remove parameter"
-            tooltip="Remove parameter"
-            size="sm"
-            variant="ghost"
-            icon={<Icon icon={TrashIcon} size="sm" />}
-            onClick={() => onChange(visibleRows.filter(item => item.id !== row.id))}
-          />
-        </HStack>
-      ))}
-      <Button
-        label="Add parameter"
-        size="sm"
-        variant="ghost"
-        icon={<Icon icon={PlusIcon} size="sm" />}
-        onClick={() => onChange([...visibleRows, {id: createParamRowId(), key: '', value: ''}])}
-      />
-    </VStack>
-  );
-}
-
-function settingsSectionLabel(section: SettingsSection): string {
-  if (section === 'runtime') {
-    return 'Runtime';
-  }
-  if (section === 'models') {
-    return 'Models';
-  }
-  if (section === 'global') {
-    return 'Global Params';
-  }
-  if (section === 'tools') {
-    return 'Tools';
-  }
-  return 'Chats';
-}
-
-function ContextWindowUsage({context}: {context: ConversationContextUsage}) {
-  const totalTokens = positiveTokenCount(context.totalTokens);
-  if (totalTokens == null) {
-    return null;
-  }
-  const usedTokens = positiveTokenCount(context.usedTokens) ?? 0;
-  const progressTokens = Math.min(usedTokens, totalTokens);
-  const tooltip = `Context: ${formatInteger(usedTokens)} / ${formatInteger(totalTokens)} tokens`;
-
-  return (
-    <Tooltip content={tooltip}>
-      <HStack
-        vAlign="center"
-        className="nelle-context-progress"
-        data-testid="composer-context-progress"
-      >
-        <ProgressBar
-          label="Context window usage"
-          value={progressTokens}
-          max={totalTokens}
-          isLabelHidden
-          variant={contextProgressVariant(context)}
-        />
-      </HStack>
-    </Tooltip>
-  );
-}
-
-function AttachmentDrawer({
-  attachments,
-  canRenderPdfImages,
-  pdfImageModeEnabled,
-  onRemove,
-  onPdfImageModeChange,
-}: {
-  attachments: DraftAttachment[];
-  canRenderPdfImages: boolean;
-  pdfImageModeEnabled: boolean;
-  onRemove: (id: string) => void;
-  onPdfImageModeChange: (enabled: boolean) => void;
-}) {
-  return (
-    <ChatComposerDrawer
-      count={attachments.length}
-      label="Attachments"
-      data-testid="attachment-drawer"
-    >
-      <VStack gap={2}>
-        {canRenderPdfImages && (
-          <Switch
-            label="Render PDFs as images"
-            description={`Converts up to ${ATTACHMENT_LIMITS.maxRenderedPdfPages.toLocaleString()} PDF pages into image attachments for vision models.`}
-            value={pdfImageModeEnabled}
-            changeAction={onPdfImageModeChange}
-          />
-        )}
-        {attachments.length > 0 && (
-          <HStack gap={1} vAlign="center" wrap="wrap">
-            {attachments.map(attachment => (
-              <Tooltip key={attachment.id} content={attachmentTooltip(attachment)}>
-                <Token
-                  size="sm"
-                  color={
-                    attachment.kind === 'image'
-                      ? 'blue'
-                      : attachment.kind === 'pdf'
-                        ? 'red'
-                        : 'gray'
-                  }
-                  label={attachment.name}
-                  icon={
-                    <Icon
-                      icon={attachment.kind === 'image' ? PhotoIcon : DocumentTextIcon}
-                      size="sm"
-                    />
-                  }
-                  onRemove={() => onRemove(attachment.id)}
-                />
-              </Tooltip>
-            ))}
-          </HStack>
-        )}
-      </VStack>
-    </ChatComposerDrawer>
   );
 }
 
@@ -2976,108 +1793,6 @@ function conversationStatusForRunKind(kind: ActiveRunKind): ConversationListItem
   return null;
 }
 
-function getContextOverflowMessage(context: ConversationContextUsage): string | null {
-  const ratio = contextUsageRatio(context);
-  if (ratio == null || ratio < 1) {
-    return null;
-  }
-  return 'The selected model context window is full.';
-}
-
-function getContextWarningMessage(context: ConversationContextUsage): string | null {
-  const ratio = contextUsageRatio(context);
-  if (ratio == null || ratio < 0.8 || ratio >= 1) {
-    return null;
-  }
-  return `Context is ${Math.round(ratio * 100)}% full.`;
-}
-
-function contextProgressVariant(context: ConversationContextUsage): 'accent' | 'warning' | 'error' {
-  const ratio = contextUsageRatio(context);
-  if (ratio == null || ratio < 0.8) {
-    return 'accent';
-  }
-  return ratio >= 1 ? 'error' : 'warning';
-}
-
-function contextUsageRatio(context: ConversationContextUsage): number | null {
-  const usedTokens = positiveTokenCount(context.usedTokens);
-  const totalTokens = positiveTokenCount(context.totalTokens);
-  if (usedTokens == null || totalTokens == null) {
-    return null;
-  }
-  return usedTokens / totalTokens;
-}
-
-function positiveTokenCount(value: number | undefined): number | undefined {
-  return value != null && Number.isFinite(value) && value > 0 ? Math.round(value) : undefined;
-}
-
-function formatInteger(value: number): string {
-  return value.toLocaleString();
-}
-
-function ComposerModelSelectorOption({
-  option,
-  detail,
-}: {
-  option: SelectorOptionData;
-  detail?: ComposerModelOptionDetail;
-}) {
-  if (!detail) {
-    return <SelectorOption label={option.label ?? option.value} />;
-  }
-
-  return (
-    <SelectorOption
-      label={option.label ?? option.value}
-      description={
-        <VStack gap={1}>
-          <Text type="supporting" color="secondary">
-            {formatComposerModelDescription(detail)}
-          </Text>
-          {detail.routerStatus === 'loading' && (
-            <ProgressBar
-              label={`${detail.model.name} load progress`}
-              isLabelHidden
-              value={detail.progressPercent ?? 0}
-              isIndeterminate={detail.progressPercent == null}
-              variant="accent"
-            />
-          )}
-        </VStack>
-      }
-      endContent={
-        <HStack gap={1} vAlign="center" wrap="wrap">
-          {detail.isFavorite && <Token size="sm" color="blue" label="favorite" />}
-          <Token
-            size="sm"
-            color={routerStatusColor(detail.routerStatus)}
-            label={formatRouterStatus(detail.routerStatus)}
-          />
-          {detail.routerStatus === 'loading' && detail.progressPercent != null && (
-            <Token size="sm" color="blue" label={`${Math.round(detail.progressPercent)}%`} />
-          )}
-        </HStack>
-      }
-    />
-  );
-}
-
-function formatComposerModelDescription(detail: ComposerModelOptionDetail): string {
-  const parts = [detail.model.hfRef ?? detail.model.presetName];
-  const contextWindow =
-    positiveTokenCount(detail.props?.contextWindow) ??
-    positiveTokenCount(detail.model.params.contextSize);
-  if (contextWindow != null) {
-    parts.push(`ctx ${formatInteger(contextWindow)}`);
-  }
-  if (detail.props) {
-    parts.push(detail.props.modalities.vision ? 'images supported' : 'text only');
-  }
-  return parts.join(' | ');
-}
-
 function normalizeRouterProgressPercent(progress: number | undefined): number | null {
   if (progress == null || !Number.isFinite(progress)) {
     return null;
@@ -3127,455 +1842,6 @@ function formatCommandStatus(status: CommandStatusRow['status']): string {
     return 'aborted';
   }
   return 'pending';
-}
-
-type ConversationListRow =
-  | {
-      key: string;
-      type: 'section';
-      label: string;
-      count: number;
-    }
-  | {
-      key: string;
-      type: 'conversation';
-      conversation: ConversationListItem;
-    };
-
-function NelleSideNav({
-  isCollapsed,
-  onCollapsedChange,
-  notice,
-  onDismissNotice,
-  isSettingsOpen,
-  onToggleSettings,
-  onNewConversation,
-  isNewConversationBusy,
-  onImportConversation,
-  isImportBusy,
-  archiveInputRef,
-  onArchivePickerChange,
-  conversationSearch,
-  onConversationSearchChange,
-  conversations,
-  activeConversationId,
-  onSelectConversation,
-  onTogglePin,
-  onRename,
-  onReset,
-  onExport,
-  onClone,
-  onDelete,
-}: {
-  isCollapsed: boolean;
-  onCollapsedChange: (isCollapsed: boolean) => void;
-  notice: AppNotice | null;
-  onDismissNotice: () => void;
-  isSettingsOpen: boolean;
-  onToggleSettings: () => void;
-  onNewConversation: () => void | Promise<void>;
-  isNewConversationBusy: boolean;
-  onImportConversation: () => void;
-  isImportBusy: boolean;
-  archiveInputRef: {current: HTMLInputElement | null};
-  onArchivePickerChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  conversationSearch: string;
-  onConversationSearchChange: (value: string) => void;
-  conversations: ConversationListItem[];
-  activeConversationId: string;
-  onSelectConversation: (conversationId: string) => void | Promise<void>;
-  onTogglePin: (conversation: ConversationListItem) => void | Promise<void>;
-  onRename: (conversation: ConversationListItem) => void | Promise<void>;
-  onReset: (conversationId: string) => void | Promise<void>;
-  onExport: (conversation: ConversationListItem) => void | Promise<void>;
-  onClone: (conversation: ConversationListItem) => void | Promise<void>;
-  onDelete: (conversation: ConversationListItem) => void | Promise<void>;
-}) {
-  return (
-    <SideNav
-      data-testid="nelle-side-nav"
-      className="nelle-side-nav"
-      resizable={{
-        defaultWidth: 360,
-        minWidth: 300,
-        maxWidth: 440,
-        autoSaveId: 'nelle.sideNav.width',
-      }}
-      collapsible={{
-        isCollapsed,
-        onCollapsedChange,
-        hasButton: false,
-      }}
-      header={
-        <VStack gap={0}>
-          <VisuallyHidden as="h2">Nelle Agent</VisuallyHidden>
-          <SideNavHeading
-            heading="Nelle Agent"
-            subheading="Local Pi + llama.cpp POC"
-            icon={<Icon icon={ChatBubbleLeftRightIcon} size="md" color="accent" />}
-            headerEndContent={
-              <IconButton
-                label="Settings"
-                tooltip="Settings"
-                size="sm"
-                variant={isSettingsOpen ? 'secondary' : 'ghost'}
-                icon={<Icon icon={Cog6ToothIcon} size="sm" />}
-                onClick={onToggleSettings}
-              />
-            }
-          />
-        </VStack>
-      }
-      topContent={
-        isCollapsed ? undefined : (
-          <VStack gap={3} className="nelle-side-nav-top">
-            {notice && (
-              <Banner
-                status={notice.type}
-                title={notice.text}
-                isDismissable
-                onDismiss={onDismissNotice}
-              />
-            )}
-            <HStack gap={2} vAlign="center">
-              <Button
-                label="New chat"
-                size="sm"
-                variant="secondary"
-                icon={<Icon icon={PlusIcon} size="sm" />}
-                isLoading={isNewConversationBusy}
-                onClick={onNewConversation}
-              />
-              <Button
-                label="Import"
-                size="sm"
-                variant="ghost"
-                icon={<Icon icon={ArrowUpTrayIcon} size="sm" />}
-                isLoading={isImportBusy}
-                onClick={onImportConversation}
-              />
-              <input
-                ref={archiveInputRef}
-                aria-label="Import conversation archive"
-                className="nelle-hidden-file-input"
-                type="file"
-                accept=".nelle-chat.zip,application/zip"
-                onChange={onArchivePickerChange}
-              />
-            </HStack>
-            <TextInput
-              label="Search conversations"
-              value={conversationSearch}
-              onChange={onConversationSearchChange}
-              placeholder="Search chats"
-            />
-          </VStack>
-        )
-      }
-      footerIcons={
-        <HStack gap={1} hAlign="center" vAlign="center" className="nelle-side-nav-footer-icons">
-          <IconButton
-            label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            tooltip={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            size="sm"
-            variant="ghost"
-            icon={<Icon icon={isCollapsed ? ChevronRightIcon : ChevronLeftIcon} size="sm" />}
-            onClick={() => onCollapsedChange(!isCollapsed)}
-          />
-          {isCollapsed && (
-            <IconButton
-              label="New chat"
-              tooltip="New chat"
-              size="sm"
-              variant="primary"
-              icon={<Icon icon={PlusIcon} size="sm" />}
-              isLoading={isNewConversationBusy}
-              onClick={() => void onNewConversation()}
-            />
-          )}
-          {isCollapsed && (
-            <IconButton
-              label="Settings"
-              tooltip="Settings"
-              size="sm"
-              variant={isSettingsOpen ? 'secondary' : 'ghost'}
-              icon={<Icon icon={Cog6ToothIcon} size="sm" />}
-              onClick={() => {
-                onCollapsedChange(false);
-                if (!isSettingsOpen) {
-                  onToggleSettings();
-                }
-              }}
-            />
-          )}
-        </HStack>
-      }
-    >
-      {isCollapsed ? (
-        <VStack className="nelle-side-nav-collapsed-spacer" />
-      ) : (
-        <VStack gap={2} className="nelle-side-nav-conversations">
-          <HStack gap={2} vAlign="center" className="nelle-side-nav-section-heading">
-            <Text type="supporting" color="secondary" weight="semibold">
-              Conversations
-            </Text>
-            <Token size="sm" color="gray" label={String(conversations.length)} />
-          </HStack>
-          <ConversationVirtualList
-            conversations={conversations}
-            query={conversationSearch}
-            activeConversationId={activeConversationId}
-            onSelect={onSelectConversation}
-            onTogglePin={onTogglePin}
-            onRename={onRename}
-            onReset={onReset}
-            onExport={onExport}
-            onClone={onClone}
-            onDelete={onDelete}
-          />
-        </VStack>
-      )}
-    </SideNav>
-  );
-}
-
-function ConversationVirtualList({
-  conversations,
-  query,
-  activeConversationId,
-  onSelect,
-  onTogglePin,
-  onRename,
-  onReset,
-  onExport,
-  onClone,
-  onDelete,
-}: {
-  conversations: ConversationListItem[];
-  query: string;
-  activeConversationId: string;
-  onSelect: (conversationId: string) => void | Promise<void>;
-  onTogglePin: (conversation: ConversationListItem) => void | Promise<void>;
-  onRename: (conversation: ConversationListItem) => void | Promise<void>;
-  onReset: (conversationId: string) => void | Promise<void>;
-  onExport: (conversation: ConversationListItem) => void | Promise<void>;
-  onClone: (conversation: ConversationListItem) => void | Promise<void>;
-  onDelete: (conversation: ConversationListItem) => void | Promise<void>;
-}) {
-  const rows = useMemo(() => buildConversationRows(conversations, query), [conversations, query]);
-  const scrollRef = useRef<HTMLElement | null>(null);
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: index => (rows[index]?.type === 'section' ? 30 : 48),
-    getItemKey: index => rows[index]?.key ?? index,
-    overscan: 10,
-  });
-
-  if (rows.length === 0) {
-    return (
-      <VStack data-testid="conversation-list" className="nelle-conversation-list-empty">
-        <Text type="supporting" color="secondary">
-          No conversations match this search.
-        </Text>
-      </VStack>
-    );
-  }
-
-  return (
-    <VStack
-      ref={scrollRef}
-      data-testid="conversation-list"
-      gap={0}
-      className="nelle-conversation-list"
-    >
-      <VStack
-        gap={0}
-        className="nelle-conversation-virtual-space"
-        style={{height: `${virtualizer.getTotalSize()}px`}}
-      >
-        {virtualizer.getVirtualItems().map(virtualRow => {
-          const row = rows[virtualRow.index];
-          if (!row) {
-            return null;
-          }
-          return (
-            <VStack
-              key={row.key}
-              ref={virtualizer.measureElement}
-              data-index={virtualRow.index}
-              gap={0}
-              className="nelle-conversation-virtual-row"
-              style={{transform: `translateY(${virtualRow.start}px)`}}
-            >
-              {row.type === 'section' ? (
-                <ConversationSectionRow row={row} />
-              ) : (
-                <ConversationRow
-                  conversation={row.conversation}
-                  isActive={row.conversation.id === activeConversationId}
-                  onSelect={onSelect}
-                  onTogglePin={onTogglePin}
-                  onRename={onRename}
-                  onReset={onReset}
-                  onExport={onExport}
-                  onClone={onClone}
-                  onDelete={onDelete}
-                />
-              )}
-            </VStack>
-          );
-        })}
-      </VStack>
-    </VStack>
-  );
-}
-
-function ConversationSectionRow({row}: {row: Extract<ConversationListRow, {type: 'section'}>}) {
-  return (
-    <HStack
-      gap={2}
-      vAlign="center"
-      className="nelle-conversation-section-row"
-      data-testid={`conversation-section-${row.label.toLowerCase()}`}
-    >
-      <Text type="supporting" color="secondary" weight="semibold">
-        {row.label}
-      </Text>
-      <Token size="sm" color="gray" label={String(row.count)} />
-    </HStack>
-  );
-}
-
-function ConversationRow({
-  conversation,
-  isActive,
-  onSelect,
-  onTogglePin,
-  onRename,
-  onReset,
-  onExport,
-  onClone,
-  onDelete,
-}: {
-  conversation: ConversationListItem;
-  isActive: boolean;
-  onSelect: (conversationId: string) => void | Promise<void>;
-  onTogglePin: (conversation: ConversationListItem) => void | Promise<void>;
-  onRename: (conversation: ConversationListItem) => void | Promise<void>;
-  onReset: (conversationId: string) => void | Promise<void>;
-  onExport: (conversation: ConversationListItem) => void | Promise<void>;
-  onClone: (conversation: ConversationListItem) => void | Promise<void>;
-  onDelete: (conversation: ConversationListItem) => void | Promise<void>;
-}) {
-  return (
-    <HStack
-      gap={1}
-      vAlign="center"
-      className="nelle-conversation-row"
-      data-testid={`conversation-row-${conversation.id}`}
-    >
-      <StackItem size="fill" className="nelle-tight">
-        <Button
-          label={conversation.title}
-          size="sm"
-          variant={isActive ? 'primary' : 'ghost'}
-          onClick={() => void onSelect(conversation.id)}
-        />
-      </StackItem>
-      {conversation.status !== 'ready' && (
-        <ConversationStatusIndicator status={conversation.status} />
-      )}
-      {conversation.pinned && <Token size="sm" label="pinned" color="blue" />}
-      <DropdownMenu
-        button={{
-          label: `Actions for ${conversation.title}`,
-          variant: 'ghost',
-          size: 'sm',
-          children: <Icon icon={EllipsisHorizontalIcon} size="sm" />,
-        }}
-        items={[
-          {
-            label: conversation.pinned ? 'Unpin' : 'Pin',
-            onClick: () => void onTogglePin(conversation),
-          },
-          {
-            label: 'Rename',
-            onClick: () => void onRename(conversation),
-          },
-          {
-            label: 'Reset',
-            onClick: () => void onReset(conversation.id),
-          },
-          {
-            label: 'Export',
-            onClick: () => void onExport(conversation),
-          },
-          {
-            label: 'Duplicate',
-            onClick: () => void onClone(conversation),
-          },
-          {
-            label: 'Delete',
-            onClick: () => void onDelete(conversation),
-          },
-        ]}
-      />
-    </HStack>
-  );
-}
-
-function ConversationStatusIndicator({status}: {status: ConversationListItem['status']}) {
-  const label = status.replace(/_/g, ' ');
-  const variant = status === 'unavailable' ? 'error' : status === 'running' ? 'accent' : 'warning';
-  const isOngoing = status === 'running' || status === 'compacting' || status === 'aborting';
-  return (
-    <Tooltip content={`Conversation ${label}`}>
-      <HStack gap={0.5} vAlign="center" className="nelle-conversation-status">
-        {isOngoing ? (
-          <Spinner size="sm" shade="subtle" aria-label={`Conversation ${label} in progress`} />
-        ) : (
-          <StatusDot label={`Conversation ${label}`} variant={variant} />
-        )}
-        <Text type="supporting" color="secondary">
-          {label}
-        </Text>
-      </HStack>
-    </Tooltip>
-  );
-}
-
-function buildConversationRows(
-  conversations: ConversationListItem[],
-  query: string,
-): ConversationListRow[] {
-  const normalizedQuery = query.trim().toLowerCase();
-  const filtered = normalizedQuery
-    ? conversations.filter(conversation =>
-        conversation.title.toLowerCase().includes(normalizedQuery),
-      )
-    : conversations;
-  const pinned = filtered.filter(conversation => conversation.pinned);
-  const unpinned = filtered.filter(conversation => !conversation.pinned);
-  const rows: ConversationListRow[] = [];
-  if (pinned.length > 0) {
-    rows.push({key: 'section:pinned', type: 'section', label: 'Pinned', count: pinned.length});
-    for (const conversation of pinned) {
-      rows.push({key: `conversation:${conversation.id}`, type: 'conversation', conversation});
-    }
-  }
-  if (unpinned.length > 0) {
-    rows.push({
-      key: normalizedQuery ? 'section:results' : 'section:recent',
-      type: 'section',
-      label: normalizedQuery ? 'Results' : 'Recent',
-      count: unpinned.length,
-    });
-    for (const conversation of unpinned) {
-      rows.push({key: `conversation:${conversation.id}`, type: 'conversation', conversation});
-    }
-  }
-  return rows;
 }
 
 function RenderedMessage({
@@ -4098,334 +2364,6 @@ const SLASH_COMMAND_GUIDANCE: Record<string, string> = {
   '/quit': 'Stop the server from the host process or runtime controls.',
 };
 
-async function prepareDraftAttachments(
-  files: File[],
-  input: {existing: DraftAttachment[]; canAttachImages: boolean; renderPdfImages: boolean},
-): Promise<{attachments: DraftAttachment[]; warning?: string}> {
-  const existingBytes = input.existing.reduce(
-    (sum, attachment) => sum + (attachment.sizeBytes ?? 0),
-    0,
-  );
-  let nextBytes = existingBytes;
-  const attachments: DraftAttachment[] = [];
-  const warnings: string[] = [];
-  for (const file of files) {
-    const remainingSlots = ATTACHMENT_LIMITS.maxFiles - input.existing.length - attachments.length;
-    if (remainingSlots <= 0) {
-      throw new Error(`Attach at most ${ATTACHMENT_LIMITS.maxFiles} files per message.`);
-    }
-    if (file.size > ATTACHMENT_LIMITS.maxFileBytes) {
-      throw new Error(
-        `${file.name} is larger than ${formatBytes(ATTACHMENT_LIMITS.maxFileBytes)}.`,
-      );
-    }
-    const result = await prepareDraftAttachment(file, {
-      canAttachImages: input.canAttachImages,
-      renderPdfImages: input.renderPdfImages,
-      remainingSlots,
-    });
-    const oversizedAttachment = result.attachments.find(
-      attachment => (attachment.sizeBytes ?? 0) > ATTACHMENT_LIMITS.maxFileBytes,
-    );
-    if (oversizedAttachment) {
-      throw new Error(
-        `${oversizedAttachment.name} is larger than ${formatBytes(ATTACHMENT_LIMITS.maxFileBytes)}.`,
-      );
-    }
-    nextBytes += result.attachments.reduce(
-      (sum, attachment) => sum + (attachment.sizeBytes ?? 0),
-      0,
-    );
-    if (nextBytes > ATTACHMENT_LIMITS.maxDraftBytes) {
-      throw new Error(
-        `Attachments are limited to ${formatBytes(ATTACHMENT_LIMITS.maxDraftBytes)} per message.`,
-      );
-    }
-    if (result.warning) {
-      warnings.push(result.warning);
-    }
-    attachments.push(...result.attachments);
-  }
-  return {attachments, warning: warnings.join(' ') || undefined};
-}
-
-async function prepareDraftAttachment(
-  file: File,
-  input: {canAttachImages: boolean; renderPdfImages: boolean; remainingSlots: number},
-): Promise<{attachments: DraftAttachment[]; warning?: string}> {
-  if (isImageFile(file)) {
-    if (!input.canAttachImages) {
-      throw new Error('Image attachments require a selected model with vision support.');
-    }
-    return {
-      attachments: [
-        {
-          id: crypto.randomUUID(),
-          kind: 'image',
-          name: file.name,
-          mimeType: file.type || mimeTypeFromName(file.name) || 'image/jpeg',
-          sizeBytes: file.size,
-          data: await readFileAsBase64(file),
-        },
-      ],
-    };
-  }
-
-  if (isPdfFile(file)) {
-    if (input.renderPdfImages) {
-      if (!input.canAttachImages) {
-        throw new Error('PDF image attachments require a selected model with vision support.');
-      }
-      return renderPdfPageAttachments(file, input.remainingSlots);
-    }
-    const extracted = await extractPdfText(file);
-    if (!extracted.text.trim()) {
-      throw new Error(`${file.name} did not contain extractable text.`);
-    }
-    return {
-      attachments: [
-        {
-          id: crypto.randomUUID(),
-          kind: 'pdf',
-          name: file.name,
-          mimeType: file.type || 'application/pdf',
-          sizeBytes: file.size,
-          text: extracted.text,
-        },
-      ],
-      warning: extracted.truncated
-        ? `${file.name} was truncated to ${ATTACHMENT_LIMITS.maxTextCharacters.toLocaleString()} characters.`
-        : undefined,
-    };
-  }
-
-  if (!isTextFile(file)) {
-    throw new Error(`${file.name} is not a supported text, PDF, or image attachment.`);
-  }
-
-  const rawText = await file.text();
-  if (isBinaryText(rawText)) {
-    throw new Error(
-      `${file.name} looks like a binary file. Attach text, PDF, or image files only.`,
-    );
-  }
-  const text = rawText.slice(0, ATTACHMENT_LIMITS.maxTextCharacters);
-  if (!text.trim()) {
-    throw new Error(`${file.name} is empty.`);
-  }
-  return {
-    attachments: [
-      {
-        id: crypto.randomUUID(),
-        kind: 'text',
-        name: file.name,
-        mimeType: file.type || mimeTypeFromName(file.name) || 'text/plain',
-        sizeBytes: file.size,
-        text,
-      },
-    ],
-    warning:
-      rawText.length > text.length
-        ? `${file.name} was truncated to ${ATTACHMENT_LIMITS.maxTextCharacters.toLocaleString()} characters.`
-        : undefined,
-  };
-}
-
-let pdfJsPromise: Promise<typeof import('pdfjs-dist')> | null = null;
-
-async function renderPdfPageAttachments(
-  file: File,
-  remainingSlots: number,
-): Promise<{attachments: DraftAttachment[]; warning?: string}> {
-  const pdfjs = await loadPdfJs();
-  const task = pdfjs.getDocument({data: new Uint8Array(await file.arrayBuffer())});
-  const pdfDocument = await task.promise;
-  const attachments: DraftAttachment[] = [];
-  try {
-    const pageLimit = Math.min(
-      pdfDocument.numPages,
-      remainingSlots,
-      ATTACHMENT_LIMITS.maxRenderedPdfPages,
-    );
-    if (pageLimit <= 0) {
-      throw new Error(`Attach at most ${ATTACHMENT_LIMITS.maxFiles} files per message.`);
-    }
-    for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
-      const page = await pdfDocument.getPage(pageNumber);
-      const baseViewport = page.getViewport({scale: 1});
-      const scale = Math.min(2, 1600 / Math.max(baseViewport.width, baseViewport.height));
-      const viewport = page.getViewport({scale});
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.ceil(viewport.width);
-      canvas.height = Math.ceil(viewport.height);
-      const canvasContext = canvas.getContext('2d');
-      if (!canvasContext) {
-        throw new Error('Could not create a canvas for PDF rendering.');
-      }
-      await page.render({canvasContext, canvas, viewport}).promise;
-      const dataUrl = canvas.toDataURL('image/png');
-      attachments.push({
-        id: crypto.randomUUID(),
-        kind: 'image',
-        name: renderedPdfPageName(file.name, pageNumber),
-        mimeType: 'image/png',
-        sizeBytes: dataUrlByteLength(dataUrl),
-        data: dataUrl,
-      });
-      page.cleanup();
-    }
-    const skippedPages = pdfDocument.numPages - pageLimit;
-    return {
-      attachments,
-      warning:
-        skippedPages > 0
-          ? `${file.name} was rendered as ${pageLimit.toLocaleString()} page image${pageLimit === 1 ? '' : 's'}; ${skippedPages.toLocaleString()} remaining page${skippedPages === 1 ? '' : 's'} skipped by attachment limits.`
-          : undefined,
-    };
-  } finally {
-    await pdfDocument.cleanup();
-    await task.destroy();
-  }
-}
-
-async function loadPdfJs(): Promise<typeof import('pdfjs-dist')> {
-  pdfJsPromise ??= import('pdfjs-dist').then(module => {
-    return import('pdfjs-dist/build/pdf.worker.mjs?url').then(workerModule => {
-      module.GlobalWorkerOptions.workerSrc = pdfWorkerUrlFromModule(workerModule);
-      return module;
-    });
-  });
-  return pdfJsPromise;
-}
-
-function pdfWorkerUrlFromModule(workerModule: unknown): string {
-  if (typeof workerModule === 'string') {
-    return workerModule;
-  }
-  const value = (workerModule as {default?: unknown}).default;
-  if (typeof value !== 'string') {
-    throw new Error('Could not resolve the PDF worker URL.');
-  }
-  return value;
-}
-
-async function extractPdfText(file: File): Promise<{text: string; truncated: boolean}> {
-  const pdfjs = await loadPdfJs();
-  const task = pdfjs.getDocument({data: new Uint8Array(await file.arrayBuffer())});
-  const document = await task.promise;
-  const pages: string[] = [];
-  let truncated = false;
-  try {
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-      const page = await document.getPage(pageNumber);
-      const content = await page.getTextContent();
-      const pageText = content.items
-        .map(item => ('str' in item && typeof item.str === 'string' ? item.str : ''))
-        .filter(Boolean)
-        .join(' ');
-      if (pageText) {
-        pages.push(pageText);
-      }
-      const currentText = pages.join('\n\n');
-      if (currentText.length >= ATTACHMENT_LIMITS.maxTextCharacters) {
-        truncated = true;
-        return {
-          text: currentText.slice(0, ATTACHMENT_LIMITS.maxTextCharacters),
-          truncated,
-        };
-      }
-    }
-    return {text: pages.join('\n\n'), truncated};
-  } finally {
-    await document.cleanup();
-    await task.destroy();
-  }
-}
-
-async function readFileAsBase64(file: File): Promise<string> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener('load', () => resolve(String(reader.result ?? '')));
-    reader.addEventListener('error', () => reject(reader.error ?? new Error('File read failed.')));
-    reader.readAsDataURL(file);
-  });
-  return dataUrl.split(',')[1] ?? '';
-}
-
-function renderedPdfPageName(fileName: string, pageNumber: number): string {
-  const baseName = fileName.replace(/\.pdf$/i, '') || 'PDF';
-  return `${baseName} page ${pageNumber}.png`;
-}
-
-function dataUrlByteLength(dataUrl: string): number {
-  const base64 = dataUrl.split(',')[1] ?? dataUrl;
-  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
-  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
-}
-
-function getDraftAttachmentError(
-  attachments: DraftAttachment[],
-  activeModelProps: LlamaModelProps | null,
-): string | null {
-  if (!attachments.some(attachment => attachment.kind === 'image')) {
-    return null;
-  }
-  if (activeModelProps?.modalities.vision === true) {
-    return null;
-  }
-  return 'Image attachments require a selected model with vision support.';
-}
-
-function attachmentTooltip(attachment: DraftAttachment | AttachmentMetadata): string {
-  const type =
-    attachment.kind === 'pdf' ? 'PDF text' : attachment.kind === 'image' ? 'Image' : 'Text file';
-  return `${type} · ${formatBytes(attachment.sizeBytes ?? null)}`;
-}
-
-function isImageFile(file: File): boolean {
-  return file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(file.name);
-}
-
-function isPdfFile(file: File): boolean {
-  return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-}
-
-function isTextFile(file: File): boolean {
-  return (
-    file.type.startsWith('text/') ||
-    /\.(txt|md|markdown|json|jsonl|csv|tsv|log|xml|yaml|yml|toml|ini|sql)$/i.test(file.name)
-  );
-}
-
-function mimeTypeFromName(name: string): string | undefined {
-  if (/\.pdf$/i.test(name)) {
-    return 'application/pdf';
-  }
-  if (/\.png$/i.test(name)) {
-    return 'image/png';
-  }
-  if (/\.webp$/i.test(name)) {
-    return 'image/webp';
-  }
-  if (/\.gif$/i.test(name)) {
-    return 'image/gif';
-  }
-  if (/\.jpe?g$/i.test(name)) {
-    return 'image/jpeg';
-  }
-  return undefined;
-}
-
-function isBinaryText(value: string): boolean {
-  return value.includes('\u0000');
-}
-
-function restoreComposerDraft(value: string, setDraft: (value: string) => void) {
-  window.setTimeout(() => {
-    setDraft(value);
-  }, 0);
-}
-
 function createCompactCommandRow(conversationId: string, instructions: string): CommandStatusRow {
   const now = new Date().toISOString();
   return {
@@ -4491,32 +2429,6 @@ function downloadBlob(blob: Blob, filename: string): void {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
-}
-
-function paramsToRows(params: Record<string, string>): ParamRow[] {
-  return Object.entries(params).map(([key, value]) => ({
-    id: createParamRowId(),
-    key,
-    value,
-  }));
-}
-
-function rowsToParams(rows: ParamRow[]): Record<string, string> {
-  return Object.fromEntries(
-    rows.map(row => [row.key.trim(), row.value.trim()] as const).filter(([key]) => key.length > 0),
-  );
-}
-
-function updateParamRows(
-  rows: ParamRow[],
-  id: string,
-  patch: Partial<Pick<ParamRow, 'key' | 'value'>>,
-): ParamRow[] {
-  return rows.map(row => (row.id === id ? {...row, ...patch} : row));
-}
-
-function createParamRowId(): string {
-  return `param-${Math.random().toString(36).slice(2)}`;
 }
 
 async function copyMessageText(value: string): Promise<void> {

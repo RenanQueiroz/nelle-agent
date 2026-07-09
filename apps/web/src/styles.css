@@ -16,21 +16,21 @@ body {
   overflow: hidden;
 }
 
+/*
+ * Astryx's SideNav renders its resize handle as an overlay and expects the
+ * containing panel to clip it. AppShell's panel scrolls instead, which adds a
+ * stray horizontal scrollbar under the whole sidebar.
+ */
+.astryx-app-shell-sidenav {
+  overflow: clip;
+}
+
 .nelle-side-nav {
   min-height: 100%;
 }
 
-.nelle-side-nav-top,
-.nelle-side-nav-conversations {
+.nelle-side-nav-top {
   min-height: 0;
-}
-
-.nelle-side-nav-conversations {
-  height: 100%;
-}
-
-.nelle-side-nav-section-heading {
-  padding-inline: var(--spacing-1);
 }
 
 .nelle-side-nav-collapsed-spacer {
@@ -41,21 +41,29 @@ body {
   width: 100%;
 }
 
-.nelle-conversation-list,
-.nelle-conversation-list-empty {
-  flex: 1 1 auto;
+/*
+ * Fills SideNav's scrollable content box exactly, so the conversation list owns
+ * its scrollbar instead of scrolling the whole nav body.
+ */
+.nelle-conversation-list {
+  height: 100%;
   min-height: 0;
   max-height: none;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.nelle-side-nav-new-chat {
+  width: 100%;
 }
 
 .nelle-conversation-list-empty {
-  padding: var(--spacing-2);
+  padding-block: var(--spacing-4);
 }
 
 .nelle-conversation-virtual-space {
   position: relative;
-  min-width: 100%;
+  width: 100%;
   flex: 0 0 auto;
 }
 
@@ -68,14 +76,50 @@ body {
 }
 
 .nelle-conversation-section-row {
-  min-height: calc(var(--spacing-6) + var(--spacing-1));
-  padding-block: var(--spacing-1);
-  padding-inline: var(--spacing-1);
+  min-height: var(--spacing-8);
+  padding-block-start: var(--spacing-2);
+  padding-inline: var(--spacing-2);
 }
 
 .nelle-conversation-row {
-  min-height: calc(var(--spacing-8) + var(--spacing-2));
+  position: relative;
   padding-block: var(--spacing-0-5);
+}
+
+.nelle-conversation-row-end {
+  min-width: 0;
+}
+
+.nelle-conversation-row-actions-spacer {
+  display: block;
+  flex: 0 0 auto;
+  width: var(--spacing-6);
+}
+
+/*
+ * Row actions overlay the spacer reserved inside the nav item. They stay in the
+ * DOM (rather than mounting on hover) so keyboard users and tests can reach
+ * them, and only fade in on hover, focus, or while the menu is open.
+ */
+.nelle-conversation-row-actions {
+  position: absolute;
+  inset-inline-end: var(--spacing-1);
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.nelle-conversation-row:hover .nelle-conversation-row-actions,
+.nelle-conversation-row:focus-within .nelle-conversation-row-actions,
+.nelle-conversation-row[data-menu-open='true'] .nelle-conversation-row-actions {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nelle-conversation-row-actions {
+    transition: none;
+  }
 }
 
 .nelle-conversation-status {
@@ -94,6 +138,39 @@ body {
 .nelle-chat-layout {
   height: 100%;
   min-height: 0;
+}
+
+/*
+ * Astryx docks the composer over the scrolling transcript behind a translucent
+ * blur layer, and dims the composer to 0.6 opacity while it is disabled. Paint
+ * an opaque backdrop across the dock so chat content never shows through the
+ * composer or its status bars, and fade the transcript into it instead.
+ */
+.nelle-chat-layout > *:has(.nelle-chat-composer) {
+  background-color: var(--color-background-surface);
+}
+
+.nelle-chat-layout > *:has(.nelle-chat-composer)::before {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  height: var(--spacing-6);
+  background-image: linear-gradient(to top, var(--color-background-surface), transparent);
+  pointer-events: none;
+}
+
+/*
+ * The composer's status bars paint with the alpha-based *-muted tokens, which
+ * are translucent in dark mode. Flatten them onto the dock backdrop.
+ */
+.nelle-chat-composer {
+  --color-error-muted: color-mix(in srgb, var(--color-error) 22%, var(--color-background-surface));
+  --color-warning-muted: color-mix(
+    in srgb,
+    var(--color-warning) 22%,
+    var(--color-background-surface)
+  );
 }
 
 .nelle-context-progress {
@@ -120,20 +197,22 @@ body {
   padding-block-start: var(--spacing-3);
 }
 
-.nelle-search-panel {
-  width: 420px;
-  min-width: 360px;
-  max-width: 460px;
-  border-inline-start: 1px solid var(--color-border-subtle);
-  background: var(--color-background-surface);
+.nelle-settings-dialog {
+  overflow: hidden;
 }
 
-.nelle-scroll {
-  overflow: auto;
+.nelle-settings-dialog-content {
+  min-width: 0;
 }
 
-.nelle-panel-content {
-  padding: var(--spacing-4);
+/*
+ * ListItem's selected state paints --color-accent-muted, which resolves to the
+ * dialog's own surface color in the dark theme and leaves the active section
+ * indistinguishable. --color-neutral is the translucent overlay SideNavItem
+ * uses for the same purpose, so it reads on either surface.
+ */
+.nelle-settings-dialog .astryx-list-item[aria-selected='true'] {
+  background-color: var(--color-neutral);
 }
 
 .nelle-tight {
@@ -143,10 +222,4 @@ body {
 .nelle-code {
   font-family: var(--font-family-mono);
   word-break: break-all;
-}
-
-@media (max-width: 1180px) {
-  .nelle-search-panel {
-    display: none;
-  }
 }

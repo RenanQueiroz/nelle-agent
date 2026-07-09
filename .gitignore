@@ -7,6 +7,7 @@ build/
 coverage/
 playwright-report/
 test-results/
+.playwright-mcp/
 
 # Local app/runtime data
 .nelle/

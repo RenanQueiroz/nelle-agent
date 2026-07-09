@@ -951,9 +951,10 @@ test('surfaces llama slot abort warnings from the composer stop action', async (
   await page.goto('/');
   await page.getByLabel('Message input').fill('stop this run');
   await page.getByLabel('Message input').press('Enter');
+  // The composer stays interactive during a run, so stop takes a real click.
   const stopButton = page.getByRole('button', {name: 'Stop'});
   await expect(stopButton).toBeEnabled();
-  await stopButton.evaluate((element: HTMLElement) => element.click());
+  await stopButton.click();
 
   await expect.poll(() => abortCalls).toBe(1);
   await expect(page.getByText(warning).first()).toBeVisible();
@@ -2250,6 +2251,168 @@ test('virtualizes and collapses the conversation sidebar', async ({page}) => {
   await page.getByRole('button', {name: 'Expand sidebar'}).click();
   await expect(page.getByLabel('Search conversations')).toBeVisible();
 });
+
+test('stops re-requesting model props after llama.cpp rejects the call', async ({page}) => {
+  const model = {
+    id: 'model-a',
+    name: 'Model A',
+    presetName: 'model-a',
+    source: 'huggingface',
+    repoId: 'repo/model-a',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model-a:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {...RUNNING_RUNTIME, activeModelId: model.id};
+  let propsCalls = 0;
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {state: {activeModelId: model.id, models: [model], chat: []}, runtime},
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: model.id,
+            routerModelId: model.id,
+            alias: model.name,
+            hfRepo: model.hfRef,
+            // A sleeping model is "runnable", but llama.cpp answers /props with
+            // an error while it is asleep.
+            status: 'sleeping',
+            aliases: [model.id],
+          },
+        ],
+      },
+    });
+  });
+  await page.route('**/api/llama/models/**/props', async route => {
+    propsCalls += 1;
+    await route.fulfill({
+      status: 500,
+      json: {error: {code: 'llama_props_failed', message: 'model is asleep'}},
+    });
+  });
+  await mockConversationRoutes(page, {chat: []});
+
+  await page.goto('/');
+  await expect(page.getByText('sleeping', {exact: true}).last()).toBeVisible();
+
+  // A failed props response must be cached, not retried on every render.
+  await page.waitForTimeout(1500);
+  const settledCalls = propsCalls;
+  expect(settledCalls).toBeLessThanOrEqual(2);
+
+  await page.waitForTimeout(1500);
+  expect(propsCalls).toBe(settledCalls);
+});
+
+test('keeps the composer opaque and interactive while a run streams', async ({page}) => {
+  const model = {
+    id: 'model-a',
+    name: 'Model A',
+    presetName: 'model-a',
+    source: 'huggingface',
+    repoId: 'repo/model-a',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model-a:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {...RUNNING_RUNTIME, activeModelId: model.id};
+  let releaseStream: () => void = () => {};
+  const streamReleased = new Promise<void>(resolve => {
+    releaseStream = resolve;
+  });
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {state: {activeModelId: model.id, models: [model], chat: []}, runtime},
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/llama/models', async route => {
+    await route.fulfill({
+      json: {
+        models: [
+          {
+            sectionId: model.id,
+            routerModelId: model.id,
+            alias: model.name,
+            hfRepo: model.hfRef,
+            status: 'loaded',
+            aliases: [model.id],
+          },
+        ],
+      },
+    });
+  });
+  await mockConversationRoutes(page, {chat: [], onAbort: () => releaseStream()});
+  await page.route('**/api/conversations/poc-default/chat/stream', async route => {
+    await streamReleased;
+    await route
+      .fulfill({headers: {'content-type': 'text/event-stream; charset=utf-8'}, body: ''})
+      .catch(() => undefined);
+  });
+
+  await page.goto('/');
+
+  const opacityOf = (selector: string) =>
+    page.locator(selector).evaluate(element => getComputedStyle(element).opacity);
+  const composer = '.nelle-chat-composer';
+
+  // The dock paints an opaque backdrop so the transcript never bleeds through.
+  const dockBackground = await page
+    .locator('.nelle-chat-layout > *:has(.nelle-chat-composer)')
+    .evaluate(element => getComputedStyle(element).backgroundColor);
+  expect(dockBackground).not.toContain('rgba');
+  expect(dockBackground).not.toBe('transparent');
+
+  await page.getByLabel('Message input').fill('stream something');
+  await page.getByLabel('Message input').press('Enter');
+
+  const stopButton = page.getByRole('button', {name: 'Stop'});
+  await expect(stopButton).toBeVisible();
+  // Astryx dims and disables pointer events on a disabled composer; a streaming
+  // composer must stay fully opaque so stop is clickable and nothing shows through.
+  expect(await opacityOf(composer)).toBe('1');
+  expect(
+    await page.locator(composer).evaluate(element => getComputedStyle(element).pointerEvents),
+  ).not.toBe('none');
+
+  await stopButton.click();
+  await expect(page.getByRole('button', {name: 'Send'})).toBeVisible();
+});
+
+const RUNNING_RUNTIME = {
+  platform: 'linux',
+  arch: 'x64',
+  dataDir: '/tmp/nelle',
+  binaryPath: '/tmp/llama-server',
+  logPath: '/tmp/llama.log',
+  installMode: 'external',
+  installed: true,
+  installedVersion: 'external:/tmp/llama-server',
+  latestVersion: null,
+  updateAvailable: false,
+  running: true,
+  pid: 123,
+  host: '127.0.0.1',
+  port: 8080,
+  modelsMax: 1,
+  sleepIdleSeconds: 90,
+  activeModelId: null as string | null,
+  lastError: null,
+};
 
 async function mockConversationRoutes(
   page: Page,

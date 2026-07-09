@@ -159,7 +159,10 @@ Nelle currently differs from the target in these ways:
 - The web UI uses an Astryx `SideNav` shell with a collapsible, virtualized
   conversation sidebar with search, pinned/recent groups, new-chat, running
   indicators, and row actions.
-  Runtime/model/global/chats controls live in a right-side Settings panel.
+  Runtime/model/global/chats controls live in a modal Astryx Settings dialog.
+  Dialog draft fields, HF search state, and runtime log visibility/output live
+  in a dedicated settings store so modal edits do not rerender the full
+  workbench.
 - The server now exposes conversation snapshots and
   `/api/conversations/:id/chat/stream`. Each streamed conversation is bound to
   one Pi JSONL session file under `.nelle/pi/sessions`, and existing session
@@ -591,7 +594,8 @@ Target first screen:
 - Collapsible left sidebar.
 - Main chat area with message history and docked composer.
 - Model selector in the composer/header showing alias plus router status.
-- Settings opens as a route or modal panel, not as always-visible side columns.
+- Settings opens as a modal Astryx dialog with left-side section navigation, not
+  as an always-visible side column.
 
 Sidebar:
 
@@ -1661,8 +1665,8 @@ Exit criteria:
 
 ### Phase 2: Model Selector And Settings
 
-- Done: build settings surface with Runtime, Models, Global Params, and Chats
-  sections.
+- Done: build a modal Astryx settings surface with Runtime, Models, Global
+  Params, and Chats sections.
 - Done: move HF search/import and param editing into Settings.
 - Done for the compact composer selector: alias display, built-in search,
   browser-local favorite grouping, selected/row router status and progress, and
@@ -1702,6 +1706,10 @@ Exit criteria:
   search, pinned/recent section rows, TanStack-virtualized list,
   spinner-backed running status indicators, and item overflow menus, all hosted
   in an Astryx `SideNav` shell.
+- Done: rebuild the rail on Astryx `SideNavItem` rows with counted section
+  headers, hover/focus-revealed `MoreMenu` row actions positioned as siblings of
+  the row button, a search field with an inline clear affordance, and Astryx
+  `EmptyState` surfaces for no-chats and no-search-results.
 - Done in current row actions: pin/unpin, rename, reset, duplicate, and delete.
 - Done: add conversation delete/pin/rename/duplicate.
 - Done: add message-level fork into a new conversation, backed by Pi
@@ -1963,7 +1971,11 @@ Playwright tests:
 - Starting generation in one conversation does not block viewing or starting an
   allowed run in another conversation.
 - Pressing stop aborts generation, clears active-run model locks, shows
-  composer-local stopped feedback, and leaves the composer usable.
+  composer-local stopped feedback, and leaves the composer usable. The composer
+  stays opaque and pointer-interactive for the whole run so stop is reachable
+  with a real click.
+- A model whose `/props` call fails (for example while it sleeps) is requested
+  once per router status, not re-requested on every render.
 - Settings HF import writes `models.ini` and model appears in selector.
 - Selecting an unloaded model shows loading progress then selected loaded model.
 - Sidebar creates, searches, pins, renames, exports, and deletes conversations.

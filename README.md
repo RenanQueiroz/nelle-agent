@@ -13,8 +13,15 @@ Implemented:
 - Fastify API server with browser-opened app flow.
 - React/Vite UI using Meta Astryx components, React Compiler, and generated
   Astryx agent guidance.
-- Viewport-bounded workbench layout where side panels and the chat history
-  manage their own scrolling while the chat composer stays docked.
+- Frontend UI surfaces are split into focused component directories with
+  cross-cutting browser UI state managed through Zustand selectors. Settings
+  dialog drafts, logs, and search results live outside `App.tsx` so modal edits
+  do not rerender the full workbench. The composer draft, attachments, and
+  status live in their own store as well, so typing a prompt never rerenders
+  the chat transcript.
+- Viewport-bounded workbench layout where the sidebar and chat history manage
+  their own scrolling while the chat composer stays docked over an opaque
+  backdrop.
 - Managed `llama.cpp` runtime control:
   - Linux installs/updates by building latest `ggml-org/llama.cpp` master.
   - Windows/macOS install/update code downloads latest GitHub release assets.
@@ -55,7 +62,7 @@ Implemented:
 - Nelle-owned llama.cpp router facade endpoints under `/api/llama/*` for router
   props, model list/reload, model load/unload, per-model props, and model SSE
   events.
-- A right-side Settings panel with Runtime, Models, Global Params, and Chats
+- A modal Astryx Settings dialog with Runtime, Models, Global Params, and Chats
   sections. Settings owns llama.cpp install/start/stop/logs, HF GGUF
   search/import, model alias editing, free-form model/global `models.ini`
   params, model duplicate/remove, load/unload/reload actions, router-capacity
@@ -189,9 +196,15 @@ Set these environment variables when needed:
 6. Use `New chat` to create a separate Pi-backed conversation, or use a
    conversation row's action menu to reset/delete/rename/pin that conversation.
 
+The conversation sidebar lists pinned and recent chats as Astryx `SideNavItem`
+rows with counts per section, a hover- and focus-revealed row action menu, and a
+search field that filters titles. Long lists stay virtualized.
+
 The chat composer uses Astryx's default up-arrow send/stop button. The footer is
 reserved for model selection so the composer exposes only one send affordance;
 conversation reset/delete/pin/rename live in the conversation row action menu.
+The composer stays interactive while a run streams, so stop is always clickable;
+sending during a run is rejected with a composer warning and the draft is kept.
 
 The composer header shows context-window usage with a used/total token tooltip.
 Near-full context is shown as a bottom composer warning, and context overflow or
