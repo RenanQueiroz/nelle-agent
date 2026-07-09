@@ -34,6 +34,7 @@ import {
   PencilIcon,
   PlusIcon,
   TrashIcon,
+  WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline';
 
 import type {ConversationListItem} from '../../api';
@@ -71,6 +72,8 @@ type ConversationActions = {
   onExport: (conversation: ConversationListItem) => void | Promise<void>;
   onClone: (conversation: ConversationListItem) => void | Promise<void>;
   onDelete: (conversation: ConversationListItem) => void | Promise<void>;
+  onRepair: (conversation: ConversationListItem) => void | Promise<void>;
+  onRebuild: (conversation: ConversationListItem) => void | Promise<void>;
 };
 
 export function NelleSideNav({
@@ -422,12 +425,15 @@ function ConversationRow({
   onExport,
   onClone,
   onDelete,
+  onRepair,
+  onRebuild,
 }: {
   conversation: ConversationListItem;
   isActive: boolean;
 } & ConversationActions) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const isOngoing = isOngoingConversationStatus(conversation.status);
+  const isUnavailable = conversation.status === 'unavailable';
 
   return (
     <VStack
@@ -460,44 +466,75 @@ function ConversationRow({
           size="sm"
           label={`Actions for ${conversation.title}`}
           onOpenChange={setIsMenuOpen}
-          items={[
-            {
-              label: conversation.pinned ? 'Unpin' : 'Pin',
-              icon: (
-                <Icon icon={conversation.pinned ? BookmarkSlashIcon : BookmarkIcon} size="sm" />
-              ),
-              onClick: () => void onTogglePin(conversation),
-            },
-            {
-              label: 'Rename',
-              icon: <Icon icon={PencilIcon} size="sm" />,
-              onClick: () => void onRename(conversation),
-            },
-            {
-              label: 'Duplicate',
-              icon: <Icon icon={DocumentDuplicateIcon} size="sm" />,
-              onClick: () => void onClone(conversation),
-            },
-            {type: 'divider'},
-            {
-              label: 'Export',
-              icon: <Icon icon={ArrowDownTrayIcon} size="sm" />,
-              onClick: () => void onExport(conversation),
-            },
-            {
-              label: 'Reset',
-              icon: <Icon icon={ArrowPathIcon} size="sm" />,
-              isDisabled: isOngoing,
-              onClick: () => void onReset(conversation.id),
-            },
-            {type: 'divider'},
-            {
-              label: 'Delete',
-              icon: <Icon icon={TrashIcon} size="sm" />,
-              isDisabled: isOngoing,
-              onClick: () => void onDelete(conversation),
-            },
-          ]}
+          items={
+            isUnavailable
+              ? // Pin, rename, duplicate, reset and fork all need a readable Pi
+                // session. Offering them here would only produce errors.
+                [
+                  {
+                    label: 'Repair',
+                    icon: <Icon icon={WrenchScrewdriverIcon} size="sm" />,
+                    onClick: () => void onRepair(conversation),
+                  },
+                  {
+                    label: 'Rebuild from saved messages',
+                    icon: <Icon icon={ArrowPathIcon} size="sm" />,
+                    onClick: () => void onRebuild(conversation),
+                  },
+                  {type: 'divider'},
+                  {
+                    label: 'Export diagnostics',
+                    icon: <Icon icon={ArrowDownTrayIcon} size="sm" />,
+                    onClick: () => void onExport(conversation),
+                  },
+                  {
+                    label: 'Delete',
+                    icon: <Icon icon={TrashIcon} size="sm" />,
+                    onClick: () => void onDelete(conversation),
+                  },
+                ]
+              : [
+                  {
+                    label: conversation.pinned ? 'Unpin' : 'Pin',
+                    icon: (
+                      <Icon
+                        icon={conversation.pinned ? BookmarkSlashIcon : BookmarkIcon}
+                        size="sm"
+                      />
+                    ),
+                    onClick: () => void onTogglePin(conversation),
+                  },
+                  {
+                    label: 'Rename',
+                    icon: <Icon icon={PencilIcon} size="sm" />,
+                    onClick: () => void onRename(conversation),
+                  },
+                  {
+                    label: 'Duplicate',
+                    icon: <Icon icon={DocumentDuplicateIcon} size="sm" />,
+                    onClick: () => void onClone(conversation),
+                  },
+                  {type: 'divider'},
+                  {
+                    label: 'Export',
+                    icon: <Icon icon={ArrowDownTrayIcon} size="sm" />,
+                    onClick: () => void onExport(conversation),
+                  },
+                  {
+                    label: 'Reset',
+                    icon: <Icon icon={ArrowPathIcon} size="sm" />,
+                    isDisabled: isOngoing,
+                    onClick: () => void onReset(conversation.id),
+                  },
+                  {type: 'divider'},
+                  {
+                    label: 'Delete',
+                    icon: <Icon icon={TrashIcon} size="sm" />,
+                    isDisabled: isOngoing,
+                    onClick: () => void onDelete(conversation),
+                  },
+                ]
+          }
         />
       </div>
     </VStack>

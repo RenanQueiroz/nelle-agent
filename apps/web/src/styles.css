@@ -63,6 +63,12 @@ body {
   padding-block: var(--spacing-3);
 }
 
+.nelle-unavailable-panel {
+  width: 100%;
+  padding-block: var(--spacing-6);
+  text-align: center;
+}
+
 .nelle-conversation-virtual-space {
   position: relative;
   width: 100%;

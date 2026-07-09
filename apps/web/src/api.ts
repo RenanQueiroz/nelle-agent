@@ -728,6 +728,42 @@ export async function deleteConversation(id: string): Promise<void> {
   await apiDelete(`/api/conversations/${encodeURIComponent(id)}`);
 }
 
+export type ConversationDiagnostics = {
+  conversationId: string;
+  status: ConversationListItem['status'];
+  piSessionPath?: string;
+  piSessionId?: string;
+  exists: boolean;
+  reason?: string;
+  sizeBytes?: number;
+  projectionEntryCount: number;
+  attachmentCount: number;
+  toolAuditCount: number;
+};
+
+export async function getConversationDiagnostics(id: string): Promise<ConversationDiagnostics> {
+  const response = await apiGet<{diagnostics: ConversationDiagnostics}>(
+    `/api/conversations/${encodeURIComponent(id)}/diagnostics`,
+  );
+  return response.diagnostics;
+}
+
+/** Succeeds only if the Pi session file is readable again. */
+export async function repairConversation(id: string): Promise<ConversationSnapshot> {
+  const response = await apiPost<{snapshot: ConversationSnapshot}>(
+    `/api/conversations/${encodeURIComponent(id)}/repair`,
+  );
+  return response.snapshot;
+}
+
+/** Rebuilds a Pi session from Nelle's stored messages. Lossy; warn first. */
+export async function rebuildConversation(id: string): Promise<ConversationSnapshot> {
+  const response = await apiPost<{snapshot: ConversationSnapshot}>(
+    `/api/conversations/${encodeURIComponent(id)}/rebuild`,
+  );
+  return response.snapshot;
+}
+
 export async function deleteAllConversations(): Promise<void> {
   await apiDelete('/api/conversations');
 }

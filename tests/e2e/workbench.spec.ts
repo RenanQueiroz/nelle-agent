@@ -2325,6 +2325,58 @@ test('conversation search finds a chat that is not on the first page', async ({p
   await expect(page.getByTestId('conversation-section-results')).toContainText('1');
 });
 
+test('an unavailable conversation offers repair, rebuild, and delete', async ({page}) => {
+  const recoveries: Array<[string, string]> = [];
+  await mockConversationRoutes(page, {
+    chat: [
+      {
+        id: 'user-1',
+        role: 'user',
+        content: 'Saved in SQLite',
+        createdAt: '2026-07-07T12:00:00.000Z',
+      },
+    ],
+    conversations: [
+      {
+        id: 'legacy-default',
+        title: 'Broken chat',
+        titleSource: 'fallback',
+        pinned: false,
+        status: 'unavailable',
+        updatedAt: '2026-07-07T12:00:00.000Z',
+      },
+    ],
+    onRecover: (conversationId, action) => recoveries.push([conversationId, action]),
+  });
+  page.on('dialog', dialog => void dialog.accept());
+
+  await page.goto('/');
+
+  // The transcript is replaced by the recovery panel, which names the file.
+  const panel = page.getByTestId('conversation-unavailable');
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText('Pi session file is missing.');
+  await expect(panel).toContainText('/data/pi/sessions/legacy-default.jsonl');
+  await expect(panel).toContainText('1 message');
+
+  // Sending is blocked, and the composer says why rather than "start a chat".
+  await expect(
+    page.getByText('This conversation cannot be opened. Repair it, rebuild it from saved messages'),
+  ).toBeVisible();
+
+  // Repair first: the file is still gone, so it fails and the panel stays.
+  await panel.getByRole('button', {name: 'Repair', exact: true}).click();
+  await expect.poll(() => recoveries).toEqual([['legacy-default', 'repair']]);
+  await expect(panel).toBeVisible();
+
+  // Rebuild is confirmed, then reconstructs the conversation from SQLite.
+  await panel.getByRole('button', {name: 'Rebuild from saved messages'}).click();
+  await expect.poll(() => recoveries.length).toBe(2);
+  expect(recoveries[1]).toEqual(['legacy-default', 'rebuild']);
+  await expect(page.getByTestId('conversation-unavailable')).toHaveCount(0);
+  await expect(page.getByText('Saved in SQLite')).toBeVisible();
+});
+
 test('deleting the last conversation leaves an empty sidebar', async ({page}) => {
   await mockConversationRoutes(page, {chat: []});
   page.on('dialog', dialog => void dialog.accept());
@@ -3001,6 +3053,9 @@ async function mockConversationRoutes(
     abortWarning?: {code: string; message: string};
     onAbort?: () => void;
     onReasoningLevel?: (conversationId: string, level: string) => void;
+    onRecover?: (conversationId: string, action: 'repair' | 'rebuild') => void;
+    /** Default true: the session file is still gone, so repair 409s. */
+    repairFails?: boolean;
   },
 ): Promise<void> {
   let chat = input.chat;
@@ -3214,6 +3269,49 @@ async function mockConversationRoutes(
       });
       return;
     }
+    const diagnosticsMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/diagnostics$/);
+    if (diagnosticsMatch && request.method() === 'GET') {
+      const conversationId = decodeURIComponent(diagnosticsMatch[1]!);
+      await route.fulfill({
+        json: {
+          diagnostics: {
+            conversationId,
+            status: conversations.find(item => item.id === conversationId)?.status ?? 'ready',
+            piSessionPath: `/data/pi/sessions/${conversationId}.jsonl`,
+            exists: false,
+            reason: 'Pi session file is missing.',
+            projectionEntryCount: chat.length,
+            attachmentCount: 0,
+            toolAuditCount: 0,
+          },
+        },
+      });
+      return;
+    }
+    const repairMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/(repair|rebuild)$/);
+    if (repairMatch && request.method() === 'POST') {
+      const conversationId = decodeURIComponent(repairMatch[1]!);
+      const action = repairMatch[2];
+      input.onRecover?.(conversationId, action as 'repair' | 'rebuild');
+      if (action === 'repair' && input.repairFails !== false) {
+        // Repair only succeeds once the file is back, and the mock's file is not.
+        await route.fulfill({
+          status: 409,
+          json: {
+            error: {code: 'session_unavailable', message: 'Pi session file is missing.'},
+          },
+        });
+        return;
+      }
+      conversations = conversations.map(item =>
+        item.id === conversationId ? {...item, status: 'ready'} : item,
+      );
+      const conversation = conversations.find(item => item.id === conversationId);
+      await route.fulfill({
+        json: {snapshot: conversationSnapshot(conversationId, chat, conversation)},
+      });
+      return;
+    }
     const reasoningMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/reasoning$/);
     if (reasoningMatch && request.method() === 'PUT') {
       const conversationId = decodeURIComponent(reasoningMatch[1]!);
@@ -3334,14 +3432,18 @@ function conversationSnapshot(
     context: context ?? contextFromChat(chat),
     models: {available: []},
     capabilities: {
-      canSend: true,
+      canSend: conversation?.status !== 'unavailable',
       canAbort: false,
       canCompact: chat.length > 0,
-      canFork: chat.length > 0,
+      canFork: chat.length > 0 && conversation?.status !== 'unavailable',
+      canRepair: conversation?.status === 'unavailable',
       canAttachImages: false,
       canAttachText: true,
     },
-    errors: [],
+    errors:
+      conversation?.status === 'unavailable'
+        ? [{code: 'session_unavailable', message: 'The conversation session is unavailable.'}]
+        : [],
   };
 }
 

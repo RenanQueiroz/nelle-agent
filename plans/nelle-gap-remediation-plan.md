@@ -181,7 +181,7 @@ list.
 
 ## G2: `unavailable` Conversations Are A Dead End
 
-**Status: server done; web pending.**
+**Status: done.**
 
 ### Symptom
 

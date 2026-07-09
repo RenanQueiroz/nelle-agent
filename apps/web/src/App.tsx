@@ -53,6 +53,8 @@ import {
   forkConversation,
   getConversation,
   getConversations,
+  rebuildConversation,
+  repairConversation,
   getHostToolSettings,
   getLlamaModelProps,
   getLlamaModels,
@@ -103,6 +105,7 @@ import {
 } from './api';
 import {ChatComposerPanel} from './components/chat/ChatComposerPanel';
 import {ThinkingBlock} from './components/chat/ThinkingBlock';
+import {UnavailableConversationPanel} from './components/chat/UnavailableConversationPanel';
 import {NelleSideNav} from './components/sidebar/NelleSideNav';
 import {SettingsDialog} from './components/settings/SettingsDialog';
 import {restoreComposerDraft, useComposerStore} from './stores/composerStore';
@@ -333,6 +336,14 @@ export function App() {
   const activeConversationIdRef = useRef(activeConversationId);
   const modelPropsRequestsRef = useRef(new Set<string>());
   const isMountedRef = useRef(true);
+  // A narrow selector: the workbench only redraws when the active conversation's
+  // status changes, not on every sidebar page or title update.
+  const activeConversationStatus = useConversationsStore(
+    state =>
+      state.conversations.find(conversation => conversation.id === activeConversationId)?.status,
+  );
+  const isActiveConversationUnavailable = activeConversationStatus === 'unavailable';
+
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const [notice, setNotice] = useState<AppNotice | null>(null);
 
@@ -1246,6 +1257,61 @@ export function App() {
     });
   }
 
+  async function handleRepairConversation(conversation: ConversationListItem) {
+    await runAction(`repair:${conversation.id}`, async () => {
+      const snapshot = await repairConversation(conversation.id);
+      await refreshConversations(snapshot.conversation.id);
+      setNotice({type: 'success', text: 'Conversation repaired.'});
+    });
+  }
+
+  async function handleRebuildConversation(conversation: ConversationListItem) {
+    const confirmed = window.confirm(
+      `Rebuild "${conversation.title}" from the messages Nelle saved?\n\n` +
+        'This writes a new Pi session from Nelle’s own copy of the conversation. ' +
+        'The messages, their order, and their reasoning are restored. Tool results, ' +
+        'attached image content, compaction summaries, and alternative regenerated ' +
+        'answers are not.\n\n' +
+        'Repair the original session file instead if you can still find it.',
+    );
+    if (!confirmed) {
+      return;
+    }
+    await runAction(`rebuild:${conversation.id}`, async () => {
+      const snapshot = await rebuildConversation(conversation.id);
+      await refreshConversations(snapshot.conversation.id);
+      setNotice({type: 'success', text: 'Conversation rebuilt from saved messages.'});
+    });
+  }
+
+  /** The chat pane's recovery buttons act on whatever conversation is open. */
+  function activeConversationItem(): ConversationListItem | undefined {
+    return useConversationsStore
+      .getState()
+      .conversations.find(conversation => conversation.id === activeConversationId);
+  }
+
+  async function handleRepairActiveConversation() {
+    const conversation = activeConversationItem();
+    if (conversation) {
+      await handleRepairConversation(conversation);
+    }
+  }
+
+  async function handleRebuildActiveConversation() {
+    const conversation = activeConversationItem();
+    if (conversation) {
+      await handleRebuildConversation(conversation);
+    }
+  }
+
+  async function handleDeleteActiveConversation() {
+    const conversation = activeConversationItem();
+    if (conversation) {
+      await handleDeleteConversation(conversation);
+    }
+  }
+
   async function handleSelectConversation(conversationId: string) {
     setSlashCommandError(null);
     setComposerError(null);
@@ -1700,6 +1766,8 @@ export function App() {
           onRename={handleRenameConversation}
           onReset={handleResetConversation}
           onExport={handleExportConversation}
+          onRepair={handleRepairConversation}
+          onRebuild={handleRebuildConversation}
           onClone={handleCloneConversation}
           onDelete={handleDeleteConversation}
         />
@@ -1725,6 +1793,7 @@ export function App() {
                       activeComposerRouterStatus={activeComposerRouterStatus}
                       isRuntimeRunning={runtime?.running === true}
                       hasActiveConversation={!hasLoadedConversations || activeConversationId !== ''}
+                      isConversationUnavailable={isActiveConversationUnavailable}
                       contextUsage={displayedContextUsage}
                       isStreaming={isStreaming}
                       isCompacting={isCompacting}
@@ -1744,22 +1813,34 @@ export function App() {
                   }
                 >
                   <ChatMessageList>
-                    {messages.length === 0 && !activePendingPrompt && (
-                      <ChatSystemMessage>
-                        {emptyTranscriptMessage(runtime, activeModel)}
-                      </ChatSystemMessage>
-                    )}
-                    {messages.map(message => (
-                      <RenderedMessage
-                        key={message.id}
-                        message={message}
-                        models={models}
-                        isActionDisabled={isStreaming || isCompacting}
-                        onRegenerate={handleRegenerateMessage}
-                        onCopy={handleCopyMessage}
-                        onFork={handleForkMessage}
+                    {isActiveConversationUnavailable && (
+                      <UnavailableConversationPanel
+                        conversationId={activeConversationId}
+                        isBusy={busyAction != null}
+                        onRepair={() => void handleRepairActiveConversation()}
+                        onRebuild={() => void handleRebuildActiveConversation()}
+                        onDelete={() => void handleDeleteActiveConversation()}
                       />
-                    ))}
+                    )}
+                    {!isActiveConversationUnavailable &&
+                      messages.length === 0 &&
+                      !activePendingPrompt && (
+                        <ChatSystemMessage>
+                          {emptyTranscriptMessage(runtime, activeModel)}
+                        </ChatSystemMessage>
+                      )}
+                    {!isActiveConversationUnavailable &&
+                      messages.map(message => (
+                        <RenderedMessage
+                          key={message.id}
+                          message={message}
+                          models={models}
+                          isActionDisabled={isStreaming || isCompacting}
+                          onRegenerate={handleRegenerateMessage}
+                          onCopy={handleCopyMessage}
+                          onFork={handleForkMessage}
+                        />
+                      ))}
                     {activePendingPrompt && (
                       <PendingPromptMessages
                         text={activePendingPrompt}

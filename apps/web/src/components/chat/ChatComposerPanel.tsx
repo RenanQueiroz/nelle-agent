@@ -102,6 +102,7 @@ export function ChatComposerPanel({
   activeComposerRouterStatus,
   isRuntimeRunning,
   hasActiveConversation,
+  isConversationUnavailable,
   contextUsage,
   isStreaming,
   isCompacting,
@@ -123,6 +124,7 @@ export function ChatComposerPanel({
   activeComposerRouterStatus: string | null;
   isRuntimeRunning: boolean;
   hasActiveConversation: boolean;
+  isConversationUnavailable: boolean;
   contextUsage: ConversationContextUsage;
   isStreaming: boolean;
   isCompacting: boolean;
@@ -161,6 +163,9 @@ export function ChatComposerPanel({
     if (!hasActiveConversation) {
       return 'Start a chat before sending a message.';
     }
+    if (isConversationUnavailable) {
+      return 'This conversation cannot be opened. Repair it, rebuild it from saved messages, or delete it.';
+    }
     if (!isRuntimeRunning) {
       return 'Start llama.cpp before chatting.';
     }
@@ -175,6 +180,7 @@ export function ChatComposerPanel({
     contextUsage,
     error,
     hasActiveConversation,
+    isConversationUnavailable,
     isRuntimeRunning,
     slashCommandError,
   ]);
