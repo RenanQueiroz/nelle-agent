@@ -61,6 +61,8 @@ being the only client. It stops being masked the moment `nelle-client` exists.
 
 ## G1: The Conversation List Is Capped At 50, And Search Is Dead
 
+**Status: server done; web pending.**
+
 ### Symptom
 
 The sidebar can never display more than the 50 most recently updated

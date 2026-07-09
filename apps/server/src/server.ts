@@ -89,6 +89,7 @@ const cloneConversationSchema = z
 const listConversationsQuerySchema = z.object({
   search: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
+  cursor: z.string().optional(),
 });
 
 const createConversationSchema = z
@@ -397,7 +398,7 @@ export async function createServer(paths: AppPaths) {
     const query = listConversationsQuerySchema.parse(request.query);
     conversations.syncLegacyDefaultConversationFromState(await store.getState());
     await conversations.markInvalidPiSessionsUnavailable();
-    return {conversations: conversations.listConversations(query)};
+    return conversations.listConversations(query);
   });
 
   app.post('/api/conversations', async request => {

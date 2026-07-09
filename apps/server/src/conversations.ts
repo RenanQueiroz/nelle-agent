@@ -92,6 +92,49 @@ export type ConversationListItem = {
   defaultModelId?: string;
 };
 
+export type ConversationPage = {
+  conversations: ConversationListItem[];
+  nextCursor?: string;
+};
+
+/**
+ * Keyset cursor over `(updated_at, id)`.
+ *
+ * An offset cursor would skip rows: answering a chat bumps its `updated_at`,
+ * which reorders the very list being paged through. The last row of the previous
+ * page is a stable place to resume from, and `id` breaks ties between two
+ * conversations updated in the same millisecond.
+ */
+type ConversationCursor = {updatedAt: string; id: string};
+
+/** Pinned rows are few by construction, but refuse to unbound the query. */
+const MAX_PINNED_CONVERSATIONS = 200;
+
+function encodeCursor(cursor: ConversationCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
+function decodeCursor(value: string | undefined): ConversationCursor | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown;
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      typeof (parsed as ConversationCursor).updatedAt === 'string' &&
+      typeof (parsed as ConversationCursor).id === 'string'
+    ) {
+      return parsed as ConversationCursor;
+    }
+  } catch {
+    // A cursor is opaque to callers, so a malformed one is indistinguishable
+    // from a stale one. Start over rather than failing the list request.
+  }
+  return null;
+}
+
 export type PiSessionBinding = {
   piSessionPath: string;
   piSessionId: string;
@@ -221,21 +264,31 @@ export class ConversationRepository {
     return this.createConversation({...input, id});
   }
 
-  listConversations(input: {search?: string; limit?: number} = {}): ConversationListItem[] {
+  /**
+   * Returns one page of conversations, newest first.
+   *
+   * Pinned rows ride along on the first page only, so the sidebar's pinned
+   * section is always complete and never straddles a page boundary. Everything
+   * after that is keyset-paginated over the unpinned rows.
+   */
+  listConversations(
+    input: {search?: string; limit?: number; cursor?: string} = {},
+  ): ConversationPage {
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
-    const search = input.search?.trim();
-    const db = this.database.connection;
-    const rows = search
-      ? this.searchConversations(db, search, limit)
-      : (db
-          .prepare(
-            `SELECT * FROM conversations
-             WHERE deleted_at IS NULL
-             ORDER BY pinned DESC, updated_at DESC
-             LIMIT ?`,
-          )
-          .all(limit) as ConversationRow[]);
-    return rows.map(mapConversationListItem);
+    const search = input.search?.trim() || undefined;
+    const cursor = decodeCursor(input.cursor);
+
+    const pinned = cursor
+      ? []
+      : this.queryConversations({search, pinned: true, limit: MAX_PINNED_CONVERSATIONS});
+    const recent = this.queryConversations({search, pinned: false, limit, cursor});
+
+    // Only a full page can have more behind it. A short page is the last one.
+    const last = recent.length === limit ? recent[recent.length - 1] : undefined;
+    return {
+      conversations: [...pinned, ...recent].map(mapConversationListItem),
+      nextCursor: last ? encodeCursor({updatedAt: last.updated_at, id: last.id}) : undefined,
+    };
   }
 
   getConversation(id: string): ConversationRow | null {
@@ -1157,33 +1210,57 @@ export class ConversationRepository {
     return rows.map(mapAttachmentRow);
   }
 
-  private searchConversations(db: DatabaseSync, search: string, limit: number): ConversationRow[] {
-    if (hasConversationSearch(db)) {
+  /**
+   * One page of rows from a single pinned group, newest first.
+   *
+   * FTS5 is only ever a filter here; the ordering always comes from
+   * `conversations`. Paginating by FTS `rank` would overlap pages, because rank
+   * shifts as rows are inserted into the index.
+   */
+  private queryConversations(input: {
+    search?: string;
+    pinned: boolean;
+    limit: number;
+    cursor?: ConversationCursor | null;
+  }): ConversationRow[] {
+    const db = this.database.connection;
+    const conditions = ['conversations.deleted_at IS NULL', 'conversations.pinned = ?'];
+    const params: (string | number)[] = [input.pinned ? 1 : 0];
+
+    if (input.cursor) {
+      conditions.push('(conversations.updated_at, conversations.id) < (?, ?)');
+      params.push(input.cursor.updatedAt, input.cursor.id);
+    }
+
+    const tail = `ORDER BY conversations.updated_at DESC, conversations.id DESC LIMIT ?`;
+
+    if (input.search && hasConversationSearch(db)) {
       try {
         return db
           .prepare(
             `SELECT conversations.*
              FROM conversation_search
              JOIN conversations ON conversations.id = conversation_search.conversation_id
-             WHERE conversation_search MATCH ? AND conversations.deleted_at IS NULL
-             ORDER BY conversations.pinned DESC, conversations.updated_at DESC
-             LIMIT ?`,
+             WHERE conversation_search MATCH ? AND ${conditions.join(' AND ')}
+             ${tail}`,
           )
-          .all(search, limit) as ConversationRow[];
+          .all(input.search, ...params, input.limit) as ConversationRow[];
       } catch {
         // FTS query syntax is stricter than ordinary user search input. Fall
         // back to LIKE rather than failing the list endpoint.
       }
     }
 
+    if (input.search) {
+      conditions.push(`conversations.title LIKE ? ESCAPE '\\'`);
+      params.push(`%${escapeLike(input.search)}%`);
+    }
+
     return db
       .prepare(
-        `SELECT * FROM conversations
-         WHERE deleted_at IS NULL AND title LIKE ? ESCAPE '\\'
-         ORDER BY pinned DESC, updated_at DESC
-         LIMIT ?`,
+        `SELECT conversations.* FROM conversations WHERE ${conditions.join(' AND ')} ${tail}`,
       )
-      .all(`%${escapeLike(search)}%`, limit) as ConversationRow[];
+      .all(...params, input.limit) as ConversationRow[];
   }
 
   private upsertSearch(conversationId: string, title: string): void {

@@ -166,6 +166,19 @@ const MIGRATIONS: Migration[] = [
       tableHasColumn(db, 'conversations', 'reasoning_level') &&
       tableHasColumn(db, 'conversation_entry_projection', 'reasoning_text'),
   },
+  {
+    version: 5,
+    name: 'conversation_keyset_index',
+    checksum: '2026-07-09-conversation-keyset-index',
+    // Covers the keyset page query: filter on `pinned`, walk `(updated_at, id)`
+    // descending. The older `(pinned DESC, updated_at DESC)` index cannot serve
+    // the `id` tiebreaker, so it would leave SQLite sorting every page.
+    sql: `
+      CREATE INDEX IF NOT EXISTS conversations_recent_keyset_idx
+        ON conversations(pinned, updated_at DESC, id DESC);
+    `,
+    isApplied: db => indexExists(db, 'conversations_recent_keyset_idx'),
+  },
 ];
 
 /** The proof-of-concept default chat was stored under this id. */
@@ -374,6 +387,13 @@ function tableHasColumn(db: DatabaseSync, tableName: string, columnName: string)
     .prepare(`PRAGMA table_info(${sqlIdentifier(tableName)})`)
     .all()
     .some(column => (column as {name?: string}).name === columnName);
+}
+
+function indexExists(db: DatabaseSync, indexName: string): boolean {
+  return (
+    db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`).get(indexName) !=
+    null
+  );
 }
 
 function sqlIdentifier(value: string): string {

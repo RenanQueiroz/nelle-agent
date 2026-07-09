@@ -50,6 +50,7 @@ test('SQLite migration creates conversation tables and migration records', async
         [2, 'conversation_context_usage_cache'],
         [3, 'rename_poc_default_conversation'],
         [4, 'conversation_reasoning'],
+        [5, 'conversation_keyset_index'],
       ],
     );
     assert.equal(table?.name, 'conversations');
@@ -157,7 +158,7 @@ test('SQLite migration backs up existing databases before repairing migration re
       .all() as Array<{version: number}>;
     assert.deepEqual(
       migrations.map(migration => migration.version),
-      [1, 2, 3, 4],
+      [1, 2, 3, 4, 5],
     );
   } finally {
     repaired.close();
@@ -180,7 +181,7 @@ test('SQLite migration backs up existing databases before repairing migration re
     // this test deleted, so it is missing while the others remain.
     assert.deepEqual(
       backupMigrations.map(migration => migration.version),
-      [1, 3, 4],
+      [1, 3, 4, 5],
     );
     assert.equal(contextColumn, true);
   } finally {
@@ -235,7 +236,7 @@ test('repository mirrors the legacy default chat into a conversation snapshot', 
     assert.deepEqual(snapshot?.activePathEntryIds, ['user-1', 'assistant-1']);
     assert.equal(snapshot?.entries[0]?.textPreview, 'Hello Nelle');
     assert.equal(snapshot?.models.available[0]?.id, 'repo/model:Q4_K_M');
-    assert.equal(repository.listConversations({search: 'Hello'}).length, 1);
+    assert.equal(repository.listConversations({search: 'Hello'}).conversations.length, 1);
   } finally {
     database.close();
   }
@@ -257,7 +258,7 @@ test('repository does not recreate the legacy default conversation after it is d
     const repository = new ConversationRepository(database);
     await repository.init();
     repository.syncLegacyDefaultConversationFromState(await store.getState());
-    assert.equal(repository.listConversations({}).length, 1);
+    assert.equal(repository.listConversations({}).conversations.length, 1);
 
     assert.equal(repository.hardDeleteConversation(LEGACY_DEFAULT_CONVERSATION_ID), true);
     await store.clearChat();
@@ -265,7 +266,7 @@ test('repository does not recreate the legacy default conversation after it is d
     // `GET /api/conversations` syncs before listing; that must not resurrect the
     // conversation the user just deleted.
     assert.equal(repository.syncLegacyDefaultConversationFromState(await store.getState()), null);
-    assert.equal(repository.listConversations({}).length, 0);
+    assert.equal(repository.listConversations({}).conversations.length, 0);
     assert.equal(repository.getConversation(LEGACY_DEFAULT_CONVERSATION_ID), null);
   } finally {
     database.close();
@@ -283,7 +284,7 @@ test('repository still migrates a non-empty legacy chat into the default convers
 
     // No legacy chat: nothing to show, nothing to create.
     assert.equal(repository.syncLegacyDefaultConversationFromState(await store.getState()), null);
-    assert.equal(repository.listConversations({}).length, 0);
+    assert.equal(repository.listConversations({}).conversations.length, 0);
 
     await store.appendChatMessage({
       id: 'user-1',
@@ -295,7 +296,137 @@ test('repository still migrates a non-empty legacy chat into the default convers
     const migrated = repository.syncLegacyDefaultConversationFromState(await store.getState());
     assert.equal(migrated?.id, LEGACY_DEFAULT_CONVERSATION_ID);
     assert.equal(migrated?.title, 'Legacy prompt');
-    assert.equal(repository.listConversations({}).length, 1);
+    assert.equal(repository.listConversations({}).conversations.length, 1);
+  } finally {
+    database.close();
+  }
+});
+
+test('conversation pages are disjoint, ordered, and cover every conversation', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    await repository.init();
+
+    const created = Array.from({length: 120}, (_, index) =>
+      repository.createConversation({title: `Chat ${String(index).padStart(3, '0')}`}),
+    );
+
+    // Collapse every row onto three timestamps. Real installs produce ties
+    // whenever two conversations are touched in the same millisecond, and a
+    // cursor keyed on `updated_at` alone would then skip or repeat whole runs of
+    // rows at a page boundary. Forty rows per timestamp straddles the page size.
+    for (const [index, conversation] of created.entries()) {
+      database.connection
+        .prepare('UPDATE conversations SET updated_at = ? WHERE id = ?')
+        .run(`2026-07-0${1 + Math.floor(index / 40)}T00:00:00.000Z`, conversation.id);
+    }
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const page = repository.listConversations({limit: 25, cursor});
+      seen.push(...page.conversations.map(conversation => conversation.id));
+      cursor = page.nextCursor;
+      pages += 1;
+      assert.ok(pages < 20, 'pagination did not terminate');
+    } while (cursor);
+
+    assert.equal(seen.length, 120, 'every conversation is returned exactly once');
+    assert.equal(new Set(seen).size, 120, 'no conversation appears on two pages');
+    assert.deepEqual([...seen].sort(), created.map(conversation => conversation.id).sort());
+  } finally {
+    database.close();
+  }
+});
+
+test('conversation search reaches a conversation far beyond the first page', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    await repository.init();
+
+    const needle = repository.createConversation({title: 'Needle in the haystack'});
+    for (let index = 0; index < 120; index += 1) {
+      repository.createConversation({title: `Haystack ${index}`});
+    }
+
+    // The needle is the oldest row, so a client-side filter over the first page
+    // would never see it.
+    const firstPage = repository.listConversations({limit: 50});
+    assert.equal(
+      firstPage.conversations.some(conversation => conversation.id === needle.id),
+      false,
+    );
+
+    const found = repository.listConversations({search: 'Needle'});
+    assert.deepEqual(
+      found.conversations.map(conversation => conversation.id),
+      [needle.id],
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test('pinned conversations ride only on the first conversation page', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    await repository.init();
+
+    for (let index = 0; index < 30; index += 1) {
+      repository.createConversation({title: `Chat ${index}`});
+    }
+    const pinned = repository.createConversation({title: 'Pinned chat'});
+    repository.patchConversation(pinned.id, {pinned: true});
+
+    const firstPage = repository.listConversations({limit: 10});
+    assert.equal(
+      firstPage.conversations.filter(conversation => conversation.pinned).length,
+      1,
+      'the pinned section is complete on page one',
+    );
+    // Ten unpinned rows plus the pinned one that rides along.
+    assert.equal(firstPage.conversations.length, 11);
+
+    const secondPage = repository.listConversations({limit: 10, cursor: firstPage.nextCursor});
+    assert.equal(
+      secondPage.conversations.some(conversation => conversation.pinned),
+      false,
+      'a pinned row must not repeat on later pages',
+    );
+  } finally {
+    database.close();
+  }
+});
+
+test('conversation search falls back to LIKE when FTS5 is unavailable', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    await repository.init();
+    repository.createConversation({title: 'Findable chat'});
+    repository.createConversation({title: 'Other chat'});
+
+    // Stand in for a SQLite build compiled without FTS5, which `tryCreateSearchTable`
+    // tolerates by design.
+    database.connection.exec('DROP TABLE conversation_search');
+
+    const found = repository.listConversations({search: 'Findable'});
+    assert.deepEqual(
+      found.conversations.map(conversation => conversation.title),
+      ['Findable chat'],
+    );
   } finally {
     database.close();
   }
@@ -558,7 +689,7 @@ test('repository marks missing or corrupt Pi session files unavailable', async (
     assert.equal(
       repository
         .listConversations({search: 'Corrupt'})
-        .find(conversation => conversation.id === corruptConversation.id)?.status,
+        .conversations.find(conversation => conversation.id === corruptConversation.id)?.status,
       'unavailable',
     );
   } finally {
