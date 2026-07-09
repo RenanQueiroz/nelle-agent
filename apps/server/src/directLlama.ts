@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 
 import {createAsyncQueue} from './asyncQueue';
 import {createErrorEvent} from './errors';
+import {NELLE_WARNING_CODES} from '../../../packages/shared/src/contracts.ts';
 import {
   mergeChatPerformance,
   performanceFromLlamaPromptProgress,
@@ -52,12 +53,13 @@ export async function streamDirectLlama(
     status: 'running',
     createdAt: runStartedAt,
   });
-  queue.push({type: 'user_message', message: userMessage});
+  queue.push({type: 'message.user.created', message: userMessage});
   queue.push({
-    type: 'warning',
+    type: 'run.warning',
+    code: NELLE_WARNING_CODES.piHarnessFallback,
     message: 'Pi harness failed; falling back to direct llama.cpp chat completions.',
   });
-  queue.push({type: 'assistant_start', message: assistantMessage, harness: 'llamacpp'});
+  queue.push({type: 'message.assistant.started', message: assistantMessage, harness: 'llamacpp'});
 
   void (async () => {
     const modelId = llamaRuntimeModelId(activeModel);
@@ -67,7 +69,7 @@ export async function streamDirectLlama(
         performance,
       );
       queue.push({
-        type: 'assistant_metrics',
+        type: 'performance.updated',
         id: assistantMessage.id,
         performance: assistantMessage.performance,
       });
@@ -135,7 +137,7 @@ export async function streamDirectLlama(
             const delta = parsed.choices?.[0]?.delta?.content ?? '';
             if (delta) {
               assistantMessage.content += delta;
-              queue.push({type: 'assistant_delta', id: assistantMessage.id, delta});
+              queue.push({type: 'message.assistant.delta', id: assistantMessage.id, delta});
             }
             const performance = performanceFromLlamaTimings(parsed.timings);
             if (performance) {
@@ -146,7 +148,6 @@ export async function streamDirectLlama(
       }
       await store.appendChatMessage(assistantMessage);
       queue.push({type: 'message.assistant.completed', message: assistantMessage});
-      queue.push({type: 'done', message: assistantMessage});
       queue.push({
         type: 'run.completed',
         runId,

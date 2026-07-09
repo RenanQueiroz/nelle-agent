@@ -10,6 +10,32 @@ export const nelleErrorSchema = z.object({
 
 export type NelleError = z.infer<typeof nelleErrorSchema>;
 
+/**
+ * A `run.warning` carries a code for the same reason an `error` does: a browser
+ * can render prose, but no other client can branch on it, localize it, or
+ * suppress one it already knows about.
+ */
+export const nelleWarningSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+  detail: z.string().optional(),
+});
+
+export type NelleWarning = z.infer<typeof nelleWarningSchema>;
+
+export const NELLE_WARNING_CODES = {
+  /** Pi failed; Nelle fell back to direct llama.cpp chat completions. */
+  piHarnessFallback: 'pi_harness_fallback',
+  /** The prompt leaves no room for a reply inside the context window. */
+  replyBudgetExhausted: 'reply_budget_exhausted',
+  /** The model spent its whole reasoning budget without answering. */
+  reasoningBudgetExhausted: 'reasoning_budget_exhausted',
+  /** The model produced reasoning but no final text; it is shown instead. */
+  reasoningWithoutAnswer: 'reasoning_without_answer',
+  /** llama.cpp's slot was still generating after the post-abort grace window. */
+  llamaSlotStillProcessing: 'llama_slot_still_processing',
+} as const;
+
 export const chatAttachmentKindSchema = z.enum(['text', 'pdf', 'image']);
 
 export const chatAttachmentInputSchema = z.object({

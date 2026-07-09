@@ -18,7 +18,11 @@ type ConversationsStore = {
   loadFirstPage: (search: string) => Promise<ConversationListItem[]>;
   loadNextPage: () => Promise<void>;
   setStatus: (conversationId: string, status: ConversationListItem['status']) => void;
-  setGeneratedTitle: (conversationId: string, title: string) => void;
+  setConversationTitle: (
+    conversationId: string,
+    title: string,
+    titleSource: ConversationListItem['titleSource'],
+  ) => void;
   clear: () => void;
 };
 
@@ -105,12 +109,10 @@ export const useConversationsStore = create<ConversationsStore>((set, get) => {
         ),
       })),
 
-    setGeneratedTitle: (conversationId, title) =>
+    setConversationTitle: (conversationId, title, titleSource) =>
       set(state => ({
         conversations: state.conversations.map(conversation =>
-          conversation.id === conversationId
-            ? {...conversation, title, titleSource: 'generated'}
-            : conversation,
+          conversation.id === conversationId ? {...conversation, title, titleSource} : conversation,
         ),
       })),
 

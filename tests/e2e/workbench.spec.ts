@@ -473,14 +473,14 @@ test('loads an unloaded selected model before sending chat', async ({page}) => {
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
       body: [
-        {type: 'user_message', message: userMessage},
+        {type: 'message.user.created', message: userMessage},
         {
-          type: 'assistant_start',
+          type: 'message.assistant.started',
           harness: 'pi',
           message: {...assistantMessage, content: ''},
         },
-        {type: 'assistant_delta', id: assistantMessage.id, delta: assistantMessage.content},
-        {type: 'done', message: assistantMessage},
+        {type: 'message.assistant.delta', id: assistantMessage.id, delta: assistantMessage.content},
+        {type: 'message.assistant.completed', message: assistantMessage},
       ]
         .map(event => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
@@ -1221,19 +1221,19 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
       body: [
-        {type: 'user_message', message: userMessage},
+        {type: 'message.user.created', message: userMessage},
         {
-          type: 'assistant_start',
+          type: 'message.assistant.started',
           harness: 'llamacpp',
           message: {...assistantMessage, content: '', performance: undefined},
         },
-        {type: 'assistant_delta', id: assistantMessage.id, delta: assistantMessage.content},
+        {type: 'message.assistant.delta', id: assistantMessage.id, delta: assistantMessage.content},
         {
-          type: 'assistant_metrics',
+          type: 'performance.updated',
           id: assistantMessage.id,
           performance: assistantMessage.performance,
         },
-        {type: 'done', message: assistantMessage},
+        {type: 'message.assistant.completed', message: assistantMessage},
       ]
         .map(event => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
@@ -1382,14 +1382,14 @@ test('attaches text files and blocks images for text-only models', async ({page}
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
       body: [
-        {type: 'user_message', message: userMessage},
+        {type: 'message.user.created', message: userMessage},
         {
-          type: 'assistant_start',
+          type: 'message.assistant.started',
           harness: 'pi',
           message: {...assistantMessage, content: ''},
         },
-        {type: 'assistant_delta', id: assistantMessage.id, delta: assistantMessage.content},
-        {type: 'done', message: assistantMessage},
+        {type: 'message.assistant.delta', id: assistantMessage.id, delta: assistantMessage.content},
+        {type: 'message.assistant.completed', message: assistantMessage},
       ]
         .map(event => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
@@ -1527,14 +1527,14 @@ test('renders PDFs as image attachments for vision models', async ({page}) => {
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
       body: [
-        {type: 'user_message', message: userMessage},
+        {type: 'message.user.created', message: userMessage},
         {
-          type: 'assistant_start',
+          type: 'message.assistant.started',
           harness: 'pi',
           message: {...assistantMessage, content: ''},
         },
-        {type: 'assistant_delta', id: assistantMessage.id, delta: assistantMessage.content},
-        {type: 'done', message: assistantMessage},
+        {type: 'message.assistant.delta', id: assistantMessage.id, delta: assistantMessage.content},
+        {type: 'message.assistant.completed', message: assistantMessage},
       ]
         .map(event => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),
@@ -1696,18 +1696,18 @@ test('regenerates an assistant response from the footer model picker', async ({p
       await route.fulfill({
         headers: {'content-type': 'text/event-stream; charset=utf-8'},
         body: [
-          {type: 'user_message', message: regeneratedUser},
+          {type: 'message.user.created', message: regeneratedUser},
           {
-            type: 'assistant_start',
+            type: 'message.assistant.started',
             harness: 'pi',
             message: {...regeneratedAssistant, content: ''},
           },
           {
-            type: 'assistant_delta',
+            type: 'message.assistant.delta',
             id: regeneratedAssistant.id,
             delta: regeneratedAssistant.content,
           },
-          {type: 'done', message: regeneratedAssistant},
+          {type: 'message.assistant.completed', message: regeneratedAssistant},
         ]
           .map(event => `data: ${JSON.stringify(event)}\n\n`)
           .join(''),
@@ -1939,16 +1939,16 @@ test('updates streamed tool calls and shows expandable input and output', async 
     await route.fulfill({
       headers: {'content-type': 'text/event-stream; charset=utf-8'},
       body: [
-        {type: 'user_message', message: userMessage},
+        {type: 'message.user.created', message: userMessage},
         {
-          type: 'assistant_start',
+          type: 'message.assistant.started',
           harness: 'pi',
           message: {...assistantMessage, content: '', toolCalls: []},
         },
-        {type: 'tool', call: runningCall},
-        {type: 'tool', call: completedCall},
-        {type: 'assistant_delta', id: assistantMessage.id, delta: assistantMessage.content},
-        {type: 'done', message: assistantMessage},
+        {type: 'tool_call.updated', call: runningCall},
+        {type: 'tool_call.updated', call: completedCall},
+        {type: 'message.assistant.delta', id: assistantMessage.id, delta: assistantMessage.content},
+        {type: 'message.assistant.completed', message: assistantMessage},
       ]
         .map(event => `data: ${JSON.stringify(event)}\n\n`)
         .join(''),

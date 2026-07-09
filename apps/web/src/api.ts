@@ -217,19 +217,26 @@ export type ChatStreamEvent =
       error: {code: string; message: string; retryable?: boolean};
       createdAt: string;
     }
-  | {type: 'user_message'; message: ChatMessage}
-  | {type: 'assistant_start'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
-  | {type: 'assistant_delta'; id: string; delta: string}
-  | {type: 'assistant_reasoning'; id: string; delta: string}
-  | {type: 'assistant_metrics'; id: string; performance: ChatPerformance}
-  | {type: 'tool'; call: NonNullable<ChatMessage['toolCalls']>[number]}
-  | {type: 'conversation_title'; conversationId: string; title: string}
-  | {type: 'warning'; message: string}
+  | {type: 'message.user.created'; message: ChatMessage}
+  | {type: 'message.assistant.started'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
+  | {type: 'message.assistant.delta'; id: string; delta: string}
+  | {type: 'message.assistant.reasoning_delta'; id: string; delta: string}
   | {type: 'message.assistant.completed'; message: ChatMessage}
-  | {type: 'done'; message: ChatMessage}
-  | ({type: 'error'} & NelleWarning);
+  | {type: 'performance.updated'; id: string; performance: ChatPerformance}
+  | {type: 'tool_call.updated'; call: NonNullable<ChatMessage['toolCalls']>[number]}
+  | {
+      type: 'conversation.updated';
+      conversationId: string;
+      title?: string;
+      titleSource?: ConversationListItem['titleSource'];
+      activeLeafPiEntryId?: string;
+      updatedAt: string;
+    }
+  | ({type: 'run.warning'} & NelleWarning)
+  | ({type: 'error'} & NelleError);
 
-export type NelleWarning = {
+/** Mirrors `packages/shared/src/contracts.ts`; the web bundle stays zod-free. */
+export type NelleError = {
   code: string;
   message: string;
   detail?: string;
@@ -237,10 +244,17 @@ export type NelleWarning = {
   logRef?: string;
 };
 
+export type NelleWarning = {
+  code: string;
+  message: string;
+  detail?: string;
+};
+
 export type AbortConversationResponse = {
   ok: boolean;
   aborted: boolean;
-  warning?: NelleWarning;
+  /** Server-side abort warnings carry the full NelleError shape. */
+  warning?: NelleError;
   runId?: string;
   snapshot?: ConversationSnapshot;
 };

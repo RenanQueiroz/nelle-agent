@@ -1700,12 +1700,13 @@ test('Pi title generation emits title run lifecycle events', async () => {
 
     assert.deepEqual(
       events.map(event => event.type),
-      ['run.started', 'conversation_title', 'run.completed'],
+      ['run.started', 'conversation.updated', 'run.completed'],
     );
     assert.equal(events[0]?.type, 'run.started');
     assert.equal(events[0]?.kind, 'title');
-    assert.equal(events[1]?.type, 'conversation_title');
+    assert.equal(events[1]?.type, 'conversation.updated');
     assert.equal(events[1]?.title, 'Local Model Setup');
+    assert.equal(events[1]?.titleSource, 'generated');
     assert.equal(events[2]?.type, 'run.completed');
     assert.equal(events[2]?.status, 'completed');
     assert.equal(snapshot?.conversation.title, 'Local Model Setup');
@@ -2558,10 +2559,9 @@ test('chat stream emits SSE envelopes with run lifecycle events', async () => {
           type =>
             type === 'run.started' ||
             type === 'message.assistant.completed' ||
-            type === 'run.completed' ||
-            type === 'done',
+            type === 'run.completed',
         ),
-      ['run.started', 'message.assistant.completed', 'done', 'run.completed'],
+      ['run.started', 'message.assistant.completed', 'run.completed'],
     );
     const runStarted = envelopes.find(envelope => envelope.data?.type === 'run.started');
     const runCompleted = envelopes.find(envelope => envelope.data?.type === 'run.completed');

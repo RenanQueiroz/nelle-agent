@@ -1,9 +1,14 @@
 import type {
   AttachmentMetadata,
   ConversationContextUsage,
+  ConversationSnapshot,
 } from '../../../packages/shared/src/conversations.ts';
 import type {RunKind, TerminalRunStatus} from '../../../packages/shared/src/conversations.ts';
-import type {ChatAttachmentInput, NelleError} from '../../../packages/shared/src/contracts.ts';
+import type {
+  ChatAttachmentInput,
+  NelleError,
+  NelleWarning,
+} from '../../../packages/shared/src/contracts.ts';
 import type {ReasoningSettings} from '../../../packages/shared/src/reasoning.ts';
 
 export type {ChatAttachmentInput};
@@ -229,16 +234,27 @@ export type ChatStreamEvent =
       error: {code: string; message: string; retryable?: boolean};
       createdAt: string;
     }
-  | {type: 'user_message'; message: ChatMessage}
-  | {type: 'assistant_start'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
-  | {type: 'assistant_delta'; id: string; delta: string}
-  | {type: 'assistant_reasoning'; id: string; delta: string}
-  | {type: 'assistant_metrics'; id: string; performance: ChatPerformance}
-  | {type: 'tool'; call: ToolCallEvent}
-  | {type: 'conversation_title'; conversationId: string; title: string}
-  | {type: 'warning'; message: string}
+  | {type: 'message.user.created'; message: ChatMessage}
+  | {type: 'message.assistant.started'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
+  | {type: 'message.assistant.delta'; id: string; delta: string}
+  | {type: 'message.assistant.reasoning_delta'; id: string; delta: string}
   | {type: 'message.assistant.completed'; message: ChatMessage}
-  | {type: 'done'; message: ChatMessage}
+  | {type: 'performance.updated'; id: string; performance: ChatPerformance}
+  | {type: 'tool_call.updated'; call: ToolCallEvent}
+  | {
+      type: 'conversation.updated';
+      conversationId: string;
+      title?: string;
+      titleSource?: ConversationSnapshot['conversation']['titleSource'];
+      activeLeafPiEntryId?: string;
+      updatedAt: string;
+    }
+  // `conversation.forked` is specified by the router plan but has no channel to
+  // travel on: fork and clone are plain JSON routes, and Nelle exposes no
+  // conversation-level SSE stream, only per-run ones. Adding the union member
+  // without an emitter would just be a type nobody sends. It belongs with the
+  // conversation event stream a mobile client will need.
+  | ({type: 'run.warning'} & NelleWarning)
   | ({type: 'error'} & NelleError);
 
 export type AppState = {

@@ -58,6 +58,7 @@ import type {
   ToolCallEvent,
 } from './types';
 import type {NelleError} from '../../../packages/shared/src/contracts.ts';
+import {NELLE_WARNING_CODES} from '../../../packages/shared/src/contracts.ts';
 
 const PROVIDER_ID = 'nelle-llamacpp';
 const TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
@@ -597,8 +598,8 @@ export class PiHarness {
       await this.store.appendChatMessage(userMessage);
     }
     queue.push(createRunStartedEvent(run));
-    queue.push({type: 'user_message', message: userMessage});
-    queue.push({type: 'assistant_start', message: assistantMessage, harness: 'pi'});
+    queue.push({type: 'message.user.created', message: userMessage});
+    queue.push({type: 'message.assistant.started', message: assistantMessage, harness: 'pi'});
 
     void this.runPiPrompt(activeModel, conversationId, prompt, assistantMessage, queue, {
       run,
@@ -672,8 +673,8 @@ export class PiHarness {
     };
 
     queue.push(createRunStartedEvent(run));
-    queue.push({type: 'user_message', message: userMessage});
-    queue.push({type: 'assistant_start', message: assistantMessage, harness: 'pi'});
+    queue.push({type: 'message.user.created', message: userMessage});
+    queue.push({type: 'message.assistant.started', message: assistantMessage, harness: 'pi'});
 
     void this.runPiPrompt(activeModel, input.conversationId, prompt, assistantMessage, queue, {
       run,
@@ -773,7 +774,8 @@ export class PiHarness {
       ) {
         warnedAboutReplyBudget = true;
         queue.push({
-          type: 'warning',
+          type: 'run.warning',
+          code: NELLE_WARNING_CODES.replyBudgetExhausted,
           message:
             `This prompt uses ${promptTokens.toLocaleString()} of the model's ` +
             `${contextSize.toLocaleString()} token context window, which leaves no room for a ` +
@@ -782,7 +784,7 @@ export class PiHarness {
         });
       }
       queue.push({
-        type: 'assistant_metrics',
+        type: 'performance.updated',
         id: assistantMessage.id,
         performance: assistantMessage.performance,
       });
@@ -804,7 +806,7 @@ export class PiHarness {
         return;
       }
       assistantMessage.content += text;
-      queue.push({type: 'assistant_delta', id: assistantMessage.id, delta: text});
+      queue.push({type: 'message.assistant.delta', id: assistantMessage.id, delta: text});
     };
     const unsubscribe = session.subscribe((event: any) => {
       if (event.type === 'message_update') {
@@ -816,7 +818,7 @@ export class PiHarness {
           const delta = String(assistantEvent.delta ?? '');
           thinkingText += delta;
           assistantMessage.reasoning = thinkingText;
-          queue.push({type: 'assistant_reasoning', id: assistantMessage.id, delta});
+          queue.push({type: 'message.assistant.reasoning_delta', id: assistantMessage.id, delta});
         }
         if (assistantEvent?.type === 'error') {
           providerError =
@@ -845,7 +847,7 @@ export class PiHarness {
           startedAt: new Date(startedAt),
         });
         toolCalls.push(call);
-        queue.push({type: 'tool', call: {...call}});
+        queue.push({type: 'tool_call.updated', call: {...call}});
       }
 
       if (event.type === 'tool_execution_update') {
@@ -858,7 +860,7 @@ export class PiHarness {
           input: stringifyToolData(event.args),
           output: stringifyToolData(event.partialResult),
         });
-        queue.push({type: 'tool', call: {...call}});
+        queue.push({type: 'tool_call.updated', call: {...call}});
       }
 
       if (event.type === 'tool_execution_end') {
@@ -887,7 +889,7 @@ export class PiHarness {
           completedAt: new Date(completedAt),
           durationMs,
         });
-        queue.push({type: 'tool', call: {...call}});
+        queue.push({type: 'tool_call.updated', call: {...call}});
       }
     });
     const stopPromptResources = () => {
@@ -922,19 +924,21 @@ export class PiHarness {
           // The transcript already renders the thinking block, so promoting it
           // to the answer would show the same text twice.
           queue.push({
-            type: 'warning',
+            type: 'run.warning',
+            code: NELLE_WARNING_CODES.reasoningBudgetExhausted,
             message:
               'The model spent its whole reasoning budget without answering. Raise the ' +
               `${reasoningLevel} budget in Settings > Reasoning, or lower the reasoning level.`,
           });
         } else {
           queue.push({
-            type: 'warning',
+            type: 'run.warning',
+            code: NELLE_WARNING_CODES.reasoningWithoutAnswer,
             message:
               'The model returned reasoning content without final text; showing the reasoning output.',
           });
           assistantMessage.content = fallback;
-          queue.push({type: 'assistant_delta', id: assistantMessage.id, delta: fallback});
+          queue.push({type: 'message.assistant.delta', id: assistantMessage.id, delta: fallback});
         }
       }
       if (conversationId === 'legacy-default' && options.appendLegacyState !== false) {
@@ -962,7 +966,6 @@ export class PiHarness {
         );
       }
       queue.push({type: 'message.assistant.completed', message: assistantMessage});
-      queue.push({type: 'done', message: assistantMessage});
       queue.push(createRunCompletedEvent(run, 'completed'));
       this.finishRun(conversationId, run.runId);
       this.setConversationReadyUnlessUnavailable(conversationId);
@@ -1055,7 +1058,13 @@ export class PiHarness {
       }
       if (title) {
         this.conversations.setGeneratedTitle(conversationId, title);
-        queue.push({type: 'conversation_title', conversationId, title});
+        queue.push({
+          type: 'conversation.updated',
+          conversationId,
+          title,
+          titleSource: 'generated',
+          updatedAt: new Date().toISOString(),
+        });
       }
       queue.push(createRunCompletedEvent(run, 'completed'));
     } catch (error) {
@@ -1747,7 +1756,12 @@ function pushRunAbortedEvents(
 ): void {
   queue?.push(createRunAbortedEvent(run, 'user'));
   if (run.abortWarning) {
-    queue?.push({type: 'warning', message: run.abortWarning.message});
+    queue?.push({
+      type: 'run.warning',
+      code: run.abortWarning.code,
+      message: run.abortWarning.message,
+      detail: run.abortWarning.detail,
+    });
   }
   queue?.push(createRunCompletedEvent(run, 'aborted'));
 }

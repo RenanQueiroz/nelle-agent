@@ -1318,11 +1318,16 @@ should mirror envelope `id`.
 Current implementation note: chat and regenerate routes now serialize Nelle SSE
 envelopes and include stable run ids plus `run.started`, `run.aborted`, and
 `run.completed` data events. The browser stream reader remains backward
-compatible with older raw event payloads. Final assistant messages now emit
-`message.assistant.completed`; the legacy `done` event is still emitted as a
-compatibility alias while older clients/tests exist. Stream `error` events carry
-stable `NelleError` fields, with known mappings such as `conversation_busy`,
+compatible with older raw event payloads. Final assistant messages emit
+`message.assistant.completed`; the legacy `done` alias has been removed. Every
+event name is dotted. `run.warning` carries `{code, message, detail?}` from
+`NELLE_WARNING_CODES`. Stream `error` events carry stable `NelleError` fields,
+with known mappings such as `conversation_busy`,
 `invalid_conversation_transition`, and `session_unavailable`.
+
+`conversation.forked` remains unimplemented: fork and clone are plain JSON
+routes, and Nelle exposes no conversation-level SSE channel to publish it on.
+It belongs with the conversation event stream a mobile client will need.
 
 Durability rules:
 
@@ -1368,9 +1373,10 @@ Pi event mapping:
 - User message append/entry creation -> `message.user.created`.
 - Assistant message start -> `message.assistant.started`.
 - Assistant visible text delta -> `message.assistant.delta`.
-- Assistant reasoning/thinking deltas are ignored for normal chat while
-  Qwen-family thinking is disabled. If thinking is enabled later, add a
-  separate opt-in `message.assistant.thinking_delta` event and UI surface.
+- Assistant reasoning deltas -> `message.assistant.reasoning_delta`. llama-server
+  separates them for us on `delta.reasoning_content`; Pi persists them as
+  `{type: "thinking"}` content blocks. Whether a model can reason is a property
+  of its chat template, not its name, so nothing here is Qwen-specific.
 - Assistant final entry -> `message.assistant.completed` plus
   `conversation.updated`.
 - Pi tool execution start/progress/end -> upsert `tool_call.updated` by

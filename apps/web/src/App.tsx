@@ -1628,7 +1628,7 @@ export function App() {
         });
       }
     }
-    if (event.type === 'user_message') {
+    if (event.type === 'message.user.created') {
       // The server has the prompt now; drop the optimistic copy.
       setPendingPrompt(previous => (previous?.conversationId === conversationId ? null : previous));
       if (!isVisibleConversation) {
@@ -1636,13 +1636,13 @@ export function App() {
       }
       setMessages(prev => [...prev, event.message]);
     }
-    if (event.type === 'assistant_start') {
+    if (event.type === 'message.assistant.started') {
       if (!isVisibleConversation) {
         return;
       }
       setMessages(prev => [...prev, event.message]);
     }
-    if (event.type === 'assistant_reasoning') {
+    if (event.type === 'message.assistant.reasoning_delta') {
       if (!isVisibleConversation) {
         return;
       }
@@ -1654,7 +1654,7 @@ export function App() {
         ),
       );
     }
-    if (event.type === 'assistant_delta') {
+    if (event.type === 'message.assistant.delta') {
       if (!isVisibleConversation) {
         return;
       }
@@ -1666,7 +1666,7 @@ export function App() {
         ),
       );
     }
-    if (event.type === 'assistant_metrics') {
+    if (event.type === 'performance.updated') {
       if (!isVisibleConversation) {
         return;
       }
@@ -1688,7 +1688,7 @@ export function App() {
         ),
       );
     }
-    if (event.type === 'tool') {
+    if (event.type === 'tool_call.updated') {
       if (!isVisibleConversation) {
         return;
       }
@@ -1716,15 +1716,17 @@ export function App() {
         return copy;
       });
     }
-    if (event.type === 'warning') {
+    if (event.type === 'run.warning') {
       if (isVisibleConversation) {
         setComposerWarning(event.message);
       }
     }
-    if (event.type === 'conversation_title') {
-      useConversationsStore.getState().setGeneratedTitle(event.conversationId, event.title);
+    if (event.type === 'conversation.updated' && event.title) {
+      useConversationsStore
+        .getState()
+        .setConversationTitle(event.conversationId, event.title, event.titleSource ?? 'generated');
     }
-    if (event.type === 'message.assistant.completed' || event.type === 'done') {
+    if (event.type === 'message.assistant.completed') {
       if (!isVisibleConversation) {
         return;
       }

@@ -125,11 +125,23 @@ Project-specific guidance for AI coding agents.
   event envelopes. UI stop/abort calls Pi `AgentSession.abort()`; Nelle's
   llama.cpp proxy forwards request/response close events to the upstream fetch
   `AbortSignal`.
-- Chat/regenerate streams are serialized as Nelle SSE envelopes. Preserve the
-  envelope reader's backward compatibility with older raw test events, and use
-  stable `runId` values plus `run.started`, `message.assistant.completed`, and
-  `run.completed` events when adding new stream behavior. Keep legacy `done`
-  events until old clients/tests no longer need them.
+- Chat/regenerate streams are serialized as Nelle SSE envelopes, and the envelope
+  `type` mirrors the inner event's `type`, so the `ChatStreamEvent` union member
+  names are the wire contract. Every event is dotted:
+  `run.started`/`run.aborted`/`run.completed`/`run.warning`,
+  `message.user.created`, `message.assistant.started`/`.delta`/
+  `.reasoning_delta`/`.completed`, `performance.updated`, `tool_call.updated`,
+  `conversation.updated`, `context.updated`, `compact.*`, `error`. The legacy
+  `done` alias is gone. Preserve the envelope reader's backward compatibility
+  with raw (unwrapped) payloads: that fallback is about envelope shape, not
+  names, and the e2e mocks rely on it.
+- `run.warning` carries `{code, message, detail?}`, not bare prose. The codes live
+  in `NELLE_WARNING_CODES`. A browser can render a sentence; no other client can
+  branch on one, localize it, or suppress a warning it already knows about.
+- `conversation.forked` is specified by the router plan but deliberately not in
+  the union: fork and clone are plain JSON routes and Nelle has no
+  conversation-level SSE channel, only per-run streams. Add it with that channel,
+  not before.
 - Stream `error` events must carry stable `NelleError` fields (`code`,
   `message`, optional `detail`/`retryable`/`logRef`); do not emit message-only
   errors from new server stream paths.
@@ -156,8 +168,11 @@ Project-specific guidance for AI coding agents.
   `session.setThinkingLevel()` before every prompt, so a cached session picks up
   an on-the-fly change. Nelle's `max` maps to Pi's `xhigh`.
 - llama-server, not Nelle, separates thinking from the answer: thinking arrives
-  as `delta.reasoning_content` and reaches the UI as `assistant_reasoning`
-  events; Pi persists it as `{type: 'thinking'}` content blocks, which stay
+  as `delta.reasoning_content` and reaches the UI as
+  `message.assistant.reasoning_delta` events. The wire contract says *reasoning*,
+  matching `reasoning_level`, `reasoning_text`, and the REST routes; Pi's
+  internals say *thinking*, and `piHarness` is the boundary between the two.
+  Pi persists it as `{type: 'thinking'}` content blocks, which stay
   authoritative for a conversation's reasoning history. Do not parse thinking
   tags out of message text. The one exception is
   `stripLeadingThinkingEndTag`: when a budget forces the block closed,

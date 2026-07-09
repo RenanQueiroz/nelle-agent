@@ -465,6 +465,10 @@ that the cached value is best-effort.
 
 ## G5: The Stream Event Contract Is Half-Migrated
 
+**Status: done.** `conversation.forked` was dropped rather than shipped as a union
+member nobody emits — fork and clone are plain JSON routes, and Nelle has no
+conversation-level SSE channel. It belongs with that channel.
+
 ### Evidence
 
 Dotted envelope names already shipped: `run.started`, `run.aborted`,
