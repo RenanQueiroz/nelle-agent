@@ -165,6 +165,46 @@ test('router responses populate the model cache and survive a stopped router', a
   }
 });
 
+test('the facade keys every configured model by its section id', async () => {
+  // The router reports this model under its runtime id, never under the
+  // models.ini section id. The client used to re-derive the join five ways; the
+  // server owes it a row keyed by section id so it does not have to.
+  const router = await createMockRouter({
+    models: [
+      {
+        id: 'repo/model:UD-Q4_K_M',
+        aliases: ['some-alias'],
+        source: 'repo/model:UD-Q4_K_M',
+        status: {value: 'loaded'},
+      },
+    ],
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+  const app = await createServer(paths);
+
+  try {
+    const models = (await app.inject({method: 'GET', url: '/api/llama/models'})).json<{
+      models: Array<{sectionId: string; routerModelId?: string; status: string}>;
+    }>().models;
+
+    const row = models.find(item => item.sectionId === model.id);
+    assert.ok(row, 'the configured model must appear keyed by its section id');
+    assert.equal(row.status, 'loaded', 'and carry the live status the router reported');
+    assert.equal(row.routerModelId, 'repo/model:UD-Q4_K_M');
+  } finally {
+    await app.close();
+    await router.close();
+  }
+});
+
 test('llama abort verifier warns when slots keep processing after grace window', async () => {
   const processingSlot = {
     id: 2,
@@ -289,7 +329,9 @@ test('model settings endpoints edit params, duplicate, and remove sections', asy
   }
 });
 
-async function createMockRouter(input: {failModels?: boolean; slots?: unknown[][]} = {}): Promise<{
+async function createMockRouter(
+  input: {failModels?: boolean; slots?: unknown[][]; models?: unknown[]} = {},
+): Promise<{
   port: number;
   calls: Array<{method: string; url: string; body: unknown}>;
   close: () => Promise<void>;
@@ -341,6 +383,10 @@ async function createMockRouter(input: {failModels?: boolean; slots?: unknown[][
       if (input.failModels) {
         response.writeHead(500, {'content-type': 'text/plain'});
         response.end('router failed');
+        return;
+      }
+      if (input.models) {
+        sendJson(response, input.models);
         return;
       }
       sendJson(response, [

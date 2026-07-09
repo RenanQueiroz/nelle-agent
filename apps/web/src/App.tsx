@@ -146,18 +146,20 @@ function clearDraftAttachments(): void {
   useComposerStore.getState().setAttachments([]);
 }
 
+/**
+ * The server already did this join.
+ *
+ * `mergeRouterModels` seeds its map from the `models.ini` sections and keys every
+ * row by section id, matching the router's runtime id, aliases and `hf-repo` on
+ * the way. `ConfiguredModel.id` is that section id. So the four extra conditions
+ * this function used to try were a reimplementation of work already done, and a
+ * rule a second client would have had to copy.
+ */
 function findRouterModelForConfiguredModel(
   model: ConfiguredModel,
   routerModels: LlamaRouterModel[],
 ): LlamaRouterModel | undefined {
-  return routerModels.find(
-    routerModel =>
-      routerModel.sectionId === model.id ||
-      routerModel.routerModelId === model.id ||
-      routerModel.hfRepo === model.hfRef ||
-      routerModel.aliases.includes(model.id) ||
-      (model.hfRef != null && routerModel.aliases.includes(model.hfRef)),
-  );
+  return routerModels.find(routerModel => routerModel.sectionId === model.id);
 }
 
 function routerStatusForModel(
