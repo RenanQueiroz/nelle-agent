@@ -652,6 +652,17 @@ conversation returns to `ready`.
 
 ## G8: The Legacy Default-Chat Surface Is Still Live
 
+**Status: done, except one deliberate remainder.** `state.json.chat[]` is still
+written by `directLlama`, because the direct fallback runs precisely when Pi is
+unavailable and therefore has no session file to persist into. Removing that
+write would not make the fallback conversation-scoped; it would make it
+amnesiac. Pi's own duplicate mirroring into `state.chat` is gone, so the array no
+longer grows during normal use.
+
+Separately: an unknown `/api/...` path returns the SPA's `index.html` with a 200
+rather than a 404, because the static plugin's history fallback catches it. Not
+introduced here, and out of this plan's scope, but worth a route guard.
+
 ### Evidence
 
 - Routes: `POST /api/chat/stream` (`server.ts:844`), `GET /api/chat/messages`

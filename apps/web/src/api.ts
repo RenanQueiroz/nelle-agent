@@ -892,10 +892,6 @@ export async function abortConversationCompaction(
   return apiPost(`/api/conversations/${encodeURIComponent(id)}/compact/abort`);
 }
 
-export async function clearChat(): Promise<void> {
-  await apiDelete('/api/chat/messages');
-}
-
 export async function streamConversationChat(
   conversationId: string,
   message: string,
@@ -984,22 +980,6 @@ function normalizeStreamEvent(value: unknown): ChatStreamEvent {
     return value.data as ChatStreamEvent;
   }
   return value as ChatStreamEvent;
-}
-
-export async function streamLegacyChat(
-  message: string,
-  onEvent: (event: ChatStreamEvent) => void,
-): Promise<void> {
-  const response = await fetch('/api/chat/stream', {
-    method: 'POST',
-    headers: {'content-type': 'application/json'},
-    body: JSON.stringify({message}),
-  });
-  if (!response.ok || !response.body) {
-    throw new Error(`Chat request failed: ${response.status}`);
-  }
-
-  await readEventStream(response, onEvent);
 }
 
 async function apiGet<T>(url: string): Promise<T> {

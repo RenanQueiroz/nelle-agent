@@ -594,9 +594,6 @@ export class PiHarness {
       toolCalls: [],
     };
 
-    if (conversationId === 'legacy-default') {
-      await this.store.appendChatMessage(userMessage);
-    }
     queue.push(createRunStartedEvent(run));
     queue.push({type: 'message.user.created', message: userMessage});
     queue.push({type: 'message.assistant.started', message: assistantMessage, harness: 'pi'});
@@ -681,7 +678,6 @@ export class PiHarness {
       branchFromPiEntryId: source.branchFromPiEntryId,
       regeneratesPiEntryId: source.regeneratesPiEntryId,
       displayGroupId: source.displayGroupId,
-      appendLegacyState: false,
       promptAttachments,
     }).catch(error => {
       this.setConversationReadyUnlessUnavailable(input.conversationId);
@@ -729,7 +725,6 @@ export class PiHarness {
       branchFromPiEntryId?: string | null;
       regeneratesPiEntryId?: string;
       displayGroupId?: string;
-      appendLegacyState?: boolean;
       promptAttachments?: PreparedPromptAttachments;
     },
   ): Promise<void> {
@@ -953,9 +948,6 @@ export class PiHarness {
           assistantMessage.content = fallback;
           queue.push({type: 'message.assistant.delta', id: assistantMessage.id, delta: fallback});
         }
-      }
-      if (conversationId === 'legacy-default' && options.appendLegacyState !== false) {
-        await this.store.appendChatMessage(assistantMessage);
       }
       const syncedEntries = this.syncPiConversation(
         conversationId,

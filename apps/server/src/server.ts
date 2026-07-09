@@ -362,7 +362,6 @@ export async function createServer(paths: AppPaths) {
       });
     }
     await writePresetAndReloadRouter(llama, store, modelCache);
-    conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {model, state: await store.getState()};
   });
 
@@ -380,7 +379,6 @@ export async function createServer(paths: AppPaths) {
       });
     }
     await writePresetAndReloadRouter(llama, store, modelCache);
-    conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {model, state: await store.getState()};
   });
 
@@ -397,7 +395,6 @@ export async function createServer(paths: AppPaths) {
     }
     await llama.removeModelSection(id);
     await writePresetAndReloadRouter(llama, store, modelCache);
-    conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {ok: true, removedModelId: id, state: await store.getState()};
   });
 
@@ -410,13 +407,11 @@ export async function createServer(paths: AppPaths) {
     const body = useHuggingFaceModelSchema.parse(request.body);
     const model = await hf.useHuggingFaceGguf(body);
     await writePresetAndReloadRouter(llama, store, modelCache);
-    conversations.syncLegacyDefaultConversationFromState(await store.getState());
     return {model};
   });
 
   app.get('/api/conversations', async request => {
     const query = listConversationsQuerySchema.parse(request.query);
-    conversations.syncLegacyDefaultConversationFromState(await store.getState());
     await conversations.markInvalidPiSessionsUnavailable();
     return conversations.listConversations(query);
   });
@@ -823,19 +818,6 @@ export async function createServer(paths: AppPaths) {
     };
   });
 
-  app.get('/api/chat/messages', async () => {
-    const state = await store.getState();
-    return {messages: state.chat};
-  });
-
-  app.delete('/api/chat/messages', async () => {
-    pi.resetSession(LEGACY_DEFAULT_CONVERSATION_ID);
-    await store.clearChat();
-    hostTools.deleteAuditEventsForConversation(LEGACY_DEFAULT_CONVERSATION_ID);
-    conversations.syncLegacyDefaultConversationFromState(await store.getState());
-    return {ok: true};
-  });
-
   app.post('/api/conversations/:id/chat/stream', async (request, reply) => {
     const id = (request.params as {id: string}).id;
     if (!conversations.getConversation(id)) {
@@ -919,37 +901,6 @@ export async function createServer(paths: AppPaths) {
     }
   });
 
-  app.post('/api/chat/stream', async (request, reply) => {
-    const body = chatRequestSchema.parse(request.body);
-    reply.raw.writeHead(200, {
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-cache, no-transform',
-      connection: 'keep-alive',
-      'x-accel-buffering': 'no',
-    });
-
-    try {
-      const streamResult = await createChatStream({
-        app,
-        store,
-        pi,
-        conversationId: LEGACY_DEFAULT_CONVERSATION_ID,
-        message: body.message,
-        attachments: body.attachments ?? [],
-      });
-      await writeChatStream(reply.raw, streamResult.stream, LEGACY_DEFAULT_CONVERSATION_ID);
-      if (streamResult.syncLegacyState) {
-        conversations.syncLegacyDefaultConversationFromState(await store.getState(), {
-          forceLegacyProjection: true,
-        });
-      }
-    } catch (error) {
-      writeChatError(reply.raw, error);
-    } finally {
-      reply.raw.end();
-    }
-  });
-
   if (await hasBuiltWeb(paths.webDistDir)) {
     await app.register(staticPlugin, {
       root: paths.webDistDir,
@@ -976,7 +927,12 @@ async function createChatStream(input: {
       throw new Error('Direct llama.cpp fallback only supports the default conversation.');
     }
     return {
-      stream: await streamDirectLlama(input.store, input.message, input.attachments),
+      stream: await streamDirectLlama(
+        input.store,
+        input.conversationId,
+        input.message,
+        input.attachments,
+      ),
       syncLegacyState: true,
     };
   }
@@ -991,7 +947,12 @@ async function createChatStream(input: {
       throw error;
     }
     return {
-      stream: await streamDirectLlama(input.store, input.message, input.attachments),
+      stream: await streamDirectLlama(
+        input.store,
+        input.conversationId,
+        input.message,
+        input.attachments,
+      ),
       syncLegacyState: true,
     };
   }

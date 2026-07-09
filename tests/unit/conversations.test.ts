@@ -2645,9 +2645,17 @@ test('chat stream emits SSE envelopes with run lifecycle events', async () => {
 
   const app = await createServer(paths);
   try {
+    const database = new AppDatabase(paths);
+    await database.open();
+    new ConversationRepository(database).createConversation({
+      id: LEGACY_DEFAULT_CONVERSATION_ID,
+      title: 'Direct fallback',
+    });
+    database.close();
+
     const response = await app.inject({
       method: 'POST',
-      url: '/api/chat/stream',
+      url: `/api/conversations/${LEGACY_DEFAULT_CONVERSATION_ID}/chat/stream`,
       payload: {message: 'hello'},
     });
     assert.equal(response.statusCode, 200);

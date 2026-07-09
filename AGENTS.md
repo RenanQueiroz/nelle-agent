@@ -121,9 +121,12 @@ Project-specific guidance for AI coding agents.
 - Exporting an `unavailable` conversation is allowed and sets
   `manifest.piSessionMissing`; importing such an archive is rejected with
   `archive_session_missing` rather than producing an empty conversation.
-- Chat UI streaming should use `/api/conversations/:id/chat/stream`; the legacy
-  `/api/chat/stream` endpoint is only a default-conversation compatibility
-  wrapper.
+- Chat UI streaming uses `/api/conversations/:id/chat/stream`. The legacy
+  `/api/chat/stream` and `/api/chat/messages` endpoints have been removed, and
+  `syncLegacyDefaultConversationFromState` runs only at startup and from the
+  direct-llama fallback -- never from a read path. Pi no longer mirrors messages
+  into `state.json.chat[]`; only `directLlama` writes it, because the fallback
+  runs when Pi is unavailable and has no session file to persist into.
 - Implement conversation fork/duplicate through Pi
   `SessionManager.createBranchedSession()`, creating a new Nelle conversation
   for the new Pi session file, copying retained Nelle sidecar metadata, and

@@ -13,8 +13,18 @@ import {chatTemplateKwargsForModel, llamaRuntimeModelId} from './modelCompat';
 import type {AppStore} from './store';
 import type {ChatAttachmentInput, ChatMessage, ChatPerformance, ChatStreamEvent} from './types';
 
+/**
+ * Streams a chat straight through llama.cpp, bypassing Pi.
+ *
+ * Reachable only when Pi is disabled or has just failed, and only for the legacy
+ * default conversation, because the fallback has no Pi session file to persist
+ * into: its messages live in `.nelle/state.json` and nowhere else. Callers pass
+ * the conversation id so the events carry it, rather than the events asserting
+ * which conversation they belong to.
+ */
 export async function streamDirectLlama(
   store: AppStore,
+  conversationId: string,
   prompt: string,
   attachments: ChatAttachmentInput[] = [],
 ): Promise<AsyncIterable<ChatStreamEvent>> {
@@ -47,7 +57,7 @@ export async function streamDirectLlama(
   queue.push({
     type: 'run.started',
     runId,
-    conversationId: 'legacy-default',
+    conversationId,
     kind: 'chat',
     modelId: activeModel.id,
     status: 'running',
@@ -151,7 +161,7 @@ export async function streamDirectLlama(
       queue.push({
         type: 'run.completed',
         runId,
-        conversationId: 'legacy-default',
+        conversationId,
         status: 'completed',
         createdAt: new Date().toISOString(),
       });
@@ -160,7 +170,7 @@ export async function streamDirectLlama(
       queue.push({
         type: 'run.completed',
         runId,
-        conversationId: 'legacy-default',
+        conversationId,
         status: 'failed',
         error: {
           code: 'llama_direct_failed',
