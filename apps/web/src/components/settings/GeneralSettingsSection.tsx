@@ -11,6 +11,8 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 
 import type {SettingsFieldSchema, SettingsGroupSchema, SettingsValues} from '../../api';
 import {useSettingsStore} from '../../stores/settingsStore';
+import {usePreferencesStore} from '../../stores/preferencesStore';
+import {DISPLAY_PREFERENCE_FIELDS} from '../../../../../packages/shared/src/displayPreferences.ts';
 import {estimatePromptTokens} from '../../../../../packages/shared/src/piContext.ts';
 
 /**
@@ -46,6 +48,37 @@ export function GeneralSettingsSection({
             onSaveSettingsGroup={onSaveSettingsGroup}
           />
         </VStack>
+      ))}
+      <Divider />
+      <DisplayPreferences />
+    </VStack>
+  );
+}
+
+/**
+ * The toggles the client applies and the server stores, so they follow the user
+ * to their phone. They have no Save button: a rendering preference is not worth
+ * a spinner, so the switch flips and the server is told.
+ */
+function DisplayPreferences() {
+  const preferences = usePreferencesStore();
+  return (
+    <VStack gap={3}>
+      <VStack gap={1}>
+        <Heading level={3}>Display</Heading>
+        <Text type="supporting">
+          How the transcript is rendered. Saved to your account, not this browser.
+        </Text>
+      </VStack>
+      {DISPLAY_PREFERENCE_FIELDS.map(field => (
+        <Switch
+          key={field.key}
+          label={field.label}
+          description={field.help}
+          value={preferences[field.key]}
+          onChange={value => void preferences.toggle(field.key, value)}
+          data-testid={`preference-${field.key}`}
+        />
       ))}
     </VStack>
   );

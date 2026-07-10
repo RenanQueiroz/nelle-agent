@@ -286,7 +286,7 @@ export async function createServer(
     const saved = preferences.updatePreferences(body);
     const state = await store.getState();
     const known = new Set(state.models.map(model => model.id));
-    return {favoriteModelIds: saved.favoriteModelIds.filter(id => known.has(id))};
+    return {...saved, favoriteModelIds: saved.favoriteModelIds.filter(id => known.has(id))};
   });
 
   app.patch('/api/settings/reasoning', async request => {

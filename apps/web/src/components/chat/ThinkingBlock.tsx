@@ -8,6 +8,8 @@ import {Spinner} from '@astryxdesign/core/Spinner';
 import {Text} from '@astryxdesign/core/Text';
 import {LightBulbIcon} from '@heroicons/react/24/outline';
 
+import {usePreferencesStore} from '../../stores/preferencesStore';
+
 /**
  * llama.cpp streams thinking on `delta.reasoning_content`, separate from the
  * answer, so this renders it as its own panel above the bubble rather than
@@ -16,7 +18,10 @@ import {LightBulbIcon} from '@heroicons/react/24/outline';
  */
 export function ThinkingBlock({reasoning, isStreaming}: {reasoning: string; isStreaming: boolean}) {
   const [openOverride, setOpenOverride] = useState<boolean | null>(null);
-  const isOpen = openOverride ?? isStreaming;
+  const showThinkingInProgress = usePreferencesStore(state => state.showThinkingInProgress);
+  const renderThinkingAsMarkdown = usePreferencesStore(state => state.renderThinkingAsMarkdown);
+  // The reader's own click always wins over the preference.
+  const isOpen = openOverride ?? (isStreaming && showThinkingInProgress);
 
   return (
     <Collapsible
@@ -34,7 +39,11 @@ export function ThinkingBlock({reasoning, isStreaming}: {reasoning: string; isSt
         </HStack>
       }
     >
-      <Markdown density="compact">{reasoning}</Markdown>
+      {renderThinkingAsMarkdown ? (
+        <Markdown density="compact">{reasoning}</Markdown>
+      ) : (
+        <Text type="code">{reasoning}</Text>
+      )}
     </Collapsible>
   );
 }

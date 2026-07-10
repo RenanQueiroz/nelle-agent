@@ -1,5 +1,7 @@
 import {useEffect, type RefObject} from 'react';
 
+import {usePreferencesStore} from '../stores/preferencesStore';
+
 /**
  * Astryx's `useChatStreamScroll` jumps to the bottom exactly once, inside a
  * single `requestAnimationFrame` on mount. Nelle keeps one `ChatLayout`
@@ -23,9 +25,10 @@ export function useScrollChatToBottomOnOpen(
   scrollRef: RefObject<HTMLElement | null>,
   conversationId: string,
 ): void {
+  const disableAutoScroll = usePreferencesStore(state => state.disableAutoScroll);
   useEffect(() => {
     const element = scrollRef.current;
-    if (!element || !conversationId) {
+    if (!element || !conversationId || disableAutoScroll) {
       return;
     }
 
@@ -77,5 +80,5 @@ export function useScrollChatToBottomOnOpen(
       element.removeEventListener('touchmove', release);
       element.removeEventListener('pointerdown', release);
     };
-  }, [scrollRef, conversationId]);
+  }, [scrollRef, conversationId, disableAutoScroll]);
 }

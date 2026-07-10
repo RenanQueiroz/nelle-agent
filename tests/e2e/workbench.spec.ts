@@ -3123,6 +3123,76 @@ test('setting the paste threshold to zero keeps every paste in the message', asy
   await expect(page.getByLabel('Message input')).toContainText('z'.repeat(50));
 });
 
+test('a display preference is saved to the server and changes what is rendered', async ({page}) => {
+  const chat = [
+    {
+      id: 'user-1',
+      role: 'user',
+      content: 'render **this** literally',
+      createdAt: '2026-07-08T12:00:00.000Z',
+    },
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'ok',
+      createdAt: '2026-07-08T12:00:01.000Z',
+      performance: {
+        source: 'llamacpp-timings',
+        prompt: {tokens: 10, totalTokens: 10, milliseconds: 100},
+        generation: {tokens: 5, milliseconds: 100, tokensPerSecond: 50},
+      },
+    },
+  ];
+  let stored: Record<string, unknown> = {
+    favoriteModelIds: [],
+    showGenerationStats: true,
+    showThinkingInProgress: true,
+    showToolCallsInProgress: true,
+    renderUserContentAsMarkdown: false,
+    renderThinkingAsMarkdown: true,
+    disableAutoScroll: false,
+  };
+  const patches: Array<Record<string, unknown>> = [];
+  await page.route('**/api/settings/preferences', async route => {
+    if (route.request().method() === 'PATCH') {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      patches.push(body);
+      stored = {...stored, ...body};
+    }
+    await route.fulfill({json: stored});
+  });
+  await mockConversationRoutes(page, {chat});
+  await page.goto('/');
+
+  // The user typed asterisks, so asterisks are what they see back: markdown
+  // would have made `**this**` a `<strong>`.
+  const emphasis = page.locator('strong', {hasText: 'this'});
+  await expect(emphasis).toHaveCount(0);
+  // And the stats widget is there, because it defaults on. Its metric labels are
+  // tooltips, so the toggle button is what a reader can actually see.
+  const statsWidget = page.getByRole('button', {name: 'Generation (token output)'});
+  await expect(statsWidget).toBeVisible();
+
+  await page.getByRole('button', {name: 'Settings'}).click();
+  await page.getByRole('button', {name: 'General', exact: true}).click();
+  await page.getByRole('switch', {name: 'Render my messages as markdown'}).click();
+  await page.getByRole('switch', {name: 'Show generation statistics'}).click();
+  await page.getByRole('button', {name: 'Close'}).click();
+
+  // No Save button: the switch flips and the server is told.
+  await expect.poll(() => patches.length).toBe(2);
+  expect(patches).toEqual([{renderUserContentAsMarkdown: true}, {showGenerationStats: false}]);
+
+  // The transcript re-renders: the asterisks became emphasis, the widget is gone.
+  await expect(emphasis).toHaveCount(1);
+  await expect(statsWidget).toHaveCount(0);
+
+  // And it survives a reload, because it lives on the server, not this browser.
+  await page.reload();
+  await expect(page.locator('strong', {hasText: 'this'})).toHaveCount(1);
+  await expect(page.getByRole('button', {name: 'Generation (token output)'})).toHaveCount(0);
+});
+
 test('a settings refresh in flight does not overwrite what the user is typing', async ({page}) => {
   const model = {
     id: 'model-a',

@@ -1,5 +1,6 @@
 import type {SlashCommandRegistry} from '../../../packages/shared/src/commands.ts';
 import type {ContextUsageStatus} from '../../../packages/shared/src/context.ts';
+import type {DisplayPreferences} from '../../../packages/shared/src/displayPreferences.ts';
 
 export type RuntimeStatus = {
   platform: string;
@@ -1116,17 +1117,18 @@ export async function fetchSlashCommands(): Promise<SlashCommandRegistry> {
   return (await response.json()) as SlashCommandRegistry;
 }
 
-export async function fetchPreferences(): Promise<{favoriteModelIds: string[]}> {
+/** Favorites, plus the display toggles that follow the user between clients. */
+export type Preferences = DisplayPreferences & {favoriteModelIds: string[]};
+
+export async function fetchPreferences(): Promise<Preferences> {
   const response = await fetch('/api/settings/preferences');
   if (!response.ok) {
     throw new Error(`Preferences request failed: ${response.status}`);
   }
-  return (await response.json()) as {favoriteModelIds: string[]};
+  return (await response.json()) as Preferences;
 }
 
-export async function updatePreferences(input: {
-  favoriteModelIds: string[];
-}): Promise<{favoriteModelIds: string[]}> {
+export async function updatePreferences(input: Partial<Preferences>): Promise<Preferences> {
   const response = await fetch('/api/settings/preferences', {
     method: 'PATCH',
     headers: {'content-type': 'application/json'},
@@ -1135,7 +1137,7 @@ export async function updatePreferences(input: {
   if (!response.ok) {
     throw new Error(`Preferences update failed: ${response.status}`);
   }
-  return (await response.json()) as {favoriteModelIds: string[]};
+  return (await response.json()) as Preferences;
 }
 
 export type SettingsFieldSchema =

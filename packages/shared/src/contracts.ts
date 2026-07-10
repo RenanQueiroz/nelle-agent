@@ -34,6 +34,12 @@ export type NelleWarning = z.infer<typeof nelleWarningSchema>;
 /** `PATCH /api/settings/preferences`. Preferences that follow the user. */
 export const preferencesSchema = z.object({
   favoriteModelIds: z.array(z.string().min(1)).max(200).optional(),
+  showGenerationStats: z.boolean().optional(),
+  showThinkingInProgress: z.boolean().optional(),
+  showToolCallsInProgress: z.boolean().optional(),
+  renderUserContentAsMarkdown: z.boolean().optional(),
+  renderThinkingAsMarkdown: z.boolean().optional(),
+  disableAutoScroll: z.boolean().optional(),
 });
 
 export type PreferencesInput = z.infer<typeof preferencesSchema>;

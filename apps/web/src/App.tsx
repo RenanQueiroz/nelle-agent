@@ -118,6 +118,7 @@ import {NelleSideNav} from './components/sidebar/NelleSideNav';
 import {SettingsDialog} from './components/settings/SettingsDialog';
 import {restoreComposerDraft, useComposerStore} from './stores/composerStore';
 import {useConversationsStore} from './stores/conversationsStore';
+import {usePreferencesStore} from './stores/preferencesStore';
 import {GLOBAL_PARAM_SCOPE, useSettingsStore} from './stores/settingsStore';
 import {useUiStore} from './stores/uiStore';
 import type {ActiveRunKind, AppNotice, CommandStatusRow, ComposerModelOptionDetail} from './types';
@@ -422,12 +423,14 @@ export function App() {
     })();
   }, []);
 
-  // Favorites live on the server so they follow the user to another client. A
-  // browser that starred models before this existed hands them over once.
+  // Favorites and the display toggles live on the server so they follow the user
+  // to another client. A browser that starred models before this existed hands
+  // them over once.
   useEffect(() => {
     void (async () => {
       try {
         const stored = await fetchPreferences();
+        usePreferencesStore.getState().seed(stored);
         const orphaned = readLegacyFavoriteModelIds();
         const merged =
           orphaned.length > 0
@@ -2309,6 +2312,9 @@ function RenderedMessage({
   onCopy: (message: ApiChatMessage) => void | Promise<void>;
   onFork: (message: ApiChatMessage) => void | Promise<void>;
 }) {
+  const renderUserContentAsMarkdown = usePreferencesStore(
+    state => state.renderUserContentAsMarkdown,
+  );
   if (message.role === 'system') {
     return <ChatSystemMessage>{message.content}</ChatSystemMessage>;
   }
@@ -2353,6 +2359,8 @@ function RenderedMessage({
       >
         {message.role === 'assistant' ? (
           <AssistantMessageBody message={message} />
+        ) : renderUserContentAsMarkdown ? (
+          <Markdown density="compact">{message.content}</Markdown>
         ) : (
           message.content
         )}
@@ -2484,6 +2492,7 @@ function renderMessageFooter(input: {
 type StatisticsView = 'reading' | 'generation';
 
 function PerformanceStatistics({performance}: {performance: ChatPerformance}) {
+  const showGenerationStats = usePreferencesStore(state => state.showGenerationStats);
   const promptMetric = performance.prompt;
   const generationMetric = getGenerationMetric(performance);
   const hasPrompt = hasPerformanceMetric(promptMetric);
@@ -2512,6 +2521,11 @@ function PerformanceStatistics({performance}: {performance: ChatPerformance}) {
       setView('generation');
     }
   }, [hasGeneration, hasPrompt, view]);
+
+  // Every hook above has already run: a preference must not change the hook order.
+  if (!showGenerationStats) {
+    return null;
+  }
 
   const metric = view === 'generation' ? generationMetric : promptMetric;
   const metrics =
@@ -2600,8 +2614,12 @@ function messagesFromSnapshot(snapshot: ConversationSnapshot): ApiChatMessage[] 
 }
 
 function ToolCalls({calls}: {calls: NonNullable<ApiChatMessage['toolCalls']>}) {
+  const showToolCallsInProgress = usePreferencesStore(state => state.showToolCallsInProgress);
+  const isRunning = calls.some(call => call.status === 'running');
   return (
     <ChatToolCalls
+      // Uncontrolled: the reader may fold it away again, and should stay folded.
+      defaultIsExpanded={isRunning && showToolCallsInProgress}
       calls={calls.map(call => ({
         ...call,
         key: call.id,

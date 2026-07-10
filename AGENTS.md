@@ -335,11 +335,18 @@ Project-specific guidance for AI coding agents.
   unrelated UI does not rerender when a slice changes.
 - Preferences that should follow the user live in the `settings` table under the
   `preferences` key and are served by `GET`/`PATCH /api/settings/preferences`.
-  Favorite model ids are the first of them; do not put them back in
-  `localStorage`. A favorite for a model missing from `models.ini` is filtered
-  from the response, never deleted from storage. Genuinely client-local state --
-  sidebar collapse, open settings section, search text, drafts -- stays in the
-  browser stores.
+  Favorite model ids and the six display toggles
+  (`packages/shared/src/displayPreferences.ts`) are what live there; do not put
+  them back in `localStorage`. A favorite for a model missing from `models.ini`
+  is filtered from the response, never deleted from storage. `updatePreferences`
+  merges over the *raw* stored row, so a key this build does not know -- one a
+  newer client wrote -- survives; reads narrow field by field, so one malformed
+  toggle falls back to its own default and takes no sibling with it. Only the
+  *storage* is server-side: the client still decides what a collapsed thinking
+  block looks like, which is rule 4 of `plans/nelle-thin-client-plan.md`.
+  Toggling is optimistic and has no Save button, and reverts if the server
+  refuses. Genuinely client-local state -- sidebar collapse, open settings
+  section, search text, drafts -- stays in the browser stores.
 - Settings dialog draft state, search results, runtime input fields, and log
   visibility/output live in `apps/web/src/stores/settingsStore.ts`. Do not move
   modal draft fields back into `App.tsx`.
