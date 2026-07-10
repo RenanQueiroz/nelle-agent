@@ -16,7 +16,6 @@ import {
   type SelectorOptionData,
   type SelectorOptionType,
 } from '@astryxdesign/core/Selector';
-import {Switch} from '@astryxdesign/core/Switch';
 import {Text} from '@astryxdesign/core/Text';
 import {Token} from '@astryxdesign/core/Token';
 import {Tooltip} from '@astryxdesign/core/Tooltip';
@@ -34,7 +33,6 @@ import {UNLIMITED_REASONING_BUDGET} from '../../api';
 import {useComposerStore} from '../../stores/composerStore';
 import type {ComposerModelOptionDetail, DraftAttachment} from '../../types';
 import {
-  ATTACHMENT_LIMITS,
   attachmentTooltip,
   getDraftAttachmentError,
   prepareDraftAttachments,
@@ -144,7 +142,6 @@ export function ChatComposerPanel({
 }) {
   const draft = useComposerStore(state => state.draft);
   const attachments = useComposerStore(state => state.attachments);
-  const isPdfImageModeEnabled = useComposerStore(state => state.isPdfImageModeEnabled);
   const slashCommandError = useComposerStore(state => state.slashCommandError);
   const error = useComposerStore(state => state.error);
   const warning = useComposerStore(state => state.warning);
@@ -286,20 +283,7 @@ export function ChatComposerPanel({
         </HStack>
       }
       headerContext={<ContextWindowUsage context={contextUsage} />}
-      drawer={
-        attachments.length > 0 ? (
-          <AttachmentDrawer
-            attachments={attachments}
-            // The switch changes what happens to a PDF at send time, so it
-            // belongs beside one. Without a PDF it controlled nothing, and an
-            // empty drawer announced "0 Attachments" over it.
-            canRenderPdfImages={
-              activeModelSupportsVision && attachments.some(attachment => attachment.kind === 'pdf')
-            }
-            pdfImageModeEnabled={isPdfImageModeEnabled}
-          />
-        ) : undefined
-      }
+      drawer={attachments.length > 0 ? <AttachmentDrawer attachments={attachments} /> : undefined}
       input={
         <ChatComposerInput
           triggers={[slashCommandTrigger]}
@@ -431,17 +415,8 @@ function ContextWindowUsage({context}: {context: ConversationContextUsage}) {
   );
 }
 
-function AttachmentDrawer({
-  attachments,
-  canRenderPdfImages,
-  pdfImageModeEnabled,
-}: {
-  attachments: DraftAttachment[];
-  canRenderPdfImages: boolean;
-  pdfImageModeEnabled: boolean;
-}) {
+function AttachmentDrawer({attachments}: {attachments: DraftAttachment[]}) {
   const removeAttachment = useComposerStore(state => state.removeAttachment);
-  const setPdfImageModeEnabled = useComposerStore(state => state.setPdfImageModeEnabled);
   return (
     <ChatComposerDrawer
       count={attachments.length}
@@ -449,14 +424,6 @@ function AttachmentDrawer({
       data-testid="attachment-drawer"
     >
       <VStack gap={2}>
-        {canRenderPdfImages && (
-          <Switch
-            label="Render PDFs as images"
-            description={`Converts up to ${ATTACHMENT_LIMITS.maxRenderedPdfPages.toLocaleString()} PDF pages into image attachments for vision models.`}
-            value={pdfImageModeEnabled}
-            changeAction={setPdfImageModeEnabled}
-          />
-        )}
         {attachments.length > 0 && (
           <HStack gap={1} vAlign="center" wrap="wrap">
             {attachments.map(attachment => (

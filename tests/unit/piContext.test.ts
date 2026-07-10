@@ -8,11 +8,13 @@ import {
 import {
   availableReplyTokens,
   isClampedReplyBudget,
+  maxAffordableImages,
   isReplyBudgetExhausted,
   MIN_USABLE_REPLY_TOKENS,
   minimumContextSizeForImages,
   minimumUsableContextSize,
   PI_CONTEXT_SAFETY_TOKENS,
+  PI_AGENT_PROMPT_TOKENS,
   PI_ESTIMATED_IMAGE_TOKENS,
   PI_MIN_MAX_TOKENS,
   replyTokenBudget,
@@ -66,6 +68,40 @@ test('Pi charges a flat 1,200 tokens for every image it sends', () => {
   assert.ok(budget(2) > MIN_USABLE_REPLY_TOKENS);
   // The third image is the one that ends the turn with no answer.
   assert.equal(budget(3), PI_MIN_MAX_TOKENS);
+});
+
+test('the image budget matches what Pi actually allows', () => {
+  // The default window fits exactly two: `max_tokens` goes 1649, 449, 1.
+  assert.equal(maxAffordableImages(16384), 2);
+  // An 8k window has no room for a reply once Pi has taken its system prompt and
+  // its reserve, let alone an image.
+  assert.equal(maxAffordableImages(8192), 0);
+  assert.equal(maxAffordableImages(24576), 8);
+
+  // The measured base is the whole of the arithmetic; nothing else is guessed.
+  assert.equal(
+    maxAffordableImages(16384),
+    Math.floor(
+      (16384 - PI_AGENT_PROMPT_TOKENS - PI_CONTEXT_SAFETY_TOKENS - MIN_USABLE_REPLY_TOKENS) /
+        PI_ESTIMATED_IMAGE_TOKENS,
+    ),
+  );
+
+  // History is deliberately left out, so an underestimate can only let a message
+  // through that then fails, never refuse one that would have worked.
+  assert.ok(maxAffordableImages(16384, PI_AGENT_PROMPT_TOKENS + 4000) < maxAffordableImages(16384));
+});
+
+test('a window that fits N images is the window minimumContextSizeForImages names', () => {
+  for (const images of [1, 3, 6, 20]) {
+    const needed = minimumContextSizeForImages(images, PI_AGENT_PROMPT_TOKENS);
+    assert.ok(
+      maxAffordableImages(needed) >= images,
+      `${needed} tokens should carry ${images} images`,
+    );
+    // And one token less does not.
+    assert.ok(maxAffordableImages(needed - PI_ESTIMATED_IMAGE_TOKENS) < images);
+  }
 });
 
 test('a clamped reply budget is recognised from the wire, whatever caused it', () => {

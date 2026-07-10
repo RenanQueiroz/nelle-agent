@@ -432,13 +432,25 @@ Project-specific guidance for AI coding agents.
 - Sidebar conversation history virtualization uses `@tanstack/react-virtual`
   with an Astryx-styled `SideNav`/`List` row surface. Keep row keys stable and
   model pinned/search/group headers as one flattened virtual list.
-- Composer attachments are text files, PDFs, and images only. Gate images and
-  PDF-as-image mode on selected-model `modalities.vision`; do not expose
-  audio/video attachments while Pi's structured input path is text plus image.
-- The attachment drawer renders only when something is attached, and the
-  "Render PDFs as images" switch only when one of them is a PDF. The server
-  renders pages at send time, so the switch may be flipped after the PDF is
-  attached; it no longer has to be armed in advance above an empty drawer.
+- Composer attachments are text files, PDFs, and images only. Gate images on
+  selected-model `modalities.vision`; do not expose audio/video attachments while
+  Pi's structured input path is text plus image.
+- There is no PDF rendering switch. The server reads a PDF's text when it has a
+  text layer and renders its pages when it has not, because only the server knows
+  both the document and the model. `POST /api/uploads` reports `hasTextLayer` so
+  a chip can say which; a scan is refused at upload only for a model llama.cpp
+  has *proven* has no vision. Refusing a scan for want of extractable text made
+  the one document that needs page images the one document Nelle would not take.
+- The attachment drawer renders only when something is attached.
+- `resolveChatAttachments` refuses a message whose images Pi could not leave room
+  to answer, naming the pages, the tokens, the window, and the context size that
+  would fit. `maxAffordableImages` deliberately ignores conversation history and
+  uses the *measured* `PI_AGENT_PROMPT_TOKENS`, which varies by a few hundred, so
+  it can only let through a message that then reports `reply_budget_exhausted` --
+  never refuse one that would have worked.
+- A message the server refused before it became a turn (no `run.started`) must
+  leave the composer draft intact. The uploads are still on the server, unbound,
+  and making the user retype the prompt and pick the files again is not a fix.
 - Attachments are uploaded, not embedded. The client posts bytes to
   `POST /api/uploads`; the server classifies them, rejects a binary file posing
   as text, extracts PDF text with `pdfjs-dist`, and answers with an `uploadId`.

@@ -10,7 +10,7 @@ import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {createServer} from '../../apps/server/src/server.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
 import {ATTACHMENT_LIMITS} from '../../packages/shared/src/attachments.ts';
-import {simplePdfBuffer} from './helpers/pdf.ts';
+import {imageOnlyPdfBuffer, simplePdfBuffer} from './helpers/pdf.ts';
 
 const BOUNDARY = 'nelleboundary';
 
@@ -63,6 +63,106 @@ test('a PDF upload is extracted server-side and reports its page count', async (
     assert.equal(body.kind, 'pdf');
     assert.equal(body.pageCount, 1);
     assert.match(body.textPreview ?? '', /Quarterly revenue rose/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a PDF with no text layer is accepted and reports its pages', async () => {
+  const paths = await createTempPaths();
+  const app = await createServer(paths);
+  try {
+    const response = await app.inject(
+      uploadRequest({
+        name: 'scan.pdf',
+        mimeType: 'application/pdf',
+        // A page that draws a rectangle and no text: what a scan looks like.
+        bytes: imageOnlyPdfBuffer(),
+      }),
+    );
+    assert.equal(response.statusCode, 201);
+    const body = response.json<{kind: string; hasTextLayer: boolean; textPreview?: string}>();
+    assert.equal(body.kind, 'pdf');
+    // There is nothing to extract, so the pages are the document.
+    assert.equal(body.hasTextLayer, false);
+    assert.equal(body.textPreview, undefined);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a PDF with a text layer says so, so the chip can name what will be sent', async () => {
+  const paths = await createTempPaths();
+  const app = await createServer(paths);
+  try {
+    const body = (
+      await app.inject(
+        uploadRequest({
+          name: 'report.pdf',
+          mimeType: 'application/pdf',
+          bytes: simplePdfBuffer('Quarterly revenue rose'),
+        }),
+      )
+    ).json<{hasTextLayer: boolean; pageCount: number}>();
+    assert.equal(body.hasTextLayer, true);
+    assert.equal(body.pageCount, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a scan is refused for a model llama.cpp has proven cannot see', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Text Only',
+  });
+  await store.setActiveModel(model.id);
+
+  const database = new AppDatabase(paths);
+  await database.open();
+  new ModelCacheRepository(database).upsertModelProps(model.id, {
+    modelId: model.id,
+    modalities: {vision: false, audio: false, video: false},
+    canReason: null,
+    raw: {},
+  });
+  database.close();
+
+  const app = await createServer(paths);
+  try {
+    const response = await app.inject(
+      uploadRequest({name: 'scan.pdf', mimeType: 'application/pdf', bytes: imageOnlyPdfBuffer()}),
+    );
+    assert.equal(response.statusCode, 400);
+    const {error} = response.json<{error: {code: string; message: string}}>();
+    assert.equal(error.code, 'unsupported_attachment');
+    assert.match(error.message, /scan\.pdf has no text layer/);
+    assert.match(error.message, /Choose a vision model/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a scan is accepted while the model vision support is unproven', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Never Loaded',
+  });
+  await store.setActiveModel(model.id);
+
+  const app = await createServer(paths);
+  try {
+    // `null` is not `false`. The user can still load the model.
+    const response = await app.inject(
+      uploadRequest({name: 'scan.pdf', mimeType: 'application/pdf', bytes: imageOnlyPdfBuffer()}),
+    );
+    assert.equal(response.statusCode, 201);
   } finally {
     await app.close();
   }

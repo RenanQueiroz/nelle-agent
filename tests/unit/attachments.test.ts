@@ -74,6 +74,7 @@ test('a picked file is uploaded, and the draft keeps only the reference', async 
       mimeType: 'text/plain',
       sizeBytes: 5,
       pageCount: undefined,
+      hasTextLayer: undefined,
     },
   ]);
   // No `text`, no `data`: the bytes stay on the server.
@@ -208,20 +209,20 @@ test('the chat schema takes upload references, and still caps the file count', (
     'and one file past it must say so in words',
   );
 
-  assert.equal(
-    chatRequestSchema.safeParse({
-      message: 'x',
-      attachments: [{uploadId: 'u1', renderPdfAsImages: true}],
-    }).success,
-    true,
-  );
-
-  // The bytes never travel with the message any more. A client that still embeds
-  // them is a client talking to an older server, and must be told so.
+  // The bytes never travel with the message any more, and neither does a
+  // rendering mode: the server decides that from the document. A client sending
+  // either is talking to an older server, and must be told so.
   assert.equal(
     chatRequestSchema.safeParse({
       message: 'x',
       attachments: [{uploadId: 'u1', kind: 'text', name: 'a.txt', text: 'hello'}],
+    }).success,
+    false,
+  );
+  assert.equal(
+    chatRequestSchema.safeParse({
+      message: 'x',
+      attachments: [{uploadId: 'u1', renderPdfAsImages: true}],
     }).success,
     false,
   );

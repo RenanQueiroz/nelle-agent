@@ -21,8 +21,13 @@ export type Upload = {
   sizeBytes: number;
   /** Relative to `dataDir`, in POSIX form, like attachment storage paths. */
   storagePath: string;
-  /** Extracted text for `text` and `pdf` uploads. Images keep only bytes. */
+  /**
+   * Extracted text for `text` uploads, and for `pdf` uploads that have a text
+   * layer. A scanned PDF has none, and is read as page images instead.
+   */
   textContent?: string;
+  /** PDFs only. Their page images are what a scan costs the context. */
+  pageCount?: number;
   createdAt: string;
   /** Set when a message claimed this upload. A bound upload is never swept. */
   boundAt?: string;
@@ -37,6 +42,7 @@ type UploadRow = {
   size_bytes: number;
   storage_path: string;
   text_content: string | null;
+  page_count: number | null;
   created_at: string;
   bound_at: string | null;
 };
@@ -62,6 +68,7 @@ export class UploadRepository {
     mimeType?: string;
     bytes: Buffer;
     textContent?: string;
+    pageCount?: number;
   }): Promise<Upload> {
     const id = crypto.randomUUID();
     const directory = path.join(this.paths.uploadsDir, id);
@@ -78,6 +85,7 @@ export class UploadRepository {
       sizeBytes: input.bytes.byteLength,
       storagePath: toStoragePath(this.paths.dataDir, filePath),
       textContent: input.textContent,
+      pageCount: input.pageCount,
       createdAt: new Date().toISOString(),
     };
 
@@ -85,8 +93,8 @@ export class UploadRepository {
       .prepare(
         `INSERT INTO uploads (
            id, conversation_id, kind, name, mime_type, size_bytes,
-           storage_path, text_content, created_at, bound_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+           storage_path, text_content, page_count, created_at, bound_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       )
       .run(
         upload.id,
@@ -97,6 +105,7 @@ export class UploadRepository {
         upload.sizeBytes,
         upload.storagePath,
         upload.textContent ?? null,
+        upload.pageCount ?? null,
         upload.createdAt,
       );
     return upload;
@@ -219,6 +228,7 @@ function mapRow(row: UploadRow): Upload {
     sizeBytes: row.size_bytes,
     storagePath: row.storage_path,
     textContent: row.text_content ?? undefined,
+    pageCount: row.page_count ?? undefined,
     createdAt: row.created_at,
     boundAt: row.bound_at ?? undefined,
   };

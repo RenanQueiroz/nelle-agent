@@ -3,6 +3,12 @@ import {
   ATTACHMENT_LIMITS,
 } from '../../../packages/shared/src/attachments.ts';
 import {
+  maxAffordableImages,
+  minimumContextSizeForImages,
+  PI_AGENT_PROMPT_TOKENS,
+  PI_ESTIMATED_IMAGE_TOKENS,
+} from '../../../packages/shared/src/piContext.ts';
+import {
   ATTACHMENT_MESSAGES,
   classifyAttachment,
   dataUrlByteLength,
@@ -43,9 +49,12 @@ export type IngestedUpload = {
   name: string;
   mimeType: string;
   bytes: Buffer;
-  /** Extracted text for `text` and `pdf`. Images carry only bytes. */
+  /**
+   * Extracted text for `text`, and for a `pdf` with a text layer. A scan has
+   * none, and is read as page images instead.
+   */
   textContent?: string;
-  /** Pages a `pdf` holds, so a client can say how many images it would become. */
+  /** Pages a `pdf` holds, so a scan can be priced before it is rendered. */
   pageCount?: number;
   warnings: string[];
 };
@@ -85,17 +94,17 @@ export async function ingestUpload(input: {
 
   if (kind === 'pdf') {
     const extracted = await extractPdfText(bytes);
-    if (!extracted.text.trim()) {
-      throw new UnsupportedAttachmentError(ATTACHMENT_MESSAGES.noExtractableText(name));
-    }
+    // A scan has no text layer. Refusing it here is what made the one document
+    // that *needs* page images the one document Nelle would not accept.
+    const hasTextLayer = extracted.text.trim().length > 0;
     return {
       kind,
       name,
       mimeType: mimeType || 'application/pdf',
       bytes,
-      textContent: extracted.text,
+      textContent: hasTextLayer ? extracted.text : undefined,
       pageCount: extracted.pageCount,
-      warnings: extracted.truncated ? [ATTACHMENT_MESSAGES.truncated(name)] : [],
+      warnings: hasTextLayer && extracted.truncated ? [ATTACHMENT_MESSAGES.truncated(name)] : [],
     };
   }
 
@@ -209,34 +218,70 @@ export async function renderPdfPages(
   }
 }
 
+/** A PDF with no text layer is a scan: page images are the only way to read it. */
+export function pdfNeedsPageImages(upload: Upload): boolean {
+  return upload.kind === 'pdf' && !upload.textContent?.trim();
+}
+
 /**
- * Expands `{uploadId, renderPdfAsImages}` references into the attachment inputs
- * the harness already understands.
+ * Expands upload references into the attachment inputs the harness understands,
+ * deciding for each PDF whether the model should read its text or its pages.
  *
- * The per-message limits are enforced here, after PDF pages have been expanded,
- * because a 20-page PDF rendered as images is 20 attachments.
+ * There is no switch. A PDF with a text layer is sent as text, which is cheap,
+ * exact, and works on a model with no vision at all; a scan has no text to send,
+ * so its pages are rendered. The per-message limits are enforced after that
+ * expansion, because a six-page scan is six attachments.
  */
 export async function resolveChatAttachments(
   uploads: UploadReader,
   references: ChatAttachmentReference[],
-): Promise<{attachments: ChatAttachmentInput[]; warnings: string[]}> {
-  const attachments: ChatAttachmentInput[] = [];
-  const warnings: string[] = [];
-  let totalBytes = 0;
-
-  for (const reference of references) {
+  model: {contextSize: number; visionSupport: boolean | null},
+): Promise<{attachments: ChatAttachmentInput[]}> {
+  const resolved = references.map(reference => {
     const upload = uploads.get(reference.uploadId);
     if (!upload) {
       throw new UnsupportedAttachmentError(
         `Attachment ${reference.uploadId} is no longer available. Attach the file again.`,
       );
     }
+    return upload;
+  });
 
-    if (upload.kind === 'pdf' && reference.renderPdfAsImages) {
-      const remainingSlots = ATTACHMENT_LIMITS.maxFiles - attachments.length;
+  const scans = resolved.filter(pdfNeedsPageImages);
+  if (scans.length > 0 && model.visionSupport === false) {
+    throw new UnsupportedAttachmentError(
+      `${scans[0].name} has no text layer, so it can only be read as page images, and the ` +
+        'selected model cannot read images. Choose a vision model.',
+    );
+  }
+
+  const imageBudget = maxAffordableImages(model.contextSize);
+  const pageBudget = Math.min(imageBudget, ATTACHMENT_LIMITS.maxRenderedPdfPages);
+  for (const scan of scans) {
+    const pages = scan.pageCount ?? 1;
+    if (pages > pageBudget) {
+      throw imageBudgetError({
+        contextSize: model.contextSize,
+        imageCount: pages,
+        imageBudget,
+        scanName: scan.name,
+      });
+    }
+  }
+
+  const imageCount =
+    resolved.filter(upload => upload.kind === 'image').length +
+    scans.reduce((sum, scan) => sum + (scan.pageCount ?? 1), 0);
+  if (imageCount > imageBudget) {
+    throw imageBudgetError({contextSize: model.contextSize, imageCount, imageBudget});
+  }
+
+  const attachments: ChatAttachmentInput[] = [];
+  for (const upload of resolved) {
+    if (pdfNeedsPageImages(upload)) {
       const rendered = await renderPdfPages(await uploads.readBytes(upload), {
         name: upload.name,
-        maxPages: remainingSlots,
+        maxPages: pageBudget,
       });
       for (const [index, page] of rendered.pages.entries()) {
         attachments.push({
@@ -247,11 +292,6 @@ export async function resolveChatAttachments(
           sizeBytes: page.sizeBytes,
           data: page.data,
         });
-      }
-      if (rendered.skippedPages > 0) {
-        warnings.push(
-          skippedPagesWarning(upload.name, rendered.pages.length, rendered.skippedPages),
-        );
       }
     } else if (upload.kind === 'image') {
       const bytes = await uploads.readBytes(upload);
@@ -274,21 +314,50 @@ export async function resolveChatAttachments(
       });
     }
 
-    totalBytes = attachments.reduce((sum, attachment) => sum + (attachment.sizeBytes ?? 0), 0);
     if (attachments.length > ATTACHMENT_LIMITS.maxFiles) {
       throw new UnsupportedAttachmentError(ATTACHMENT_LIMIT_MESSAGES.tooManyFiles);
     }
+    const totalBytes = attachments.reduce((sum, item) => sum + (item.sizeBytes ?? 0), 0);
     if (totalBytes > ATTACHMENT_LIMITS.maxDraftBytes) {
       throw new UnsupportedAttachmentError(ATTACHMENT_LIMIT_MESSAGES.draftTooLarge);
     }
   }
 
-  return {attachments, warnings};
+  return {attachments};
 }
 
-function skippedPagesWarning(name: string, rendered: number, skipped: number): string {
-  const pages = (count: number) => `${count.toLocaleString()} page${count === 1 ? '' : 's'}`;
-  return `${name} was rendered as ${pages(rendered)}; ${pages(skipped)} skipped by attachment limits.`;
+/**
+ * Refuses a message whose images Pi could not leave room to answer, and shows
+ * the arithmetic rather than letting the run die with a clamped reply budget.
+ */
+function imageBudgetError(input: {
+  contextSize: number;
+  imageCount: number;
+  imageBudget: number;
+  scanName?: string;
+}): UnsupportedAttachmentError {
+  const tokens = (input.imageCount * PI_ESTIMATED_IMAGE_TOKENS).toLocaleString();
+  const needed = minimumContextSizeForImages(input.imageCount, PI_AGENT_PROMPT_TOKENS);
+  const subject = input.scanName
+    ? `${input.scanName} has no text layer, so its ${plural(input.imageCount, 'page')} must be ` +
+      `read as images (${tokens} tokens)`
+    : `${plural(input.imageCount, 'image')} need ${tokens} tokens`;
+  // "about", because Pi's system prompt is not a fixed size: it was measured at
+  // 9,439 tokens and observed 350 higher, which is a third of an image.
+  const fits =
+    input.imageBudget === 0
+      ? 'has no room for one'
+      : `fits about ${plural(input.imageBudget, 'image')}`;
+
+  return new UnsupportedAttachmentError(
+    `${subject}. This model's ${input.contextSize.toLocaleString()} token context window ` +
+      `${fits}. Raise the context size to at least ${needed.toLocaleString()} in ` +
+      'Settings > Models, or attach less.',
+  );
+}
+
+function plural(count: number, noun: string): string {
+  return `${count.toLocaleString()} ${noun}${count === 1 ? '' : 's'}`;
 }
 
 export class UnsupportedAttachmentError extends Error {

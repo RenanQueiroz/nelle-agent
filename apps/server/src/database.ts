@@ -230,6 +230,17 @@ const MIGRATIONS: Migration[] = [
     `,
     isApplied: db => tableExists(db, 'uploads'),
   },
+  {
+    version: 9,
+    name: 'uploads_page_count',
+    checksum: '2026-07-10-uploads-page-count',
+    // A PDF with no text layer has to be priced in page images before it is
+    // rendered, so the page count is persisted rather than re-parsed.
+    sql: `
+      ALTER TABLE uploads ADD COLUMN page_count INTEGER;
+    `,
+    isApplied: db => tableHasColumn(db, 'uploads', 'page_count'),
+  },
 ];
 
 /** The proof-of-concept default chat was stored under this id. */

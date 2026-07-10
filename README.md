@@ -97,12 +97,14 @@ Implemented:
   other non-blocking chat warnings appear below it.
 - Composer attachments for text files, PDFs, and images:
   - The client posts the bytes to `POST /api/uploads` and sends the message with
-    `attachments: [{uploadId, renderPdfAsImages?}]`. The server classifies the
-    file, refuses a binary posing as text, and extracts PDF text.
-  - Images, and PDFs rendered server-side as page images, are sent through Pi's
-    structured image input only when the selected llama.cpp model reports vision
-    support. The attachment drawer appears with the first attachment, and the
-    "Render PDFs as images" switch alongside the first PDF.
+    `attachments: [{uploadId}]`. The server classifies the file, refuses a binary
+    posing as text, and extracts PDF text.
+  - A PDF with a text layer is sent as text, on any model. A scan has no text to
+    send, so its pages are rendered server-side and sent as images, which needs a
+    vision model. There is no switch: the server decides from the document.
+  - A message whose images would leave Pi no room to reply is refused before the
+    run, naming the context size that would fit. The attachment drawer appears
+    with the first attachment.
   - Draft uploads live under `.nelle/uploads/` and are swept 24h after the last
     unsent one. Sent image payloads are stored content-addressed under
     `.nelle/attachments/`; attachment metadata is stored in SQLite and shown on

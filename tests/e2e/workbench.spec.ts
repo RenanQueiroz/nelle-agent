@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {expect, test, type Page} from '@playwright/test';
 
 import {withContextStatus} from '../../packages/shared/src/context.ts';
+import {imageOnlyPdfBuffer, simplePdfBuffer} from '../unit/helpers/pdf.ts';
 import {buildConversationMessages} from '../../packages/shared/src/messages.ts';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
@@ -1481,7 +1482,7 @@ test('attaches text files and blocks images for text-only models', async ({page}
   await expect(page.getByText('attachment-note.txt')).toBeVisible();
 });
 
-test('renders PDFs as image attachments for vision models', async ({page}) => {
+test('a text PDF is sent as text and a scan as page images, with no switch', async ({page}) => {
   const model = {
     id: 'vision-model',
     name: 'Vision Model',
@@ -1512,10 +1513,11 @@ test('renders PDFs as image attachments for vision models', async ({page}) => {
   let streamCalls = 0;
   let requestBody: {message?: string; attachments?: MockAttachmentRequest[]} | null = null;
   const pdfPath = path.join(repoRoot, '.nelle-e2e', 'vision-attachment.pdf');
-  const notePath = path.join(repoRoot, '.nelle-e2e', 'vision-attachment-note.txt');
+  const scanPath = path.join(repoRoot, '.nelle-e2e', 'vision-attachment-scan.pdf');
   await fs.mkdir(path.dirname(pdfPath), {recursive: true});
-  await fs.writeFile(pdfPath, simplePdfBuffer('Render this PDF as an image'));
-  await fs.writeFile(notePath, 'A note, which no amount of rendering turns into a page image.');
+  await fs.writeFile(pdfPath, simplePdfBuffer('This PDF has a text layer'));
+  // No text layer at all: page images are the only way to read it.
+  await fs.writeFile(scanPath, imageOnlyPdfBuffer());
 
   await page.route('**/api/state', async route => {
     await route.fulfill({
@@ -1612,32 +1614,32 @@ test('renders PDFs as image attachments for vision models', async ({page}) => {
   });
 
   await page.goto('/');
-  // Nothing is attached, so there is no drawer and nothing to switch.
+  // Nothing is attached, so there is no drawer -- and there is no switch anywhere.
   await expect(page.getByTestId('attachment-drawer')).toHaveCount(0);
   await expect(page.getByLabel('Render PDFs as images')).toHaveCount(0);
 
-  // A text file on a vision model opens the drawer, but the switch governs PDFs
-  // and there is no PDF, so it stays away.
-  await page.locator('input[aria-label="Attach files"]').setInputFiles(notePath);
-  await expect(page.getByTestId('attachment-drawer')).toContainText('vision-attachment-note.txt');
+  // The real `POST /api/uploads` reads the document. A text layer means the model
+  // gets the text: cheap, exact, and no vision required.
+  await page.locator('input[aria-label="Attach files"]').setInputFiles(pdfPath);
+  await expect(page.getByTestId('attachment-drawer')).toContainText('vision-attachment.pdf');
+  await expect(page.getByTestId('attachment-drawer')).toContainText('PDF text');
   await expect(page.getByLabel('Render PDFs as images')).toHaveCount(0);
   await page.getByTestId('attachment-drawer').locator('.astryx-token button').first().click();
   await expect(page.getByTestId('attachment-drawer')).toHaveCount(0);
 
-  await page.locator('input[aria-label="Attach files"]').setInputFiles(pdfPath);
+  // A scan has no text to send, so the chip says what will actually be sent.
+  await page.locator('input[aria-label="Attach files"]').setInputFiles(scanPath);
+  await expect(page.getByTestId('attachment-drawer')).toContainText('vision-attachment-scan.pdf');
+  await expect(page.getByTestId('attachment-drawer')).toContainText('PDF pages');
+  await expect(page.getByLabel('Render PDFs as images')).toHaveCount(0);
 
-  // The PDF is one chip now: the server renders its pages at send time, so the
-  // composer no longer holds twenty PNGs the user may never send -- and the
-  // switch can sit beside the PDF it governs, rather than above an empty drawer.
-  await expect(page.getByTestId('attachment-drawer')).toContainText('vision-attachment.pdf');
-  await page.getByLabel('Render PDFs as images').check();
   await fillComposer(page, 'describe this PDF');
   await page.getByLabel('Message input').press('Enter');
 
   await expect.poll(() => streamCalls).toBe(1);
+  // A reference, and nothing else. The rendering decision is not the client's.
   expect(requestBody?.attachments).toHaveLength(1);
-  expect(requestBody?.attachments?.[0]?.uploadId).toBeTruthy();
-  expect(requestBody?.attachments?.[0]?.renderPdfAsImages).toBe(true);
+  expect(Object.keys(requestBody?.attachments?.[0] ?? {})).toEqual(['uploadId']);
   await expect(page.getByText('I can see the rendered PDF page.')).toBeVisible();
   await expect(page.getByText('vision-attachment page 1.png')).toBeVisible();
 });
@@ -2612,6 +2614,74 @@ test('an unavailable conversation offers repair, rebuild, and delete', async ({p
   expect(recoveries[1]).toEqual(['legacy-default', 'rebuild']);
   await expect(page.getByTestId('conversation-unavailable')).toHaveCount(0);
   await expect(page.getByText('Saved in SQLite')).toBeVisible();
+});
+
+test('a refused message keeps its text and its attachments', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'Model One',
+    presetName: 'model-one',
+    source: 'huggingface',
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  const notePath = path.join(repoRoot, '.nelle-e2e', 'refused-note.txt');
+  await fs.mkdir(path.dirname(notePath), {recursive: true});
+  await fs.writeFile(notePath, 'A note the server will refuse to send.');
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {state: {activeModelId: model.id, models: [model], chat: []}, runtime},
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await mockConversationRoutes(page, {chat: []});
+  // Refused before it ever becomes a turn: an `error` event and no `run.started`.
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: `data: ${JSON.stringify({
+        type: 'error',
+        code: 'unsupported_attachment',
+        message: 'scan.pdf has no text layer, so its 6 pages must be read as images.',
+        retryable: false,
+      })}\n\n`,
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('input[aria-label="Attach files"]').setInputFiles(notePath);
+  await expect(page.getByTestId('attachment-drawer')).toContainText('refused-note.txt');
+  await fillComposer(page, 'read this for me');
+  await page.getByLabel('Message input').press('Enter');
+
+  await expect(page.getByRole('alert')).toContainText('has no text layer');
+  // The message never became a turn, so the draft comes back rather than being
+  // destroyed: the file is still uploaded, and retyping it all is not a fix.
+  await expect(page.getByLabel('Message input')).toContainText('read this for me');
+  await expect(page.getByTestId('attachment-drawer')).toContainText('refused-note.txt');
 });
 
 test('a message typed before the conversation opens is not swallowed', async ({page}) => {
@@ -3863,31 +3933,6 @@ async function fillComposer(page: Page, text: string): Promise<void> {
   await input.fill(text);
 }
 
-function simplePdfBuffer(text: string): Buffer {
-  const escapedText = text.replace(/[()\\]/g, value => `\\${value}`);
-  const stream = `BT /F1 18 Tf 32 90 Td (${escapedText}) Tj ET`;
-  const objects = [
-    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
-    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
-    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 360 180] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n',
-    `4 0 obj\n<< /Length ${Buffer.byteLength(stream, 'ascii')} >>\nstream\n${stream}\nendstream\nendobj\n`,
-    '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
-  ];
-  let pdf = '%PDF-1.4\n';
-  const offsets: number[] = [];
-  for (const object of objects) {
-    offsets.push(Buffer.byteLength(pdf, 'ascii'));
-    pdf += object;
-  }
-  const xrefOffset = Buffer.byteLength(pdf, 'ascii');
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const offset of offsets) {
-    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
-  }
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
-  return Buffer.from(pdf, 'ascii');
-}
-
 type MockChatMessage = {
   id: string;
   role: string;
@@ -3920,7 +3965,6 @@ type MockAttachment = {
 /** A chat request carries references; the bytes went to `POST /api/uploads`. */
 type MockAttachmentRequest = {
   uploadId: string;
-  renderPdfAsImages?: boolean;
 };
 
 type MockConversation = {

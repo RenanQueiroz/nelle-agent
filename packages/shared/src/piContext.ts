@@ -29,6 +29,18 @@ export const PI_MIN_MAX_TOKENS = 1;
  */
 export const PI_ESTIMATED_IMAGE_TOKENS = 1200;
 
+/**
+ * What Pi's agent system prompt costs its own estimate, measured off the wire
+ * with host tools disabled: `max_tokens` of 1,649 for a single image on a
+ * 16,384-token window puts the rest of the estimate at 9,439.
+ *
+ * Pi estimates characters divided by four, so this does not move with the
+ * tokenizer. It *does* grow when host tools are enabled and their schemas join
+ * the prompt, which is why it is only ever used to refuse a message that could
+ * not fit even an empty conversation.
+ */
+export const PI_AGENT_PROMPT_TOKENS = 9439;
+
 /** Below this many reply tokens the model cannot finish a sentence, let alone a turn. */
 export const MIN_USABLE_REPLY_TOKENS = 256;
 
@@ -91,4 +103,24 @@ export function minimumContextSizeForImages(imageCount: number, basePromptTokens
  */
 export function isClampedReplyBudget(maxTokens: number | undefined): boolean {
   return maxTokens != null && maxTokens <= PI_MIN_MAX_TOKENS;
+}
+
+/**
+ * How many images Pi's reply budget can carry on this context window.
+ *
+ * `basePromptTokens` deliberately excludes the conversation's history, and Pi's
+ * system prompt is not a fixed size -- measured at 9,439 tokens, observed 350
+ * higher. Both make this an underestimate on purpose: it can only ever let a
+ * message through that then reports `reply_budget_exhausted`, where an
+ * overestimate would refuse a message that would have worked.
+ */
+export function maxAffordableImages(
+  contextSize: number,
+  basePromptTokens: number = PI_AGENT_PROMPT_TOKENS,
+): number {
+  const room = contextSize - basePromptTokens - PI_CONTEXT_SAFETY_TOKENS - MIN_USABLE_REPLY_TOKENS;
+  if (!Number.isFinite(room) || room <= 0) {
+    return 0;
+  }
+  return Math.floor(room / PI_ESTIMATED_IMAGE_TOKENS);
 }

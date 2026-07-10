@@ -176,13 +176,16 @@ llama.cpp has proven cannot see it -- when the image is chosen, not when the
 message is sent. `GET /api/uploads/:id` returns the metadata and text;
 `DELETE` drops an unsent draft, which is what removing a chip now does.
 
-A chat request carries `attachments: [{uploadId, renderPdfAsImages?}]`.
-`resolveChatAttachments` expands a PDF into page images through `@napi-rs/canvas`
-at send time, so the per-message caps are enforced after the expansion: a
-three-page PDF with one slot left contributes one page and warns about the two it
-dropped. Sent payloads still land in the content-addressed `.nelle/attachments/`
-tree; drafts live in `.nelle/uploads/<uploadId>/` and the `uploads` table
-(migration 8), swept unbound after 24h at startup and hourly.
+A chat request carries `attachments: [{uploadId}]`. `resolveChatAttachments`
+decides for each PDF: a text layer is sent as text, and a scan is rendered into
+page images through `@napi-rs/canvas`. The per-message caps are enforced after
+that expansion, because a six-page scan is six attachments. Sent payloads still
+land in the content-addressed `.nelle/attachments/` tree; drafts live in
+`.nelle/uploads/<uploadId>/` and the `uploads` table (migration 8, and migration
+9 for the page count), swept unbound after 24h at startup and hourly.
+
+There was a `renderPdfAsImages` flag and a composer switch behind it; both are
+gone. The server knows the document and the model, and the client knows neither.
 
 `pdfjs-dist` has left the web app: the bundle is 820 KB in two files, with no
 `pdf-*` chunk and no 2 MB worker, and `tests/unit/webBundle.test.ts` keeps it

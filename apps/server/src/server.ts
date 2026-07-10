@@ -17,7 +17,7 @@ import {registerLlamaProxy} from './llamaProxy';
 import {PiHarness, isConversationNotFoundError} from './piHarness';
 import {streamDirectLlama} from './directLlama';
 import {createErrorEvent, normalizeNelleError} from './errors';
-import {AppStore} from './store';
+import {AppStore, DEFAULT_CONTEXT_SIZE} from './store';
 import {AppDatabase} from './database';
 import {exportConversationArchive, importConversationArchive} from './conversationArchive';
 import {HostToolRepository} from './hostTools';
@@ -40,7 +40,6 @@ import {
   preferencesSchema,
   serializeSseEnvelope,
   NELLE_ERROR_CODES,
-  NELLE_WARNING_CODES,
 } from '../../../packages/shared/src/contracts.ts';
 import {
   SLASH_COMMAND_REGISTRY,
@@ -947,17 +946,14 @@ export async function createServer(paths: AppPaths) {
         });
       }
       // The client references uploads; the server turns them into what the
-      // harness reads. A PDF asked to render becomes N page images here, which is
-      // why the per-message limits are checked after the expansion, not before.
-      const resolved = await resolveChatAttachments(uploads, body.attachments ?? []);
-      for (const warning of resolved.warnings) {
-        writeChatEvent(
-          reply.raw,
-          {type: 'run.warning', code: NELLE_WARNING_CODES.attachmentsTruncated, message: warning},
-          id,
-        );
-      }
-      // After the load, so `model_cache` can answer whether the model sees images.
+      // harness reads, deciding for each PDF whether to send its text or its
+      // pages. The per-message limits are checked after that expansion, because a
+      // six-page scan is six attachments. Runs after the load, so `model_cache`
+      // can answer whether the model sees images.
+      const resolved = await resolveChatAttachments(uploads, body.attachments ?? [], {
+        contextSize: activeModel?.params.contextSize ?? DEFAULT_CONTEXT_SIZE,
+        visionSupport: activeModel ? modelCache.getVisionSupport(activeModel.id) : null,
+      });
       assertSupportedAttachments(resolved.attachments, modelCache, await store.getState());
       for (const reference of body.attachments ?? []) {
         uploads.markBound(reference.uploadId);
@@ -1014,20 +1010,22 @@ export async function createServer(paths: AppPaths) {
       return reply.status(400).send({error: unsupportedAttachmentError(error)});
     }
 
-    // An image is refused when it is chosen, not when the message is sent. `null`
-    // means llama.cpp has never reported props, so the model is unproven rather
-    // than proven text-only; the client keeps its own conservative UI gate.
+    // Refused when the file is chosen, not when the message is sent. `null` means
+    // llama.cpp has never reported props, so the model is unproven rather than
+    // proven text-only; the client keeps its own conservative UI gate.
     const state = await store.getState();
-    if (
-      ingested.kind === 'image' &&
-      state.activeModelId &&
-      modelCache.getVisionSupport(state.activeModelId) === false
-    ) {
+    const visionSupport = state.activeModelId
+      ? modelCache.getVisionSupport(state.activeModelId)
+      : null;
+    // A PDF with no text layer is a scan: page images are the only way to read it.
+    const isScan = ingested.kind === 'pdf' && !ingested.textContent;
+    if (visionSupport === false && (ingested.kind === 'image' || isScan)) {
       return reply.status(400).send({
         error: {
           code: NELLE_ERROR_CODES.unsupportedAttachment,
-          message:
-            'The selected model cannot read images. Choose a vision model, or attach a text or PDF file.',
+          message: isScan
+            ? `${ingested.name} has no text layer, so it can only be read as page images, and the selected model cannot read images. Choose a vision model.`
+            : 'The selected model cannot read images. Choose a vision model, or attach a text or PDF file.',
         },
       });
     }
@@ -1039,6 +1037,7 @@ export async function createServer(paths: AppPaths) {
       mimeType: ingested.mimeType,
       bytes: ingested.bytes,
       textContent: ingested.textContent,
+      pageCount: ingested.pageCount,
     });
     return reply.status(201).send({
       uploadId: upload.id,
@@ -1048,6 +1047,8 @@ export async function createServer(paths: AppPaths) {
       sizeBytes: upload.sizeBytes,
       textPreview: ingested.textContent?.slice(0, 500),
       pageCount: ingested.pageCount,
+      /** PDFs only. `false` means a scan, which reaches the model as page images. */
+      hasTextLayer: ingested.kind === 'pdf' ? Boolean(ingested.textContent) : undefined,
       warnings: ingested.warnings,
     });
   });

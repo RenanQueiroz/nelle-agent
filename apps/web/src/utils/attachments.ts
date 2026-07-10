@@ -59,6 +59,7 @@ export async function prepareDraftAttachments(
       mimeType: uploaded.mimeType,
       sizeBytes: uploaded.sizeBytes,
       pageCount: uploaded.pageCount,
+      hasTextLayer: uploaded.hasTextLayer,
     });
     warnings.push(...uploaded.warnings);
   }
@@ -86,11 +87,27 @@ export function getDraftAttachmentError(
 }
 
 export function attachmentTooltip(attachment: DraftAttachment | AttachmentMetadata): string {
-  const type =
-    attachment.kind === 'pdf' ? 'PDF text' : attachment.kind === 'image' ? 'Image' : 'Text file';
+  const type = attachmentTypeLabel(attachment);
   const pages =
     'pageCount' in attachment && attachment.pageCount
       ? ` · ${attachment.pageCount} page${attachment.pageCount === 1 ? '' : 's'}`
       : '';
   return `${type} · ${formatBytes(attachment.sizeBytes ?? null)}${pages}`;
+}
+
+/**
+ * A PDF says how it will reach the model. The server decides that from the
+ * document, so a scan announces itself as pages rather than as text it has not
+ * got.
+ */
+function attachmentTypeLabel(attachment: DraftAttachment | AttachmentMetadata): string {
+  if (attachment.kind === 'image') {
+    return 'Image';
+  }
+  if (attachment.kind !== 'pdf') {
+    return 'Text file';
+  }
+  return 'hasTextLayer' in attachment && attachment.hasTextLayer === false
+    ? 'PDF pages'
+    : 'PDF text';
 }

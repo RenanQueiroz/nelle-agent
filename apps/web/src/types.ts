@@ -10,8 +10,10 @@ export type DraftAttachment = {
   name: string;
   mimeType?: string;
   sizeBytes?: number;
-  /** PDFs only, so the drawer can say how many pages it would render. */
+  /** PDFs only, so the drawer can say how many pages it holds. */
   pageCount?: number;
+  /** PDFs only. `false` means a scan, which the server sends as page images. */
+  hasTextLayer?: boolean;
 };
 
 export type ComposerModelOptionDetail = {

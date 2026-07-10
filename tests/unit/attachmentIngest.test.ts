@@ -83,11 +83,16 @@ test('a PDF is classified and its text extracted on the server', async () => {
   assert.ok(result.bytes.byteLength > 0);
 });
 
-test('a PDF with no extractable text is refused rather than sent empty', async () => {
-  await assert.rejects(
-    () => ingestUpload({name: 'blank.pdf', bytes: simplePdfBuffer('')}),
-    /did not contain extractable text/,
-  );
+test('a PDF with no text layer is accepted, because its pages are the document', async () => {
+  // Refusing a scan here made the one document that *needs* page images the one
+  // document Nelle would not accept, on a vision model included.
+  const result = await ingestUpload({name: 'scan.pdf', bytes: simplePdfBuffer('')});
+  assert.equal(result.kind, 'pdf');
+  assert.equal(result.textContent, undefined);
+  assert.equal(result.pageCount, 1);
+  assert.deepEqual(result.warnings, []);
+  // The bytes are kept, so the pages can be rendered at send time.
+  assert.ok(result.bytes.byteLength > 0);
 });
 
 test('extractPdfText reports the page count it walked', async () => {
@@ -167,6 +172,7 @@ function uploadReader(uploads: Array<Partial<Upload> & {id: string; bytes: Buffe
         sizeBytes: upload.bytes.byteLength,
         storagePath: `uploads/${upload.id}/content`,
         textContent: upload.textContent,
+        pageCount: upload.pageCount,
         createdAt: '2026-07-09T00:00:00.000Z',
         boundAt: upload.boundAt,
       };
@@ -177,11 +183,15 @@ function uploadReader(uploads: Array<Partial<Upload> & {id: string; bytes: Buffe
   };
 }
 
+/** The default 16,384 token window; Pi's estimate leaves room for two images. */
+const VISION_MODEL = {contextSize: 16384, visionSupport: true} as const;
+const TEXT_ONLY_MODEL = {contextSize: 16384, visionSupport: false} as const;
+
 test('a text upload resolves to the text the server already extracted', async () => {
   const reader = uploadReader([
     {id: 'u1', kind: 'text', name: 'notes.md', bytes: Buffer.from('hello'), textContent: 'hello'},
   ]);
-  const {attachments} = await resolveChatAttachments(reader, [{uploadId: 'u1'}]);
+  const {attachments} = await resolveChatAttachments(reader, [{uploadId: 'u1'}], TEXT_ONLY_MODEL);
   assert.deepEqual(attachments, [
     {id: 'u1', kind: 'text', name: 'notes.md', mimeType: undefined, sizeBytes: 5, text: 'hello'},
   ]);
@@ -192,101 +202,143 @@ test('an image upload resolves to bare base64, not a data URL', async () => {
   const reader = uploadReader([
     {id: 'u1', kind: 'image', name: 'a.png', mimeType: 'image/png', bytes},
   ]);
-  const {attachments} = await resolveChatAttachments(reader, [{uploadId: 'u1'}]);
+  const {attachments} = await resolveChatAttachments(reader, [{uploadId: 'u1'}], VISION_MODEL);
   assert.equal(attachments[0].data, bytes.toString('base64'));
   assert.equal(attachments[0].kind, 'image');
 });
 
-test('a PDF resolves to its text, or to page images when asked', async () => {
-  const bytes = simplePdfBuffer('Rendered page');
+test('a PDF with a text layer is sent as text, on any model', async () => {
+  // Text is cheap, exact, and needs no vision. There is no switch to say otherwise.
   const reader = uploadReader([
-    {id: 'u1', kind: 'pdf', name: 'report.pdf', bytes, textContent: 'Rendered page'},
+    {
+      id: 'pdf',
+      kind: 'pdf',
+      name: 'report.pdf',
+      bytes: simplePdfBuffer('Quarterly revenue rose'),
+      textContent: 'Quarterly revenue rose',
+      pageCount: 1,
+    },
   ]);
+  for (const model of [TEXT_ONLY_MODEL, VISION_MODEL]) {
+    const {attachments} = await resolveChatAttachments(reader, [{uploadId: 'pdf'}], model);
+    assert.equal(attachments.length, 1);
+    assert.equal(attachments[0].kind, 'pdf');
+    assert.equal(attachments[0].text, 'Quarterly revenue rose');
+  }
+});
 
-  const asText = await resolveChatAttachments(reader, [{uploadId: 'u1'}]);
-  assert.equal(asText.attachments[0].kind, 'pdf');
-  assert.equal(asText.attachments[0].text, 'Rendered page');
-
-  const asImages = await resolveChatAttachments(reader, [
-    {uploadId: 'u1', renderPdfAsImages: true},
+test('a PDF with no text layer is sent as page images', async () => {
+  // A scan. There is nothing to extract, so the pages are the document.
+  const reader = uploadReader([
+    {
+      id: 'scan',
+      kind: 'pdf',
+      name: 'scan.pdf',
+      bytes: multiPagePdfBuffer(['one', 'two']),
+      pageCount: 2,
+    },
   ]);
-  assert.equal(asImages.attachments.length, 1);
-  assert.equal(asImages.attachments[0].kind, 'image');
-  assert.equal(asImages.attachments[0].name, 'report page 1.png');
-  assert.equal(asImages.attachments[0].id, 'u1:page-1');
+  const {attachments} = await resolveChatAttachments(reader, [{uploadId: 'scan'}], VISION_MODEL);
+  assert.deepEqual(
+    attachments.map(attachment => [attachment.kind, attachment.name]),
+    [
+      ['image', 'scan page 1.png'],
+      ['image', 'scan page 2.png'],
+    ],
+  );
   assert.equal(
-    Buffer.from(asImages.attachments[0].data ?? '', 'base64')
+    Buffer.from(attachments[0].data ?? '', 'base64')
       .subarray(1, 4)
       .toString(),
     'PNG',
+  );
+  assert.equal(attachments[0].id, 'scan:page-1');
+});
+
+test('a scan is refused for a model llama.cpp has proven cannot see', async () => {
+  const reader = uploadReader([
+    {id: 'scan', kind: 'pdf', name: 'scan.pdf', bytes: simplePdfBuffer('x'), pageCount: 1},
+  ]);
+  await assert.rejects(
+    () => resolveChatAttachments(reader, [{uploadId: 'scan'}], TEXT_ONLY_MODEL),
+    /scan\.pdf has no text layer.*cannot read images/s,
+  );
+});
+
+test('a scan too long for the context is refused with the arithmetic', async () => {
+  // Pi charges 1,200 tokens an image, so a 16,384 token window fits two pages.
+  const reader = uploadReader([
+    {
+      id: 'scan',
+      kind: 'pdf',
+      name: 'scan.pdf',
+      bytes: multiPagePdfBuffer(['one', 'two', 'three']),
+      pageCount: 6,
+    },
+  ]);
+  const error = await resolveChatAttachments(reader, [{uploadId: 'scan'}], VISION_MODEL).catch(
+    (thrown: Error) => thrown,
+  );
+  assert.match(error.message, /scan\.pdf has no text layer, so its 6 pages must be read as images/);
+  assert.match(error.message, /7,200 tokens/);
+  assert.match(error.message, /16,384 token context window fits about 2 images/);
+  assert.match(error.message, /Raise the context size to at least 20,991/);
+});
+
+test('more images than the context can afford are refused before the run', async () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  const reader = uploadReader(
+    [1, 2, 3].map(index => ({
+      id: `i${index}`,
+      kind: 'image' as const,
+      name: `a${index}.png`,
+      mimeType: 'image/png',
+      bytes: png,
+    })),
+  );
+  const references = [{uploadId: 'i1'}, {uploadId: 'i2'}, {uploadId: 'i3'}];
+
+  // Two fit; the third is the one that would clamp Pi's reply budget to a token.
+  const twoFit = await resolveChatAttachments(reader, references.slice(0, 2), VISION_MODEL);
+  assert.equal(twoFit.attachments.length, 2);
+
+  const error = await resolveChatAttachments(reader, references, VISION_MODEL).catch(
+    (thrown: Error) => thrown,
+  );
+  assert.match(error.message, /3 images need 3,600 tokens/);
+  assert.match(error.message, /fits about 2 images/);
+});
+
+test('a window too small for even one image says so', async () => {
+  const reader = uploadReader([
+    {id: 'i1', kind: 'image', name: 'a.png', mimeType: 'image/png', bytes: Buffer.from([1])},
+  ]);
+  await assert.rejects(
+    () =>
+      resolveChatAttachments(reader, [{uploadId: 'i1'}], {contextSize: 8192, visionSupport: true}),
+    /8,192 token context window has no room for one/,
   );
 });
 
 test('a missing upload is named, so the user knows to attach it again', async () => {
   await assert.rejects(
-    () => resolveChatAttachments(uploadReader([]), [{uploadId: 'gone'}]),
+    () => resolveChatAttachments(uploadReader([]), [{uploadId: 'gone'}], VISION_MODEL),
     /gone is no longer available/,
   );
   await assert.rejects(
-    () => resolveChatAttachments(uploadReader([]), [{uploadId: 'gone'}]),
+    () => resolveChatAttachments(uploadReader([]), [{uploadId: 'gone'}], VISION_MODEL),
     UnsupportedAttachmentError,
   );
 });
 
 test('a refusal carries the code a stream needs to report it', async () => {
-  const error = await resolveChatAttachments(uploadReader([]), [{uploadId: 'gone'}]).catch(e => e);
+  const error = await resolveChatAttachments(
+    uploadReader([]),
+    [{uploadId: 'gone'}],
+    VISION_MODEL,
+  ).catch(e => e);
   assert.equal((error as {code: string}).code, 'unsupported_attachment');
   assert.equal((error as {retryable: boolean}).retryable, false);
-});
-
-test('the per-message file cap counts rendered PDF pages, not references', async () => {
-  // Nineteen text files plus a three-page PDF rendered as images: only one slot
-  // is left, so the PDF may contribute one page and no more.
-  const uploads = Array.from({length: 19}, (_, index) => ({
-    id: `t${index}`,
-    kind: 'text' as const,
-    name: `f${index}.txt`,
-    bytes: Buffer.from('x'),
-    textContent: 'x',
-  }));
-  const reader = uploadReader([
-    ...uploads,
-    {
-      id: 'pdf',
-      kind: 'pdf',
-      name: 'r.pdf',
-      bytes: multiPagePdfBuffer(['one', 'two', 'three']),
-      textContent: 'one two three',
-    },
-  ]);
-  const {attachments, warnings} = await resolveChatAttachments(reader, [
-    ...uploads.map(upload => ({uploadId: upload.id})),
-    {uploadId: 'pdf', renderPdfAsImages: true},
-  ]);
-  assert.equal(attachments.length, 20);
-  assert.equal(attachments.at(-1)?.name, 'r page 1.png');
-  // Dropping two pages silently would read as "the model saw the whole document".
-  assert.match(warnings[0] ?? '', /r\.pdf was rendered as 1 page; 2 pages skipped/);
-});
-
-test('a PDF rendered alone gets every page, up to the render cap', async () => {
-  const reader = uploadReader([
-    {
-      id: 'pdf',
-      kind: 'pdf',
-      name: 'r.pdf',
-      bytes: multiPagePdfBuffer(['one', 'two', 'three']),
-      textContent: 'one two three',
-    },
-  ]);
-  const {attachments, warnings} = await resolveChatAttachments(reader, [
-    {uploadId: 'pdf', renderPdfAsImages: true},
-  ]);
-  assert.deepEqual(
-    attachments.map(attachment => attachment.name),
-    ['r page 1.png', 'r page 2.png', 'r page 3.png'],
-  );
-  assert.deepEqual(warnings, []);
 });
 
 test('a message past the total byte cap is refused', async () => {
@@ -296,7 +348,7 @@ test('a message past the total byte cap is refused', async () => {
     {id: 'b', kind: 'image', name: 'b.png', mimeType: 'image/png', bytes: big},
   ]);
   await assert.rejects(
-    () => resolveChatAttachments(reader, [{uploadId: 'a'}, {uploadId: 'b'}]),
+    () => resolveChatAttachments(reader, [{uploadId: 'a'}, {uploadId: 'b'}], VISION_MODEL),
     /limited to 100 MiB per message/,
   );
 });

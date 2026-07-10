@@ -93,8 +93,6 @@ export const NELLE_WARNING_CODES = {
   reasoningWithoutAnswer: 'reasoning_without_answer',
   /** llama.cpp's slot was still generating after the post-abort grace window. */
   llamaSlotStillProcessing: 'llama_slot_still_processing',
-  /** Attachment limits dropped PDF pages the user asked to render. */
-  attachmentsTruncated: 'attachments_truncated',
 } as const;
 
 export const chatAttachmentKindSchema = z.enum(['text', 'pdf', 'image']);
@@ -115,15 +113,18 @@ export type ChatAttachmentInput = z.infer<typeof chatAttachmentInputSchema>;
 /**
  * What a chat request carries. The bytes went to `POST /api/uploads` first, so a
  * client references them rather than embedding them.
+ *
+ * There is no `renderPdfAsImages`: the server reads a PDF's text when it has a
+ * text layer and renders its pages when it has not, because only the server
+ * knows both the document and the model.
  */
 export const chatAttachmentReferenceSchema = z
   .object({
     uploadId: z.string().min(1).max(120),
-    /** Send a PDF as page images instead of its extracted text. */
-    renderPdfAsImages: z.boolean().optional(),
   })
-  // A client still embedding `text` or `data` is talking to an older server and
-  // must be told so, rather than having its bytes silently stripped.
+  // A client still embedding `text` or `data`, or still asking for a rendering
+  // mode, is talking to an older server and must be told so rather than having
+  // its request silently reinterpreted.
   .strict();
 
 export type ChatAttachmentReference = z.infer<typeof chatAttachmentReferenceSchema>;

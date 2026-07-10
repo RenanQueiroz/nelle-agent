@@ -155,6 +155,8 @@ export type UploadedAttachment = {
   sizeBytes: number;
   textPreview?: string;
   pageCount?: number;
+  /** PDFs only. `false` means a scan, which reaches the model as page images. */
+  hasTextLayer?: boolean;
   warnings: string[];
 };
 

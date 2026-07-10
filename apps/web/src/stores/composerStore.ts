@@ -10,7 +10,6 @@ import {deleteUpload} from '../api';
 type ComposerStore = {
   draft: string;
   attachments: DraftAttachment[];
-  isPdfImageModeEnabled: boolean;
   slashCommandError: string | null;
   error: string | null;
   warning: string | null;
@@ -18,7 +17,6 @@ type ComposerStore = {
   setAttachments: (attachments: DraftAttachment[]) => void;
   addAttachments: (attachments: DraftAttachment[]) => void;
   removeAttachment: (id: string) => void;
-  setPdfImageModeEnabled: (isEnabled: boolean) => void;
   setSlashCommandError: (message: string | null) => void;
   setError: (message: string | null) => void;
   setWarning: (message: string | null) => void;
@@ -29,7 +27,6 @@ type ComposerStore = {
 export const useComposerStore = create<ComposerStore>(set => ({
   draft: '',
   attachments: [],
-  isPdfImageModeEnabled: false,
   slashCommandError: null,
   error: null,
   warning: null,
@@ -43,7 +40,6 @@ export const useComposerStore = create<ComposerStore>(set => ({
     void deleteUpload(id).catch(() => undefined);
     set(state => ({attachments: state.attachments.filter(item => item.uploadId !== id)}));
   },
-  setPdfImageModeEnabled: isEnabled => set({isPdfImageModeEnabled: isEnabled}),
   setSlashCommandError: message => set({slashCommandError: message}),
   setError: message => set({error: message}),
   setWarning: message => set({warning: message}),

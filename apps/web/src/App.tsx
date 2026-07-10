@@ -429,7 +429,6 @@ export function App() {
   );
   const activeModelProps =
     activeModelId == null ? null : (modelPropsById[activeModelId]?.props ?? null);
-  const activeModelSupportsVision = activeModelProps?.modalities.vision === true;
   // The server decides this from the chat template and caches it, so no client
   // carries llama.cpp's thinking detector. `null` while llama.cpp has not
   // reported a template -- it only answers `/props` for a model it has loaded --
@@ -615,12 +614,6 @@ export function App() {
       }
     });
   }, [runtime?.running]);
-
-  useEffect(() => {
-    if (!activeModelSupportsVision) {
-      useComposerStore.getState().setPdfImageModeEnabled(false);
-    }
-  }, [activeModelSupportsVision]);
 
   useEffect(() => {
     if (!runtime?.running) {
@@ -1126,10 +1119,6 @@ export function App() {
       return;
     }
     const draftAttachments = composer.attachments;
-    // PDF-as-images is a send-time choice now: the server renders the pages, so
-    // the composer no longer holds twenty PNGs it may never send.
-    const renderPdfAsImages =
-      composer.isPdfImageModeEnabled && activeModelProps?.modalities.vision === true;
     const attachmentError = getDraftAttachmentError(
       draftAttachments,
       activeModelProps?.modalities.vision === true,
@@ -1157,6 +1146,9 @@ export function App() {
     const abortController = new AbortController();
     streamAbortControllers.current.set(conversationId, abortController);
     let receivedRunStarted = false;
+    // Whether the prompt became a turn. The server persists the user entry and
+    // announces it; before that, nothing of the message exists anywhere.
+    let messageBecameTurn = false;
     try {
       await streamConversationChat(
         conversationId,
@@ -1165,18 +1157,26 @@ export function App() {
           if (event.type === 'run.started') {
             receivedRunStarted = true;
           }
+          if (event.type === 'message.user.created') {
+            messageBecameTurn = true;
+          }
           applyChatEvent(event, conversationId);
         },
         abortController.signal,
         // References only. The bytes went to `POST /api/uploads`, and the server
-        // expands a PDF into page images if the composer asked it to.
-        draftAttachments.map(attachment => ({
-          uploadId: attachment.uploadId,
-          ...(attachment.kind === 'pdf' && renderPdfAsImages ? {renderPdfAsImages: true} : {}),
-        })),
+        // decides whether each PDF reaches the model as text or as page images.
+        draftAttachments.map(attachment => ({uploadId: attachment.uploadId})),
       );
       if (conversationId === activeConversationIdRef.current) {
-        useComposerStore.getState().setAttachments([]);
+        if (messageBecameTurn) {
+          useComposerStore.getState().setAttachments([]);
+        } else {
+          // The server refused the message before it became a turn -- an
+          // unaffordable scan, a model that would not load. The uploads are still
+          // there, unbound, so hand the whole draft back rather than making the
+          // user retype it and pick the files again.
+          restoreComposerDraft(prompt);
+        }
       }
       setRuntime(await getRuntime());
       await refreshConversations(activeConversationIdRef.current);
