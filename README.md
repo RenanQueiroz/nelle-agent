@@ -379,3 +379,15 @@ Current planning source of truth:
 
 - [Architecture plan](plans/nelle-agent-architecture.md)
 - [Router and chat UI plan](plans/nelle-router-chat-ui-plan.md)
+- [Thin client plan](plans/nelle-thin-client-plan.md) — what belongs on the
+  server versus in a client
+- [Settings plan](plans/nelle-settings-plan.md) — which of llama.cpp's settings
+  Nelle adopts, and where each one lives
+- [Gap remediation plan](plans/nelle-gap-remediation-plan.md) — known
+  divergences between the implementation and the plans above
+
+Server settings are declared once, in `SETTINGS_REGISTRY`
+(`packages/shared/src/settings.ts`), and served to every client from
+`GET /api/settings/schema`. Each group is read and written at
+`GET`/`PATCH /api/settings/<slug>`, which validates against a zod schema derived
+from that same registry.

@@ -601,6 +601,20 @@ Project-specific guidance for AI coding agents.
   from `GET /api/settings/schema`, the way `GET /api/commands` serves the
   slash-command registry, so a second client renders it without a copy of the
   copy.
+- A server setting exists in exactly one place: `SETTINGS_REGISTRY` in
+  `packages/shared/src/settings.ts`. The served schema and the zod schema
+  `PATCH /api/settings/<slug>` validates against are both *derived* from it, so
+  they cannot drift; do not hand-write a zod object beside a field. Routes are
+  registered by iterating the registry, which is why `schema`, `preferences` and
+  `host-tools` are never swallowed by a `:group` parameter, and why a slug
+  collision fails loudly at boot. Field keys are a contract like
+  `NELLE_ERROR_CODES`: renaming one breaks a client that stored it, and there is
+  no migration path through a phone's cache. `PATCH` is `.strict()`, so an
+  undeclared key is refused *by name*; a key already in the row is therefore one
+  a newer build wrote, and `SettingsRepository.updateGroup` writes it back
+  untouched rather than eating a setting the user would lose on the way back up.
+  Reads coerce field by field, so one unreadable value falls back to its default
+  alone and takes no sibling with it.
 - Sampling belongs to the model, not to Pi's requests. Pi sends no sampling
   parameters at all, so llama.cpp's launch flags are what every conversation
   runs with: `models.ini` carries `temp`, `top-k`, `min-p`, `seed` and the rest,

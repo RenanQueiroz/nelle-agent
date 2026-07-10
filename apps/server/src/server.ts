@@ -22,6 +22,7 @@ import {AppDatabase} from './database';
 import {exportConversationArchive, importConversationArchive} from './conversationArchive';
 import {HostToolRepository} from './hostTools';
 import {PreferencesRepository} from './preferences';
+import {SettingsRepository} from './settings';
 import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './uploads';
 import {ingestUpload, resolveChatAttachments, UnsupportedAttachmentError} from './attachmentIngest';
 import {ATTACHMENT_LIMITS} from '../../../packages/shared/src/attachments.ts';
@@ -45,6 +46,12 @@ import {
   SLASH_COMMAND_REGISTRY,
   unsupportedSlashCommandMessage,
 } from '../../../packages/shared/src/commands.ts';
+import {
+  SETTINGS_REGISTRY,
+  settingsPatchSchema,
+  type SettingsGroup,
+  type SettingsValues,
+} from '../../../packages/shared/src/settings.ts';
 
 const useHuggingFaceModelSchema = z.object({
   repoId: z.string().min(1),
@@ -127,7 +134,13 @@ const hostToolSettingsSchema = z.object({
   acknowledged: z.boolean().optional(),
 });
 
-export async function createServer(paths: AppPaths) {
+export async function createServer(
+  paths: AppPaths,
+  // The registry is injectable so the settings machinery can be tested against a
+  // fixture registry, which is the only way to cover it while the real one is
+  // still empty.
+  options: {settingsRegistry?: readonly SettingsGroup[]} = {},
+) {
   const store = new AppStore(paths);
   const database = new AppDatabase(paths);
   await database.open();
@@ -135,6 +148,7 @@ export async function createServer(paths: AppPaths) {
   await conversations.init();
   const hostTools = new HostToolRepository(database);
   const preferences = new PreferencesRepository(database);
+  const settings = new SettingsRepository(database, options.settingsRegistry ?? SETTINGS_REGISTRY);
   const modelCache = new ModelCacheRepository(database);
   const uploads = new UploadRepository(database, paths);
   const llama = new LlamaCppManager(paths, store);
@@ -270,11 +284,29 @@ export async function createServer(paths: AppPaths) {
     return {budgets: await store.updateReasoningBudgets(body.budgets)};
   });
 
+  // The settings schema is served for the same reason the slash-command registry
+  // is: a second client renders the fields without carrying a copy of fifteen
+  // labels, and a new setting ships without a client release.
+  app.get('/api/settings/schema', async () => ({sections: settings.groups}));
+
+  // One route pair per registry group. Registering them from the registry rather
+  // than behind a `/api/settings/:group` parameter keeps `schema`, `preferences`
+  // and `host-tools` from being swallowed by it, and makes a slug collision a
+  // loud failure at boot instead of a route that silently never matches.
+  for (const group of settings.groups) {
+    const patchSchema = settingsPatchSchema(group);
+    app.get(`/api/settings/${group.slug}`, async () => settings.getGroup(group.slug));
+    app.patch(`/api/settings/${group.slug}`, async request => {
+      const body = patchSchema.parse(request.body) as SettingsValues;
+      return settings.updateGroup(group.slug, body);
+    });
+  }
+
   app.patch('/api/settings/host-tools', async (request, reply) => {
     const body = hostToolSettingsSchema.parse(request.body);
-    let settings;
+    let hostToolSettings;
     try {
-      settings = hostTools.updateSettings(body);
+      hostToolSettings = hostTools.updateSettings(body);
     } catch (error) {
       return reply.status(400).send({
         error: {
@@ -287,7 +319,7 @@ export async function createServer(paths: AppPaths) {
       });
     }
     pi.resetSession();
-    return {hostTools: settings};
+    return {hostTools: hostToolSettings};
   });
 
   app.get('/api/runtime', async request => {
