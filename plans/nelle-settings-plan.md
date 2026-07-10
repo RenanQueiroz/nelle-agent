@@ -179,11 +179,28 @@ refuse a message that fits ten times over.
 per-model cap needs no new storage — it is a key in the section Nelle already
 writes.
 
-**The memory is the reason to allow a cap.** The KV cache scales linearly with
-the context, so a 262,144-token window wants sixteen times the KV allocation of
-today's 16,384, and llama.cpp asks for all of it at load. A machine that cannot
-give it gets a model that will not load. That is the user's trade to make, not
-ours to make for them silently.
+**The memory is the reason to allow a cap, and it is model-specific.** The KV
+cache is what a bigger window costs, and how much depends on the architecture.
+Read out of the GGUF headers of the two models configured here, and computed at
+f16:
+
+| Model           | weights  | KV @ 16,384 | KV @ 262,144 | total @ full |
+| --------------- | -------- | ----------- | ------------ | ------------ |
+| gemma-4-26B-A4B | 14.2 GiB | 0.51 GiB    | 5.20 GiB     | 19.4 GiB     |
+| Qwen3.6-35B-A3B | 22.9 GiB | 1.28 GiB    | 20.50 GiB    | 43.4 GiB     |
+
+gemma4 uses sliding-window attention — 25 of its 30 layers are capped at a
+1024-token window, and only 5 global layers scale with the context — so its full
+window costs ten times its current KV but only 5 GiB in absolute terms. Qwen's 41
+layers all use full attention, so its KV scales cleanly by sixteen, to 20.5 GiB.
+
+On the machine this was measured on (31 GiB of RAM, ~23 GiB free, CPU inference),
+**gemma fits at its full window and Qwen does not**. That is the whole argument
+for the setting: the answer is different per model, per machine, and per quant,
+and no default Nelle picks can be right for all three. `-ctk`/`-ctv`
+(`--cache-type-k`, `--cache-type-v`) halve or quarter the KV and are `models.ini`
+keys like any other, so the cap is not the only lever — but it is the obvious
+one, and the failure has to point at it.
 
 ## Image Resolution Is Not A Token Lever
 
@@ -532,18 +549,36 @@ be validated against it instead of accepted blindly.
 `n_ctx_train` is only known after a model has been loaded once. Before that the
 UI says "the model's full window" and means it.
 
-### Migrating installs that already have `c = 16384`
+### The params editor cannot clear a param today
 
-`[*] c = 16384` is written into every existing `models.ini` by Nelle, not by the
-user. But a user who deliberately typed `16384` is indistinguishable from Nelle
-having typed it, so the migration is narrow and stated plainly:
+`normalizeParamRecord` (`store.ts:515`) returns the defaults whenever it is given
+an empty record, so deleting the last global parameter puts it straight back.
+Verified against the running server:
 
-- Remove `c` from `[*]` **only if its value is exactly the old default**, once,
-  recorded in `state.json` so it never runs twice.
-- Any other value is the user's and is left alone.
-- `DEFAULT_STATE.globalModelParams` becomes `{}` and `DEFAULT_PARAMS.contextSize`
-  disappears. `contextSizeFromParams`'s 16,384 fallback goes with it; there is no
-  fallback, only `null`.
+```
+$ curl -X PATCH /api/models/global-params -d '{"params":{}}'
+{"globalModelParams":{"c":"16384"}}
+```
+
+An empty record means "the user removed everything", not "the user sent nothing".
+Conflating the two makes the context cap unremovable through the UI, which is the
+exact thing this phase exists to allow. Fix it in the same breath: an absent
+`params` key falls back to defaults, an empty object does not.
+
+### No migration
+
+Nelle has no installs to migrate. `DEFAULT_STATE.globalModelParams` becomes `{}`,
+`DEFAULT_PARAMS.contextSize` disappears, and `contextSizeFromParams`'s 16,384
+fallback goes with it: there is no fallback, only `null`. The `c = 16384` already
+sitting in this repository's `.nelle/llama/models.ini` and `.nelle/state.json` is
+edited out by hand when the phase lands — not before, because until
+`DEFAULT_STATE.globalModelParams` changes, `writePreset` puts it straight back.
+No code path exists to patch an old install, because there are none.
+
+On this machine that hand-edit is not a no-op: gemma will come up at its full
+262,144-token window, and Qwen will fail to load until it is given a `c` in its
+own section. That is the intended behaviour, and it is the reason the load failure
+must name the cap.
 
 ### Two things to verify before building
 
@@ -557,13 +592,14 @@ having typed it, so the migration is narrow and stated plainly:
   would ignore. The catalogue from Phase 3 supplies the alias set; use it, which
   is a good reason to land Phase 3 first.
 
-**Tests.** `/props` beats the configured cap; a per-model `c` beats `[*]`;
+**Tests.** An empty `params` object clears every parameter and an absent one
+falls back to defaults; `/props` beats the configured cap; a per-model `c` beats
+`[*]`;
 `writePiModels` writes the effective window and `replyTokenBudget` of it; a
 session is reset when the window changes; `null` leaves the snapshot without a
-total, skips the image pre-flight, and never reaches Pi; the migration strips
-exactly `16384` from `[*]` and leaves `8192` alone, and does not run twice; and a
-capped model reports the cap from `/props` after loading, which is the only proof
-that the cap did anything.
+total, skips the image pre-flight, and never reaches Pi; and a capped model
+reports the cap from `/props` after loading, which is the only proof that the cap
+did anything.
 
 ## Phase 5: Display Preferences
 
@@ -654,11 +690,12 @@ no gain).
 - **A settings schema served over HTTP is a contract.** Renaming a key breaks a
   client that stored it. Treat `SETTINGS_KEYS` the way `NELLE_ERROR_CODES` is
   treated.
-- **Removing the context default changes memory behaviour for every install.**
-  gemma-4-26B goes from asking for a 16,384-token KV cache to asking for
-  262,144. A machine that was fine yesterday may not load the model today, and
-  the fix — cap `c` — has to be discoverable from the failure. Phase 4 is not a
-  settings change; it is a resource change wearing a settings change's clothes.
+- **Removing the context default is a resource change wearing a settings
+  change's clothes.** On the machine this was measured on, gemma-4-26B fits at
+  its full window (19.4 GiB) and Qwen3.6-35B does not (43.4 GiB against ~23 GiB
+  free). A model that loaded yesterday will not load today, and the fix — cap `c`
+  in that model's section — has to be discoverable from the failure rather than
+  from this document.
 - **`null` is a real value for the context window.** Every arithmetic site must
   say what it does with "unknown" rather than reaching for a constant. The one
   that matters is the image pre-flight: it must skip, not refuse, because

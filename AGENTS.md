@@ -23,6 +23,11 @@ Project-specific guidance for AI coding agents.
 - Nelle stores app data under `.nelle/` by default. Do not commit
   generated app data, e2e app data, downloaded models, llama.cpp builds, test
   reports, or logs.
+- Nelle has no users yet. Do not write code to migrate old installs: when a
+  change makes existing app data wrong, edit this repository's `.nelle/` by hand
+  and move on. SQLite `schema_migrations` stays, because it is also how a fresh
+  database is built, but a *data* migration for the benefit of installs that do
+  not exist is dead code with a test suite attached.
 - `.nelle/settings.sqlite` is generated app data. It stores conversation rows,
   active-branch projections, and Nelle-only sidecar metadata; do not commit it.
 - `.nelle/backups/` contains generated SQLite migration backups; do not commit
