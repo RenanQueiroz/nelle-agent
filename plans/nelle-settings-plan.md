@@ -31,6 +31,72 @@ browser is a setting the React Native and desktop clients reimplement.
    them. See "Sampling belongs to the model" below, which is the measurement that
    makes this work.
 
+## How To Work This Plan
+
+One commit per phase. **The phase numbers are identities, not an order.** Land
+them in this sequence:
+
+| Order | Phase                         | Why here                                                                          |
+| ----- | ----------------------------- | --------------------------------------------------------------------------------- |
+| 1     | Phase 0 — foundations         | Everything after it is a field.                                                   |
+| 2     | Phase 1 — titles              | Smallest real feature; proves the plumbing.                                       |
+| 3     | Phase 3 — param validation    | Before anyone is told to type `temp` into the editor.                             |
+| 4     | Phase 4 — context window      | Needs Phase 3's option catalogue to know `c` = `ctx-size` = `LLAMA_ARG_CTX_SIZE`. |
+| 5     | Phase 6 — paste to file       | Cheapest user-visible win.                                                        |
+| 6     | Phase 2 — custom instructions | The one people ask for.                                                           |
+| 7     | Phase 5 — display preferences | Mechanical.                                                                       |
+| 8     | Phase 8 — model metadata      | Makes Phase 4's "full window" legible before a load.                              |
+| 9     | Phase 7 — image cap           | Optional, and honest about being optional.                                        |
+
+Phase 0 lands the machinery with an empty registry, tested against a fixture
+registry; Phase 1 is its first real consumer.
+
+### The gate
+
+Every commit passes `npm run format:check`, `npm run lint`, `npm run check`,
+`npm run test:unit`, `npm run build:web` and `npm run test:e2e`. A new test must
+be shown to **fail when the behaviour it guards is reverted** — a test that passes
+both ways guards nothing. Verify load-bearing changes against the real server,
+which is running, rather than against mocks alone.
+
+### Migrations
+
+The next free SQLite migration is **10**. Phase 4 and Phase 8 both add columns to
+`model_cache`; assign numbers in _landing_ order and do not hardcode them here.
+There are no installs, so no data migration is ever written — see `AGENTS.md`.
+Where existing app data becomes wrong, edit this repository's `.nelle/` by hand,
+inside the commit that makes it wrong.
+
+### Traps this plan already knows about
+
+Each was found by reading or running the code, not by guessing.
+
+- **`maxAffordableImages(0)` returns `0`, and `0` refuses every image.** An
+  unknown context window is `null`, never `0`. `replyTokenBudget(0)` quietly
+  returns `1024` for the same reason. Coercing `null` to a number is the way to
+  break Phase 4 silently.
+- **The browser already resolves the effective window itself.** `App.tsx:450`
+  reads `activeModelProps?.contextWindow ?? activeModel?.params.contextSize`.
+  Phase 4 must delete that, or the server's answer is computed and then ignored.
+- **`ConfiguredModel.params.contextSize` is a required `number`** in
+  `apps/server/src/types.ts`, mirrored in `apps/web/src/api.ts:91`, read by three
+  files under `apps/web/src`, and set by the e2e model fixtures. Making it an
+  optional cap ripples through all of them.
+- **`invalid_model_param`, `reserved_model_param` and `duplicate_model_param` are
+  raw strings** in `server.ts`, not members of `NELLE_ERROR_CODES`. `AGENTS.md`
+  requires every code to live there. Phase 3 adds them.
+- **`sanitizeGeneratedTitle` (`piHarness.ts:2333`) truncates to 80 characters,
+  not to words.** Phase 1's `maxWords` has to be written, not assumed.
+- **Phase 8 adds a dependency.** `@huggingface/gguf` pulls `@huggingface/tasks`,
+  5.8 MB installed, server-only. `tests/unit/webBundle.test.ts` must learn the
+  name the way it already knows `pdfjs-dist`.
+- **Phase 2's "cost as you type" is a pure `packages/shared` helper**, not a round
+  trip. That is rule 3 of `plans/nelle-thin-client-plan.md`, not an exception to
+  it.
+- **Phase 4's hand-edit of `.nelle/llama/models.ini` happens inside that commit**,
+  after `DEFAULT_STATE.globalModelParams` changes. Do it earlier and `writePreset`
+  puts `c = 16384` straight back.
+
 ## Where Each Setting Lives
 
 Following `plans/nelle-thin-client-plan.md`:
@@ -844,27 +910,8 @@ is the only honest test of "works offline".
 
 ## Sequencing
 
-1. **Phase 0** — the registry, the repository, the served schema. Everything else
-   is a field.
-2. **Phase 1 (titles)** — self-contained, server-only, fixes a real gap, and
-   proves the settings plumbing on something small.
-3. **Phase 3 (model param validation)** — before anyone is encouraged to type
-   `temp` into the params editor and take llama.cpp down with a typo. Covers the
-   global `[*]` params and the per-model params, and marks the offending rows
-   rather than printing one sentence above a form. Its option catalogue is what
-   Phase 4 needs to recognise every spelling of `ctx-size`.
-4. **Phase 4 (context window)** — the riskiest change here, and the one that
-   makes the other numbers true. It removes a default that has been quietly
-   correct-by-construction, so it wants the validation of Phase 3 underneath it
-   and a careful eye on the `null` paths.
-5. **Phase 6 (paste to file)** — cheapest user-visible win.
-6. **Phase 2 (custom instructions)** — the one people ask for.
-7. **Phase 5 (display preferences)** — mechanical.
-8. **Phase 8 (model metadata)** — pairs with Phase 4: it is what lets the UI say
-   "full window 262,144, running at 16,384" before anyone has to guess. Sources 1
-   and 2 are nearly free and fix an existing gap (`size: null`); source 3 can
-   follow.
-9. **Phase 7 (image cap)** — optional, and honest about being optional.
+See **How To Work This Plan** at the top: the phase numbers are identities,
+and the landing order is not the numbering.
 
 ## Risks
 
