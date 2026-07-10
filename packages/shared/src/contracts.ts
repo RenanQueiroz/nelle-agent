@@ -53,6 +53,7 @@ export const NELLE_ERROR_CODES = {
 
   // Request validation.
   invalidRequest: 'invalid_request',
+  notFound: 'not_found',
 
   // Chat input.
   unsupportedAttachment: 'unsupported_attachment',

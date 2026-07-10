@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import staticPlugin from '@fastify/static';
 import Fastify from 'fastify';
 import {ZodError, z} from 'zod';
@@ -22,6 +23,8 @@ import {exportConversationArchive, importConversationArchive} from './conversati
 import {HostToolRepository} from './hostTools';
 import {PreferencesRepository} from './preferences';
 import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './uploads';
+import {ingestUpload, UnsupportedAttachmentError} from './attachmentIngest';
+import {ATTACHMENT_LIMITS} from '../../../packages/shared/src/attachments.ts';
 import {ModelCacheRepository} from './modelCache';
 import {
   ConversationRepository,
@@ -186,6 +189,17 @@ export async function createServer(paths: AppPaths) {
     if (error instanceof ZodError) {
       return reply.status(400).send({error: nelleErrorFromZod(error)});
     }
+    // `@fastify/multipart` aborts the stream past its limit and serializes its
+    // own body. A client needs a `NelleError` code here as much as anywhere.
+    if ((error as {code?: string}).code === 'FST_REQ_FILE_TOO_LARGE') {
+      return reply.status(413).send({
+        error: {
+          code: NELLE_ERROR_CODES.unsupportedAttachment,
+          message: `Attachments are limited to ${formatMebibytes(ATTACHMENT_LIMITS.maxFileBytes)} per file.`,
+          retryable: false,
+        },
+      });
+    }
     return reply.send(error);
   });
 
@@ -203,6 +217,13 @@ export async function createServer(paths: AppPaths) {
   app.addHook('onClose', async () => {
     clearInterval(uploadSweepTimer);
     database.close();
+  });
+  await app.register(multipart, {
+    limits: {
+      fileSize: ATTACHMENT_LIMITS.maxFileBytes,
+      // One file per request keeps the per-file limit enforceable by the parser.
+      files: 1,
+    },
   });
   registerLlamaProxy(app, store);
 
@@ -946,6 +967,108 @@ export async function createServer(paths: AppPaths) {
     }
   });
 
+  /**
+   * Draft attachments. The client posts bytes; the server classifies them,
+   * extracts PDF text, and rejects what no model here can read. The message that
+   * follows references the upload by id.
+   */
+  app.post('/api/uploads', async (request, reply) => {
+    const file = await request.file();
+    if (!file) {
+      return reply.status(400).send({
+        error: {code: NELLE_ERROR_CODES.invalidRequest, message: 'Attach a file to upload.'},
+      });
+    }
+    const bytes = await file.toBuffer();
+    if (file.file.truncated) {
+      return reply.status(400).send({
+        error: {
+          code: NELLE_ERROR_CODES.unsupportedAttachment,
+          message: `${file.filename} is larger than ${Math.round(ATTACHMENT_LIMITS.maxFileBytes / (1024 * 1024))} MiB.`,
+        },
+      });
+    }
+
+    const conversationId = fieldValue(file.fields.conversationId);
+    let ingested;
+    try {
+      ingested = await ingestUpload({name: file.filename, mimeType: file.mimetype, bytes});
+    } catch (error) {
+      return reply.status(400).send({error: unsupportedAttachmentError(error)});
+    }
+
+    // An image is refused when it is chosen, not when the message is sent. `null`
+    // means llama.cpp has never reported props, so the model is unproven rather
+    // than proven text-only; the client keeps its own conservative UI gate.
+    const state = await store.getState();
+    if (
+      ingested.kind === 'image' &&
+      state.activeModelId &&
+      modelCache.getVisionSupport(state.activeModelId) === false
+    ) {
+      return reply.status(400).send({
+        error: {
+          code: NELLE_ERROR_CODES.unsupportedAttachment,
+          message:
+            'The selected model cannot read images. Choose a vision model, or attach a text or PDF file.',
+        },
+      });
+    }
+
+    const upload = await uploads.create({
+      conversationId,
+      kind: ingested.kind,
+      name: ingested.name,
+      mimeType: ingested.mimeType,
+      bytes: ingested.bytes,
+      textContent: ingested.textContent,
+    });
+    return reply.status(201).send({
+      uploadId: upload.id,
+      kind: upload.kind,
+      name: upload.name,
+      mimeType: upload.mimeType,
+      sizeBytes: upload.sizeBytes,
+      textPreview: ingested.textContent?.slice(0, 500),
+      pageCount: ingested.pageCount,
+      warnings: ingested.warnings,
+    });
+  });
+
+  app.get('/api/uploads/:uploadId', async (request, reply) => {
+    const {uploadId} = request.params as {uploadId: string};
+    const upload = uploads.get(uploadId);
+    if (!upload) {
+      return reply.status(404).send({
+        error: {code: NELLE_ERROR_CODES.notFound, message: 'Upload not found.'},
+      });
+    }
+    return {
+      uploadId: upload.id,
+      kind: upload.kind,
+      name: upload.name,
+      mimeType: upload.mimeType,
+      sizeBytes: upload.sizeBytes,
+      text: upload.textContent,
+      createdAt: upload.createdAt,
+      bound: Boolean(upload.boundAt),
+    };
+  });
+
+  app.delete('/api/uploads/:uploadId', async (request, reply) => {
+    const {uploadId} = request.params as {uploadId: string};
+    const deleted = await uploads.deleteUnbound(uploadId);
+    if (!deleted) {
+      return reply.status(404).send({
+        error: {
+          code: NELLE_ERROR_CODES.notFound,
+          message: 'No unsent upload with that id.',
+        },
+      });
+    }
+    return {ok: true};
+  });
+
   app.post('/api/conversations/:id/messages/:messageId/regenerate', async (request, reply) => {
     const {id, messageId} = request.params as {id: string; messageId: string};
     if (!conversations.getConversation(id)) {
@@ -1262,6 +1385,28 @@ function assertSupportedAttachments(
   );
   Object.assign(error, {code: NELLE_ERROR_CODES.unsupportedAttachment, retryable: false});
   throw error;
+}
+
+function formatMebibytes(bytes: number): string {
+  return `${Math.round(bytes / (1024 * 1024))} MiB`;
+}
+
+/** Multipart text fields arrive as objects, or arrays when repeated. */
+function fieldValue(field: unknown): string | undefined {
+  const first = Array.isArray(field) ? field[0] : field;
+  const value = (first as {value?: unknown} | undefined)?.value;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function unsupportedAttachmentError(error: unknown): NelleError {
+  return {
+    code: NELLE_ERROR_CODES.unsupportedAttachment,
+    message:
+      error instanceof UnsupportedAttachmentError || error instanceof Error
+        ? error.message
+        : 'The attachment could not be read.',
+    retryable: false,
+  };
 }
 
 async function writePresetAndReloadRouter(
