@@ -3046,6 +3046,83 @@ test('a settings field the server refuses is named, and the draft survives', asy
   await expect(page.getByRole('textbox', {name: 'Label'})).toHaveValue('still here');
 });
 
+/** Pastes `text` into the composer as a real clipboard event, files and all. */
+async function pasteText(page: Page, text: string): Promise<void> {
+  const input = page.getByLabel('Message input');
+  await expect(input).toHaveAttribute('contenteditable', 'true');
+  await input.click();
+  await input.evaluate((element, value) => {
+    const data = new DataTransfer();
+    data.setData('text/plain', value);
+    element.dispatchEvent(new ClipboardEvent('paste', {clipboardData: data, bubbles: true}));
+  }, text);
+}
+
+test('a long paste becomes a file; a short one stays in the message', async ({page}) => {
+  const model = {
+    id: 'model-a',
+    name: 'Model A',
+    presetName: 'model-a',
+    source: 'huggingface',
+    hfRef: 'repo/model:Q4',
+    params: {},
+    createdAt: '2026-07-08T12:00:00.000Z',
+  };
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {activeModelId: model.id, models: [model], chat: []},
+        runtime: {...RUNNING_RUNTIME, activeModelId: model.id},
+      },
+    });
+  });
+  await mockConversationRoutes(page, {chat: []});
+  // `/api/uploads` and `/api/settings/*` are the real e2e server's.
+  await page.goto('/');
+
+  // Under the threshold: the composer keeps it, and nothing is uploaded.
+  await pasteText(page, 'x'.repeat(2000));
+  await expect(page.getByLabel('Message input')).toContainText('x'.repeat(50));
+  await expect(page.getByRole('button', {name: /pasted-text/})).toHaveCount(0);
+
+  // Over it: the text becomes a `.txt` chip and never reaches the input.
+  await fillComposer(page, '');
+  await pasteText(page, 'y'.repeat(3000));
+  await expect(page.getByText('pasted-text-1.txt')).toBeVisible();
+  await expect(page.getByLabel('Message input')).not.toContainText('yyyy');
+});
+
+test('setting the paste threshold to zero keeps every paste in the message', async ({page}) => {
+  const model = {
+    id: 'model-a',
+    name: 'Model A',
+    presetName: 'model-a',
+    source: 'huggingface',
+    hfRef: 'repo/model:Q4',
+    params: {},
+    createdAt: '2026-07-08T12:00:00.000Z',
+  };
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {activeModelId: model.id, models: [model], chat: []},
+        runtime: {...RUNNING_RUNTIME, activeModelId: model.id},
+      },
+    });
+  });
+  // `0` disables it. The threshold is the server's, so this is what the client
+  // is told rather than a constant it carries.
+  await page.route('**/api/settings/attachments', async route => {
+    await route.fulfill({json: {pasteToFileCharacters: 0}});
+  });
+  await mockConversationRoutes(page, {chat: []});
+  await page.goto('/');
+
+  await pasteText(page, 'z'.repeat(100_000));
+  await expect(page.getByRole('button', {name: /pasted-text/})).toHaveCount(0);
+  await expect(page.getByLabel('Message input')).toContainText('z'.repeat(50));
+});
+
 test('a settings refresh in flight does not overwrite what the user is typing', async ({page}) => {
   const model = {
     id: 'model-a',

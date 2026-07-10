@@ -1,4 +1,4 @@
-import {type ChangeEvent, useMemo, useRef} from 'react';
+import {type ChangeEvent, useEffect, useMemo, useRef} from 'react';
 
 import {
   ChatComposer,
@@ -31,6 +31,11 @@ import type {
 } from '../../api';
 import {UNLIMITED_REASONING_BUDGET} from '../../api';
 import {useComposerStore} from '../../stores/composerStore';
+import {useSettingsStore} from '../../stores/settingsStore';
+import {
+  ATTACHMENTS_SETTINGS_SLUG,
+  PASTE_TO_FILE_CHARACTERS_KEY,
+} from '../../../../../packages/shared/src/settingsKeys.ts';
 import type {ComposerModelOptionDetail, DraftAttachment} from '../../types';
 import {
   attachmentTooltip,
@@ -146,6 +151,11 @@ export function ChatComposerPanel({
   const error = useComposerStore(state => state.error);
   const warning = useComposerStore(state => state.warning);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // The server's saved value, not the draft the user may be typing in Settings.
+  // `undefined` until the schema loads, and `0` disables the behaviour.
+  const pasteToFileThreshold = useSettingsStore(
+    state => state.settingsValues[ATTACHMENTS_SETTINGS_SLUG]?.[PASTE_TO_FILE_CHARACTERS_KEY],
+  ) as number | undefined;
 
   const activeModelSupportsVision = activeModelProps?.modalities.vision === true;
 
@@ -192,6 +202,13 @@ export function ChatComposerPanel({
       ? ({type: 'warning', message: warningMessage} as const)
       : undefined;
 
+  // The paste listener is registered once per threshold change, so it reaches
+  // `handleFiles` through a ref rather than re-binding on every render.
+  const handleFilesRef = useRef(handleFiles);
+  useEffect(() => {
+    handleFilesRef.current = handleFiles;
+  });
+
   async function handleFiles(files: File[]) {
     const store = useComposerStore.getState();
     store.setError(null);
@@ -222,6 +239,49 @@ export function ChatComposerPanel({
       void handleFiles(files);
     }
   }
+
+  /**
+   * A forty-thousand-character paste belongs in a file, not in the input.
+   *
+   * The client keeps this event because only it has one; the threshold and the
+   * ingestion are the server's. Until `GET /api/settings/attachments` answers,
+   * `pasteToFileThreshold` is `undefined` and every paste stays in the message --
+   * a client that guessed a threshold would be carrying a copy of the setting,
+   * and `0` disables the behaviour outright.
+   *
+   * Astryx's `ChatComposer` takes no DOM handlers, so the listener is attached in
+   * the capture phase and scoped to the composer's own subtree: it has to run
+   * before the `contenteditable` accepts the text, and there is nothing to hang a
+   * React `onPaste` on.
+   */
+  useEffect(() => {
+    if (!pasteToFileThreshold) {
+      return;
+    }
+    const onPaste = (event: globalThis.ClipboardEvent) => {
+      const target = event.target as Element | null;
+      if (!target?.closest?.('.nelle-chat-composer') || !event.clipboardData) {
+        return;
+      }
+      // Files on the clipboard are a different gesture; the picker path has them.
+      if (event.clipboardData.files.length > 0) {
+        return;
+      }
+      const text = event.clipboardData.getData('text/plain');
+      if (text.length <= pasteToFileThreshold) {
+        return;
+      }
+      // Both, and in the capture phase: `preventDefault` stops the browser's own
+      // insertion, and `stopPropagation` stops Astryx's own paste handler, which
+      // inserts the text itself and never asks whether the default was prevented.
+      event.preventDefault();
+      event.stopPropagation();
+      const name = `pasted-text-${useComposerStore.getState().attachments.length + 1}.txt`;
+      void handleFilesRef.current([new File([text], name, {type: 'text/plain'})]);
+    };
+    document.addEventListener('paste', onPaste, true);
+    return () => document.removeEventListener('paste', onPaste, true);
+  }, [pasteToFileThreshold]);
 
   function handleDraftChange(value: string) {
     const store = useComposerStore.getState();

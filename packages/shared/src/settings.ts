@@ -18,6 +18,13 @@
 import {z} from 'zod';
 
 import {DEFAULT_TITLE_MAX_WORDS, DEFAULT_TITLE_PROMPT, TITLE_MAX_CHARACTERS} from './titles.ts';
+import {
+  ATTACHMENTS_SETTINGS_SLUG,
+  PASTE_TO_FILE_CHARACTERS_KEY,
+  TITLES_SETTINGS_SLUG,
+} from './settingsKeys.ts';
+
+export {ATTACHMENTS_SETTINGS_SLUG, TITLES_SETTINGS_SLUG};
 
 export type SettingsFieldType = 'text' | 'textarea' | 'number' | 'boolean' | 'select';
 
@@ -63,9 +70,31 @@ export type SettingsGroup = {
 export type SettingsValue = string | number | boolean;
 export type SettingsValues = Record<string, SettingsValue>;
 
-export const TITLES_SETTINGS_SLUG = 'titles';
+/**
+ * Above this many characters, a paste becomes a `.txt` attachment instead of
+ * forty thousand characters in the input. `0` disables it.
+ */
+export const DEFAULT_PASTE_TO_FILE_CHARACTERS = 2500;
 
 export const SETTINGS_REGISTRY: readonly SettingsGroup[] = [
+  {
+    slug: ATTACHMENTS_SETTINGS_SLUG,
+    title: 'Attachments',
+    description: 'What happens to the things you paste and attach.',
+    fields: [
+      {
+        key: PASTE_TO_FILE_CHARACTERS_KEY,
+        label: 'Paste to file above',
+        help: 'A paste longer than this many characters is attached as a text file. 0 keeps every paste in the message.',
+        type: 'number',
+        default: DEFAULT_PASTE_TO_FILE_CHARACTERS,
+        min: 0,
+        max: 100_000,
+        step: 500,
+        integer: true,
+      },
+    ],
+  },
   {
     slug: TITLES_SETTINGS_SLUG,
     title: 'Conversation titles',

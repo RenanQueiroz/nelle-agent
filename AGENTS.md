@@ -639,6 +639,21 @@ Project-specific guidance for AI coding agents.
   state lives in `settingsStore`, seeded once and reset only by the save that
   made it stale; a refused save keeps the draft and shows the server's own
   sentence, because that sentence names the field.
+- A paste longer than `attachments.pasteToFileCharacters` (default 2,500; `0`
+  disables) becomes a `.txt` upload instead of forty thousand characters in the
+  input. The client owns the event because only it has one; the threshold and the
+  ingestion are the server's, and until `GET /api/settings/attachments` answers,
+  the client has no threshold and every paste stays in the message -- it must not
+  carry a copy of the default. Astryx's `ChatComposer` exposes no DOM handlers, so
+  the listener is a capture-phase `document` listener scoped to
+  `.nelle-chat-composer`, and it calls **both** `preventDefault` (the browser's
+  own insertion) and `stopPropagation` (Astryx's paste handler, which inserts the
+  text itself and never checks `defaultPrevented`).
+- Settings a client *acts* on come from `settingsValues` in `settingsStore`, never
+  from `settingsDrafts`: a half-typed threshold is not in force until it is saved.
+- `packages/shared/src/settingsKeys.ts` holds the group slugs and the field keys
+  clients branch on. It is zod-free so the web bundle can import it; `settings.ts`
+  imports it too, so the names exist once. It holds names, never defaults.
 - Conversation titles are a setting (`GET`/`PATCH /api/settings/titles`), and the
   pure helpers live in `packages/shared/src/titles.ts`.
   `streamConversationTitleIfNeeded` is the only path that runs; it fires once per

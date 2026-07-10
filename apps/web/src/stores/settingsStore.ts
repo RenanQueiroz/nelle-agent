@@ -57,6 +57,12 @@ type SettingsStore = {
   settingsSchema: SettingsGroupSchema[];
   /** What the user is typing, per group slug. Empty until the values arrive. */
   settingsDrafts: Record<string, SettingsValues>;
+  /**
+   * What the server last said is saved, per group slug. A setting the app *acts*
+   * on reads this, never the draft: a half-typed threshold is not in force until
+   * it is saved.
+   */
+  settingsValues: Record<string, SettingsValues>;
   settingsError: string | null;
   seedSettings: (schema: SettingsGroupSchema[], values: Record<string, SettingsValues>) => void;
   setSettingsField: (slug: string, key: string, value: SettingsValue) => void;
@@ -164,8 +170,10 @@ export const useSettingsStore = create<SettingsStore>(set => ({
 
   settingsSchema: [],
   settingsDrafts: {},
+  settingsValues: {},
   settingsError: null,
-  seedSettings: (schema, values) => set({settingsSchema: schema, settingsDrafts: values}),
+  seedSettings: (schema, values) =>
+    set({settingsSchema: schema, settingsDrafts: values, settingsValues: values}),
   setSettingsField: (slug, key, value) =>
     set(state => ({
       settingsDrafts: {
@@ -179,6 +187,7 @@ export const useSettingsStore = create<SettingsStore>(set => ({
   resetSettingsDraft: (slug, values) =>
     set(state => ({
       settingsDrafts: {...state.settingsDrafts, [slug]: values},
+      settingsValues: {...state.settingsValues, [slug]: values},
       settingsError: null,
     })),
 
