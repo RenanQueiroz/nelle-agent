@@ -100,11 +100,18 @@ export function performanceFromLlamaTimings(timings: unknown): ChatPerformance |
     predicted_ms?: unknown;
     predicted_per_second?: unknown;
   };
+  // `prompt_n` is what llama.cpp had to process; `cache_n` is the prefix it
+  // reused. The context holds both, and `prompt.totalTokens` is what context
+  // usage reads, so a cached prefix must not vanish from it.
+  const promptProcessed = numberOrNull(data.prompt_n);
+  const promptCached = numberOrNull(data.cache_n);
   const prompt = metricFromTimingFields({
     tokens: data.prompt_n,
     milliseconds: data.prompt_ms,
     tokensPerSecond: data.prompt_per_second,
     cacheTokens: data.cache_n,
+    totalTokens:
+      promptProcessed == null ? undefined : promptProcessed + Math.max(0, promptCached ?? 0),
   });
   const generation = metricFromTimingFields({
     tokens: data.predicted_n,
