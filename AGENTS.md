@@ -57,6 +57,20 @@ Project-specific guidance for AI coding agents.
   `--ctx-size` default is `0`, meaning the model's trained window, and Nelle caps
   gemma-4-26B at 6% of its 262,144 tokens. Until that lands the default stays,
   because with it gone nothing tells Pi the real window.
+- Nelle does not police how a model is loaded. `c`, `ctk`, `ctv`, `ngl`, `cmoe`,
+  `ncmoe` and `ot` are the user's levers, and a MoE model with its experts on the
+  CPU has a memory profile no estimate of ours would get right. Write what the
+  user asked for, let llama.cpp load it or fail, and surface the failure: the
+  router reports `status.exit_code`, and the child's stderr is already in
+  `.nelle/logs/llama-server.log` behind its pid.
+- GGUF metadata has three sources, and the cheapest that answers wins.
+  `GET https://huggingface.co/api/models/{repo}` already returns a `gguf` field
+  with `architecture`, `context_length` and the parameter count, and Nelle
+  discards it; the list endpoint returns the same inline with `expand[]=gguf`.
+  `@huggingface/gguf` parses a header from a local path or over HTTP range
+  requests -- 9 requests and 17.6 MiB for a 14.2 GB file -- which is a detail
+  view, never a search result. `gguf.totalFileSize` is the size of the one file
+  Hugging Face parsed, not a repo total and not a per-quant size.
 - The context window a conversation gets is llama.cpp's to report, not Nelle's to
   assume. `/props` `default_generation_settings.n_ctx` is the per-conversation
   window -- with `kv_unified = true` each of the four slots sees the whole thing --

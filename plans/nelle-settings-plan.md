@@ -179,28 +179,35 @@ refuse a message that fits ten times over.
 per-model cap needs no new storage — it is a key in the section Nelle already
 writes.
 
-**The memory is the reason to allow a cap, and it is model-specific.** The KV
-cache is what a bigger window costs, and how much depends on the architecture.
-Read out of the GGUF headers of the two models configured here, and computed at
-f16:
+**A bigger window costs KV cache, and how much is nobody's business but
+llama.cpp's.** Read out of the GGUF headers of the two models configured here,
+computed at f16 with no offload:
 
-| Model           | weights  | KV @ 16,384 | KV @ 262,144 | total @ full |
-| --------------- | -------- | ----------- | ------------ | ------------ |
-| gemma-4-26B-A4B | 14.2 GiB | 0.51 GiB    | 5.20 GiB     | 19.4 GiB     |
-| Qwen3.6-35B-A3B | 22.9 GiB | 1.28 GiB    | 20.50 GiB    | 43.4 GiB     |
+| Model           | weights  | KV @ 16,384 | KV @ 262,144 |
+| --------------- | -------- | ----------- | ------------ |
+| gemma-4-26B-A4B | 14.2 GiB | 0.51 GiB    | 5.20 GiB     |
+| Qwen3.6-35B-A3B | 22.9 GiB | 1.28 GiB    | 20.50 GiB    |
 
 gemma4 uses sliding-window attention — 25 of its 30 layers are capped at a
 1024-token window, and only 5 global layers scale with the context — so its full
-window costs ten times its current KV but only 5 GiB in absolute terms. Qwen's 41
-layers all use full attention, so its KV scales cleanly by sixteen, to 20.5 GiB.
+window costs 5 GiB. Qwen's 41 layers all use full attention, so its KV scales
+cleanly by sixteen.
 
-On the machine this was measured on (31 GiB of RAM, ~23 GiB free, CPU inference),
-**gemma fits at its full window and Qwen does not**. That is the whole argument
-for the setting: the answer is different per model, per machine, and per quant,
-and no default Nelle picks can be right for all three. `-ctk`/`-ctv`
-(`--cache-type-k`, `--cache-type-v`) halve or quarter the KV and are `models.ini`
-keys like any other, so the cap is not the only lever — but it is the obvious
-one, and the failure has to point at it.
+Those numbers are why the _setting_ exists. They are not a number Nelle can
+compute for a user, because the user has levers Nelle does not model, and every
+one of them is an ordinary `models.ini` key:
+
+| Key                                           | What it moves                                |
+| --------------------------------------------- | -------------------------------------------- |
+| `ctk`, `ctv` (`--cache-type-k/v`)             | quantise the KV cache; halves or quarters it |
+| `ngl` (`--n-gpu-layers`)                      | how much of the model lives in VRAM          |
+| `cmoe` (`--cpu-moe`), `ncmoe` (`--n-cpu-moe`) | keep MoE expert weights on the CPU           |
+| `ot` (`--override-tensor`)                    | per-tensor placement, arbitrarily            |
+
+A MoE model with its experts on the CPU and its attention on the GPU has a memory
+profile Nelle cannot predict and should not try to. **Nelle does not police how a
+model is loaded.** It writes what the user asked for, llama.cpp either loads it or
+does not, and the failure is surfaced.
 
 ## Image Resolution Is Not A Token Lever
 
@@ -543,11 +550,14 @@ created before the first load keeps clamping against a number nobody believes.
 
 `model_cache` gains `context_train`, read from the router's `raw.meta.n_ctx_train`
 on `GET /api/llama/models`, which Nelle already receives and discards. Settings →
-Models can then say **"Full window: 262,144 · running at 16,384"**, and a cap can
-be validated against it instead of accepted blindly.
+Models can then say **"Full window: 262,144 · running at 16,384"**.
 
-`n_ctx_train` is only known after a model has been loaded once. Before that the
-UI says "the model's full window" and means it.
+The router only reports `n_ctx_train` for a model it has loaded. Hugging Face
+reports the same number, as `gguf.context_length`, on a request Nelle already
+sends and a field it already throws away — see Phase 8. So the full window is
+known before the first load, from Hugging Face, and confirmed after it, from the
+router. Neither is a guess, and a cap can be shown against the real ceiling
+rather than against nothing.
 
 ### The params editor cannot clear a param today
 
@@ -575,18 +585,22 @@ edited out by hand when the phase lands — not before, because until
 `DEFAULT_STATE.globalModelParams` changes, `writePreset` puts it straight back.
 No code path exists to patch an old install, because there are none.
 
-On this machine that hand-edit is not a no-op: gemma will come up at its full
-262,144-token window, and Qwen will fail to load until it is given a `c` in its
-own section. That is the intended behaviour, and it is the reason the load failure
-must name the cap.
+On this machine that hand-edit is not a no-op: gemma comes up at its full
+262,144-token window, and Qwen does not come up at all until it is given a `c`, a
+KV cache type, or an offload flag. That is the intended behaviour. It is also the
+reason the load failure has to be legible.
 
 ### Two things to verify before building
 
-- **What llama.cpp says when the KV cache will not fit.** The model fails to
-  load; Nelle already reports `model_load_failed`. Whether the message names
-  memory, and whether the failure is distinguishable from any other load failure,
-  is unverified. If it is, the error should suggest capping `c`; if it is not,
-  the error should say so rather than guess.
+- **Surface the load failure instead of interpreting it.** Today
+  `ensureModelRunnable` throws `${modelId} failed to load. Check the llama.cpp
+logs.` (`llamacpp.ts:329`), which tells the user nothing and does not even open
+  the logs. The router's `/models` answer carries `status.exit_code` and
+  `status.failed`, and the child process's own stderr — the line that actually
+  says what went wrong — is already captured in `.nelle/logs/llama-server.log`,
+  prefixed with the child's pid. `model_load_failed` should carry the exit code,
+  and the runtime log should be one click away. Nelle does not guess at the
+  reason; llama.cpp already wrote it down.
 - **`contextSizeFromParams` reads only `c` and `ctx-size`.** After Phase 3 a user
   can legitimately write `LLAMA_ARG_CTX_SIZE`, which llama.cpp accepts and Nelle
   would ignore. The catalogue from Phase 3 supplies the alias set; use it, which
@@ -654,6 +668,108 @@ smaller of the two.
 not re-encoded (re-encoding a JPEG at quality 90 twice is a real quality loss for
 no gain).
 
+## Phase 8: Model Metadata From The Cheapest Source That Has It
+
+Nelle shows a model's name and its download count. It knows nothing about the
+model. The Models tab cannot say what context window it was trained for, how many
+parameters it has, or what quantisation the file is, and the browse dialog shows
+`size: null` for every file.
+
+Three sources, cheapest first. The rule is to stop at the first one that answers
+the question.
+
+### 1. Hugging Face already parses GGUF, and Nelle throws it away
+
+`GET https://huggingface.co/api/models/{repo}` — the call `getModelInfo` already
+makes — returns a `gguf` field:
+
+```jsonc
+"gguf": {
+  "total": 25233142046,          // parameters
+  "architecture": "gemma4",
+  "context_length": 262144,      // the model's trained window
+  "chat_template": "…16,934 chars…",
+  "bos_token": "<bos>", "eos_token": "<eos>",
+  "totalFileSize": 14249045120
+}
+```
+
+`context_length` is the number Phase 4 says is unknown until a model has been
+loaded once. It is not: Hugging Face has it, for free, on a request Nelle already
+sends and a field it already discards.
+
+`totalFileSize` is **not** a repo total and **not** a per-quant size — for
+`unsloth/gemma-4-26B-A4B-it-qat-GGUF` it is 14,249,045,120, exactly the one
+`UD-Q4_K_XL` file Hugging Face chose to parse. Do not display it as either.
+
+### 2. The search endpoint can return it inline
+
+`GET /api/models?search=…&filter=gguf&expand[]=gguf&expand[]=siblings&expand[]=downloads&expand[]=likes&expand[]=tags`
+returns the `gguf` block and the file list for every hit in **one** request.
+`searchGgufModels` currently makes one search request and then eight detail
+requests, and still ends up with less.
+
+Per-file sizes need `?blobs=true` on the detail endpoint (or `/tree/main`).
+Nelle passes neither, which is why `HuggingFaceFile.size` is `null` for every
+file today — an existing gap nobody has noticed because nothing renders it.
+
+### 3. `@huggingface/gguf`, for one model at a time
+
+`gguf(uri, {allowLocalFile})` parses a GGUF header from a local path or a remote
+URL over HTTP range requests. Measured against the real 14.2 GB gemma file:
+
+| Source                                       | Requests | Transferred | Time  |
+| -------------------------------------------- | -------- | ----------- | ----- |
+| remote (`huggingface.co/.../resolve/main/…`) | 9        | 17.6 MiB    | 3.8 s |
+| local (HF cache)                             | —        | —           | 1.5 s |
+
+It returns 53 metadata keys and 658 tensor descriptors: `parameterCount`,
+`block_count`, per-layer `attention.head_count_kv`, `key_length`,
+`sliding_window`, `general.file_type`, plus quant helpers
+(`parseGGUFQuantLabel`, `GGUF_QUANT_DESCRIPTIONS`, `parseGgufShardFilename`).
+Everything the hand-rolled parser used for this plan's KV table, and shard
+handling besides.
+
+17.6 MiB is not a search result. Eight repos with nine quants each would be a
+gigabyte and five minutes. **It is a detail view, fetched once and cached.**
+
+Nelle knows where the file is only after a model has loaded: `/props` returns
+`raw.model_path`, which `model_cache` should keep alongside the context window it
+already stores. Before the first load there is no local file, and source 1 has
+already answered the headline question.
+
+### What gets shown
+
+- **Browse**: architecture, parameter count, trained context window, and a real
+  size per quant.
+- **Settings → Models**: the same, plus the quant label, and — once the model has
+  loaded — llama.cpp's effective window beside the trained one:
+  **"Full window: 262,144 · running at 16,384"**. That is the sentence Phase 4
+  needs, and it is the sentence that makes a `c` cap comprehensible.
+
+### What does not get shown
+
+**A memory estimate.** The KV numbers in this plan were computed by hand at f16
+with no offload, and `ctk`, `ctv`, `ngl`, `cmoe`, `ncmoe` and `ot` each move them.
+Nelle would be modelling llama.cpp's allocator, in a second language, and would be
+confidently wrong for exactly the users who tune those flags. Show the facts from
+the header; let llama.cpp answer the memory question by loading or failing.
+
+### Notes
+
+- `@huggingface/gguf` pulls `@huggingface/tasks`; together 5.8 MB installed. It is
+  **server-only** and must never reach the web bundle. `tests/unit/webBundle.test.ts`
+  already guards `pdfjs-dist`; teach it this name too.
+- Cache parsed metadata in SQLite keyed by the repo and filename, and for local
+  files by path and mtime. A GGUF header does not change.
+
+**Tests.** A hand-built minimal GGUF fixture (the PDF fixtures set the precedent)
+parses to the expected architecture and context length; the HF client asserts the
+`expand[]` query shape and that `blobs=true` is requested when sizes are wanted;
+`size` is non-null for every file in a search result; a repo with no `gguf` field
+degrades to name and downloads rather than throwing; and `webBundle.test.ts` fails
+if `@huggingface/gguf` is imported from `apps/web/src`.
+
 ## Sequencing
 
 1. **Phase 0** — the registry, the repository, the served schema. Everything else
@@ -672,7 +788,11 @@ no gain).
 5. **Phase 6 (paste to file)** — cheapest user-visible win.
 6. **Phase 2 (custom instructions)** — the one people ask for.
 7. **Phase 5 (display preferences)** — mechanical.
-8. **Phase 7 (image cap)** — optional, and honest about being optional.
+8. **Phase 8 (model metadata)** — pairs with Phase 4: it is what lets the UI say
+   "full window 262,144, running at 16,384" before anyone has to guess. Sources 1
+   and 2 are nearly free and fix an existing gap (`size: null`); source 3 can
+   follow.
+9. **Phase 7 (image cap)** — optional, and honest about being optional.
 
 ## Risks
 
@@ -691,11 +811,10 @@ no gain).
   client that stored it. Treat `SETTINGS_KEYS` the way `NELLE_ERROR_CODES` is
   treated.
 - **Removing the context default is a resource change wearing a settings
-  change's clothes.** On the machine this was measured on, gemma-4-26B fits at
-  its full window (19.4 GiB) and Qwen3.6-35B does not (43.4 GiB against ~23 GiB
-  free). A model that loaded yesterday will not load today, and the fix — cap `c`
-  in that model's section — has to be discoverable from the failure rather than
-  from this document.
+  change's clothes.** A model that loaded yesterday may not load today. Nelle does
+  not police that: it surfaces llama.cpp's exit code and its log, and the user has
+  `c`, `ctk`, `ctv`, `ngl`, `cmoe`, `ncmoe` and `ot` to make it fit. What Nelle
+  owes them is a legible failure, not a guess about their hardware.
 - **`null` is a real value for the context window.** Every arithmetic site must
   say what it does with "unknown" rather than reaching for a constant. The one
   that matters is the image pre-flight: it must skip, not refuse, because
