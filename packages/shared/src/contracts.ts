@@ -91,6 +91,8 @@ export const NELLE_WARNING_CODES = {
   reasoningWithoutAnswer: 'reasoning_without_answer',
   /** llama.cpp's slot was still generating after the post-abort grace window. */
   llamaSlotStillProcessing: 'llama_slot_still_processing',
+  /** Attachment limits dropped PDF pages the user asked to render. */
+  attachmentsTruncated: 'attachments_truncated',
 } as const;
 
 export const chatAttachmentKindSchema = z.enum(['text', 'pdf', 'image']);
@@ -108,55 +110,35 @@ export const chatAttachmentInputSchema = z.object({
 export type ChatAttachmentKind = z.infer<typeof chatAttachmentKindSchema>;
 export type ChatAttachmentInput = z.infer<typeof chatAttachmentInputSchema>;
 
+/**
+ * What a chat request carries. The bytes went to `POST /api/uploads` first, so a
+ * client references them rather than embedding them.
+ */
+export const chatAttachmentReferenceSchema = z
+  .object({
+    uploadId: z.string().min(1).max(120),
+    /** Send a PDF as page images instead of its extracted text. */
+    renderPdfAsImages: z.boolean().optional(),
+  })
+  // A client still embedding `text` or `data` is talking to an older server and
+  // must be told so, rather than having its bytes silently stripped.
+  .strict();
+
+export type ChatAttachmentReference = z.infer<typeof chatAttachmentReferenceSchema>;
+
 export const chatRequestSchema = z
   .object({
     message: z.string().min(1),
     attachments: z
-      .array(chatAttachmentInputSchema)
+      .array(chatAttachmentReferenceSchema)
       .max(ATTACHMENT_LIMITS.maxFiles, {message: ATTACHMENT_LIMIT_MESSAGES.tooManyFiles})
       .optional(),
   })
-  .superRefine((value, context) => {
-    const totalSize = (value.attachments ?? []).reduce(
-      (sum, attachment) => sum + (attachment.sizeBytes ?? 0),
-      0,
-    );
-    if (totalSize > ATTACHMENT_LIMITS.maxDraftBytes) {
-      context.addIssue({
-        code: 'custom',
-        message: ATTACHMENT_LIMIT_MESSAGES.draftTooLarge,
-        path: ['attachments'],
-      });
-    }
-
-    for (const [index, attachment] of (value.attachments ?? []).entries()) {
-      if (attachment.kind === 'image') {
-        if (!attachment.mimeType?.startsWith('image/')) {
-          context.addIssue({
-            code: 'custom',
-            message: 'Image attachments require an image MIME type.',
-            path: ['attachments', index, 'mimeType'],
-          });
-        }
-        if (!attachment.data) {
-          context.addIssue({
-            code: 'custom',
-            message: 'Image attachments require base64 image data.',
-            path: ['attachments', index, 'data'],
-          });
-        }
-        continue;
-      }
-
-      if (!attachment.text) {
-        context.addIssue({
-          code: 'custom',
-          message: 'Text and PDF attachments require extracted text.',
-          path: ['attachments', index, 'text'],
-        });
-      }
-    }
-  });
+  // The old shape carried `text` and `data`, and this is where their invariants
+  // were enforced. A reference has none: the bytes were validated at upload, and
+  // the per-message limits are enforced in `resolveChatAttachments`, after a PDF
+  // asked to render has become N page images.
+  .strict();
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 

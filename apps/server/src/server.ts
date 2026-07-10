@@ -23,7 +23,7 @@ import {exportConversationArchive, importConversationArchive} from './conversati
 import {HostToolRepository} from './hostTools';
 import {PreferencesRepository} from './preferences';
 import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './uploads';
-import {ingestUpload, UnsupportedAttachmentError} from './attachmentIngest';
+import {ingestUpload, resolveChatAttachments, UnsupportedAttachmentError} from './attachmentIngest';
 import {ATTACHMENT_LIMITS} from '../../../packages/shared/src/attachments.ts';
 import {ModelCacheRepository} from './modelCache';
 import {
@@ -40,6 +40,7 @@ import {
   preferencesSchema,
   serializeSseEnvelope,
   NELLE_ERROR_CODES,
+  NELLE_WARNING_CODES,
 } from '../../../packages/shared/src/contracts.ts';
 import {
   SLASH_COMMAND_REGISTRY,
@@ -711,6 +712,8 @@ export async function createServer(paths: AppPaths) {
       await store.clearChat();
     }
     const cleanup = await deleteConversationResources(paths, resources);
+    // Uploads the conversation owned, sent or not, go with it.
+    await uploads.deleteForConversation(id);
     return {ok: true, cleanup};
   });
 
@@ -943,8 +946,22 @@ export async function createServer(paths: AppPaths) {
           log: app.log,
         });
       }
+      // The client references uploads; the server turns them into what the
+      // harness reads. A PDF asked to render becomes N page images here, which is
+      // why the per-message limits are checked after the expansion, not before.
+      const resolved = await resolveChatAttachments(uploads, body.attachments ?? []);
+      for (const warning of resolved.warnings) {
+        writeChatEvent(
+          reply.raw,
+          {type: 'run.warning', code: NELLE_WARNING_CODES.attachmentsTruncated, message: warning},
+          id,
+        );
+      }
       // After the load, so `model_cache` can answer whether the model sees images.
-      assertSupportedAttachments(body.attachments ?? [], modelCache, await store.getState());
+      assertSupportedAttachments(resolved.attachments, modelCache, await store.getState());
+      for (const reference of body.attachments ?? []) {
+        uploads.markBound(reference.uploadId);
+      }
 
       const streamResult = await createChatStream({
         app,
@@ -952,7 +969,7 @@ export async function createServer(paths: AppPaths) {
         pi,
         conversationId: id,
         message: body.message,
-        attachments: body.attachments ?? [],
+        attachments: resolved.attachments,
       });
       await writeChatStream(reply.raw, streamResult.stream, id);
       if (streamResult.syncLegacyState) {

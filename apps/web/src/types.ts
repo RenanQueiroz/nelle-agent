@@ -1,13 +1,17 @@
-import type {
-  ChatAttachmentInput,
-  ChatStreamEvent,
-  ConfiguredModel,
-  LlamaModelProps,
-  LlamaRouterModel,
-} from './api';
+import type {ChatStreamEvent, ConfiguredModel, LlamaModelProps, LlamaRouterModel} from './api';
 
-export type DraftAttachment = ChatAttachmentInput & {
-  warning?: string;
+/**
+ * A file the user picked, already uploaded. The bytes live on the server; the
+ * draft holds only what the composer needs to draw a chip.
+ */
+export type DraftAttachment = {
+  uploadId: string;
+  kind: 'text' | 'pdf' | 'image';
+  name: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  /** PDFs only, so the drawer can say how many pages it would render. */
+  pageCount?: number;
 };
 
 export type ComposerModelOptionDetail = {

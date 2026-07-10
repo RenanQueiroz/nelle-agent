@@ -2197,12 +2197,7 @@ test('schema failures come back as invalid_request, not a raw 500', async () => 
       url: `/api/conversations/${LEGACY_DEFAULT_CONVERSATION_ID}/chat/stream`,
       payload: {
         message: 'read these',
-        attachments: Array.from({length: 21}, (_, index) => ({
-          id: `a${index}`,
-          kind: 'text',
-          name: `f${index}.txt`,
-          text: 'hi',
-        })),
+        attachments: Array.from({length: 21}, (_, index) => ({uploadId: `upload-${index}`})),
       },
     });
     assert.equal(tooMany.statusCode, 400);
@@ -2217,13 +2212,13 @@ test('schema failures come back as invalid_request, not a raw 500', async () => 
       url: `/api/conversations/${LEGACY_DEFAULT_CONVERSATION_ID}/chat/stream`,
       payload: {
         message: 'look',
-        attachments: [{id: 'a1', kind: 'image', name: 'a.png', data: 'AAA'}],
+        attachments: [{uploadId: ''}],
       },
     });
     assert.equal(badImage.statusCode, 400);
     const badImageBody = badImage.json<{error: {code: string; detail?: string}}>();
     assert.equal(badImageBody.error.code, 'invalid_request');
-    assert.equal(badImageBody.error.detail, 'attachments.0.mimeType');
+    assert.equal(badImageBody.error.detail, 'attachments.0.uploadId');
 
     // An ordinary JSON route gets the same treatment.
     const badPatch = await app.inject({
@@ -3228,25 +3223,38 @@ test('the chat route enforces the guards the composer enforces', async () => {
     assert.equal(refused.message, unsupportedSlashCommandMessage('/model gemma'));
     assert.equal((await streamError({message: '/compact'})).code, undefined);
 
-    // Image sent to a model llama.cpp has proven cannot see.
+    // The image was attached while the model's vision support was unknown, and
+    // the user then chose a model llama.cpp has proven cannot see it. The upload
+    // gate cannot catch that; the send gate must.
+    const uploaded = await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: {'content-type': 'multipart/form-data; boundary=guards'},
+      payload: Buffer.concat([
+        Buffer.from(
+          '--guards\r\nContent-Disposition: form-data; name="file"; filename="a.png"\r\n' +
+            'Content-Type: image/png\r\n\r\n',
+        ),
+        Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+        Buffer.from('\r\n--guards--\r\n'),
+      ]),
+    });
+    assert.equal(uploaded.statusCode, 201);
+    const {uploadId} = uploaded.json<{uploadId: string}>();
+
     new ModelCacheRepository(database).upsertModelProps(model.id, {
       modelId: model.id,
       modalities: {vision: false, audio: false, video: false},
+      canReason: null,
       raw: {},
     });
-    const rejected = await streamError({
-      message: 'look at this',
-      attachments: [
-        {
-          id: 'a1',
-          kind: 'image',
-          name: 'a.png',
-          mimeType: 'image/png',
-          data: 'data:image/png;base64,AAA',
-        },
-      ],
-    });
+    const rejected = await streamError({message: 'look at this', attachments: [{uploadId}]});
     assert.equal(rejected.code, 'unsupported_attachment');
+
+    // An upload that expired, or never existed, is named rather than ignored.
+    const missing = await streamError({message: 'look', attachments: [{uploadId: 'gone'}]});
+    assert.equal(missing.code, 'unsupported_attachment');
+    assert.match(missing.message ?? '', /no longer available/);
 
     runtimeIsUp = false;
     assert.equal((await streamError({message: 'hello'})).code, 'llama_server_stopped');

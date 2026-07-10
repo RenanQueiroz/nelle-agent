@@ -1,19 +1,38 @@
 /**
- * A minimal, valid, single-page PDF with one line of text.
+ * Minimal, valid PDFs with one line of text per page.
  *
- * Hand-built rather than committed as a fixture so the offsets stay correct when
- * the text changes, and so the tests read as data rather than as a binary blob.
+ * Hand-built rather than committed as fixtures so the byte offsets stay correct
+ * when the text changes, and so the tests read as data rather than binary blobs.
  */
 export function simplePdfBuffer(text: string): Buffer {
-  const escapedText = text.replace(/[()\\]/g, value => `\\${value}`);
-  const stream = `BT /F1 18 Tf 32 90 Td (${escapedText}) Tj ET`;
+  return multiPagePdfBuffer([text]);
+}
+
+export function multiPagePdfBuffer(pageTexts: string[]): Buffer {
+  const pageCount = pageTexts.length;
+  // Object ids: 1 catalog, 2 pages, 3 font, then per page a page object and a
+  // content stream.
+  const pageObjectId = (index: number) => 4 + index * 2;
+  const contentObjectId = (index: number) => 5 + index * 2;
+
+  const kids = pageTexts.map((_, index) => `${pageObjectId(index)} 0 R`).join(' ');
   const objects = [
     '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
-    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
-    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 360 180] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n',
-    `4 0 obj\n<< /Length ${Buffer.byteLength(stream, 'ascii')} >>\nstream\n${stream}\nendstream\nendobj\n`,
-    '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+    `2 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${pageCount} >>\nendobj\n`,
+    '3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
   ];
+
+  for (const [index, text] of pageTexts.entries()) {
+    const escapedText = text.replace(/[()\\]/g, value => `\\${value}`);
+    const stream = `BT /F1 18 Tf 32 90 Td (${escapedText}) Tj ET`;
+    objects.push(
+      `${pageObjectId(index)} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 360 180] ` +
+        `/Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjectId(index)} 0 R >>\nendobj\n`,
+      `${contentObjectId(index)} 0 obj\n<< /Length ${Buffer.byteLength(stream, 'ascii')} >>\n` +
+        `stream\n${stream}\nendstream\nendobj\n`,
+    );
+  }
+
   let pdf = '%PDF-1.4\n';
   const offsets: number[] = [];
   for (const object of objects) {

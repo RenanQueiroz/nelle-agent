@@ -1120,7 +1120,14 @@ export function App() {
       return;
     }
     const draftAttachments = composer.attachments;
-    const attachmentError = getDraftAttachmentError(draftAttachments, activeModelProps);
+    // PDF-as-images is a send-time choice now: the server renders the pages, so
+    // the composer no longer holds twenty PNGs it may never send.
+    const renderPdfAsImages =
+      composer.isPdfImageModeEnabled && activeModelProps?.modalities.vision === true;
+    const attachmentError = getDraftAttachmentError(
+      draftAttachments,
+      activeModelProps?.modalities.vision === true,
+    );
     if (attachmentError) {
       composer.setError(attachmentError);
       restoreComposerDraft(prompt);
@@ -1155,7 +1162,12 @@ export function App() {
           applyChatEvent(event, conversationId);
         },
         abortController.signal,
-        draftAttachments,
+        // References only. The bytes went to `POST /api/uploads`, and the server
+        // expands a PDF into page images if the composer asked it to.
+        draftAttachments.map(attachment => ({
+          uploadId: attachment.uploadId,
+          ...(attachment.kind === 'pdf' && renderPdfAsImages ? {renderPdfAsImages: true} : {}),
+        })),
       );
       if (conversationId === activeConversationIdRef.current) {
         useComposerStore.getState().setAttachments([]);
@@ -1910,6 +1922,7 @@ export function App() {
                     <ChatComposerPanel
                       activeModel={activeModel}
                       activeModelProps={activeModelProps}
+                      conversationId={activeConversationId}
                       activeModelId={activeModelId}
                       activeModelIsFavorite={activeModelIsFavorite}
                       activeComposerRouterStatus={activeComposerRouterStatus}

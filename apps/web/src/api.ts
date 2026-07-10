@@ -141,14 +141,21 @@ export type ChatMessage = {
   }>;
 };
 
-export type ChatAttachmentInput = {
-  id: string;
+/** What a chat request carries: a reference, not the bytes. */
+export type ChatAttachmentReference = {
+  uploadId: string;
+  renderPdfAsImages?: boolean;
+};
+
+export type UploadedAttachment = {
+  uploadId: string;
   kind: 'text' | 'pdf' | 'image';
   name: string;
   mimeType?: string;
-  sizeBytes?: number;
-  text?: string;
-  data?: string;
+  sizeBytes: number;
+  textPreview?: string;
+  pageCount?: number;
+  warnings: string[];
 };
 
 export type ChatPerformanceMetric = {
@@ -916,7 +923,7 @@ export async function streamConversationChat(
   message: string,
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
-  attachments: ChatAttachmentInput[] = [],
+  attachments: ChatAttachmentReference[] = [],
 ): Promise<void> {
   const response = await fetch(
     `/api/conversations/${encodeURIComponent(conversationId)}/chat/stream`,
@@ -1075,4 +1082,38 @@ export async function updatePreferences(input: {
     throw new Error(`Preferences update failed: ${response.status}`);
   }
   return (await response.json()) as {favoriteModelIds: string[]};
+}
+
+/** Sends the bytes. The server classifies, extracts, and refuses. */
+export async function uploadAttachment(
+  file: File,
+  conversationId?: string,
+): Promise<UploadedAttachment> {
+  const body = new FormData();
+  if (conversationId) {
+    body.append('conversationId', conversationId);
+  }
+  body.append('file', file, file.name);
+  const response = await fetch('/api/uploads', {method: 'POST', body});
+  if (!response.ok) {
+    throw new Error(await uploadErrorMessage(response, file.name));
+  }
+  return (await response.json()) as UploadedAttachment;
+}
+
+export async function deleteUpload(uploadId: string): Promise<void> {
+  await fetch(`/api/uploads/${encodeURIComponent(uploadId)}`, {method: 'DELETE'});
+}
+
+/** The server sends a `NelleError`; show its message, not the status code. */
+async function uploadErrorMessage(response: Response, fileName: string): Promise<string> {
+  try {
+    const body = (await response.json()) as {error?: {message?: string}};
+    if (body.error?.message) {
+      return body.error.message;
+    }
+  } catch {
+    // A response that is not JSON. Fall through to the generic message.
+  }
+  return `${fileName} could not be uploaded (${response.status}).`;
 }

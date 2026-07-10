@@ -97,6 +97,7 @@ const slashCommandTrigger: ChatComposerTrigger = {
 export function ChatComposerPanel({
   activeModel,
   activeModelProps,
+  conversationId,
   activeModelId,
   activeModelIsFavorite,
   activeComposerRouterStatus,
@@ -119,6 +120,8 @@ export function ChatComposerPanel({
 }: {
   activeModel: ConfiguredModel | null;
   activeModelProps: LlamaModelProps | null;
+  /** Binds an upload to the chat that will send it, so a delete takes it too. */
+  conversationId: string;
   activeModelId: string | null;
   activeModelIsFavorite: boolean;
   activeComposerRouterStatus: string | null;
@@ -156,7 +159,7 @@ export function ChatComposerPanel({
     if (error) {
       return error;
     }
-    const attachmentError = getDraftAttachmentError(attachments, activeModelProps);
+    const attachmentError = getDraftAttachmentError(attachments, activeModelSupportsVision);
     if (attachmentError) {
       return attachmentError;
     }
@@ -175,7 +178,7 @@ export function ChatComposerPanel({
     return getContextOverflowMessage(contextUsage);
   }, [
     activeModel,
-    activeModelProps,
+    activeModelSupportsVision,
     attachments,
     contextUsage,
     error,
@@ -200,7 +203,7 @@ export function ChatComposerPanel({
       const result = await prepareDraftAttachments(files, {
         existing: store.attachments,
         canAttachImages: activeModelSupportsVision,
-        renderPdfImages: store.isPdfImageModeEnabled && activeModelSupportsVision,
+        conversationId,
       });
       if (result.attachments.length > 0) {
         useComposerStore.getState().addAttachments(result.attachments);
@@ -447,7 +450,7 @@ function AttachmentDrawer({
         {attachments.length > 0 && (
           <HStack gap={1} vAlign="center" wrap="wrap">
             {attachments.map(attachment => (
-              <Tooltip key={attachment.id} content={attachmentTooltip(attachment)}>
+              <Tooltip key={attachment.uploadId} content={attachmentTooltip(attachment)}>
                 <Token
                   size="sm"
                   color={
@@ -464,7 +467,7 @@ function AttachmentDrawer({
                       size="sm"
                     />
                   }
-                  onRemove={() => removeAttachment(attachment.id)}
+                  onRemove={() => removeAttachment(attachment.uploadId)}
                 />
               </Tooltip>
             ))}

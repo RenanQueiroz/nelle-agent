@@ -54,6 +54,10 @@ Project-specific guidance for AI coding agents.
   reports `predicted_per_second: 1000000` for a single token generated in
   "0.00 ms", so its own rate fields must not be trusted, and a burst shorter
   than a millisecond has no measurable rate at all.
+  `prompt.totalTokens` is the whole prompt -- `prompt_n` plus the reused
+  `cache_n` prefix -- because context usage reads it. `prompt.tokens` stays the
+  processed count the Reading widget shows. Dropping the cache made a
+  9,715-token prompt read as 382 in the context bar.
 - The e2e harness sets `NELLE_LLAMA_PORT=18080`. The runtime status probe treats
   any healthy server on the configured port as a running llama.cpp, so leaving
   e2e on 8080 makes the suite adopt a developer's real llama-server.
@@ -422,11 +426,25 @@ Project-specific guidance for AI coding agents.
 - Composer attachments are text files, PDFs, and images only. Gate images and
   PDF-as-image mode on selected-model `modalities.vision`; do not expose
   audio/video attachments while Pi's structured input path is text plus image.
-- Current attachments are request-embedded: browser drafts stay client-only,
-  text/PDF files are extracted in the web app by default, PDF-as-image mode
-  renders pages to PNG data URLs, images are base64-normalized and stored
-  content-addressed under `.nelle/attachments/` after send, and metadata is
-  bound to the resulting Pi user entry in SQLite.
+- Attachments are uploaded, not embedded. The client posts bytes to
+  `POST /api/uploads`; the server classifies them, rejects a binary file posing
+  as text, extracts PDF text with `pdfjs-dist`, and answers with an `uploadId`.
+  A chat request carries `attachments: [{uploadId, renderPdfAsImages?}]` and
+  nothing else -- `chatAttachmentReferenceSchema` is `.strict()`, so an old
+  client embedding `text` or `data` is told so instead of having its bytes
+  stripped. `resolveChatAttachments` expands a PDF into page images through
+  `@napi-rs/canvas` at send time, which is why the per-message limits are checked
+  after the expansion. Sent payloads still land content-addressed under
+  `.nelle/attachments/`, with metadata bound to the Pi user entry.
+- `pdfjs-dist` must not enter the web bundle again: it needs a DOM canvas, which
+  React Native has not got. `tests/unit/webBundle.test.ts` fails if any file
+  under `apps/web/src` imports it, or if a `pdf-*` chunk reappears in
+  `dist/web/assets`.
+- Draft uploads live under `.nelle/uploads/<uploadId>/` and in the `uploads`
+  table, apart from the content-addressed `.nelle/attachments/` tree. An unbound
+  upload older than 24h is swept at startup and hourly; a bound one belongs to a
+  message and goes only with its conversation. Removing a chip in the composer
+  deletes its upload rather than waiting for the sweep.
 - Deleting a conversation has no confirmation dialog; it hides the row at once
   and holds the request for a 5s undo window (`utils/pendingDeletes.ts`). The
   window must be committed on `pagehide` with a `keepalive` fetch -- `sendBeacon`

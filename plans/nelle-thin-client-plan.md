@@ -167,93 +167,32 @@ answer. Leave it.
 
 ## Phase 1: Attachment Ingestion Moves To The Server
 
-The largest change, and the only genuinely architectural one.
+**Status: done.**
 
-### Today
+The client posts bytes to `POST /api/uploads` and keeps the `uploadId`. The
+server classifies the file, refuses a binary posing as text, extracts PDF text
+with `pdfjs-dist`, truncates at 200k characters, and refuses an image for a model
+llama.cpp has proven cannot see it -- when the image is chosen, not when the
+message is sent. `GET /api/uploads/:id` returns the metadata and text;
+`DELETE` drops an unsent draft, which is what removing a chip now does.
 
-The browser reads the file, extracts PDF text with `pdfjs-dist`, optionally
-renders pages to PNG data URLs through a canvas, base64-encodes images, enforces
-the limits, and posts the _results_ embedded in the chat request
-(`chatAttachmentInputSchema` carries `text` and `data`). The server never sees the
-original bytes.
+A chat request carries `attachments: [{uploadId, renderPdfAsImages?}]`.
+`resolveChatAttachments` expands a PDF into page images through `@napi-rs/canvas`
+at send time, so the per-message caps are enforced after the expansion: a
+three-page PDF with one slot left contributes one page and warns about the two it
+dropped. Sent payloads still land in the content-addressed `.nelle/attachments/`
+tree; drafts live in `.nelle/uploads/<uploadId>/` and the `uploads` table
+(migration 8), swept unbound after 24h at startup and hourly.
 
-### Target
+`pdfjs-dist` has left the web app: the bundle is 820 KB in two files, with no
+`pdf-*` chunk and no 2 MB worker, and `tests/unit/webBundle.test.ts` keeps it
+that way. The client keeps the file picker, drag/drop, paste, the drawer, the
+progress spinner, and its own conservative image gate.
 
-The client uploads bytes and references them by id.
-
-```http
-POST /api/uploads                      multipart/form-data
-  -> 201 {uploadId, kind, name, mimeType, sizeBytes,
-          textPreview?, pageCount?, warnings[]}
-
-GET  /api/uploads/:uploadId            metadata + extracted text (paged)
-DELETE /api/uploads/:uploadId          drop an unsent draft attachment
-```
-
-The chat request changes from embedded payloads to references:
-
-```ts
-attachments: Array<{uploadId: string; renderPdfAsImages?: boolean}>;
-```
-
-The server owns: classification (`isImageFile`/`isPdfFile`/`isTextFile`), NUL-byte
-binary rejection, MIME inference, PDF text extraction, PDF→PNG rendering,
-truncation at 200k characters, all five limits, and the vision gate. `pdfjs-dist`
-is already a root dependency, so text extraction needs nothing new. Rendering
-needs a Node canvas: prefer `@napi-rs/canvas` (prebuilt binaries, no system
-deps) over `node-canvas`; `pdftoppm` is a fallback if a native module proves
-painful to package.
-
-### Retention
-
-Uploads are draft state and must not leak. The router plan already anticipates
-this: _"any future server temp-upload API must add startup and periodic retention
-cleanup."_
-
-- Store under `.nelle/uploads/<uploadId>/`, distinct from the content-addressed
-  `.nelle/attachments/` tree that holds _sent_ payloads.
-- Row in a new `uploads` table: `id`, `conversation_id?`, `kind`, `name`,
-  `mime_type`, `size_bytes`, `storage_path`, `text_content?`, `created_at`,
-  `bound_at?`.
-- On send, the existing `createPendingAttachments` /`bindAttachmentsToEntry`
-  path (`conversations.ts:505, 641`) consumes the upload and moves its bytes into
-  the content-addressed store; the upload row is marked bound.
-- Sweep unbound uploads older than 24 h at startup and hourly. Extend the
-  existing `sweepOrphanAttachmentFiles` (`server.ts:1181`) rather than adding a
-  second sweeper.
-- `DELETE /api/conversations/:id` already removes unreferenced attachment files;
-  uploads bound to it go the same way.
-
-### Consolidate the vision gate
-
-By the time this phase lands, `assertImageAttachmentsSupported` should already be
-gone: Phase 0 removes its bypass of the facade, and Phase 3 deletes it once a
-server-side load guarantees the props are cached. What is left for this phase is
-to make the **upload endpoint** consult `modelCache.getVisionSupport()` too, so an
-image is rejected when it is chosen rather than when the message is sent.
-
-That leaves two gates, which is the right number: the upload endpoint refuses an
-image for a model llama.cpp has _proven_ cannot see it, and the client keeps its
-own conservative UI gate (it blocks images while props are unknown, because the
-user can simply load the model). `null` means unproven, not text-only, and the
-server never rejects on a guess.
-
-### What the client keeps
-
-The file picker, drag/drop, paste, the drawer, and the progress spinner. It
-posts bytes and renders what comes back. `pdfjs-dist` leaves the web app
-entirely.
-
-### Tests
-
-- Unit: classification, binary rejection, truncation, limits, and PDF text
-  extraction, all server-side, ported from `tests/unit/attachments.test.ts`.
-- Unit: a PDF renders to N page images; `renderPdfAsImages` on a model whose
-  `model_cache` vision is `false` is rejected with `unsupported_attachment`;
-  `null` passes.
-- Unit: an unbound upload older than the TTL is swept; a bound one is not.
-- E2e: attach a PDF, send, and see the pages; the web bundle no longer contains
-  a `pdf-*.js` chunk.
+Verified against the real server and model: a text file and a PDF attached
+through the browser, uploaded, referenced by id, extracted server-side, and
+answered correctly from both. A three-page PDF rendered to page images reaches
+the model as three PNGs.
 
 ## Phase 2: The Snapshot Returns Messages, Not Entries
 

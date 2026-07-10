@@ -1,4 +1,7 @@
-import {ATTACHMENT_LIMITS} from '../../../packages/shared/src/attachments.ts';
+import {
+  ATTACHMENT_LIMIT_MESSAGES,
+  ATTACHMENT_LIMITS,
+} from '../../../packages/shared/src/attachments.ts';
 import {
   ATTACHMENT_MESSAGES,
   classifyAttachment,
@@ -9,6 +12,12 @@ import {
   truncateAttachmentText,
   type AttachmentKind,
 } from '../../../packages/shared/src/attachmentRules.ts';
+import {NELLE_ERROR_CODES} from '../../../packages/shared/src/contracts.ts';
+import type {
+  ChatAttachmentInput,
+  ChatAttachmentReference,
+} from '../../../packages/shared/src/contracts.ts';
+import type {Upload} from './uploads';
 
 /**
  * Turning uploaded bytes into what a model can read: text extraction, PDF page
@@ -18,6 +27,12 @@ import {
  * `FileReader`. React Native has none of those, so the work moves here and the
  * client posts bytes.
  */
+
+/** What `resolveChatAttachments` needs from the upload store. */
+export type UploadReader = {
+  get(id: string): Upload | null;
+  readBytes(upload: Upload): Promise<Buffer>;
+};
 
 /** Rendered pages are capped on the long edge, as the browser capped them. */
 const MAX_RENDERED_EDGE_PX = 1600;
@@ -194,7 +209,93 @@ export async function renderPdfPages(
   }
 }
 
-export class UnsupportedAttachmentError extends Error {}
+/**
+ * Expands `{uploadId, renderPdfAsImages}` references into the attachment inputs
+ * the harness already understands.
+ *
+ * The per-message limits are enforced here, after PDF pages have been expanded,
+ * because a 20-page PDF rendered as images is 20 attachments.
+ */
+export async function resolveChatAttachments(
+  uploads: UploadReader,
+  references: ChatAttachmentReference[],
+): Promise<{attachments: ChatAttachmentInput[]; warnings: string[]}> {
+  const attachments: ChatAttachmentInput[] = [];
+  const warnings: string[] = [];
+  let totalBytes = 0;
+
+  for (const reference of references) {
+    const upload = uploads.get(reference.uploadId);
+    if (!upload) {
+      throw new UnsupportedAttachmentError(
+        `Attachment ${reference.uploadId} is no longer available. Attach the file again.`,
+      );
+    }
+
+    if (upload.kind === 'pdf' && reference.renderPdfAsImages) {
+      const remainingSlots = ATTACHMENT_LIMITS.maxFiles - attachments.length;
+      const rendered = await renderPdfPages(await uploads.readBytes(upload), {
+        name: upload.name,
+        maxPages: remainingSlots,
+      });
+      for (const [index, page] of rendered.pages.entries()) {
+        attachments.push({
+          id: `${upload.id}:page-${index + 1}`,
+          kind: 'image',
+          name: page.name,
+          mimeType: page.mimeType,
+          sizeBytes: page.sizeBytes,
+          data: page.data,
+        });
+      }
+      if (rendered.skippedPages > 0) {
+        warnings.push(
+          skippedPagesWarning(upload.name, rendered.pages.length, rendered.skippedPages),
+        );
+      }
+    } else if (upload.kind === 'image') {
+      const bytes = await uploads.readBytes(upload);
+      attachments.push({
+        id: upload.id,
+        kind: 'image',
+        name: upload.name,
+        mimeType: upload.mimeType,
+        sizeBytes: upload.sizeBytes,
+        data: bytes.toString('base64'),
+      });
+    } else {
+      attachments.push({
+        id: upload.id,
+        kind: upload.kind,
+        name: upload.name,
+        mimeType: upload.mimeType,
+        sizeBytes: upload.sizeBytes,
+        text: upload.textContent ?? '',
+      });
+    }
+
+    totalBytes = attachments.reduce((sum, attachment) => sum + (attachment.sizeBytes ?? 0), 0);
+    if (attachments.length > ATTACHMENT_LIMITS.maxFiles) {
+      throw new UnsupportedAttachmentError(ATTACHMENT_LIMIT_MESSAGES.tooManyFiles);
+    }
+    if (totalBytes > ATTACHMENT_LIMITS.maxDraftBytes) {
+      throw new UnsupportedAttachmentError(ATTACHMENT_LIMIT_MESSAGES.draftTooLarge);
+    }
+  }
+
+  return {attachments, warnings};
+}
+
+function skippedPagesWarning(name: string, rendered: number, skipped: number): string {
+  const pages = (count: number) => `${count.toLocaleString()} page${count === 1 ? '' : 's'}`;
+  return `${name} was rendered as ${pages(rendered)}; ${pages(skipped)} skipped by attachment limits.`;
+}
+
+export class UnsupportedAttachmentError extends Error {
+  /** Read by `createErrorEvent`, so a refusal keeps its code onto the stream. */
+  readonly code = NELLE_ERROR_CODES.unsupportedAttachment;
+  readonly retryable = false;
+}
 
 type PdfJsModule = typeof import('pdfjs-dist/legacy/build/pdf.mjs');
 let pdfJsPromise: Promise<PdfJsModule> | null = null;

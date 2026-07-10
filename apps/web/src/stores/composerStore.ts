@@ -1,6 +1,7 @@
 import {create} from 'zustand';
 
 import type {DraftAttachment} from '../types';
+import {deleteUpload} from '../api';
 
 /**
  * Composer-local state. Keeping the draft here (instead of in `App`) means a
@@ -36,8 +37,12 @@ export const useComposerStore = create<ComposerStore>(set => ({
   setAttachments: attachments => set({attachments}),
   addAttachments: attachments =>
     set(state => ({attachments: [...state.attachments, ...attachments]})),
-  removeAttachment: id =>
-    set(state => ({attachments: state.attachments.filter(item => item.id !== id)})),
+  removeAttachment: id => {
+    // The bytes are on the server. Taking the chip off the screen must take them
+    // with it, rather than waiting for the 24h sweep.
+    void deleteUpload(id).catch(() => undefined);
+    set(state => ({attachments: state.attachments.filter(item => item.uploadId !== id)}));
+  },
   setPdfImageModeEnabled: isEnabled => set({isPdfImageModeEnabled: isEnabled}),
   setSlashCommandError: message => set({slashCommandError: message}),
   setError: message => set({error: message}),

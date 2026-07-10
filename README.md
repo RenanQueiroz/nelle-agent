@@ -96,12 +96,16 @@ Implemented:
   send-blocking errors appear above the composer, while near-full context and
   other non-blocking chat warnings appear below it.
 - Composer attachments for text files, PDFs, and images:
-  - Text files and PDFs are extracted client-side and sent to Pi as text by
-    default.
-  - Images, and PDFs rendered as page images, are sent through Pi's structured
-    image input only when the selected llama.cpp model reports vision support.
-  - Sent image payloads are stored content-addressed under `.nelle/attachments/`;
-    attachment metadata is stored in SQLite and shown on user messages.
+  - The client posts the bytes to `POST /api/uploads` and sends the message with
+    `attachments: [{uploadId, renderPdfAsImages?}]`. The server classifies the
+    file, refuses a binary posing as text, and extracts PDF text.
+  - Images, and PDFs rendered server-side as page images, are sent through Pi's
+    structured image input only when the selected llama.cpp model reports vision
+    support.
+  - Draft uploads live under `.nelle/uploads/` and are swept 24h after the last
+    unsent one. Sent image payloads are stored content-addressed under
+    `.nelle/attachments/`; attachment metadata is stored in SQLite and shown on
+    user messages.
   - Audio/video attachments are not exposed yet.
 - Assistant message footers show the model alias snapshot, copy action, and
   regenerate controls. The footer model menu can load another configured router
@@ -124,8 +128,9 @@ Implemented:
   attachment files, and model snapshot metadata. Imports always create a new
   conversation.
 - Server startup sweeps orphan files under `.nelle/attachments/` that are no
-  longer referenced by SQLite attachment metadata, while direct hard delete
-  removes the conversation's Pi session file and unreferenced attachments.
+  longer referenced by SQLite attachment metadata, and unbound uploads older than
+  24 hours under `.nelle/uploads/`, hourly thereafter. Direct hard delete removes
+  the conversation's Pi session file, its uploads, and unreferenced attachments.
 - The composer stop action calls `/api/conversations/:id/abort`, aborts the
   active browser stream, and invokes Pi `AgentSession.abort()` for the cached
   conversation runtime when one is active. The internal llama.cpp proxy forwards

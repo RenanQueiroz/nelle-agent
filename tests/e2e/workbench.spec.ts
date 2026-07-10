@@ -515,7 +515,7 @@ test('the server loads an unloaded model and the client renders its progress', a
   await expect(composerModelButton).toContainText('Model A');
   await expect(page.getByText('unloaded', {exact: true}).last()).toBeVisible();
 
-  await page.getByLabel('Message input').fill('hello after eviction');
+  await fillComposer(page, 'hello after eviction');
   await page.getByLabel('Message input').press('Enter');
 
   // The prompt and a load placeholder appear while the server waits for weights.
@@ -773,7 +773,7 @@ test('locks model settings while a matching run is active', async ({page}) => {
   });
 
   await page.goto('/');
-  await page.getByLabel('Message input').fill('hold this model');
+  await fillComposer(page, 'hold this model');
   await page.getByLabel('Message input').press('Enter');
 
   await page.getByRole('button', {name: 'Settings'}).click();
@@ -876,7 +876,7 @@ test('clears model locks when a run is aborted', async ({page}) => {
   });
 
   await page.goto('/');
-  await page.getByLabel('Message input').fill('abort this run');
+  await fillComposer(page, 'abort this run');
   await page.getByLabel('Message input').press('Enter');
   await expect(page.getByText('Generation stopped.')).toBeVisible();
 
@@ -978,7 +978,7 @@ test('surfaces llama slot abort warnings from the composer stop action', async (
   });
 
   await page.goto('/');
-  await page.getByLabel('Message input').fill('stop this run');
+  await fillComposer(page, 'stop this run');
   await page.getByLabel('Message input').press('Enter');
   // The composer stays interactive during a run, so stop takes a real click.
   const stopButton = page.getByRole('button', {name: 'Stop'});
@@ -1118,7 +1118,7 @@ test('keeps per-conversation run state while another chat is active', async ({pa
   });
 
   await page.goto('/');
-  await page.getByLabel('Message input').fill('start primary run');
+  await fillComposer(page, 'start primary run');
   await page.getByLabel('Message input').press('Enter');
   await expect.poll(() => streamCalls).toContainEqual('legacy-default');
   await expect(
@@ -1132,7 +1132,7 @@ test('keeps per-conversation run state while another chat is active', async ({pa
 
   await page.getByRole('button', {name: 'Second chat', exact: true}).click();
   await expect(page.getByLabel('Message input')).toBeEnabled();
-  await page.getByLabel('Message input').fill('start second run');
+  await fillComposer(page, 'start second run');
   await page.getByLabel('Message input').press('Enter');
 
   await expect.poll(() => streamCalls).toEqual(['legacy-default', 'second-chat']);
@@ -1279,7 +1279,7 @@ test('renders llama.cpp prompt and generation throughput in chat message metadat
   });
 
   await page.goto('/');
-  await page.getByLabel('Message input').fill('hello');
+  await fillComposer(page, 'hello');
   await page.getByLabel('Message input').press('Enter');
 
   await expect(page.getByText('Hello from Nelle.')).toBeVisible();
@@ -1382,22 +1382,38 @@ test('attaches text files and blocks images for text-only models', async ({page}
     });
   });
   await mockConversationRoutes(page, {chat});
+  // `/api/uploads` is deliberately not mocked: the bytes go to the real e2e
+  // server, which classifies them and hands back an id.
+  let uploadCalls = 0;
+  let uploadDeletes = 0;
+  page.on('request', request => {
+    if (!request.url().includes('/api/uploads')) {
+      return;
+    }
+    if (request.method() === 'POST') {
+      uploadCalls += 1;
+    }
+    if (request.method() === 'DELETE') {
+      uploadDeletes += 1;
+    }
+  });
   await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
     streamCalls += 1;
     requestBody = route.request().postDataJSON() as {
       message?: string;
       attachments?: MockAttachmentRequest[];
     };
+    // The real server reads the upload and binds its metadata to the user turn.
     const userAttachments = (requestBody.attachments ?? []).map((attachment, index) => ({
       id: `attachment-${index}`,
       conversationId: 'legacy-default',
       piEntryId: 'user-1',
-      uploadId: attachment.id,
-      kind: attachment.kind,
-      name: attachment.name,
-      mimeType: attachment.mimeType,
-      sizeBytes: attachment.sizeBytes,
-      textPreview: attachment.text?.slice(0, 240),
+      uploadId: attachment.uploadId,
+      kind: 'text',
+      name: 'attachment-note.txt',
+      mimeType: 'text/plain',
+      sizeBytes: 64,
+      textPreview: 'Router mode should load models on demand.',
       createdAt: '2026-07-07T12:01:00.000Z',
     }));
     const userMessage = {
@@ -1443,19 +1459,24 @@ test('attaches text files and blocks images for text-only models', async ({page}
   await expect(page.getByTestId('attachment-drawer')).toContainText('attachment-note.txt');
 
   // Removing an attachment takes it out of the draft, not just off the screen:
-  // the drawer unmounts once the last one is gone.
+  // the drawer unmounts once the last one is gone, and the bytes leave the
+  // server rather than waiting for the retention sweep.
   await page.getByTestId('attachment-drawer').locator('.astryx-token button').first().click();
   await expect(page.getByTestId('attachment-drawer')).toHaveCount(0);
+  await expect.poll(() => uploadDeletes).toBe(1);
 
   await page.locator('input[aria-label="Attach files"]').setInputFiles(textFilePath);
   await expect(page.getByTestId('attachment-drawer')).toContainText('attachment-note.txt');
-  await page.getByLabel('Message input').fill('summarize this file');
+  await fillComposer(page, 'summarize this file');
   await page.getByLabel('Message input').press('Enter');
 
   await expect.poll(() => streamCalls).toBe(1);
-  expect(requestBody?.attachments?.[0]?.kind).toBe('text');
-  expect(requestBody?.attachments?.[0]?.name).toBe('attachment-note.txt');
-  expect(requestBody?.attachments?.[0]?.text).toContain('Router mode should load models');
+  // The bytes went to the real `POST /api/uploads`; the message carries only a
+  // reference, and none of the payload the browser used to extract itself.
+  expect(uploadCalls).toBe(2);
+  expect(requestBody?.attachments).toHaveLength(1);
+  expect(requestBody?.attachments?.[0]?.uploadId).toBeTruthy();
+  expect(Object.keys(requestBody?.attachments?.[0] ?? {})).toEqual(['uploadId']);
   await expect(page.getByText('I read the attachment.')).toBeVisible();
   await expect(page.getByText('attachment-note.txt')).toBeVisible();
 });
@@ -1542,15 +1563,16 @@ test('renders PDFs as image attachments for vision models', async ({page}) => {
       message?: string;
       attachments?: MockAttachmentRequest[];
     };
+    // The server renders the pages, so the bound metadata is one image per page.
     const userAttachments = (requestBody.attachments ?? []).map((attachment, index) => ({
       id: `attachment-${index}`,
       conversationId: 'legacy-default',
       piEntryId: 'user-1',
-      uploadId: attachment.id,
-      kind: attachment.kind,
-      name: attachment.name,
-      mimeType: attachment.mimeType,
-      sizeBytes: attachment.sizeBytes,
+      uploadId: attachment.uploadId,
+      kind: 'image',
+      name: 'vision-attachment page 1.png',
+      mimeType: 'image/png',
+      sizeBytes: 2048,
       createdAt: '2026-07-07T12:01:00.000Z',
     }));
     const userMessage = {
@@ -1592,18 +1614,18 @@ test('renders PDFs as image attachments for vision models', async ({page}) => {
   await page.getByLabel('Render PDFs as images').check();
   await page.locator('input[aria-label="Attach files"]').setInputFiles(pdfPath);
 
-  await expect(page.getByTestId('attachment-drawer')).toContainText('vision-attachment page 1.png');
-  await page.getByLabel('Message input').fill('describe this PDF');
+  // The PDF is one chip now: the server renders its pages at send time, so the
+  // composer no longer holds twenty PNGs the user may never send.
+  await expect(page.getByTestId('attachment-drawer')).toContainText('vision-attachment.pdf');
+  await fillComposer(page, 'describe this PDF');
   await page.getByLabel('Message input').press('Enter');
 
   await expect.poll(() => streamCalls).toBe(1);
   expect(requestBody?.attachments).toHaveLength(1);
-  expect(requestBody?.attachments?.[0]?.kind).toBe('image');
-  expect(requestBody?.attachments?.[0]?.name).toBe('vision-attachment page 1.png');
-  expect(requestBody?.attachments?.[0]?.mimeType).toBe('image/png');
-  expect(requestBody?.attachments?.[0]?.data).toContain('data:image/png;base64,');
-  expect(requestBody?.attachments?.[0]?.text).toBeUndefined();
+  expect(requestBody?.attachments?.[0]?.uploadId).toBeTruthy();
+  expect(requestBody?.attachments?.[0]?.renderPdfAsImages).toBe(true);
   await expect(page.getByText('I can see the rendered PDF page.')).toBeVisible();
+  await expect(page.getByText('vision-attachment page 1.png')).toBeVisible();
 });
 
 test('regenerates an assistant response from the footer model picker', async ({page}) => {
@@ -2004,7 +2026,7 @@ test('updates streamed tool calls and shows expandable input and output', async 
   });
 
   await page.goto('/');
-  await page.getByLabel('Message input').fill('run a command');
+  await fillComposer(page, 'run a command');
   await page.getByLabel('Message input').press('Enter');
 
   await expect(page.getByText('Done.')).toBeVisible();
@@ -2091,11 +2113,11 @@ test('routes compact slash command outside normal chat streaming', async ({page}
   });
 
   await page.goto('/');
-  await page.getByLabel('Message input').fill('/');
+  await fillComposer(page, '/');
   await expect(
     page.getByRole('option', {name: /compact Compact this conversation context/}),
   ).toBeVisible();
-  await page.getByLabel('Message input').fill('/compact keep file names');
+  await fillComposer(page, '/compact keep file names');
   await page.getByLabel('Message input').press('Enter');
 
   await expect.poll(() => compactCalls).toBe(1);
@@ -2246,7 +2268,7 @@ test('rejects unsupported slash commands before they reach chat streaming', asyn
   });
 
   await page.goto('/');
-  await page.getByLabel('Message input').fill('/model qwen');
+  await fillComposer(page, '/model qwen');
   await page.getByLabel('Message input').press('Enter');
 
   expect(streamCalls).toBe(0);
@@ -2317,7 +2339,7 @@ test('a command the server allowlists is sent, without a client release', async 
   });
 
   await page.goto('/');
-  await page.getByLabel('Message input').fill('/summarise the thread');
+  await fillComposer(page, '/summarise the thread');
   await page.getByLabel('Message input').press('Enter');
 
   await expect.poll(() => streamCalls).toBe(1);
@@ -3262,7 +3284,7 @@ test('keeps the composer opaque and interactive while a run streams', async ({pa
   expect(dockBackground).not.toContain('rgba');
   expect(dockBackground).not.toBe('transparent');
 
-  await page.getByLabel('Message input').fill('stream something');
+  await fillComposer(page, 'stream something');
   await page.getByLabel('Message input').press('Enter');
 
   const stopButton = page.getByRole('button', {name: 'Stop'});
@@ -3740,6 +3762,18 @@ function contextFromChat(chat: MockChatMessage[]) {
   return {};
 }
 
+/**
+ * Astryx renders the composer as a contenteditable div and drops the attribute
+ * while it is disabled, which it is until `/api/state` names an active model.
+ * `fill` throws immediately on a plain div rather than retrying, so a test that
+ * types straight after `goto` races the app's first render.
+ */
+async function fillComposer(page: Page, text: string): Promise<void> {
+  const input = page.getByLabel('Message input');
+  await expect(input).toBeEditable();
+  await input.fill(text);
+}
+
 function simplePdfBuffer(text: string): Buffer {
   const escapedText = text.replace(/[()\\]/g, value => `\\${value}`);
   const stream = `BT /F1 18 Tf 32 90 Td (${escapedText}) Tj ET`;
@@ -3794,14 +3828,10 @@ type MockAttachment = {
   createdAt: string;
 };
 
+/** A chat request carries references; the bytes went to `POST /api/uploads`. */
 type MockAttachmentRequest = {
-  id: string;
-  kind: 'text' | 'pdf' | 'image';
-  name: string;
-  mimeType?: string;
-  sizeBytes?: number;
-  text?: string;
-  data?: string;
+  uploadId: string;
+  renderPdfAsImages?: boolean;
 };
 
 type MockConversation = {
