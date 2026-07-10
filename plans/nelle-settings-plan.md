@@ -31,6 +31,14 @@ browser is a setting the React Native and desktop clients reimplement.
    them. See "Sampling belongs to the model" below, which is the measurement that
    makes this work.
 
+## Status
+
+**Implemented.** Every phase below has landed, one commit each, in the order in
+the table. The prose is kept as written so the reasoning survives, with
+corrections marked where running the code contradicted the plan — chiefly the
+context window, where "llama.cpp defaults to the trained window" turned out to be
+false and a 16,384-token window turned out to clamp every reply to one token.
+
 ## How To Work This Plan
 
 One commit per phase. **The phase numbers are identities, not an order.** Land
