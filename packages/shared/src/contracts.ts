@@ -65,6 +65,8 @@ export const NELLE_ERROR_CODES = {
 
   // Run failures.
   piRunFailed: 'pi_run_failed',
+  /** Pi asked llama.cpp for a reply too short to be an answer. */
+  replyBudgetExhausted: 'reply_budget_exhausted',
   llamaDirectFailed: 'llama_direct_failed',
   compactFailed: 'compact_failed',
   titleGenerationFailed: 'title_generation_failed',

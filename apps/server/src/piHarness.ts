@@ -11,6 +11,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 import {createAsyncQueue} from './asyncQueue';
+import {beginLlamaRequestCapture} from './llamaProxy';
 import {
   beginLlamaPerformanceCapture,
   mergeChatPerformance,
@@ -40,8 +41,12 @@ import type {
 } from '../../../packages/shared/src/conversations.ts';
 import type {ChatAttachmentInput} from '../../../packages/shared/src/contracts.ts';
 import {
+  isClampedReplyBudget,
   isReplyBudgetExhausted,
+  MIN_USABLE_REPLY_TOKENS,
   minimumUsableContextSize,
+  PI_CONTEXT_SAFETY_TOKENS,
+  PI_ESTIMATED_IMAGE_TOKENS,
   replyTokenBudget,
 } from '../../../packages/shared/src/piContext.ts';
 import {
@@ -62,7 +67,7 @@ import type {
   ToolCallEvent,
 } from './types';
 import type {NelleError} from '../../../packages/shared/src/contracts.ts';
-import {NELLE_WARNING_CODES} from '../../../packages/shared/src/contracts.ts';
+import {NELLE_ERROR_CODES, NELLE_WARNING_CODES} from '../../../packages/shared/src/contracts.ts';
 
 const PROVIDER_ID = 'nelle-llamacpp';
 const TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
@@ -797,6 +802,22 @@ export class PiHarness {
       });
     };
     const capture = beginLlamaPerformanceCapture(pushPerformance);
+    // Pi clamps `max_tokens` against its own context estimate, which charges
+    // 1,200 tokens per image. When it clamps to 1 the turn cannot produce an
+    // answer, and only the proxy ever sees the number.
+    let lastRequestedMaxTokens: number | undefined;
+    const requestCapture = beginLlamaRequestCapture(info => {
+      lastRequestedMaxTokens = info.maxTokens;
+      const squeezed = squeezedReplyBudgetWarning(info.maxTokens);
+      if (squeezed && !warnedAboutReplyBudget) {
+        warnedAboutReplyBudget = true;
+        queue.push({
+          type: 'run.warning',
+          code: NELLE_WARNING_CODES.replyBudgetExhausted,
+          message: squeezed,
+        });
+      }
+    });
     const monitor = startLlamaThroughputMonitor({
       port: state.runtime.port,
       modelId: llamaRuntimeModelId(activeModel),
@@ -932,6 +953,7 @@ export class PiHarness {
       resourcesStopped = true;
       monitor.stop();
       capture.stop();
+      requestCapture.stop();
       unsubscribe();
     };
 
@@ -945,10 +967,12 @@ export class PiHarness {
       if (!assistantMessage.content.trim()) {
         const fallback = thinkingText.trim();
         if (!fallback) {
-          throw new Error(
-            providerError ??
-              'The Pi harness completed without assistant text. Check the llama.cpp model id and logs.',
-          );
+          throw emptyAnswerError({
+            providerError: providerError ?? undefined,
+            maxTokens: lastRequestedMaxTokens,
+            contextSize: activeModel.params.contextSize,
+            imageCount: promptAttachments.items.filter(item => item.image).length,
+          });
         }
         if (isReasoningEnabled(reasoningLevel)) {
           // The transcript already renders the thinking block, so promoting it
@@ -2363,6 +2387,66 @@ export async function abortSessionRetry(session: {abortRetry?: () => unknown}): 
   } catch {
     // Best effort: the caller aborts the session next regardless.
   }
+}
+
+/**
+ * A reply budget too small to finish a sentence, but not small enough to end the
+ * turn empty. The answer will stop mid-thought, so say why before it does.
+ * `null` when the budget is healthy, unknown, or clamped outright -- a clamp is
+ * `emptyAnswerError`'s to explain, and warning about it as well would say the
+ * same thing twice.
+ */
+export function squeezedReplyBudgetWarning(maxTokens: number | undefined): string | null {
+  if (
+    maxTokens == null ||
+    isClampedReplyBudget(maxTokens) ||
+    maxTokens >= MIN_USABLE_REPLY_TOKENS
+  ) {
+    return null;
+  }
+  return (
+    `This prompt leaves only ${maxTokens.toLocaleString()} tokens for a reply. ` +
+    'Attach fewer files, run /compact, or raise the context size in Settings > Models.'
+  );
+}
+
+/**
+ * Explains a turn that ended with no assistant text.
+ *
+ * The old message -- "check the llama.cpp model id and logs" -- was true of
+ * nothing the user could act on. The common cause is Pi clamping `max_tokens` to
+ * one because its context estimate charges 1,200 tokens for every image, so a
+ * third image on the default 16,384-token window leaves no reply budget at all.
+ */
+export function emptyAnswerError(input: {
+  providerError?: string;
+  maxTokens?: number;
+  contextSize: number;
+  imageCount: number;
+}): Error {
+  if (input.providerError) {
+    return new Error(input.providerError);
+  }
+  if (!isClampedReplyBudget(input.maxTokens)) {
+    return new Error(
+      'The Pi harness completed without assistant text. Check the llama.cpp model id and logs.',
+    );
+  }
+
+  const message =
+    input.imageCount > 0
+      ? `The ${input.imageCount === 1 ? 'image' : `${input.imageCount} images`} left no room for a ` +
+        `reply: Pi charges about ${PI_ESTIMATED_IMAGE_TOKENS.toLocaleString()} tokens per image ` +
+        `against this model's ${input.contextSize.toLocaleString()} token context window, and ` +
+        `reserves ${PI_CONTEXT_SAFETY_TOKENS.toLocaleString()} more. Attach fewer images, or raise ` +
+        'the context size in Settings > Models.'
+      : `The prompt left no room for a reply inside this model's ` +
+        `${input.contextSize.toLocaleString()} token context window. Run /compact, or raise the ` +
+        'context size in Settings > Models.';
+
+  const error = new Error(message);
+  Object.assign(error, {code: NELLE_ERROR_CODES.replyBudgetExhausted, retryable: false});
+  return error;
 }
 
 export function isToolExecutionEvent(eventType: unknown): boolean {

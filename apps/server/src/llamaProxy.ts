@@ -15,6 +15,9 @@ export function registerLlamaProxy(app: FastifyInstance, store: AppStore): void 
   app.post('/api/llama-proxy/v1/chat/completions', async (request, reply) => {
     const state = await store.getState();
     const body = injectTimingOptions(parseJsonObject(request.body));
+    // Pi clamps `max_tokens` against its own context estimate before it ever
+    // reaches us. Reading it off the wire is the only way to know it did.
+    emitCapturedLlamaRequest({maxTokens: numberOrUndefined(body.max_tokens)});
     const controller = new AbortController();
     const abortUpstream = () => controller.abort();
     request.raw.on('close', abortUpstream);
@@ -183,4 +186,37 @@ function mergeOptionalPerformance(
     return first;
   }
   return mergeChatPerformance(first, second);
+}
+
+type LlamaRequestInfo = {
+  /** What Pi asked llama.cpp to generate, after Pi's own context clamp. */
+  maxTokens?: number;
+};
+
+let activeRequestCapture: ((info: LlamaRequestInfo) => void) | null = null;
+
+/**
+ * Observes the requests Pi sends while a run is in flight. Mirrors
+ * `beginLlamaPerformanceCapture`: the proxy is the only place these values exist.
+ */
+export function beginLlamaRequestCapture(onRequest: (info: LlamaRequestInfo) => void): {
+  stop(): void;
+} {
+  const previous = activeRequestCapture;
+  activeRequestCapture = onRequest;
+  return {
+    stop() {
+      if (activeRequestCapture === onRequest) {
+        activeRequestCapture = previous;
+      }
+    },
+  };
+}
+
+export function emitCapturedLlamaRequest(info: LlamaRequestInfo): void {
+  activeRequestCapture?.(info);
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }

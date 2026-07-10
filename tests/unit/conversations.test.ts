@@ -17,6 +17,7 @@ import {
   exportConversationArchive,
   importConversationArchive,
 } from '../../apps/server/src/conversationArchive.ts';
+import {beginLlamaRequestCapture} from '../../apps/server/src/llamaProxy.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {createErrorEvent} from '../../apps/server/src/errors.ts';
 import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
@@ -3294,6 +3295,34 @@ test('llama proxy forwards an abort signal to upstream chat completions', async 
     assert.equal(response.statusCode, 200);
     assert.ok(upstreamSignal instanceof AbortSignal);
     assert.equal(upstreamSignalWasAbortedAtFetch, false);
+
+    // Pi clamps `max_tokens` against its own context estimate before the request
+    // leaves it. The proxy is the only place Nelle ever sees the number.
+    const seen: Array<number | undefined> = [];
+    const capture = beginLlamaRequestCapture(info => seen.push(info.maxTokens));
+    try {
+      await app.inject({
+        method: 'POST',
+        url: '/api/llama-proxy/v1/chat/completions',
+        payload: {model: 'local-model', messages: [], stream: false, max_tokens: 1},
+      });
+      await app.inject({
+        method: 'POST',
+        url: '/api/llama-proxy/v1/chat/completions',
+        payload: {model: 'local-model', messages: [], stream: false},
+      });
+    } finally {
+      capture.stop();
+    }
+    assert.deepEqual(seen, [1, undefined]);
+
+    // A capture that has stopped hears nothing more.
+    await app.inject({
+      method: 'POST',
+      url: '/api/llama-proxy/v1/chat/completions',
+      payload: {model: 'local-model', messages: [], stream: false, max_tokens: 99},
+    });
+    assert.deepEqual(seen, [1, undefined]);
   } finally {
     await app.close();
     globalThis.fetch = originalFetch;

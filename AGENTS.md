@@ -50,6 +50,15 @@ Project-specific guidance for AI coding agents.
   `packages/shared/src/piContext.ts` and warn when the reply budget is exhausted.
 - Never advertise a fixed `maxTokens` to Pi. Scale it with the context window
   (`replyTokenBudget`); Pi clamps it down against the live context anyway.
+- Pi charges a flat `PI_ESTIMATED_IMAGE_TOKENS` (1200) against its context
+  estimate for every image, whatever the picture, while llama.cpp spends about
+  120 on a rendered PDF page. With Pi's ~9.4k system prompt and its 4,096-token
+  reserve, the default 16,384 window fits exactly two images: the third clamps
+  `max_tokens` to 1, llama.cpp returns one token, and the turn ends with no
+  answer. Nelle's llama.cpp proxy is the only place that number is visible, so
+  `beginLlamaRequestCapture` reads it off the wire and `emptyAnswerError` turns
+  the empty turn into `reply_budget_exhausted` instead of a bare
+  `pi_run_failed`.
 - Derive throughput from token counts and elapsed milliseconds. llama.cpp
   reports `predicted_per_second: 1000000` for a single token generated in
   "0.00 ms", so its own rate fields must not be trusted, and a burst shorter

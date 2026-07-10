@@ -7,9 +7,14 @@ import {
 } from '../../apps/server/src/llamaThroughput.ts';
 import {
   availableReplyTokens,
+  isClampedReplyBudget,
   isReplyBudgetExhausted,
+  MIN_USABLE_REPLY_TOKENS,
+  minimumContextSizeForImages,
   minimumUsableContextSize,
   PI_CONTEXT_SAFETY_TOKENS,
+  PI_ESTIMATED_IMAGE_TOKENS,
+  PI_MIN_MAX_TOKENS,
   replyTokenBudget,
 } from '../../packages/shared/src/piContext.ts';
 
@@ -43,6 +48,46 @@ test('minimum usable context size accounts for Pi safety reserve', () => {
   assert.ok(minimum > promptTokens + PI_CONTEXT_SAFETY_TOKENS);
   assert.equal(isReplyBudgetExhausted(minimum, promptTokens), false);
   assert.equal(isReplyBudgetExhausted(minimum - 1, promptTokens), true);
+});
+
+test('Pi charges a flat 1,200 tokens for every image it sends', () => {
+  // `ESTIMATED_IMAGE_CHARS = 4800`, then chars/4. It is the same number for a
+  // thumbnail and a poster, and llama.cpp charges around 120 for the pages Nelle
+  // renders. Measured against the real server: max_tokens goes 1649, 449, 1 as
+  // the first, second and third image are attached to a 16,384 token window.
+  assert.equal(PI_ESTIMATED_IMAGE_TOKENS, 1200);
+
+  const BASE = 9439; // Pi's system prompt plus the user text, measured.
+  const budget = (images: number) =>
+    availableReplyTokens(16384, BASE + images * PI_ESTIMATED_IMAGE_TOKENS);
+  // These are the exact `max_tokens` values captured off the wire.
+  assert.equal(budget(1), 1649);
+  assert.equal(budget(2), 449);
+  assert.ok(budget(2) > MIN_USABLE_REPLY_TOKENS);
+  // The third image is the one that ends the turn with no answer.
+  assert.equal(budget(3), PI_MIN_MAX_TOKENS);
+});
+
+test('a clamped reply budget is recognised from the wire, whatever caused it', () => {
+  assert.equal(isClampedReplyBudget(1), true);
+  assert.equal(isClampedReplyBudget(0), true);
+  assert.equal(isClampedReplyBudget(2), false);
+  assert.equal(isClampedReplyBudget(4096), false);
+  // No request was seen; that is not a clamp.
+  assert.equal(isClampedReplyBudget(undefined), false);
+});
+
+test('the context size that would fit N images is reported, not guessed at', () => {
+  const BASE = 9439;
+  const needed = minimumContextSizeForImages(3, BASE);
+  assert.equal(
+    needed,
+    BASE + 3 * PI_ESTIMATED_IMAGE_TOKENS + PI_CONTEXT_SAFETY_TOKENS + MIN_USABLE_REPLY_TOKENS,
+  );
+  // And a window that size does leave a usable reply budget.
+  assert.ok(
+    availableReplyTokens(needed, BASE + 3 * PI_ESTIMATED_IMAGE_TOKENS) >= MIN_USABLE_REPLY_TOKENS,
+  );
 });
 
 test('a one token burst reports no throughput instead of 1,000,000 t/s', () => {

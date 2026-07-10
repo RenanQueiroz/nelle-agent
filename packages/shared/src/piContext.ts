@@ -15,6 +15,20 @@ export const PI_CONTEXT_SAFETY_TOKENS = 4096;
 /** Pi's floor when the context is exhausted. A reply this short is always a bug. */
 export const PI_MIN_MAX_TOKENS = 1;
 
+/**
+ * Pi counts every image as a flat 4,800 characters, then divides by four
+ * (`ESTIMATED_IMAGE_CHARS` in `pi-ai/src/core/compaction/compaction.ts`). So an
+ * image costs Pi 1,200 tokens of its estimate regardless of the picture, while
+ * llama.cpp charges around 120 for the ones Nelle renders -- a tenfold
+ * overestimate that Pi then subtracts from the reply budget.
+ *
+ * Pi's agent system prompt measures around 9,400 tokens with host tools off, and
+ * it reserves another 4,096. On the default 16,384-token window that leaves room
+ * for two images; the third drives `max_tokens` to `PI_MIN_MAX_TOKENS`, llama.cpp
+ * returns one token, and the turn ends with no answer.
+ */
+export const PI_ESTIMATED_IMAGE_TOKENS = 1200;
+
 /** Below this many reply tokens the model cannot finish a sentence, let alone a turn. */
 export const MIN_USABLE_REPLY_TOKENS = 256;
 
@@ -59,4 +73,22 @@ export function minimumUsableContextSize(promptTokens: number): number {
  */
 export function isReplyBudgetExhausted(contextSize: number, promptTokens: number): boolean {
   return availableReplyTokens(contextSize, promptTokens) < MIN_USABLE_REPLY_TOKENS;
+}
+
+/**
+ * The smallest context window that leaves a usable reply budget once Pi has
+ * charged `imageCount` images against it, given the tokens the rest of the
+ * conversation already occupies.
+ */
+export function minimumContextSizeForImages(imageCount: number, basePromptTokens: number): number {
+  return minimumUsableContextSize(basePromptTokens + imageCount * PI_ESTIMATED_IMAGE_TOKENS);
+}
+
+/**
+ * True when Pi asked llama.cpp for a reply so short it cannot be an answer. The
+ * value is read off the wire in Nelle's llama.cpp proxy, so it holds whatever the
+ * cause was: a long history, a big attachment, or a context window set too small.
+ */
+export function isClampedReplyBudget(maxTokens: number | undefined): boolean {
+  return maxTokens != null && maxTokens <= PI_MIN_MAX_TOKENS;
 }
