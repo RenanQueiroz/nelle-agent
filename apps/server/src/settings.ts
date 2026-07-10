@@ -30,6 +30,16 @@ export class SettingsRepository {
   }
 
   /**
+   * The same, for a caller that can go on without the group. Only a registry
+   * that does not declare it -- a test fixture -- answers `undefined`, and such
+   * a caller falls back to that feature's own defaults.
+   */
+  tryGetGroup(slug: string): SettingsValues | undefined {
+    const group = findSettingsGroup(slug, this.registry);
+    return group ? coerceSettingsValues(group, this.readStored(slug)) : undefined;
+  }
+
+  /**
    * Merges a validated patch over the current values and persists the group.
    *
    * A key the registry does not declare is written back untouched. It cannot

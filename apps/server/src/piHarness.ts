@@ -30,6 +30,16 @@ import {
 } from './conversations';
 import type {HostToolRepository} from './hostTools';
 import type {ModelCacheRepository} from './modelCache';
+import type {SettingsRepository} from './settings';
+import {TITLES_SETTINGS_SLUG} from '../../../packages/shared/src/settings.ts';
+import {
+  TITLE_SYSTEM_PROMPT,
+  firstLineTitle,
+  readTitleSettings,
+  renderTitlePrompt,
+  sanitizeGeneratedTitle,
+  type TitleSettings,
+} from '../../../packages/shared/src/titles.ts';
 import type {
   AttachmentMetadata,
   ConversationContextUsage,
@@ -125,7 +135,13 @@ export class PiHarness {
     private readonly hostTools: HostToolRepository,
     private readonly llamaRuntime?: LlamaRuntimeServices,
     private readonly modelCache?: ModelCacheRepository,
+    /** Absent only in tests that do not touch a setting; they get the defaults. */
+    private readonly settings?: SettingsRepository,
   ) {}
+
+  private titleSettings(): TitleSettings {
+    return readTitleSettings(this.settings?.tryGetGroup(TITLES_SETTINGS_SLUG));
+  }
 
   resetSession(conversationId?: string): void {
     if (conversationId) {
@@ -1088,6 +1104,20 @@ export class PiHarness {
     if (!titleInput) {
       return;
     }
+    const settings = this.titleSettings();
+    if (settings.mode === 'off') {
+      // The conversation keeps "New chat", and `titleSource` stays `fallback`,
+      // so turning the setting back on retitles it on the next first turn.
+      return;
+    }
+    if (settings.mode === 'first-line' || titleInput.assistantResponse === null) {
+      // No model, no round trip, no run: nothing ran. `llm` lands here too when
+      // the model answered with nothing, because there is no reply to summarize
+      // and a request that says so would only waste a load.
+      this.applyFirstLineTitle(conversationId, titleInput.userPrompt, settings, queue);
+      return;
+    }
+    const assistantResponse = titleInput.assistantResponse;
 
     const abortController = new AbortController();
     let run: ActiveRun;
@@ -1104,7 +1134,8 @@ export class PiHarness {
       const title = await this.generateTitleWithLlama(
         activeModel,
         titleInput.userPrompt,
-        titleInput.assistantResponse,
+        assistantResponse,
+        settings,
         abortController.signal,
       );
       if (run.abortRequested || abortController.signal.aborted) {
@@ -1114,13 +1145,12 @@ export class PiHarness {
       }
       if (title) {
         this.conversations.setGeneratedTitle(conversationId, title);
-        queue.push({
-          type: 'conversation.updated',
-          conversationId,
-          title,
-          titleSource: 'generated',
-          updatedAt: new Date().toISOString(),
-        });
+        queue.push(createConversationTitleEvent(conversationId, title));
+      } else {
+        // The request failed, timed out, or came back with nothing usable. A
+        // first line is a worse title than the model's, and a better one than
+        // "New chat" forever.
+        this.applyFirstLineTitle(conversationId, titleInput.userPrompt, settings, queue);
       }
       queue.push(createRunCompletedEvent(run, 'completed'));
     } catch (error) {
@@ -1139,6 +1169,23 @@ export class PiHarness {
     } finally {
       this.finishRun(conversationId, run.runId);
       this.conversations.setConversationStatus(conversationId, 'ready');
+    }
+  }
+
+  private applyFirstLineTitle(
+    conversationId: string,
+    userPrompt: string,
+    settings: TitleSettings,
+    queue: ReturnType<typeof createAsyncQueue<ChatStreamEvent>>,
+  ): void {
+    const title = firstLineTitle(userPrompt, settings.maxWords);
+    if (!title) {
+      return;
+    }
+    // `setGeneratedTitle` refuses a conversation the user has named, so a race
+    // with a rename cannot overwrite it.
+    if (this.conversations.setGeneratedTitle(conversationId, title)) {
+      queue.push(createConversationTitleEvent(conversationId, title));
     }
   }
 
@@ -1649,31 +1696,17 @@ export class PiHarness {
     return entries;
   }
 
-  private async maybeGenerateConversationTitle(
-    conversationId: string,
-    activeModel: ConfiguredModel,
-    entries: SyncConversationEntry[],
-  ): Promise<string | null> {
-    const titleInput = this.titleGenerationInput(conversationId, entries);
-    if (!titleInput) {
-      return null;
-    }
-    const title = await this.generateTitleWithLlama(
-      activeModel,
-      titleInput.userPrompt,
-      titleInput.assistantResponse,
-    );
-    if (!title) {
-      return null;
-    }
-    this.conversations.setGeneratedTitle(conversationId, title);
-    return title;
-  }
-
+  /**
+   * The first exchange of a conversation nobody has named, or `null`.
+   *
+   * `assistantResponse` is `null` when the model produced no text -- it spent its
+   * whole reasoning budget, or the turn was refused. Only the `llm` mode needs
+   * it: a title taken from the user's first line never did.
+   */
   private titleGenerationInput(
     conversationId: string,
     entries: SyncConversationEntry[],
-  ): {userPrompt: string; assistantResponse: string} | null {
+  ): {userPrompt: string; assistantResponse: string | null} | null {
     if (this.conversations.getTitleSource(conversationId) !== 'fallback') {
       return null;
     }
@@ -1681,19 +1714,31 @@ export class PiHarness {
     const assistantMessages = entries.filter(
       entry => entry.role === 'assistant' && entry.text.trim(),
     );
-    if (userMessages.length !== 1 || assistantMessages.length !== 1) {
+    // A second user turn means this is no longer the first exchange, and a second
+    // assistant turn means a regenerate variant is in play.
+    if (userMessages.length !== 1 || assistantMessages.length > 1) {
       return null;
     }
     return {
       userPrompt: userMessages[0]!.text,
-      assistantResponse: assistantMessages[0]!.text,
+      assistantResponse: assistantMessages[0]?.text ?? null,
     };
   }
 
+  /**
+   * Asks the model for a title. `null` when it could not, for any reason: this
+   * path never throws, because a conversation with no title is not an error.
+   *
+   * It sets its own `temperature`, which no other code path here does. It talks
+   * to `/chat/completions` directly rather than through Pi, so `models.ini`'s
+   * sampling defaults do not reach it -- and that is correct, because a creative
+   * temperature makes bad titles.
+   */
   private async generateTitleWithLlama(
     activeModel: ConfiguredModel,
     userPrompt: string,
     assistantResponse: string,
+    settings: TitleSettings,
     signal?: AbortSignal,
   ): Promise<string | null> {
     const controller = new AbortController();
@@ -1712,20 +1757,17 @@ export class PiHarness {
         body: JSON.stringify({
           model: llamaRuntimeModelId(activeModel),
           messages: [
-            {
-              role: 'system',
-              content:
-                'Create concise conversation titles. Return only the title, with no quotes, markdown, punctuation suffix, or explanation.',
-            },
+            // The system message is not user-editable: it states the output
+            // format Nelle then parses, and a user who broke it would get quotes
+            // and preamble stored as the conversation's name.
+            {role: 'system', content: TITLE_SYSTEM_PROMPT},
             {
               role: 'user',
-              content: [
-                'Create a concise title for this conversation.',
-                'Limit it to 6 words.',
-                '',
-                `User: ${userPrompt}`,
-                `Assistant: ${assistantResponse}`,
-              ].join('\n'),
+              content: renderTitlePrompt(settings.prompt, {
+                user: userPrompt,
+                assistant: assistantResponse,
+                maxWords: settings.maxWords,
+              }),
             },
           ],
           stream: false,
@@ -1742,6 +1784,7 @@ export class PiHarness {
       };
       return sanitizeGeneratedTitle(
         parsed.choices?.[0]?.message?.content ?? parsed.choices?.[0]?.text ?? '',
+        settings.maxWords,
       );
     } catch {
       return null;
@@ -2330,17 +2373,14 @@ async function ensureSessionFile(sessionPath: string, manager: any): Promise<voi
   }
 }
 
-function sanitizeGeneratedTitle(value: string): string | null {
-  const title = value
-    .split(/\r?\n/)[0]
-    ?.replace(/^["'`*_#\s]+|["'`*_\s]+$/g, '')
-    .replace(/[.!?:;,]+$/, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!title) {
-    return null;
-  }
-  return title.slice(0, 80);
+function createConversationTitleEvent(conversationId: string, title: string): ChatStreamEvent {
+  return {
+    type: 'conversation.updated',
+    conversationId,
+    title,
+    titleSource: 'generated',
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 function formatDuration(durationMs: number): string {

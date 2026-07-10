@@ -22,6 +22,8 @@ import {AppDatabase} from '../../apps/server/src/database.ts';
 import {createErrorEvent} from '../../apps/server/src/errors.ts';
 import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
 import {HostToolRepository} from '../../apps/server/src/hostTools.ts';
+import {SettingsRepository} from '../../apps/server/src/settings.ts';
+import {TITLES_SETTINGS_SLUG} from '../../packages/shared/src/settings.ts';
 import {
   PiHarness,
   ToolsDisabledError,
@@ -1793,15 +1795,14 @@ test('Pi title generation stores sanitized first-turn title without adding histo
       repository,
       new HostToolRepository(database),
     ) as unknown as TitleGenerationHarness;
+    const queue = createAsyncQueue<ChatStreamEvent>();
+    const eventsPromise = collectAsyncQueue(queue);
 
-    const title = await harness.maybeGenerateConversationTitle(
-      conversation.id,
-      activeModel,
-      entries,
-    );
+    await harness.streamConversationTitleIfNeeded(conversation.id, activeModel, entries, queue);
+    queue.end();
+    await eventsPromise;
     const snapshot = repository.getSnapshot(conversation.id, await store.getState());
 
-    assert.equal(title, 'Local Model Setup');
     assert.equal(snapshot?.conversation.title, 'Local Model Setup');
     assert.equal(snapshot?.conversation.titleSource, 'generated');
     assert.deepEqual(repository.getConversationEntries(conversation.id), []);
@@ -1811,6 +1812,8 @@ test('Pi title generation stores sanitized first-turn title without adding histo
     assert.equal(request.messages?.[0]?.role, 'system');
     assert.match(request.messages?.[1]?.content ?? '', /User: Explain local setup/);
     assert.match(request.messages?.[1]?.content ?? '', /Assistant: Use llama.cpp locally/);
+    // The default prompt asks for the word cap the setting enforces.
+    assert.match(request.messages?.[1]?.content ?? '', /Limit it to 6 words\./);
   } finally {
     globalThis.fetch = originalFetch;
     database.close();
@@ -1937,7 +1940,7 @@ test('Pi title generation abort emits aborted run lifecycle events', async () =>
   }
 });
 
-test('Pi title generation falls back quietly when llama title request fails', async () => {
+test('a failed llm title falls back to the first line instead of leaving "New chat"', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
   const database = new AppDatabase(paths);
@@ -1954,17 +1957,29 @@ test('Pi title generation falls back quietly when llama title request fails', as
       repository,
       new HostToolRepository(database),
     ) as unknown as TitleGenerationHarness;
+    const queue = createAsyncQueue<ChatStreamEvent>();
+    const eventsPromise = collectAsyncQueue(queue);
 
-    const title = await harness.maybeGenerateConversationTitle(
+    await harness.streamConversationTitleIfNeeded(
       conversation.id,
       createTestModel(),
       createFirstTurnEntries(),
+      queue,
     );
+    queue.end();
+    const events = await eventsPromise;
     const snapshot = repository.getSnapshot(conversation.id, await store.getState());
 
-    assert.equal(title, null);
-    assert.equal(snapshot?.conversation.title, 'New chat');
-    assert.equal(snapshot?.conversation.titleSource, 'fallback');
+    // The model never answered, so the user's own first line names the chat.
+    assert.equal(snapshot?.conversation.title, 'Explain local setup');
+    assert.equal(snapshot?.conversation.titleSource, 'generated');
+    assert.deepEqual(
+      events.map(event => event.type),
+      ['run.started', 'conversation.updated', 'run.completed'],
+    );
+    // The run produced a title, so it completed. A `failed` status here would
+    // cry wolf about a fallback that worked exactly as designed.
+    assert.equal(events[2]?.type === 'run.completed' && events[2].status, 'completed');
     assert.deepEqual(repository.getConversationEntries(conversation.id), []);
   } finally {
     globalThis.fetch = originalFetch;
@@ -1996,13 +2011,16 @@ test('Pi title generation skips non-first-turn and user-named conversations', as
       repository,
       new HostToolRepository(database),
     ) as unknown as TitleGenerationHarness;
+    const queue = createAsyncQueue<ChatStreamEvent>();
+    const eventsPromise = collectAsyncQueue(queue);
 
-    const userNamedTitle = await harness.maybeGenerateConversationTitle(
+    await harness.streamConversationTitleIfNeeded(
       userNamed.id,
       createTestModel(),
       createFirstTurnEntries(),
+      queue,
     );
-    const multiTurnTitle = await harness.maybeGenerateConversationTitle(
+    await harness.streamConversationTitleIfNeeded(
       fallback.id,
       createTestModel(),
       [
@@ -2015,10 +2033,12 @@ test('Pi title generation skips non-first-turn and user-named conversations', as
           createdAt: '2026-07-08T12:02:00.000Z',
         },
       ],
+      queue,
     );
+    queue.end();
 
-    assert.equal(userNamedTitle, null);
-    assert.equal(multiTurnTitle, null);
+    // Neither conversation is a candidate, so nothing ran and nothing was said.
+    assert.deepEqual(await eventsPromise, []);
     assert.equal(fetchCalls, 0);
     assert.equal(
       repository.getSnapshot(userNamed.id, await store.getState())?.conversation.title,
@@ -2033,6 +2053,220 @@ test('Pi title generation skips non-first-turn and user-named conversations', as
     database.close();
   }
 });
+
+test('title mode "off" spends no model call and leaves the conversation retitleable', async () => {
+  await withTitleSettings(
+    {mode: 'off'},
+    async ({harness, repository, store, conversation, calls}) => {
+      const queue = createAsyncQueue<ChatStreamEvent>();
+      const eventsPromise = collectAsyncQueue(queue);
+      await harness.streamConversationTitleIfNeeded(
+        conversation.id,
+        createTestModel(),
+        createFirstTurnEntries(),
+        queue,
+      );
+      queue.end();
+
+      assert.deepEqual(await eventsPromise, []);
+      assert.equal(calls.length, 0);
+      const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+      assert.equal(snapshot?.conversation.title, 'New chat');
+      // Still `fallback`, so turning the setting back on retitles the next one.
+      assert.equal(snapshot?.conversation.titleSource, 'fallback');
+    },
+  );
+});
+
+test('title mode "first-line" titles without a model, a round trip, or a run', async () => {
+  await withTitleSettings(
+    {mode: 'first-line'},
+    async ({harness, repository, store, conversation, calls}) => {
+      const queue = createAsyncQueue<ChatStreamEvent>();
+      const eventsPromise = collectAsyncQueue(queue);
+      await harness.streamConversationTitleIfNeeded(
+        conversation.id,
+        createTestModel(),
+        createFirstTurnEntries(),
+        queue,
+      );
+      queue.end();
+      const events = await eventsPromise;
+
+      assert.equal(calls.length, 0, 'no model call');
+      // No `run.started`: nothing ran.
+      assert.deepEqual(
+        events.map(event => event.type),
+        ['conversation.updated'],
+      );
+      const snapshot = repository.getSnapshot(conversation.id, await store.getState());
+      assert.equal(snapshot?.conversation.title, 'Explain local setup');
+      assert.equal(snapshot?.conversation.titleSource, 'generated');
+    },
+  );
+});
+
+test('an answerless turn is still titled, and spends no model call doing it', async () => {
+  // Found against the real server: gemma spent its whole reasoning budget and
+  // returned no text, so the old trigger -- which demanded one assistant message
+  // -- left the conversation as "New chat" even in `first-line` mode, where the
+  // assistant's reply was never needed.
+  for (const mode of ['llm', 'first-line'] as const) {
+    await withTitleSettings(
+      {mode, maxWords: 3},
+      async ({harness, repository, store, conversation, calls}) => {
+        const queue = createAsyncQueue<ChatStreamEvent>();
+        const eventsPromise = collectAsyncQueue(queue);
+        await harness.streamConversationTitleIfNeeded(
+          conversation.id,
+          createTestModel(),
+          [
+            {
+              piEntryId: 'user-1',
+              entryType: 'message',
+              role: 'user',
+              text: 'Explain sliding window attention',
+              createdAt: '2026-07-08T12:00:00.000Z',
+            },
+            {
+              piEntryId: 'assistant-1',
+              entryType: 'message',
+              role: 'assistant',
+              text: '',
+              createdAt: '2026-07-08T12:01:00.000Z',
+            },
+          ],
+          queue,
+        );
+        queue.end();
+
+        assert.deepEqual(
+          (await eventsPromise).map(event => event.type),
+          ['conversation.updated'],
+          `${mode} must title an answerless turn without starting a run`,
+        );
+        assert.equal(calls.length, 0, 'there is no reply to summarize, so nothing is asked');
+        assert.equal(
+          repository.getSnapshot(conversation.id, await store.getState())?.conversation.title,
+          'Explain sliding window',
+        );
+      },
+    );
+  }
+});
+
+test('the title prompt and the word cap are the ones the user saved', async () => {
+  await withTitleSettings(
+    {
+      mode: 'llm',
+      prompt: 'Name this: {{USER}} // {{ASSISTANT}} // under {{MAX_WORDS}}',
+      maxWords: 2,
+    },
+    async ({harness, repository, store, conversation, calls}) => {
+      const queue = createAsyncQueue<ChatStreamEvent>();
+      const eventsPromise = collectAsyncQueue(queue);
+      await harness.streamConversationTitleIfNeeded(
+        conversation.id,
+        createTestModel(),
+        createFirstTurnEntries(),
+        queue,
+      );
+      queue.end();
+      await eventsPromise;
+
+      const request = calls[0] as {messages?: Array<{role: string; content: string}>};
+      assert.equal(
+        request.messages?.[1]?.content,
+        'Name this: Explain local setup // Use llama.cpp locally // under 2',
+      );
+      // The model answered with four words; two is what the user asked for.
+      assert.equal(
+        repository.getSnapshot(conversation.id, await store.getState())?.conversation.title,
+        'Local Model',
+      );
+    },
+  );
+});
+
+test('a conversation the user named is never retitled, whatever the mode', async () => {
+  for (const mode of ['llm', 'first-line'] as const) {
+    await withTitleSettings({mode}, async ({harness, repository, store, database, calls}) => {
+      const named = new ConversationRepository(database).createConversation({
+        title: 'Pinned name',
+        titleSource: 'user',
+      });
+      const queue = createAsyncQueue<ChatStreamEvent>();
+      const eventsPromise = collectAsyncQueue(queue);
+      await harness.streamConversationTitleIfNeeded(
+        named.id,
+        createTestModel(),
+        createFirstTurnEntries(),
+        queue,
+      );
+      queue.end();
+
+      assert.deepEqual(await eventsPromise, [], `${mode} must not retitle a named conversation`);
+      assert.equal(calls.length, 0);
+      assert.equal(
+        repository.getSnapshot(named.id, await store.getState())?.conversation.title,
+        'Pinned name',
+      );
+    });
+  }
+});
+
+/**
+ * Drives `streamConversationTitleIfNeeded` with a real `SettingsRepository`, so
+ * the settings actually travel the path production uses. `calls` holds the
+ * parsed body of every `/chat/completions` request the harness made.
+ */
+async function withTitleSettings(
+  values: {mode?: string; prompt?: string; maxWords?: number},
+  body: (context: {
+    harness: TitleGenerationHarness;
+    repository: ConversationRepository;
+    store: AppStore;
+    database: AppDatabase;
+    conversation: {id: string};
+    calls: unknown[];
+  }) => Promise<void>,
+): Promise<void> {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  const originalFetch = globalThis.fetch;
+  const calls: unknown[] = [];
+  globalThis.fetch = (async (_url, init) => {
+    calls.push(JSON.parse(String(init?.body)));
+    return new Response(
+      JSON.stringify({choices: [{message: {content: 'Local Model Setup Here'}}]}),
+      {
+        status: 200,
+        headers: {'content-type': 'application/json'},
+      },
+    );
+  }) as typeof fetch;
+  try {
+    const settings = new SettingsRepository(database);
+    settings.updateGroup(TITLES_SETTINGS_SLUG, values);
+    const repository = new ConversationRepository(database);
+    const conversation = repository.createConversation({title: 'New chat'});
+    const harness = new PiHarness(
+      paths,
+      store,
+      repository,
+      new HostToolRepository(database),
+      undefined,
+      undefined,
+      settings,
+    ) as unknown as TitleGenerationHarness;
+    await body({harness, repository, store, database, conversation, calls});
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+}
 
 test('Pi compact stream emits run and compaction lifecycle events', async () => {
   const paths = await createTempPaths();
@@ -3331,17 +3565,6 @@ test('llama proxy forwards an abort signal to upstream chat completions', async 
 });
 
 type TitleGenerationHarness = {
-  maybeGenerateConversationTitle: (
-    conversationId: string,
-    activeModel: ConfiguredModel,
-    entries: Array<{
-      piEntryId: string;
-      entryType: string;
-      role?: ChatMessage['role'] | null;
-      text: string;
-      createdAt: string;
-    }>,
-  ) => Promise<string | null>;
   streamConversationTitleIfNeeded: (
     conversationId: string,
     activeModel: ConfiguredModel,

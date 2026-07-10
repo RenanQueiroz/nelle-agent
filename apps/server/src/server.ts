@@ -153,7 +153,7 @@ export async function createServer(
   const uploads = new UploadRepository(database, paths);
   const llama = new LlamaCppManager(paths, store);
   const hf = new HuggingFaceService(store);
-  const pi = new PiHarness(paths, store, conversations, hostTools, llama, modelCache);
+  const pi = new PiHarness(paths, store, conversations, hostTools, llama, modelCache, settings);
   conversations.syncLegacyDefaultConversationFromState(await store.getState());
   await pi.migrateLegacyDefaultConversation();
   await conversations.markInvalidPiSessionsUnavailable();

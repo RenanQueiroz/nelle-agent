@@ -233,13 +233,19 @@ test('the schema route serves the registry it was built with', async () => {
   }
 });
 
-test('the real server serves a schema, even while the registry is empty', async () => {
+test('the real server serves the real registry, and a route for each of its groups', async () => {
   const paths = await createTempPaths();
   const app = await createServer(paths);
   try {
     const response = await app.inject({method: 'GET', url: '/api/settings/schema'});
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(response.json(), {sections: []});
+    assert.deepEqual(response.json(), {sections: SETTINGS_REGISTRY});
+
+    for (const group of SETTINGS_REGISTRY) {
+      const values = await app.inject({method: 'GET', url: `/api/settings/${group.slug}`});
+      assert.equal(values.statusCode, 200, `${group.slug} has no route`);
+      assert.deepEqual(values.json(), settingsGroupDefaults(group));
+    }
 
     // A group route exists only if its group does. Nelle's not-found handler
     // serves the SPA's `index.html` for anything unmatched, so "no route" reads

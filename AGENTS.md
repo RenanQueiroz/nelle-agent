@@ -615,6 +615,20 @@ Project-specific guidance for AI coding agents.
   untouched rather than eating a setting the user would lose on the way back up.
   Reads coerce field by field, so one unreadable value falls back to its default
   alone and takes no sibling with it.
+- Conversation titles are a setting (`GET`/`PATCH /api/settings/titles`), and the
+  pure helpers live in `packages/shared/src/titles.ts`.
+  `streamConversationTitleIfNeeded` is the only path that runs; it fires once per
+  conversation, on the first exchange of a chat still at `titleSource:
+'fallback'`. `maxWords` is *enforced* by truncation, not merely requested in the
+  prompt, because a model ignores being asked. `renderTitlePrompt` substitutes
+  `{{USER}}`, `{{ASSISTANT}}` and `{{MAX_WORDS}}` in one pass, so a user message
+  containing the literal text `{{ASSISTANT}}` reaches the model as that text.
+  The trigger needs one user turn and at most one assistant turn: a turn the
+  model answered with nothing is still titled from the user's first line, and
+  `llm` skips the round trip when there is no reply to summarize. Title
+  generation sets its own `temperature: 0.2` because it bypasses Pi and so never
+  sees `models.ini` sampling; the system message is not user-editable because it
+  states the output format Nelle parses.
 - Sampling belongs to the model, not to Pi's requests. Pi sends no sampling
   parameters at all, so llama.cpp's launch flags are what every conversation
   runs with: `models.ini` carries `temp`, `top-k`, `min-p`, `seed` and the rest,

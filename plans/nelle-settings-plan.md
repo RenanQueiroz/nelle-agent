@@ -358,10 +358,13 @@ The smallest phase, entirely server-side, and it fixes a real gap: Nelle
 generates a title with a prompt nobody can read, and if llama.cpp is down or slow
 the conversation stays "New chat" forever.
 
-Today: `PiHarness.maybeGenerateConversationTitle` fires whenever `titleSource`
+Today: `PiHarness.streamConversationTitleIfNeeded` fires whenever `titleSource`
 is `fallback` and the conversation has exactly one user and one assistant
 message. It POSTs a hardcoded system+user prompt with `max_tokens: 24`,
 `temperature: 0.2`, an 8-second timeout, and gives up silently on failure.
+(`maybeGenerateConversationTitle` looks like the entry point and is not: nothing
+in the product calls it, only four tests do. Delete it when this lands, and
+point those tests at the path that runs.)
 
 Target:
 
@@ -382,6 +385,13 @@ type TitleSettings = {
   `maxWords`. No model, no round trip, works while llama.cpp is stopped.
 - `'llm'` falls back to `'first-line'` when the request fails or times out,
   rather than leaving "New chat" behind. This is strictly better than today.
+- The trigger must not require an assistant reply. Found against the real
+  server: gemma spent its whole reasoning budget on "Explain sliding window
+  attention briefly" and returned no text, so a trigger demanding one assistant
+  message left the chat as "New chat" even in `first-line` mode, where the reply
+  was never needed. Require one user turn and at most one assistant turn; when
+  there is no reply to summarize, `'llm'` uses the first line too rather than
+  asking the model to title an empty exchange.
 - The prompt template is rendered server-side. Substitution is literal and the
   result is capped; `sanitizeGeneratedTitle` already strips quotes and prefixes.
 - Title generation keeps its own `temperature: 0.2`, sent explicitly, because it
