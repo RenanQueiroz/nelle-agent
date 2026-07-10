@@ -180,6 +180,17 @@ Project-specific guidance for AI coding agents.
   bound Pi session file when possible. After a server restart, stale
   `running`/`compacting`/`aborting` rows without an active in-memory run should
   recover to `ready` rather than staying stuck.
+- `conversations.updated_at` is the sidebar's sort key *and* its keyset cursor,
+  so only activity may stamp it, and a read never may.
+  `replaceConversationProjection` bumps it when Pi's leaf moved -- the session
+  file is append-only, so a moved leaf is a gained entry -- and leaves it alone
+  otherwise. Opening a conversation rebuilds its projection on the read path, and
+  stamping it there sent whichever chat the user last opened to the top of the
+  list, one click behind. The `ready` a stale `running` row recovers to after a
+  restart, and the variant groups a metadata-less rebuild rediscovers, are not
+  activity either. Runs bump it through `setConversationStatus` at their start
+  and end, so a conversation being answered rises on its own, and so does the
+  chat whose answer just landed.
 - API-created conversations should immediately create and bind a header-only Pi
   session JSONL file, before the first prompt.
 - The default conversation id is `legacy-default`. It was `poc-default` until

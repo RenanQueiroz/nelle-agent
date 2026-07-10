@@ -964,15 +964,35 @@ export class ConversationRepository {
     }
     const nextStatus = input.status ?? row.status;
     assertConversationTransition(row.status, nextStatus);
-    const now = new Date().toISOString();
+    const nextPiSessionPath = input.piSessionPath ?? row.pi_session_path;
+    const nextPiSessionId = input.piSessionId ?? row.pi_session_id;
+    const nextLeaf = input.activeLeafPiEntryId ?? row.active_leaf_pi_entry_id;
+
+    // Opening a conversation rebuilds its projection from Pi, so this runs on a
+    // read, and a read must not reorder the sidebar: `updated_at` is the list's
+    // sort key and its keyset cursor, and stamping it here sent whichever
+    // conversation you last opened to the top.
+    //
+    // Pi's session file is append-only, so the leaf moves whenever a conversation
+    // gains an entry -- a message, a regenerate, a compaction. A sync that finds
+    // the same leaf found no news, whatever else it rewrote into the projection:
+    // the variant groups a metadata-less rebuild rediscovers, and the `ready` a
+    // stale `running` row recovers to after a restart, are not activity. Runs bump
+    // `updated_at` through `setConversationStatus` at their start and end, so an
+    // answer in flight still rises to the top on its own.
+    const changed =
+      nextLeaf !== row.active_leaf_pi_entry_id ||
+      nextPiSessionPath !== row.pi_session_path ||
+      nextPiSessionId !== row.pi_session_id;
+
     const next: ConversationRow = {
       ...row,
-      pi_session_path: input.piSessionPath ?? row.pi_session_path,
-      pi_session_id: input.piSessionId ?? row.pi_session_id,
-      active_leaf_pi_entry_id: input.activeLeafPiEntryId ?? row.active_leaf_pi_entry_id,
+      pi_session_path: nextPiSessionPath,
+      pi_session_id: nextPiSessionId,
+      active_leaf_pi_entry_id: nextLeaf,
       last_synced_pi_entry_id: input.lastSyncedPiEntryId ?? row.last_synced_pi_entry_id,
       status: nextStatus,
-      updated_at: now,
+      updated_at: changed ? new Date().toISOString() : row.updated_at,
     };
 
     const db = this.database.connection;

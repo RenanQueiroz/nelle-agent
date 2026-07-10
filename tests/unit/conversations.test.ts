@@ -13,6 +13,7 @@ import {
   ConversationRepository,
   LEGACY_DEFAULT_CONVERSATION_ID,
 } from '../../apps/server/src/conversations.ts';
+import type {SyncConversationEntry} from '../../apps/server/src/conversations.ts';
 import {
   exportConversationArchive,
   importConversationArchive,
@@ -3771,6 +3772,170 @@ test('host tools are disabled until acknowledged, and disabling keeps the acknow
     hostTools.updateSettings({enabled: false});
     assert.equal(hostTools.areToolsEnabled(), false);
     assert.equal(hostTools.getSettings().acknowledged, true);
+  } finally {
+    database.close();
+  }
+});
+
+/**
+ * The sidebar is ordered by `updated_at`, which is also its keyset cursor, so
+ * anything that stamps it reorders the list. Opening a conversation rebuilds its
+ * projection from the bound Pi session -- that is a read, and a read must leave
+ * the order alone.
+ */
+function pinUpdatedAt(database: AppDatabase, id: string, updatedAt: string): void {
+  database.connection
+    .prepare('UPDATE conversations SET updated_at = ? WHERE id = ?')
+    .run(updatedAt, id);
+}
+
+function sidebarTitles(repository: ConversationRepository): string[] {
+  return repository.listConversations({}).conversations.map(conversation => conversation.title);
+}
+
+const OPENED_ENTRIES: SyncConversationEntry[] = [
+  {
+    piEntryId: 'entry-user',
+    entryType: 'message',
+    role: 'user',
+    text: 'What is 17 times 23?',
+    createdAt: '2026-07-01T00:00:00.000Z',
+  },
+  {
+    piEntryId: 'entry-assistant',
+    parentPiEntryId: 'entry-user',
+    entryType: 'message',
+    role: 'assistant',
+    text: '391',
+    createdAt: '2026-07-01T00:00:01.000Z',
+  },
+];
+
+async function twoConversations(paths: AppPaths, database: AppDatabase) {
+  const repository = new ConversationRepository(database);
+  await repository.init();
+  const opened = repository.createConversation({title: 'Answered yesterday'});
+  const newest = repository.createConversation({title: 'Answered just now'});
+  const piSessionPath = path.join(paths.piSessionsDir, 'opened.jsonl');
+  repository.attachPiSession(opened.id, {
+    piSessionPath,
+    piSessionId: 'pi-session-1',
+    activeLeafPiEntryId: 'entry-assistant',
+  });
+  // Two rows created in the same millisecond tie on `updated_at`, so pin both.
+  pinUpdatedAt(database, opened.id, '2026-07-01T00:00:00.000Z');
+  pinUpdatedAt(database, newest.id, '2026-07-02T00:00:00.000Z');
+  assert.deepEqual(sidebarTitles(repository), ['Answered just now', 'Answered yesterday']);
+  return {repository, opened, piSessionPath};
+}
+
+test('opening a conversation refreshes its projection without reordering the sidebar', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const {repository, opened, piSessionPath} = await twoConversations(paths, database);
+
+    // A `running` row left behind by a killed server recovers to `ready` on the
+    // next snapshot read. That is a restart artifact, not activity.
+    repository.setConversationStatus(opened.id, 'running');
+    pinUpdatedAt(database, opened.id, '2026-07-01T00:00:00.000Z');
+
+    // Exactly what `getConversationSnapshot()` does when the user clicks the chat:
+    // the same leaf, the same binding, the entries rebuilt from Pi's branch.
+    repository.replaceConversationProjection(opened.id, {
+      piSessionPath,
+      piSessionId: 'pi-session-1',
+      activeLeafPiEntryId: 'entry-assistant',
+      lastSyncedPiEntryId: 'entry-assistant',
+      status: 'ready',
+      entries: OPENED_ENTRIES,
+    });
+
+    assert.equal(repository.getConversation(opened.id)?.status, 'ready');
+    assert.equal(repository.getConversation(opened.id)?.updated_at, '2026-07-01T00:00:00.000Z');
+    assert.deepEqual(sidebarTitles(repository), ['Answered just now', 'Answered yesterday']);
+  } finally {
+    database.close();
+  }
+});
+
+test('a projection that gained an entry moves the conversation to the top', async () => {
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const {repository, opened, piSessionPath} = await twoConversations(paths, database);
+
+    // Pi's session file is append-only, so a new answer moves the leaf.
+    repository.replaceConversationProjection(opened.id, {
+      piSessionPath,
+      piSessionId: 'pi-session-1',
+      activeLeafPiEntryId: 'entry-assistant-2',
+      lastSyncedPiEntryId: 'entry-assistant-2',
+      entries: [
+        ...OPENED_ENTRIES,
+        {
+          piEntryId: 'entry-user-2',
+          parentPiEntryId: 'entry-assistant',
+          entryType: 'message',
+          role: 'user',
+          text: 'And 41 times 19?',
+          createdAt: '2026-07-03T00:00:00.000Z',
+        },
+        {
+          piEntryId: 'entry-assistant-2',
+          parentPiEntryId: 'entry-user-2',
+          entryType: 'message',
+          role: 'assistant',
+          text: '779',
+          createdAt: '2026-07-03T00:00:01.000Z',
+        },
+      ],
+    });
+
+    assert.notEqual(repository.getConversation(opened.id)?.updated_at, '2026-07-01T00:00:00.000Z');
+    assert.deepEqual(sidebarTitles(repository), ['Answered yesterday', 'Answered just now']);
+  } finally {
+    database.close();
+  }
+});
+
+test('reading a snapshot twice through the harness leaves the sidebar order alone', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const repository = new ConversationRepository(database);
+    await repository.init();
+    const opened = repository.createConversation({title: 'Answered yesterday'});
+    const newest = repository.createConversation({title: 'Answered just now'});
+
+    // A real Pi session on disk, so the read path resolves a real leaf id rather
+    // than the one the test would like it to find.
+    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    sessionManager.appendMessage({role: 'user', content: 'What is 17 times 23?'} as never);
+    const assistantEntryId = sessionManager.appendMessage({
+      role: 'assistant',
+      content: '391',
+    } as never);
+    const sessionPath = await writeSessionFile(sessionManager);
+    repository.attachPiSession(opened.id, {
+      piSessionPath: sessionPath,
+      piSessionId: sessionManager.getSessionId(),
+      activeLeafPiEntryId: assistantEntryId,
+    });
+    pinUpdatedAt(database, opened.id, '2026-07-01T00:00:00.000Z');
+    pinUpdatedAt(database, newest.id, '2026-07-02T00:00:00.000Z');
+
+    const harness = new PiHarness(paths, store, repository, new HostToolRepository(database));
+    // Clicking a conversation calls this, and the sidebar is listed right after.
+    const first = await harness.getConversationSnapshot(opened.id);
+    assert.equal(first?.conversation.updatedAt, '2026-07-01T00:00:00.000Z');
+    const second = await harness.getConversationSnapshot(opened.id);
+    assert.equal(second?.conversation.updatedAt, '2026-07-01T00:00:00.000Z');
+    assert.deepEqual(sidebarTitles(repository), ['Answered just now', 'Answered yesterday']);
   } finally {
     database.close();
   }
