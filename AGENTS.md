@@ -63,6 +63,21 @@ Project-specific guidance for AI coding agents.
   user asked for, let llama.cpp load it or fail, and surface the failure: the
   router reports `status.exit_code`, and the child's stderr is already in
   `.nelle/logs/llama-server.log` behind its pid.
+- Cache GGUF metadata by the file's blob oid, never by repo, commit, path or
+  mtime. llama.cpp hands the child `--hf-repo`, so it re-resolves the repo and
+  re-downloads on *every* model load; a chat-template fix lands without Nelle
+  being told. The commit sha is not the file: this repository's HF cache holds two
+  snapshots of `unsloth/gemma-4-26B-A4B-it-qat-GGUF` whose GGUF symlinks point at
+  the same blob. The blob's name is its sha256, the same value the API reports as
+  `lfs.oid`, and Nelle gets it free by taking `realpath` of `/props`
+  `raw.model_path`. Compare it after every load; re-parse only when it moves.
+- Nelle works offline once a model is downloaded, and that is a property of the
+  design rather than a mode: every fact about an installed model comes from the
+  local blob and from `/props`. Hugging Face is needed to browse, and for the
+  trained context window of a model never loaded. llama.cpp itself falls back to
+  its cache when the API is unreachable (`download.cpp:694`), so an offline load
+  works but pays a failed round trip; `offline = 1` in `models.ini` (or
+  `LLAMA_ARG_OFFLINE`, which children inherit) skips it.
 - GGUF metadata has three sources, and the cheapest that answers wins.
   `GET https://huggingface.co/api/models/{repo}` already returns a `gguf` field
   with `architecture`, `context_length` and the parameter count, and Nelle

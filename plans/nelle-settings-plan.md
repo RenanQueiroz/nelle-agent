@@ -755,6 +755,74 @@ Nelle would be modelling llama.cpp's allocator, in a second language, and would 
 confidently wrong for exactly the users who tune those flags. Show the facts from
 the header; let llama.cpp answer the memory question by loading or failing.
 
+### Offline after the download, and never stale
+
+Two requirements that turn out to be the same key.
+
+**llama.cpp re-resolves the repo on every load.** The router hands the child
+`--hf-repo unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL`, not a file path
+(seen in `/models` `status.args`). The child then calls
+`api/models/{repo}/refs` for the branch's commit and
+`api/models/{repo}/tree/{commit}?recursive=true` for the files, and downloads
+anything whose `snapshots/{commit}/{path}` is missing (`hf-cache.cpp:233,311`).
+So a chat-template fix upstream lands in Nelle at the next model load, without
+Nelle being told.
+
+**Offline already works, badly.** With no network and no `--offline`,
+`get_repo_files` throws, logs an error, returns nothing, and
+`common_download_get_hf_plan` falls back to `get_cached_files`
+(`download.cpp:694-697`). A downloaded model loads. But every load pays a failed
+round trip and writes an error into the log.
+
+`--offline` (env `LLAMA_ARG_OFFLINE`) skips the network entirely. It is a
+`models.ini` key like any other — `offline = 1` renders as a bare `--offline`,
+and `offline = 0` is dropped rather than passed as a value
+(`preset.cpp:53-64`) — and the router's environment is inherited by every child
+(`server-models.cpp:255`), so `LLAMA_ARG_OFFLINE=1` on llama-server reaches them
+too. Either is a fine way to expose "work offline"; neither is needed for
+correctness, only for silence.
+
+**The commit sha is the wrong cache key.** On this machine
+`unsloth/gemma-4-26B-A4B-it-qat-GGUF` has two snapshots, `02749a7b…` and
+`c1f25db7…`, and the GGUF in both is a symlink to the _same_ blob,
+`dcf179a9…`. The repo changed; the model file did not. Keying on the commit would
+throw away a good cache every time an upstream README moves.
+
+**The blob oid is the right one.** Hugging Face's cache is content-addressed:
+`snapshots/{commit}/{file}` symlinks to `blobs/{oid}`, and `oid` is the file's
+sha256 — the same value the API reports as `lfs.oid`. Verified against the live
+API and the local cache:
+
+```
+api tree lfs.oid : dcf179a91153e3a7ece792e48ef872180d9d6ef9b7677f0a0bd3e83cfe624d5e
+local blob name  : dcf179a91153e3a7ece792e48ef872180d9d6ef9b7677f0a0bd3e83cfe624d5e
+```
+
+Nelle gets it for nothing: `/props` returns `raw.model_path`, which is the
+snapshot symlink; `realpath` it and take the basename. No network, and no hashing
+of fourteen gigabytes.
+
+So:
+
+- `gguf_metadata` is keyed by **oid**, not by repo, filename, path or mtime. A
+  content hash cannot be stale.
+- `model_cache` gains `model_oid`, the last oid seen for that model.
+- After every successful load — which is the only moment llama.cpp might have
+  swapped the file — compare the oid. If it moved, the model was updated
+  upstream: re-parse the local blob (1.5 s, offline) and replace the derived
+  metadata. If it did not, nothing happens, which is the common case.
+- `/props` is already re-fetched and cached on every server-side load, so the
+  chat template, `canReason` and the modalities are refreshed by the same event.
+  It is only the GGUF-derived fields that need this.
+
+**Offline is then a property of the design, not a mode.** Once a model is
+downloaded, everything Nelle shows about it comes from the local blob and from
+`/props`. Hugging Face is required to _browse_, and for the trained context window
+of a model that has never been loaded. Neither is on the path of using Nelle. In
+particular, `gguf.context_length` from the HF API is a convenience for the browse
+dialog, never a dependency — the same number is in the header of the file on
+disk, and it is the same number llama.cpp reports once the model runs.
+
 ### Notes
 
 - `@huggingface/gguf` pulls `@huggingface/tasks`; together 5.8 MB installed. It is
@@ -767,8 +835,12 @@ the header; let llama.cpp answer the memory question by loading or failing.
 parses to the expected architecture and context length; the HF client asserts the
 `expand[]` query shape and that `blobs=true` is requested when sizes are wanted;
 `size` is non-null for every file in a search result; a repo with no `gguf` field
-degrades to name and downloads rather than throwing; and `webBundle.test.ts` fails
-if `@huggingface/gguf` is imported from `apps/web/src`.
+degrades to name and downloads rather than throwing; `webBundle.test.ts` fails if
+`@huggingface/gguf` is imported from `apps/web/src`; a `model_path` that is a
+symlink resolves to its blob oid; an unchanged oid across two loads re-parses
+nothing; a changed oid re-parses and replaces the cached metadata; and every
+metadata read for an installed model succeeds with `fetch` stubbed to throw, which
+is the only honest test of "works offline".
 
 ## Sequencing
 
