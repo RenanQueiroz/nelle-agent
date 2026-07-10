@@ -6,6 +6,7 @@ export type AppPaths = {
   dataDir: string;
   downloadsDir: string;
   attachmentsDir: string;
+  uploadsDir: string;
   llamaDir: string;
   llamaBinDir: string;
   llamaSrcDir: string;
@@ -32,6 +33,7 @@ export function createAppPaths(): AppPaths {
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
     attachmentsDir: path.join(dataDir, 'attachments'),
+    uploadsDir: path.join(dataDir, 'uploads'),
     llamaDir,
     llamaBinDir: path.join(llamaDir, 'bin'),
     llamaSrcDir: path.join(llamaDir, 'src'),

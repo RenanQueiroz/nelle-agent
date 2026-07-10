@@ -672,6 +672,7 @@ async function createTempPaths(): Promise<AppPaths> {
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
     attachmentsDir: path.join(dataDir, 'attachments'),
+    uploadsDir: path.join(dataDir, 'uploads'),
     llamaDir,
     llamaBinDir: path.join(llamaDir, 'bin'),
     llamaSrcDir: path.join(llamaDir, 'src'),

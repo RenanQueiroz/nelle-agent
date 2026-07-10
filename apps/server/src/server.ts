@@ -21,6 +21,7 @@ import {AppDatabase} from './database';
 import {exportConversationArchive, importConversationArchive} from './conversationArchive';
 import {HostToolRepository} from './hostTools';
 import {PreferencesRepository} from './preferences';
+import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './uploads';
 import {ModelCacheRepository} from './modelCache';
 import {
   ConversationRepository,
@@ -132,6 +133,7 @@ export async function createServer(paths: AppPaths) {
   const hostTools = new HostToolRepository(database);
   const preferences = new PreferencesRepository(database);
   const modelCache = new ModelCacheRepository(database);
+  const uploads = new UploadRepository(database, paths);
   const llama = new LlamaCppManager(paths, store);
   const hf = new HuggingFaceService(store);
   const pi = new PiHarness(paths, store, conversations, hostTools, llama, modelCache);
@@ -142,6 +144,12 @@ export async function createServer(paths: AppPaths) {
     paths,
     conversations.getReferencedAttachmentStoragePaths(),
   );
+  // Draft uploads nobody sent are garbage after their TTL, and a crash between
+  // `mkdir` and `INSERT` leaves a directory no row points at.
+  const uploadSweep = {
+    ...(await uploads.sweepExpired()),
+    orphanDirectories: (await uploads.sweepOrphanDirectories()).deleted,
+  };
 
   const app = Fastify({
     logger: {
@@ -151,6 +159,24 @@ export async function createServer(paths: AppPaths) {
   if (attachmentSweep.deleted > 0 || attachmentSweep.failed.length > 0) {
     app.log.info({attachmentSweep}, 'completed orphan attachment sweep');
   }
+  if (uploadSweep.deleted > 0 || uploadSweep.orphanDirectories > 0) {
+    app.log.info({uploadSweep}, 'completed expired upload sweep');
+  }
+  const uploadSweepTimer = setInterval(() => {
+    void uploads
+      .sweepExpired()
+      .then(result => {
+        if (result.deleted > 0) {
+          app.log.info({uploadSweep: result}, 'swept expired uploads');
+        }
+        return result;
+      })
+      .catch(error => {
+        app.log.warn({error}, 'expired upload sweep failed');
+      });
+  }, UPLOAD_SWEEP_INTERVAL_MS);
+  // A timer that keeps the process alive would hang `npm run test:unit`.
+  uploadSweepTimer.unref();
   // Every route validates its body with zod before it writes anything, including
   // the SSE routes, which call `parse` above `writeHead`. So a schema failure can
   // always become an ordinary response -- and it must, because Fastify's default
@@ -175,6 +201,7 @@ export async function createServer(paths: AppPaths) {
     origin: true,
   });
   app.addHook('onClose', async () => {
+    clearInterval(uploadSweepTimer);
     database.close();
   });
   registerLlamaProxy(app, store);

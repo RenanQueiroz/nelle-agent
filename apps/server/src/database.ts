@@ -204,6 +204,32 @@ const MIGRATIONS: Migration[] = [
     `,
     isApplied: db => tableHasColumn(db, 'model_cache', 'can_reason'),
   },
+  {
+    version: 8,
+    name: 'uploads',
+    checksum: '2026-07-09-uploads',
+    // Draft attachments the client has uploaded but not sent. Distinct from the
+    // content-addressed `attachments` tree, which only holds sent payloads. An
+    // unbound row is garbage after its TTL; a bound one belongs to a message.
+    sql: `
+      CREATE TABLE IF NOT EXISTS uploads (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        mime_type TEXT,
+        size_bytes INTEGER NOT NULL,
+        storage_path TEXT NOT NULL,
+        text_content TEXT,
+        created_at TEXT NOT NULL,
+        bound_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS uploads_unbound_created_at
+        ON uploads (bound_at, created_at);
+    `,
+    isApplied: db => tableExists(db, 'uploads'),
+  },
 ];
 
 /** The proof-of-concept default chat was stored under this id. */
