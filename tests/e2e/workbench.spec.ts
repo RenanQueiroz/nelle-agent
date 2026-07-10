@@ -1512,8 +1512,10 @@ test('renders PDFs as image attachments for vision models', async ({page}) => {
   let streamCalls = 0;
   let requestBody: {message?: string; attachments?: MockAttachmentRequest[]} | null = null;
   const pdfPath = path.join(repoRoot, '.nelle-e2e', 'vision-attachment.pdf');
+  const notePath = path.join(repoRoot, '.nelle-e2e', 'vision-attachment-note.txt');
   await fs.mkdir(path.dirname(pdfPath), {recursive: true});
   await fs.writeFile(pdfPath, simplePdfBuffer('Render this PDF as an image'));
+  await fs.writeFile(notePath, 'A note, which no amount of rendering turns into a page image.');
 
   await page.route('**/api/state', async route => {
     await route.fulfill({
@@ -1610,13 +1612,25 @@ test('renders PDFs as image attachments for vision models', async ({page}) => {
   });
 
   await page.goto('/');
-  await expect(page.getByLabel('Render PDFs as images')).toBeVisible();
-  await page.getByLabel('Render PDFs as images').check();
+  // Nothing is attached, so there is no drawer and nothing to switch.
+  await expect(page.getByTestId('attachment-drawer')).toHaveCount(0);
+  await expect(page.getByLabel('Render PDFs as images')).toHaveCount(0);
+
+  // A text file on a vision model opens the drawer, but the switch governs PDFs
+  // and there is no PDF, so it stays away.
+  await page.locator('input[aria-label="Attach files"]').setInputFiles(notePath);
+  await expect(page.getByTestId('attachment-drawer')).toContainText('vision-attachment-note.txt');
+  await expect(page.getByLabel('Render PDFs as images')).toHaveCount(0);
+  await page.getByTestId('attachment-drawer').locator('.astryx-token button').first().click();
+  await expect(page.getByTestId('attachment-drawer')).toHaveCount(0);
+
   await page.locator('input[aria-label="Attach files"]').setInputFiles(pdfPath);
 
   // The PDF is one chip now: the server renders its pages at send time, so the
-  // composer no longer holds twenty PNGs the user may never send.
+  // composer no longer holds twenty PNGs the user may never send -- and the
+  // switch can sit beside the PDF it governs, rather than above an empty drawer.
   await expect(page.getByTestId('attachment-drawer')).toContainText('vision-attachment.pdf');
+  await page.getByLabel('Render PDFs as images').check();
   await fillComposer(page, 'describe this PDF');
   await page.getByLabel('Message input').press('Enter');
 

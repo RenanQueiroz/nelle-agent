@@ -435,6 +435,10 @@ Project-specific guidance for AI coding agents.
 - Composer attachments are text files, PDFs, and images only. Gate images and
   PDF-as-image mode on selected-model `modalities.vision`; do not expose
   audio/video attachments while Pi's structured input path is text plus image.
+- The attachment drawer renders only when something is attached, and the
+  "Render PDFs as images" switch only when one of them is a PDF. The server
+  renders pages at send time, so the switch may be flipped after the PDF is
+  attached; it no longer has to be armed in advance above an empty drawer.
 - Attachments are uploaded, not embedded. The client posts bytes to
   `POST /api/uploads`; the server classifies them, rejects a binary file posing
   as text, extracts PDF text with `pdfjs-dist`, and answers with an `uploadId`.

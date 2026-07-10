@@ -287,10 +287,15 @@ export function ChatComposerPanel({
       }
       headerContext={<ContextWindowUsage context={contextUsage} />}
       drawer={
-        attachments.length > 0 || activeModelSupportsVision ? (
+        attachments.length > 0 ? (
           <AttachmentDrawer
             attachments={attachments}
-            canRenderPdfImages={activeModelSupportsVision}
+            // The switch changes what happens to a PDF at send time, so it
+            // belongs beside one. Without a PDF it controlled nothing, and an
+            // empty drawer announced "0 Attachments" over it.
+            canRenderPdfImages={
+              activeModelSupportsVision && attachments.some(attachment => attachment.kind === 'pdf')
+            }
             pdfImageModeEnabled={isPdfImageModeEnabled}
           />
         ) : undefined

@@ -101,7 +101,8 @@ Implemented:
     file, refuses a binary posing as text, and extracts PDF text.
   - Images, and PDFs rendered server-side as page images, are sent through Pi's
     structured image input only when the selected llama.cpp model reports vision
-    support.
+    support. The attachment drawer appears with the first attachment, and the
+    "Render PDFs as images" switch alongside the first PDF.
   - Draft uploads live under `.nelle/uploads/` and are swept 24h after the last
     unsent one. Sent image payloads are stored content-addressed under
     `.nelle/attachments/`; attachment metadata is stored in SQLite and shown on
