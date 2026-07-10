@@ -546,6 +546,14 @@ Project-specific guidance for AI coding agents.
   Rendering, drafts, optimistic UI, scroll, and live run state stay in the
   client, as does `canAbort`/`canCompact`, which the client tracks more freshly
   than any payload can carry.
+- Use `plans/nelle-settings-plan.md` as the source of truth for which of
+  llama.cpp's webui settings Nelle adopts and where each one lives. It records
+  why the rest are skipped, so the question does not get reopened by accident:
+  Pi owns the agent loop and the context, `max_tokens` must never be advertised
+  to Pi, and PDF-as-image was removed on purpose. Two measurements in it are
+  load-bearing: Pi sends no sampling parameters at all, so injecting them through
+  `agent.onPayload` cannot fight it; and gemma's vision encoder saturates near
+  0.8 MP, so an image-resolution cap saves bytes, not context tokens.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components
