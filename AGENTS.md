@@ -48,6 +48,19 @@ Project-specific guidance for AI coding agents.
   `max_tokens` to 1 and every answer stops after one word with
   `finish_reason: "length"`. Keep the arithmetic in
   `packages/shared/src/piContext.ts` and warn when the reply budget is exhausted.
+  `plans/nelle-settings-plan.md` Phase 4 removes this default: llama.cpp's own
+  `--ctx-size` default is `0`, meaning the model's trained window, and Nelle caps
+  gemma-4-26B at 6% of its 262,144 tokens. Until that lands the default stays,
+  because with it gone nothing tells Pi the real window.
+- The context window a conversation gets is llama.cpp's to report, not Nelle's to
+  assume. `/props` `default_generation_settings.n_ctx` is the per-conversation
+  window -- with `kv_unified = true` each of the four slots sees the whole thing --
+  and it is already cached in `model_cache.context_window`. The router also
+  reports `raw.meta.n_ctx_train`, the model's full window, on
+  `GET /api/llama/models` once it has loaded it. `writePiModels` tells Pi
+  `model.params.contextSize` instead, which `contextSizeFromParams` derives from
+  the `c` key with a 16384 fallback; the day `c` stops being written, that
+  fallback becomes a lie.
 - Never advertise a fixed `maxTokens` to Pi. Scale it with the context window
   (`replyTokenBudget`); Pi clamps it down against the live context anyway.
 - Pi charges a flat `PI_ESTIMATED_IMAGE_TOKENS` (1200) against its context

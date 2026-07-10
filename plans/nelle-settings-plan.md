@@ -10,8 +10,10 @@ the agent loop, the context, the tool calls, and the session file, and fighting
 it for those knobs would buy complexity and nothing else.
 
 A handful, though, are things Nelle already does badly or not at all: it
-generates conversation titles with a prompt nobody can see or change, and it
-gives the user no way to tell the model who they are.
+generates conversation titles with a prompt nobody can see or change, it gives
+the user no way to tell the model who they are, and it caps every model at 16,384
+tokens of context — six percent of what gemma-4-26B was trained for — while
+telling Pi that number as though llama.cpp had said it.
 
 This plan takes the settings worth taking, says plainly why the rest are skipped,
 and puts every one of them on the server. A setting whose rule lives in the
@@ -40,9 +42,11 @@ Following `plans/nelle-thin-client-plan.md`:
   whether the transcript auto-scrolls — lives in the `settings` table too, under
   the `preferences` key, because it should follow the user to their phone. The
   _applying_ stays in the client; only the storage moves.
-- **A property of the model** — temperature, top-k, min-p, seed — lives in
-  `models.ini`, per section, with `[*]` as the global default. Nelle already
-  writes that file losslessly.
+- **A property of the model** — temperature, top-k, min-p, seed, and the context
+  cap — lives in `models.ini`, per section, with `[*]` as the global default.
+  Nelle already writes that file losslessly. What the model _actually_ runs with
+  is llama.cpp's to report, not Nelle's to assume: the context window comes back
+  from `/props` and everything computes from that.
 - **Genuinely local state** — sidebar collapse, open settings section, drafts —
   stays in the browser stores, as it does today.
 
@@ -130,6 +134,56 @@ the one a settings editor invites, and Nelle's
 `validateEditableParams` (`server.ts:1261`) checks syntax and reserved keys but
 never asks whether the key is real. Routing sampling through `models.ini` makes
 that gap much easier to hit, which is why Phase 3 exists.
+
+## The Context Window Is llama.cpp's To Report
+
+Nelle invents a context window and tells nobody who could correct it.
+
+**llama.cpp already defaults to the model's own window.** `-c, --ctx-size N` is
+`(default: 0, 0 = loaded from model)`. Nelle overrides it with `c = 16384` in
+`models.ini`'s `[*]` section (`store.ts:49`), which is not llama.cpp's default —
+it is ours, added because Pi's system prompt plus its 4,096-token reserve made an
+8k window useless.
+
+**The models we ship against want far more.** The router reports both numbers
+once it has loaded a model, on `GET /api/llama/models` as `raw.meta`:
+
+| Model           | `n_ctx` (ours) | `n_ctx_train` (the model's) |
+| --------------- | -------------- | --------------------------- |
+| gemma-4-26B-A4B | 16,384         | 262,144                     |
+| Qwen3.6-35B-A3B | 16,384         | 262,144                     |
+| tinygemma3      | 8,192          | 131,072                     |
+
+Nelle caps every one of them at six percent of the window it was trained for, and
+then passes `raw.meta` through to clients without ever reading it.
+
+**`/props` reports the effective window per conversation.**
+`default_generation_settings.n_ctx` is 16,384, and the log confirms
+`n_slots = 4, n_ctx_slot = 16384, kv_unified = 'true'` — with a unified KV cache
+each slot sees the whole window, so the number in `/props` is the number a
+conversation actually gets. Nelle already parses it into
+`LlamaModelProps.contextWindow` and caches it in `model_cache.context_window`.
+Nothing reads it for arithmetic.
+
+**Pi is told Nelle's number, not llama.cpp's.** `writePiModels`
+(`piHarness.ts:1766`) sets `contextWindow: model.params.contextSize`, and
+`contextSizeFromParams` (`store.ts:528`) derives that from the `c` or `ctx-size`
+key with a hardcoded 16,384 fallback. Today the two agree by construction. The
+moment `c` stops being written, that fallback becomes a lie: Pi would clamp
+`max_tokens` against 16,384 while llama.cpp ran a 262,144-token window, the
+context bar would call a 20k prompt an overflow, and the image budget would
+refuse a message that fits ten times over.
+
+**A per-model `c` already overrides `[*]`.** Verified against the real binary:
+`ctx_preset.cascade` applies the global section and then the model's. So a
+per-model cap needs no new storage — it is a key in the section Nelle already
+writes.
+
+**The memory is the reason to allow a cap.** The KV cache scales linearly with
+the context, so a 262,144-token window wants sixteen times the KV allocation of
+today's 16,384, and llama.cpp asks for all of it at load. A machine that cannot
+give it gets a model that will not load. That is the user's trade to make, not
+ours to make for them silently.
 
 ## Image Resolution Is Not A Token Lever
 
@@ -413,7 +467,105 @@ when nothing is close; a missing binary yields `available: false` and lets any
 key through; a stale cache is invalidated when the binary's mtime changes; and an
 e2e that types `temprature`, saves, and sees that row marked with the suggestion.
 
-## Phase 4: Display Preferences
+## Phase 4: Stop Inventing A Context Window
+
+Nelle stops writing `c`, llama.cpp uses the model's own window, the user may cap
+it, and every number Nelle computes comes from what llama.cpp reports back.
+
+### The effective window, resolved once
+
+```ts
+/** What a conversation on this model actually gets, or `null` while unknown. */
+function effectiveContextWindow(modelId: string): number | null {
+  return modelCache.getContextWindow(modelId) ?? configuredContextCap(modelId) ?? null;
+}
+```
+
+- `model_cache.context_window` is llama.cpp's own `/props` answer and always
+  wins. It is already written on every successful props fetch, including the one
+  the server performs after it loads a model for a run.
+- The configured cap is the `c` key — global in `[*]`, per-model in the model's
+  section, the latter overriding the former, which is llama.cpp's own cascade.
+  It is only a _prediction_ of what llama.cpp will do; once loaded, `/props` is
+  the truth.
+- `null` means "never loaded and never capped". It is an honest answer and must
+  be handled as one, not papered over with a constant.
+
+Every current reader of `model.params.contextSize` moves to it:
+`writePiModels` (`piHarness.ts:1766`), the reply-budget warning
+(`piHarness.ts:781`), the live context tracker (`piHarness.ts:764`,
+`directLlama.ts:78`), the snapshot's context total (`piHarness.ts:530` and
+`conversations.ts`), and the image budget (`server.ts:954`).
+
+### What `null` means at each call site
+
+- **The context bar** shows usage with no total. `contextUsageStatus` already
+  returns `ok` when `totalTokens` is missing, so the bar stays plain rather than
+  claiming a percentage it cannot know.
+- **The image pre-flight** is skipped. `maxAffordableImages` needs a window; with
+  none, no message is refused up front, and the run-time
+  `reply_budget_exhausted` error still catches a payload Pi cannot answer within.
+  Refusing on a guess would be the one thing worse than not refusing.
+- **Pi must never see `null`.** It bakes `contextWindow` into the session at
+  construction. The chat and regenerate routes already call
+  `ensureModelReadyForRun` — which loads the model and caches its props — before
+  `createChatStream`, so by the time `ensureSession` runs the window is known.
+  Make that an invariant with an assertion rather than a comment, because the
+  other two callers (title generation, the direct-llama fallback) do not load
+  first and must supply the cap or bail.
+
+### Sessions are rebuilt when the window changes
+
+Pi reads `contextWindow` from `.pi/models.json` at session creation and clamps
+against it for the session's life. Changing the cap, or loading a model for the
+first time and learning its real window, must call `pi.resetSession()` — the
+same thing `PATCH /api/settings/host-tools` already does. Otherwise a session
+created before the first load keeps clamping against a number nobody believes.
+
+### The full window becomes visible
+
+`model_cache` gains `context_train`, read from the router's `raw.meta.n_ctx_train`
+on `GET /api/llama/models`, which Nelle already receives and discards. Settings →
+Models can then say **"Full window: 262,144 · running at 16,384"**, and a cap can
+be validated against it instead of accepted blindly.
+
+`n_ctx_train` is only known after a model has been loaded once. Before that the
+UI says "the model's full window" and means it.
+
+### Migrating installs that already have `c = 16384`
+
+`[*] c = 16384` is written into every existing `models.ini` by Nelle, not by the
+user. But a user who deliberately typed `16384` is indistinguishable from Nelle
+having typed it, so the migration is narrow and stated plainly:
+
+- Remove `c` from `[*]` **only if its value is exactly the old default**, once,
+  recorded in `state.json` so it never runs twice.
+- Any other value is the user's and is left alone.
+- `DEFAULT_STATE.globalModelParams` becomes `{}` and `DEFAULT_PARAMS.contextSize`
+  disappears. `contextSizeFromParams`'s 16,384 fallback goes with it; there is no
+  fallback, only `null`.
+
+### Two things to verify before building
+
+- **What llama.cpp says when the KV cache will not fit.** The model fails to
+  load; Nelle already reports `model_load_failed`. Whether the message names
+  memory, and whether the failure is distinguishable from any other load failure,
+  is unverified. If it is, the error should suggest capping `c`; if it is not,
+  the error should say so rather than guess.
+- **`contextSizeFromParams` reads only `c` and `ctx-size`.** After Phase 3 a user
+  can legitimately write `LLAMA_ARG_CTX_SIZE`, which llama.cpp accepts and Nelle
+  would ignore. The catalogue from Phase 3 supplies the alias set; use it, which
+  is a good reason to land Phase 3 first.
+
+**Tests.** `/props` beats the configured cap; a per-model `c` beats `[*]`;
+`writePiModels` writes the effective window and `replyTokenBudget` of it; a
+session is reset when the window changes; `null` leaves the snapshot without a
+total, skips the image pre-flight, and never reaches Pi; the migration strips
+exactly `16384` from `[*]` and leaves `8192` alone, and does not run twice; and a
+capped model reports the cap from `/props` after loading, which is the only proof
+that the cap did anything.
+
+## Phase 5: Display Preferences
 
 Pure storage relocation. Each becomes a key under `preferences`, defaulting to
 today's behaviour, and the browser reads it instead of a hardcoded constant:
@@ -431,7 +583,7 @@ Favourites already live here. Nothing new is invented; the list grows.
 untouched (so an older server does not eat a newer client's preference), and a
 malformed row falls back to defaults rather than throwing.
 
-## Phase 5: Paste Long Text To A File
+## Phase 6: Paste Long Text To A File
 
 The composer catches a paste of more than `pasteToFileCharacters` characters
 (default 2500, `0` disables) and posts it to `POST /api/uploads` as a `.txt`
@@ -445,7 +597,7 @@ cheapest real improvement in this plan.
 2,000, see them in the composer; set the threshold to `0` and paste 100,000,
 see them in the composer.
 
-## Phase 6: Maximum Image Resolution
+## Phase 7: Maximum Image Resolution
 
 Downscale on upload, in `ingestUpload`, with `@napi-rs/canvas` — already a
 dependency for PDF rendering. Default `0` (off), because on gemma it buys nothing
@@ -475,11 +627,16 @@ no gain).
 3. **Phase 3 (model param validation)** — before anyone is encouraged to type
    `temp` into the params editor and take llama.cpp down with a typo. Covers the
    global `[*]` params and the per-model params, and marks the offending rows
-   rather than printing one sentence above a form.
-4. **Phase 5 (paste to file)** — cheapest user-visible win.
-5. **Phase 2 (custom instructions)** — the one people ask for.
-6. **Phase 4 (display preferences)** — mechanical.
-7. **Phase 6 (image cap)** — optional, and honest about being optional.
+   rather than printing one sentence above a form. Its option catalogue is what
+   Phase 4 needs to recognise every spelling of `ctx-size`.
+4. **Phase 4 (context window)** — the riskiest change here, and the one that
+   makes the other numbers true. It removes a default that has been quietly
+   correct-by-construction, so it wants the validation of Phase 3 underneath it
+   and a careful eye on the `null` paths.
+5. **Phase 6 (paste to file)** — cheapest user-visible win.
+6. **Phase 2 (custom instructions)** — the one people ask for.
+7. **Phase 5 (display preferences)** — mechanical.
+8. **Phase 7 (image cap)** — optional, and honest about being optional.
 
 ## Risks
 
@@ -497,3 +654,12 @@ no gain).
 - **A settings schema served over HTTP is a contract.** Renaming a key breaks a
   client that stored it. Treat `SETTINGS_KEYS` the way `NELLE_ERROR_CODES` is
   treated.
+- **Removing the context default changes memory behaviour for every install.**
+  gemma-4-26B goes from asking for a 16,384-token KV cache to asking for
+  262,144. A machine that was fine yesterday may not load the model today, and
+  the fix — cap `c` — has to be discoverable from the failure. Phase 4 is not a
+  settings change; it is a resource change wearing a settings change's clothes.
+- **`null` is a real value for the context window.** Every arithmetic site must
+  say what it does with "unknown" rather than reaching for a constant. The one
+  that matters is the image pre-flight: it must skip, not refuse, because
+  refusing on an unknown window would reject messages that fit.
