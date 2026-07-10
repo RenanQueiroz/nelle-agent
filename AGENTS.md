@@ -489,6 +489,13 @@ Project-specific guidance for AI coding agents.
   returns `Promise<void>`. `ManagedSession.session` is typed `any`, so treating
   the result as a promise compiles and then throws at runtime. Await it through
   `abortSessionRetry()`.
+- The composer stays disabled until `activeConversationId` is non-empty. It is
+  empty until the conversation list resolves, and a message sent then had nowhere
+  to go: `handleChatSubmit` returned early and the typed text was lost. Astryx
+  renders the composer as a `contenteditable` div and sets it to `"false"` when
+  disabled, which Playwright's `toBeEditable` reports as *editable* while `fill`
+  throws on it; e2e tests must wait on the attribute, which is what
+  `fillComposer` does.
 - Do not set `ChatComposer` `isDisabled` while a run streams or compacts. Astryx
   dims the composer to 0.6 opacity and sets `pointer-events: none` on the whole
   subtree, which makes the stop button unclickable and lets the transcript show

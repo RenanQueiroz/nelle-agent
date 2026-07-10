@@ -2600,6 +2600,74 @@ test('an unavailable conversation offers repair, rebuild, and delete', async ({p
   await expect(page.getByText('Saved in SQLite')).toBeVisible();
 });
 
+test('a message typed before the conversation opens is not swallowed', async ({page}) => {
+  const model = {
+    id: 'model-1',
+    name: 'Model One',
+    presetName: 'model-one',
+    source: 'huggingface',
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    hfRef: 'repo/model:UD-Q4_K_M',
+    params: {contextSize: 8192},
+    createdAt: '2026-07-07T12:00:00.000Z',
+  };
+  const runtime = {
+    platform: 'linux',
+    arch: 'x64',
+    dataDir: '/tmp/nelle',
+    binaryPath: '/tmp/llama-server',
+    installMode: 'external',
+    installed: true,
+    installedVersion: 'external:/tmp/llama-server',
+    latestVersion: null,
+    updateAvailable: false,
+    running: true,
+    pid: 123,
+    host: '127.0.0.1',
+    port: 8080,
+    activeModelId: model.id,
+    lastError: null,
+  };
+  let streamCalls = 0;
+
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {state: {activeModelId: model.id, models: [model], chat: []}, runtime},
+    });
+  });
+  await page.route('**/api/runtime', async route => {
+    await route.fulfill({json: runtime});
+  });
+  await page.route('**/api/conversations/legacy-default/chat/stream', async route => {
+    streamCalls += 1;
+    await route.fulfill({
+      headers: {'content-type': 'text/event-stream; charset=utf-8'},
+      body: '',
+    });
+  });
+
+  // Hold the conversation list back, so the composer has nowhere to send to.
+  let releaseConversations: (() => void) | undefined;
+  const conversationsHeld = new Promise<void>(resolve => {
+    releaseConversations = resolve;
+  });
+  await mockConversationRoutes(page, {chat: [], beforeList: () => conversationsHeld});
+
+  await page.goto('/');
+  const input = page.getByLabel('Message input');
+  await expect(input).toBeVisible();
+  // Until the app knows which chat this is, the composer refuses to take a
+  // message rather than accepting one and dropping it on the floor.
+  await expect(input).toHaveAttribute('contenteditable', 'false');
+  expect(streamCalls).toBe(0);
+
+  releaseConversations?.();
+  await fillComposer(page, 'now it can go somewhere');
+  await input.press('Enter');
+  await expect.poll(() => streamCalls).toBe(1);
+});
+
 test('deleting the last conversation leaves an empty sidebar', async ({page}) => {
   await mockConversationRoutes(page, {chat: []});
 
@@ -3326,6 +3394,8 @@ async function mockConversationRoutes(
   input: {
     chat: MockChatMessage[];
     conversations?: MockConversation[];
+    /** Awaited before the list is served, to hold the app in its loading state. */
+    beforeList?: () => Promise<void>;
     importedChat?: MockChatMessage[];
     onCompact?: (instructions?: string) => void;
     onClone?: (conversationId: string, body: {entryId?: string; title?: string}) => void;
@@ -3615,6 +3685,7 @@ async function mockConversationRoutes(
       return;
     }
     if (pathname === '/api/conversations' && request.method() === 'GET') {
+      await input.beforeList?.();
       await route.fulfill({json: paginateConversations(conversations, url)});
       return;
     }
@@ -3763,14 +3834,18 @@ function contextFromChat(chat: MockChatMessage[]) {
 }
 
 /**
- * Astryx renders the composer as a contenteditable div and drops the attribute
- * while it is disabled, which it is until `/api/state` names an active model.
- * `fill` throws immediately on a plain div rather than retrying, so a test that
- * types straight after `goto` races the app's first render.
+ * Astryx renders the composer as a contenteditable div and sets
+ * `contenteditable="false"` while it is disabled, which it is until `/api/state`
+ * names a model and the conversation list resolves. `fill` throws immediately on
+ * such a div rather than retrying, so a test that types straight after `goto`
+ * races the app's first render.
+ *
+ * `toBeEditable` does not catch this: Playwright reports a `contenteditable
+ * ="false"` div as editable. The attribute is the only honest signal.
  */
 async function fillComposer(page: Page, text: string): Promise<void> {
   const input = page.getByLabel('Message input');
-  await expect(input).toBeEditable();
+  await expect(input).toHaveAttribute('contenteditable', 'true');
   await input.fill(text);
 }
 

@@ -1085,7 +1085,13 @@ export function App() {
     const prompt = normalizeComposerValue(value);
     const conversationId = activeConversationId;
     const composer = useComposerStore.getState();
-    if (!prompt || !conversationId) {
+    if (!prompt) {
+      return;
+    }
+    if (!conversationId) {
+      // The composer is disabled until a conversation is open, so this is a race
+      // rather than a click. Hand the text back instead of swallowing it.
+      restoreComposerDraft(prompt);
       return;
     }
     if (isActiveConversationBusy) {

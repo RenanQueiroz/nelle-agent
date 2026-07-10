@@ -255,7 +255,12 @@ export function ChatComposerPanel({
       // Astryx sets pointer-events: none on the whole composer when isDisabled
       // is set, which would also kill the stop button. Stay enabled during a
       // run and reject sends instead.
-      isDisabled={!activeModel || !isRuntimeRunning || !hasActiveConversation}
+      //
+      // `conversationId` is empty until the conversation list resolves. Sending
+      // then had nowhere to go, and the typed message was dropped on the floor.
+      // Blocking for that moment costs nothing: `hasActiveConversation` is still
+      // true, so no status bar accuses the user of having no chat.
+      isDisabled={!activeModel || !isRuntimeRunning || !hasActiveConversation || !conversationId}
       isStopShown={isStreaming || isCompacting}
       onStop={onStop}
       headerActions={
