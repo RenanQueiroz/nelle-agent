@@ -92,6 +92,9 @@ export function dataUrlByteLength(dataUrl: string): number {
 }
 
 export const ATTACHMENT_MESSAGES = {
+  /** Says what changed, because the user's file is not what reaches the model. */
+  downscaled: (name: string, megapixels: number) =>
+    `${name} was downscaled to ${megapixels.toFixed(1)} megapixels.`,
   unsupportedKind: (name: string) =>
     `${name} is not a supported text, PDF, or image attachment.` as const,
   binaryFile: (name: string) =>

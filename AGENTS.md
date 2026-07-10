@@ -717,8 +717,14 @@ false`, which *skips* the unknown-key check: refusing to save a parameter
   `option '...' not recognized in preset` -- while a bad *value* only fails the
   model load, so validate keys and do not guess at values.
 - gemma's vision encoder saturates near 0.8 MP (104/208/282/282/276 prompt tokens
-  from 0.2 to 6.0 MP), so an image-resolution cap saves bytes and prompt
-  processing, not context tokens.
+  from 0.2 to 6.0 MP), so `attachments.maxImageMegapixels` saves bytes and prompt
+  processing, not context tokens. It defaults to `0` (off), because on gemma it
+  buys no context and a silent quality loss is a bad default; other encoders tile
+  rather than saturate, so the saving is a property of the model. An image
+  already under the cap is never re-encoded -- re-encoding a JPEG at quality 90
+  twice is a real quality loss for no gain -- and a downscale says so in a
+  warning. Rendered PDF pages take the smaller of the cap and
+  `MAX_RENDERED_EDGE_PX`.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components

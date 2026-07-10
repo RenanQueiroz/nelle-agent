@@ -19,6 +19,9 @@ export const PASTE_TO_FILE_CHARACTERS_KEY = 'pasteToFileCharacters';
 /** Appended to Nelle's operational system prompt, never replacing it. */
 export const CUSTOM_INSTRUCTIONS_KEY = 'customInstructions';
 
+/** Downscale an uploaded image above this many megapixels. `0` disables. */
+export const MAX_IMAGE_MEGAPIXELS_KEY = 'maxImageMegapixels';
+
 /**
  * Saving one of these rebuilds Pi's cached sessions.
  *

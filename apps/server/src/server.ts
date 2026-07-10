@@ -55,7 +55,11 @@ import {
   type SettingsGroup,
   type SettingsValues,
 } from '../../../packages/shared/src/settings.ts';
-import {SESSION_RESETTING_SETTINGS_SLUGS} from '../../../packages/shared/src/settingsKeys.ts';
+import {
+  ATTACHMENTS_SETTINGS_SLUG,
+  MAX_IMAGE_MEGAPIXELS_KEY,
+  SESSION_RESETTING_SETTINGS_SLUGS,
+} from '../../../packages/shared/src/settingsKeys.ts';
 import {
   invalidModelParamsCode,
   invalidModelParamsMessage,
@@ -1040,12 +1044,17 @@ export async function createServer(
       // pages. The per-message limits are checked after that expansion, because a
       // six-page scan is six attachments. Runs after the load, so `model_cache`
       // can answer whether the model sees images.
-      const resolved = await resolveChatAttachments(uploads, body.attachments ?? [], {
-        // llama.cpp's answer if it has one, else the configured cap, else `null`
-        // -- which skips the pre-flight rather than refusing on a guess.
-        contextSize: activeModel ? effectiveContextWindow(activeModel, modelCache) : null,
-        visionSupport: activeModel ? modelCache.getVisionSupport(activeModel.id) : null,
-      });
+      const resolved = await resolveChatAttachments(
+        uploads,
+        body.attachments ?? [],
+        {
+          // llama.cpp's answer if it has one, else the configured cap, else
+          // `null` -- which skips the pre-flight rather than refusing on a guess.
+          contextSize: activeModel ? effectiveContextWindow(activeModel, modelCache) : null,
+          visionSupport: activeModel ? modelCache.getVisionSupport(activeModel.id) : null,
+        },
+        {maxImageMegapixels: attachmentSetting(settings, MAX_IMAGE_MEGAPIXELS_KEY)},
+      );
       assertSupportedAttachments(resolved.attachments, modelCache, await store.getState());
       for (const reference of body.attachments ?? []) {
         uploads.markBound(reference.uploadId);
@@ -1097,7 +1106,12 @@ export async function createServer(
     const conversationId = fieldValue(file.fields.conversationId);
     let ingested;
     try {
-      ingested = await ingestUpload({name: file.filename, mimeType: file.mimetype, bytes});
+      ingested = await ingestUpload({
+        name: file.filename,
+        mimeType: file.mimetype,
+        bytes,
+        maxImageMegapixels: attachmentSetting(settings, MAX_IMAGE_MEGAPIXELS_KEY),
+      });
     } catch (error) {
       return reply.status(400).send({error: unsupportedAttachmentError(error)});
     }
@@ -1436,6 +1450,12 @@ async function ensureModelReadyForRun(input: {
     // cache entry costs a capability, not the run.
     input.log.warn({err: error, modelId: input.modelId}, 'could not cache model props after load');
   }
+}
+
+/** A numeric attachment setting, or `undefined` when the registry lacks the group. */
+function attachmentSetting(settings: SettingsRepository, key: string): number | undefined {
+  const value = settings.tryGetGroup(ATTACHMENTS_SETTINGS_SLUG)?.[key];
+  return typeof value === 'number' ? value : undefined;
 }
 
 /** llama.cpp is not running, so no run of any kind can start. */

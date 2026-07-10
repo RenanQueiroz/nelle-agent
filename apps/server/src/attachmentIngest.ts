@@ -43,6 +43,60 @@ export type UploadReader = {
 /** Rendered pages are capped on the long edge, as the browser capped them. */
 const MAX_RENDERED_EDGE_PX = 1600;
 const MAX_RENDER_SCALE = 2;
+/** Re-encoding a JPEG at 90 twice is a real quality loss for no gain. */
+const JPEG_QUALITY = 0.9;
+
+/**
+ * Shrinks an image above `maxMegapixels`, or returns `null` for "left alone".
+ *
+ * `null` for a cap of `0`, and `null` for an image already under it: an image
+ * that needs no resizing is never re-encoded, because re-encoding a JPEG at
+ * quality 90 twice loses quality and buys nothing.
+ *
+ * What this saves is bytes on the wire and prompt-processing work, **not**
+ * context. gemma's vision encoder saturates near 0.8 MP -- 104/208/282/282/276
+ * prompt tokens from 0.2 to 6.0 MP -- so a six-megapixel photo costs the same
+ * context as a one-megapixel one. Other encoders tile rather than saturate, so
+ * the saving is a property of the model, which is why this is off by default.
+ */
+async function downscaleImage(
+  bytes: Buffer,
+  mimeType: string,
+  maxMegapixels: number,
+): Promise<{bytes: Buffer; mimeType: string; megapixels: number} | null> {
+  if (!(maxMegapixels > 0)) {
+    return null;
+  }
+  const maxPixels = maxMegapixels * 1e6;
+  const {createCanvas, loadImage} = await import('@napi-rs/canvas');
+  let image;
+  try {
+    image = await loadImage(bytes);
+  } catch {
+    // A format `@napi-rs/canvas` will not decode. llama.cpp may still read it.
+    return null;
+  }
+  const pixels = image.width * image.height;
+  if (pixels <= maxPixels) {
+    return null;
+  }
+
+  const scale = Math.sqrt(maxPixels / pixels);
+  const width = Math.max(1, Math.floor(image.width * scale));
+  const height = Math.max(1, Math.floor(image.height * scale));
+  const canvas = createCanvas(width, height);
+  const context = canvas.getContext('2d');
+  context.drawImage(image, 0, 0, width, height);
+
+  // A resized PNG stays a PNG; anything else becomes a JPEG, because a
+  // six-megapixel photograph as a PNG is larger than the file it replaced.
+  const isPng = mimeType === 'image/png';
+  return {
+    bytes: isPng ? canvas.toBuffer('image/png') : canvas.toBuffer('image/jpeg', JPEG_QUALITY),
+    mimeType: isPng ? 'image/png' : 'image/jpeg',
+    megapixels: (width * height) / 1e6,
+  };
+}
 
 export type IngestedUpload = {
   kind: AttachmentKind;
@@ -75,6 +129,8 @@ export async function ingestUpload(input: {
   name: string;
   mimeType?: string;
   bytes: Buffer;
+  /** `attachments.maxImageMegapixels`. `0` sends the bytes untouched. */
+  maxImageMegapixels?: number;
 }): Promise<IngestedUpload> {
   const {name, bytes} = input;
   if (bytes.byteLength > ATTACHMENT_LIMITS.maxFileBytes) {
@@ -89,7 +145,15 @@ export async function ingestUpload(input: {
   }
 
   if (kind === 'image') {
-    return {kind, name, mimeType: mimeType || 'image/jpeg', bytes, warnings: []};
+    const resolved = mimeType || 'image/jpeg';
+    const downscaled = await downscaleImage(bytes, resolved, input.maxImageMegapixels ?? 0);
+    return {
+      kind,
+      name,
+      mimeType: downscaled?.mimeType ?? resolved,
+      bytes: downscaled?.bytes ?? bytes,
+      warnings: downscaled ? [ATTACHMENT_MESSAGES.downscaled(name, downscaled.megapixels)] : [],
+    };
   }
 
   if (kind === 'pdf') {
@@ -166,7 +230,7 @@ export async function extractPdfText(
  */
 export async function renderPdfPages(
   bytes: Buffer,
-  input: {name: string; maxPages: number},
+  input: {name: string; maxPages: number; maxImageMegapixels?: number},
 ): Promise<{pages: RenderedPdfPage[]; skippedPages: number}> {
   const pageLimit = Math.min(input.maxPages, ATTACHMENT_LIMITS.maxRenderedPdfPages);
   if (pageLimit <= 0) {
@@ -185,9 +249,15 @@ export async function renderPdfPages(
     for (let pageNumber = 1; pageNumber <= renderCount; pageNumber += 1) {
       const page = await document.getPage(pageNumber);
       const baseViewport = page.getViewport({scale: 1});
+      // The long-edge cap and the megapixel cap both apply; the smaller wins.
+      const megapixelScale =
+        input.maxImageMegapixels && input.maxImageMegapixels > 0
+          ? Math.sqrt((input.maxImageMegapixels * 1e6) / (baseViewport.width * baseViewport.height))
+          : Number.POSITIVE_INFINITY;
       const scale = Math.min(
         MAX_RENDER_SCALE,
         MAX_RENDERED_EDGE_PX / Math.max(baseViewport.width, baseViewport.height),
+        megapixelScale,
       );
       const viewport = page.getViewport({scale});
       const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
@@ -236,6 +306,7 @@ export async function resolveChatAttachments(
   uploads: UploadReader,
   references: ChatAttachmentReference[],
   model: {contextSize: number | null; visionSupport: boolean | null},
+  options: {maxImageMegapixels?: number} = {},
 ): Promise<{attachments: ChatAttachmentInput[]}> {
   const resolved = references.map(reference => {
     const upload = uploads.get(reference.uploadId);
@@ -288,6 +359,7 @@ export async function resolveChatAttachments(
       const rendered = await renderPdfPages(await uploads.readBytes(upload), {
         name: upload.name,
         maxPages: pageBudget,
+        maxImageMegapixels: options.maxImageMegapixels,
       });
       for (const [index, page] of rendered.pages.entries()) {
         attachments.push({

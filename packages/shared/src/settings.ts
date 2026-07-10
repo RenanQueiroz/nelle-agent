@@ -22,6 +22,7 @@ import {
   ATTACHMENTS_SETTINGS_SLUG,
   CUSTOM_INSTRUCTIONS_KEY,
   INSTRUCTIONS_SETTINGS_SLUG,
+  MAX_IMAGE_MEGAPIXELS_KEY,
   PASTE_TO_FILE_CHARACTERS_KEY,
   TITLES_SETTINGS_SLUG,
 } from './settingsKeys.ts';
@@ -127,6 +128,18 @@ export const SETTINGS_REGISTRY: readonly SettingsGroup[] = [
         max: 100_000,
         step: 500,
         integer: true,
+      },
+      {
+        key: MAX_IMAGE_MEGAPIXELS_KEY,
+        label: 'Maximum image resolution',
+        help: 'Downscale images above this many megapixels. 0 sends them untouched. This saves bytes and prompt-processing work, not context: how many tokens an image costs depends on the model, and gemma charges the same for six megapixels as for one.',
+        type: 'number',
+        // Off. On gemma it buys nothing in context, and a silent quality loss is
+        // a bad default. See the measurement in `plans/nelle-settings-plan.md`.
+        default: 0,
+        min: 0,
+        max: 24,
+        step: 0.5,
       },
     ],
   },

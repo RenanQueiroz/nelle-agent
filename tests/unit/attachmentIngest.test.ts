@@ -11,7 +11,7 @@ import {
 } from '../../apps/server/src/attachmentIngest.ts';
 import type {Upload} from '../../apps/server/src/uploads.ts';
 import {ATTACHMENT_LIMITS} from '../../packages/shared/src/attachments.ts';
-import {multiPagePdfBuffer, simplePdfBuffer} from './helpers/pdf.ts';
+import {imageOnlyPdfBuffer, multiPagePdfBuffer, simplePdfBuffer} from './helpers/pdf.ts';
 
 test('a text file is classified, read, and kept', async () => {
   const result = await ingestUpload({
@@ -401,4 +401,104 @@ test('a message past the total byte cap is refused', async () => {
     () => resolveChatAttachments(reader, [{uploadId: 'a'}, {uploadId: 'b'}], VISION_MODEL),
     /limited to 100 MiB per message/,
   );
+});
+
+/** A real PNG of `width x height`, so the decoder has something to decode. */
+async function pngBuffer(width: number, height: number): Promise<Buffer> {
+  const {createCanvas} = await import('@napi-rs/canvas');
+  const canvas = createCanvas(width, height);
+  const context = canvas.getContext('2d');
+  context.fillStyle = 'rebeccapurple';
+  context.fillRect(0, 0, width, height);
+  return canvas.toBuffer('image/png');
+}
+
+async function imageSize(bytes: Buffer): Promise<{width: number; height: number}> {
+  const {loadImage} = await import('@napi-rs/canvas');
+  const image = await loadImage(bytes);
+  return {width: image.width, height: image.height};
+}
+
+test('a cap of zero sends the bytes untouched, byte for byte', async () => {
+  const bytes = await pngBuffer(3000, 2000);
+  for (const maxImageMegapixels of [0, undefined]) {
+    const result = await ingestUpload({
+      name: 'photo.png',
+      mimeType: 'image/png',
+      bytes,
+      maxImageMegapixels,
+    });
+    assert.equal(result.bytes.equals(bytes), true, 'a disabled cap must not re-encode');
+    assert.deepEqual(result.warnings, []);
+  }
+});
+
+test('an image over the cap is downscaled, stays a valid PNG, and says so', async () => {
+  // 6.0 MP down to 1.0 MP: the aspect ratio is kept, so it is not 1000x1000.
+  const result = await ingestUpload({
+    name: 'photo.png',
+    mimeType: 'image/png',
+    bytes: await pngBuffer(3000, 2000),
+    maxImageMegapixels: 1,
+  });
+
+  const {width, height} = await imageSize(result.bytes);
+  assert.ok((width * height) / 1e6 <= 1.0001, `${width}x${height} is over the cap`);
+  assert.equal(Math.round((width / height) * 100), 150, 'the aspect ratio is 3:2');
+  assert.equal(result.mimeType, 'image/png', 'a PNG stays a PNG');
+  assert.match(result.warnings[0] ?? '', /photo\.png was downscaled to 1\.0 megapixels/);
+});
+
+test('an image already under the cap is not re-encoded', async () => {
+  // Re-encoding a JPEG at quality 90 twice is a real quality loss for no gain.
+  const bytes = await pngBuffer(800, 600);
+  const result = await ingestUpload({
+    name: 'small.png',
+    mimeType: 'image/png',
+    bytes,
+    maxImageMegapixels: 4,
+  });
+  assert.equal(result.bytes.equals(bytes), true);
+  assert.deepEqual(result.warnings, []);
+});
+
+test('a downscaled photograph becomes a JPEG rather than a larger PNG', async () => {
+  const result = await ingestUpload({
+    name: 'photo.jpg',
+    mimeType: 'image/jpeg',
+    bytes: await pngBuffer(3000, 2000),
+    maxImageMegapixels: 0.5,
+  });
+  assert.equal(result.mimeType, 'image/jpeg');
+  // JPEG's own magic bytes, so this really is what it claims to be.
+  assert.equal(result.bytes[0], 0xff);
+  assert.equal(result.bytes[1], 0xd8);
+});
+
+test('a rendered PDF page obeys the smaller of the page cap and the megapixel cap', async () => {
+  const reader = uploadReader([
+    {
+      id: 'p1',
+      kind: 'pdf',
+      name: 'scan.pdf',
+      mimeType: 'application/pdf',
+      pageCount: 1,
+      bytes: imageOnlyPdfBuffer(),
+    },
+  ]);
+  const model = {contextSize: 262_144, visionSupport: true} as const;
+
+  const uncapped = await resolveChatAttachments(reader, [{uploadId: 'p1'}], model);
+  const capped = await resolveChatAttachments(reader, [{uploadId: 'p1'}], model, {
+    maxImageMegapixels: 0.01,
+  });
+
+  const pixels = async (data: string) => {
+    const {width, height} = await imageSize(Buffer.from(data, 'base64'));
+    return width * height;
+  };
+  const before = await pixels(uncapped.attachments[0]!.data!);
+  const after = await pixels(capped.attachments[0]!.data!);
+  assert.ok(after < before, 'the megapixel cap shrinks a rendered page');
+  assert.ok(after <= 10_000 * 1.05, `${after} pixels is over the 0.01 MP cap`);
 });
