@@ -3,6 +3,7 @@ import {create} from 'zustand';
 import type {
   ConfiguredModel,
   HuggingFaceModelResult,
+  InvalidModelParam,
   ReasoningBudgets,
   SettingsGroupSchema,
   SettingsValue,
@@ -62,7 +63,21 @@ type SettingsStore = {
   setSettingsError: (message: string | null) => void;
   /** After the save that made the draft stale, from the values the server returned. */
   resetSettingsDraft: (slug: string, values: SettingsValues) => void;
+
+  /**
+   * Which `models.ini` keys the server refused, per editor: `'global'` for the
+   * `[*]` section, otherwise a model id.
+   *
+   * Keyed by the offending key, never by row id, so a row stops being marked the
+   * moment its key changes and no other row is disturbed. Editing a row does not
+   * clear the whole scope: doing that would unmark a genuinely bad key because
+   * the user touched a different one.
+   */
+  paramErrors: Record<string, InvalidModelParam[]>;
+  setParamErrors: (scope: string, invalid: InvalidModelParam[]) => void;
 };
+
+export const GLOBAL_PARAM_SCOPE = 'global';
 
 function budgetInputs(budgets: ReasoningBudgets): Record<keyof ReasoningBudgets, string> {
   return {
@@ -101,9 +116,7 @@ export const useSettingsStore = create<SettingsStore>(set => ({
       modelAliasDrafts: {...state.modelAliasDrafts, [modelId]: value},
     })),
   setModelParamRows: (modelId, rows) =>
-    set(state => ({
-      modelParamRows: {...state.modelParamRows, [modelId]: rows},
-    })),
+    set(state => ({modelParamRows: {...state.modelParamRows, [modelId]: rows}})),
   setModelsMaxInput: value => set({modelsMaxInput: value}),
   setReasoningBudgetInput: (level, value) =>
     set(state => ({
@@ -168,4 +181,21 @@ export const useSettingsStore = create<SettingsStore>(set => ({
       settingsDrafts: {...state.settingsDrafts, [slug]: values},
       settingsError: null,
     })),
+
+  paramErrors: {},
+  setParamErrors: (scope, invalid) =>
+    set(state =>
+      invalid.length === 0
+        ? {paramErrors: without(state.paramErrors, scope)}
+        : {paramErrors: {...state.paramErrors, [scope]: invalid}},
+    ),
 }));
+
+function without<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) {
+    return record;
+  }
+  const next = {...record};
+  delete next[key];
+  return next;
+}

@@ -52,6 +52,13 @@ import {
   type SettingsGroup,
   type SettingsValues,
 } from '../../../packages/shared/src/settings.ts';
+import {
+  invalidModelParamsCode,
+  invalidModelParamsMessage,
+  validateModelParams,
+  type InvalidModelParam,
+} from '../../../packages/shared/src/modelParams.ts';
+import {LlamaOptionCatalogueCache} from './llamaParams';
 
 const useHuggingFaceModelSchema = z.object({
   repoId: z.string().min(1),
@@ -152,6 +159,7 @@ export async function createServer(
   const modelCache = new ModelCacheRepository(database);
   const uploads = new UploadRepository(database, paths);
   const llama = new LlamaCppManager(paths, store);
+  const llamaOptions = new LlamaOptionCatalogueCache(() => llama.getServerBinaryPath());
   const hf = new HuggingFaceService(store);
   const pi = new PiHarness(paths, store, conversations, hostTools, llama, modelCache, settings);
   conversations.syncLegacyDefaultConversationFromState(await store.getState());
@@ -451,11 +459,17 @@ export async function createServer(
     return {model};
   });
 
+  // Served so a settings UI can offer completion, and so no client carries a copy
+  // of llama.cpp's argument list that goes stale on the next upgrade.
+  app.get('/api/llama/params', async () => llamaOptions.get());
+
   app.patch('/api/models/global-params', async (request, reply) => {
     const body = updateGlobalModelParamsSchema.parse(request.body);
-    const validation = validateEditableParams(body.params);
-    if (validation) {
-      return reply.status(400).send({error: validation});
+    const invalid = validateModelParams(body.params, {
+      acceptedKeys: await llamaOptions.acceptedKeys(),
+    });
+    if (invalid.length > 0) {
+      return reply.status(400).send(invalidModelParamsResponse(invalid));
     }
     const globalModelParams = await store.updateGlobalModelParams(body.params);
     await writePresetAndReloadRouter(llama, store, modelCache);
@@ -466,9 +480,12 @@ export async function createServer(
     const id = (request.params as {id: string}).id;
     const body = updateModelSchema.parse(request.body);
     if (body.params) {
-      const validation = validateEditableParams(body.params, new Set(['hf-repo', 'alias']));
-      if (validation) {
-        return reply.status(400).send({error: validation});
+      const invalid = validateModelParams(body.params, {
+        reservedKeys: new Set(['hf-repo', 'alias']),
+        acceptedKeys: await llamaOptions.acceptedKeys(),
+      });
+      if (invalid.length > 0) {
+        return reply.status(400).send(invalidModelParamsResponse(invalid));
       }
     }
     let model;
@@ -1290,41 +1307,24 @@ async function handleLlamaRoute<T>(
   }
 }
 
-function validateEditableParams(
-  params: Record<string, string>,
-  reservedKeys: Set<string> = new Set(),
-): {code: string; message: string} | null {
-  const seen = new Set<string>();
-  for (const [rawKey, rawValue] of Object.entries(params)) {
-    const key = rawKey.trim();
-    const normalized = key.toLowerCase();
-    if (!key) {
-      return {code: 'invalid_model_param', message: 'Parameter keys cannot be empty.'};
-    }
-    if (/[[\]=\r\n]/.test(key)) {
-      return {
-        code: 'invalid_model_param',
-        message: `Parameter key "${key}" cannot contain brackets, equals signs, or newlines.`,
-      };
-    }
-    if (reservedKeys.has(normalized)) {
-      return {
-        code: 'reserved_model_param',
-        message: `Set "${key}" through the dedicated model field instead of params.`,
-      };
-    }
-    if (seen.has(normalized)) {
-      return {code: 'duplicate_model_param', message: `Duplicate parameter key: ${key}`};
-    }
-    seen.add(normalized);
-    if (/[\r\n]/.test(rawValue)) {
-      return {
-        code: 'invalid_model_param',
-        message: `Parameter "${key}" cannot contain newline characters.`,
-      };
-    }
-  }
-  return null;
+/**
+ * The server knows exactly which keys failed and what each should probably have
+ * been, so it says so. One line of red text for a form with ten rows tells a
+ * client nothing it can mark, and the next client would have to guess the same
+ * way. `error.code` stays a single value for a client that reads only that.
+ */
+function invalidModelParamsResponse(invalid: InvalidModelParam[]): {
+  error: NelleError;
+  invalidParams: InvalidModelParam[];
+} {
+  return {
+    error: {
+      code: invalidModelParamsCode(invalid),
+      message: invalidModelParamsMessage(invalid),
+      retryable: false,
+    },
+    invalidParams: invalid,
+  };
 }
 
 /** The first issue names the problem; the rest are usually consequences of it. */

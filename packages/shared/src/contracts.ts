@@ -55,6 +55,12 @@ export const NELLE_ERROR_CODES = {
   invalidRequest: 'invalid_request',
   notFound: 'not_found',
 
+  // `models.ini` parameter editing. The response also carries `invalidParams`,
+  // so a client can mark the rows rather than parse one sentence.
+  invalidModelParam: 'invalid_model_param',
+  reservedModelParam: 'reserved_model_param',
+  duplicateModelParam: 'duplicate_model_param',
+
   // Chat input.
   unsupportedAttachment: 'unsupported_attachment',
   unsupportedSlashCommand: 'unsupported_slash_command',

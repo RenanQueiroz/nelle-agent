@@ -467,6 +467,19 @@ The accept-set is therefore the union of every spelling and every env name, not
 just the canonical long option. A validator that only knows `ctx-size` would
 reject Nelle's own `models.ini`.
 
+Two further facts, found by parsing the real binary rather than the fixture:
+
+- **`--help` does not print every preset key.** `common_params_add_preset_options`
+  (`common/arg.cpp`) registers `load-on-startup` and `stop-timeout` with
+  `.set_preset_only()`, so they never reach the usage text — but
+  `get_map_key_opt` maps them all the same. Nelle writes `stop-timeout` into
+  every model section itself, so a catalogue read from `--help` alone rejects
+  Nelle's own file. `PRESET_ONLY_KEYS` carries those two, and only those two.
+- **The accept-set is case-sensitive.** `-c` is `--ctx-size`; `-C` is
+  `--cpu-mask`. `validateEditableParams` lowercased keys before comparing them,
+  so `c = 16384` beside `C = 0xff` — two legal, different options — was reported
+  as a duplicate. Compare trimmed keys, never folded ones.
+
 ### The catalogue is served, not carried
 
 `llama-server --help` prints 252 options across four sections

@@ -42,14 +42,16 @@ import {useEffect, useState} from 'react';
 import type {
   ConfiguredModel,
   HostToolSettings,
+  InvalidModelParam,
   LlamaRouterModel,
   LlamaRouterProps,
   RuntimeStatus,
 } from '../../api';
+import {COMMON_SAMPLING_KEYS} from '../../../../../packages/shared/src/modelParams.ts';
 import {getConversations} from '../../api';
 import type {ParamRow, SettingsSection} from '../../types';
 import {GeneralSettingsSection} from './GeneralSettingsSection';
-import {useSettingsStore} from '../../stores/settingsStore';
+import {GLOBAL_PARAM_SCOPE, useSettingsStore} from '../../stores/settingsStore';
 import {useUiStore} from '../../stores/uiStore';
 import {formatBytes, formatRouterStatus, routerStatusColor} from '../../utils/format';
 
@@ -517,6 +519,7 @@ function GlobalSettingsSection({
 }) {
   const globalParamRows = useSettingsStore(state => state.globalParamRows);
   const setGlobalParamRows = useSettingsStore(state => state.setGlobalParamRows);
+  const invalid = useSettingsStore(state => state.paramErrors[GLOBAL_PARAM_SCOPE]);
 
   return (
     <VStack gap={3}>
@@ -524,9 +527,10 @@ function GlobalSettingsSection({
       <Divider />
       <Text type="supporting" color="secondary">
         Written to the <code className="nelle-code">[*]</code> section of models.ini and applied to
-        every model.
+        every model. A model&apos;s own params override these.
       </Text>
-      <KeyValueEditor rows={globalParamRows} onChange={setGlobalParamRows} />
+      <SamplingKeysHint />
+      <KeyValueEditor rows={globalParamRows} onChange={setGlobalParamRows} invalid={invalid} />
       <HStack gap={2}>
         <Button
           label="Save global params"
@@ -537,6 +541,27 @@ function GlobalSettingsSection({
         />
       </HStack>
     </VStack>
+  );
+}
+
+/**
+ * Discoverability is the whole reason this is not simply "type whatever you
+ * like". Pi sends no sampling parameters at all, so these launch flags are what
+ * every conversation runs with.
+ */
+function SamplingKeysHint() {
+  return (
+    <Text type="supporting" color="secondary">
+      Sampling lives here, not in the requests Nelle sends:{' '}
+      {COMMON_SAMPLING_KEYS.map((key, index) => (
+        <span key={key}>
+          {index > 0 && ', '}
+          <code className="nelle-code">{key}</code>
+        </span>
+      ))}
+      . An unknown key stops llama-server from starting, so Nelle checks them against{' '}
+      <code className="nelle-code">llama-server --help</code> before saving.
+    </Text>
   );
 }
 
@@ -774,6 +799,7 @@ function ModelSettingsRow({
   const paramRows = useSettingsStore(state => state.modelParamRows[model.id] ?? []);
   const setModelAliasDraft = useSettingsStore(state => state.setModelAliasDraft);
   const setModelParamRows = useSettingsStore(state => state.setModelParamRows);
+  const invalidParams = useSettingsStore(state => state.paramErrors[model.id]);
   const routerStatus = routerModel?.status ?? (runtime?.running ? 'unlisted' : 'stopped');
   const isLoaded = routerStatus === 'loaded' || routerStatus === 'sleeping';
   const isLoading = routerStatus === 'loading';
@@ -802,7 +828,11 @@ function ModelSettingsRow({
         value={aliasDraft}
         onChange={value => setModelAliasDraft(model.id, value)}
       />
-      <KeyValueEditor rows={paramRows} onChange={rows => setModelParamRows(model.id, rows)} />
+      <KeyValueEditor
+        rows={paramRows}
+        onChange={rows => setModelParamRows(model.id, rows)}
+        invalid={invalidParams}
+      />
       <HStack gap={1} wrap="wrap">
         <Button
           label={model.id === activeModelId ? 'Selected' : 'Select'}
@@ -859,48 +889,80 @@ function ModelSettingsRow({
   );
 }
 
+/**
+ * The rows are keyed by a stable `id`; the server's `invalidParams` are keyed by
+ * `key`, so the join is trivial and the client renders rather than decides. It
+ * never asks whether a key is real -- an unknown key is fatal to llama-server,
+ * and only llama-server's own `--help` knows which are which.
+ */
 function KeyValueEditor({
   rows,
   onChange,
+  invalid,
 }: {
   rows: ParamRow[];
   onChange: (rows: ParamRow[]) => void;
+  invalid?: InvalidModelParam[];
 }) {
   const visibleRows = rows.length > 0 ? rows : [{id: createParamRowId(), key: '', value: ''}];
+  const errorsByKey = new Map((invalid ?? []).map(entry => [entry.key, entry]));
   return (
     <VStack gap={1}>
-      {visibleRows.map(row => (
-        <HStack key={row.id} gap={1} vAlign="center">
-          <StackItem size="fill" className="nelle-tight">
-            <TextInput
-              label="Key"
-              isLabelHidden
-              size="sm"
-              placeholder="ctx-size"
-              value={row.key}
-              onChange={value => onChange(updateParamRows(visibleRows, row.id, {key: value}))}
-            />
-          </StackItem>
-          <StackItem size="fill" className="nelle-tight">
-            <TextInput
-              label="Value"
-              isLabelHidden
-              size="sm"
-              placeholder="32768"
-              value={row.value}
-              onChange={value => onChange(updateParamRows(visibleRows, row.id, {value}))}
-            />
-          </StackItem>
-          <IconButton
-            label="Remove parameter"
-            tooltip="Remove parameter"
-            size="sm"
-            variant="ghost"
-            icon={<Icon icon={TrashIcon} size="sm" />}
-            onClick={() => onChange(visibleRows.filter(item => item.id !== row.id))}
-          />
-        </HStack>
-      ))}
+      {visibleRows.map(row => {
+        const error = errorsByKey.get(row.key.trim());
+        return (
+          <VStack key={row.id} gap={1}>
+            <HStack gap={1} vAlign="center">
+              <StackItem size="fill" className="nelle-tight">
+                <TextInput
+                  label="Key"
+                  isLabelHidden
+                  size="sm"
+                  placeholder="ctx-size"
+                  value={row.key}
+                  status={error ? {type: 'error'} : undefined}
+                  onChange={value => onChange(updateParamRows(visibleRows, row.id, {key: value}))}
+                />
+              </StackItem>
+              <StackItem size="fill" className="nelle-tight">
+                <TextInput
+                  label="Value"
+                  isLabelHidden
+                  size="sm"
+                  placeholder="32768"
+                  value={row.value}
+                  onChange={value => onChange(updateParamRows(visibleRows, row.id, {value}))}
+                />
+              </StackItem>
+              <IconButton
+                label="Remove parameter"
+                tooltip="Remove parameter"
+                size="sm"
+                variant="ghost"
+                icon={<Icon icon={TrashIcon} size="sm" />}
+                onClick={() => onChange(visibleRows.filter(item => item.id !== row.id))}
+              />
+            </HStack>
+            {error && (
+              <HStack gap={2} vAlign="center" wrap="wrap">
+                <Text type="supporting" color="secondary">
+                  {error.message}
+                </Text>
+                {error.suggestion && (
+                  <Button
+                    label={`Did you mean ${error.suggestion}?`}
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      onChange(updateParamRows(visibleRows, row.id, {key: error.suggestion!}))
+                    }
+                  />
+                )}
+              </HStack>
+            )}
+          </VStack>
+        );
+      })}
       <HStack gap={2}>
         <Button
           label="Add parameter"

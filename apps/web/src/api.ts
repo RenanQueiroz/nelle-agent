@@ -674,10 +674,57 @@ export async function useHuggingFaceModel(input: {
   return response.model;
 }
 
+export type InvalidModelParam = {
+  key: string;
+  reason: 'unknown' | 'reserved' | 'duplicate' | 'syntax';
+  message: string;
+  /** The nearest real llama.cpp key, when one is close enough to offer. */
+  suggestion?: string;
+};
+
+/**
+ * A save the server refused because of the keys in it. The rows are keyed by
+ * `key`, so the client marks them; it does not decide which are wrong.
+ */
+export class ModelParamsError extends Error {
+  readonly invalidParams: InvalidModelParam[];
+
+  constructor(message: string, invalidParams: InvalidModelParam[]) {
+    super(message);
+    this.name = 'ModelParamsError';
+    this.invalidParams = invalidParams;
+  }
+}
+
+async function patchModelParams<T>(url: string, body: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  if (response.ok) {
+    return text ? (JSON.parse(text) as T) : (undefined as T);
+  }
+  let refusal: {error?: {message?: string}; invalidParams?: InvalidModelParam[]} | undefined;
+  try {
+    refusal = JSON.parse(text) as typeof refusal;
+  } catch {
+    // Not JSON. Fall through to the raw text.
+  }
+  if (refusal?.invalidParams?.length) {
+    throw new ModelParamsError(
+      refusal.error?.message ?? 'Invalid parameters.',
+      refusal.invalidParams,
+    );
+  }
+  throw new Error(refusal?.error?.message || text || `Request failed: ${response.status}`);
+}
+
 export async function updateGlobalModelParams(
   params: Record<string, string>,
 ): Promise<Record<string, string>> {
-  const response = await apiPatch<{globalModelParams: Record<string, string>}>(
+  const response = await patchModelParams<{globalModelParams: Record<string, string>}>(
     '/api/models/global-params',
     {params},
   );
@@ -688,7 +735,7 @@ export async function updateConfiguredModel(
   id: string,
   input: {name?: string; params?: Record<string, string>},
 ): Promise<ConfiguredModel> {
-  const response = await apiPatch<{model: ConfiguredModel}>(
+  const response = await patchModelParams<{model: ConfiguredModel}>(
     `/api/models/${encodeURIComponent(id)}`,
     input,
   );

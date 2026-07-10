@@ -748,6 +748,11 @@ export class LlamaCppManager {
     await fs.writeFile(path.join(this.paths.llamaBinDir, '.release-tag'), `${release.tag_name}\n`);
   }
 
+  /** Where `llama-server` lives, whether or not anything is installed there. */
+  async getServerBinaryPath(): Promise<string | null> {
+    return this.getBinaryPath();
+  }
+
   private async getBinaryPath(): Promise<string | null> {
     const external = process.env.LLAMA_SERVER_PATH;
     if (external) {

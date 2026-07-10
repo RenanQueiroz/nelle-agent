@@ -637,6 +637,24 @@ Project-specific guidance for AI coding agents.
   generation sets its own `temperature: 0.2` because it bypasses Pi and so never
   sees `models.ini` sampling; the system message is not user-editable because it
   states the output format Nelle parses.
+- `models.ini` keys are validated against the binary, never against a list Nelle
+  carries. `LlamaOptionCatalogueCache` parses `llama-server --help` once per
+  binary (keyed by path, size and mtime) and serves it from
+  `GET /api/llama/params`. The accept-set is the union of every argument spelling
+  with its *leading* dashes stripped and every env var name, exactly as
+  `common/preset.cpp`'s `get_map_key_opt` builds it -- so `c`, `ctx-size` and
+  `LLAMA_ARG_CTX_SIZE` are all the same option. It is **case-sensitive**: `-c` is
+  `--ctx-size` and `-C` is `--cpu-mask`, so a duplicate check must compare
+  trimmed keys, never lowercased ones. Two keys are `set_preset_only()` in
+  `common/arg.cpp` and never appear in `--help` -- `stop-timeout`, which Nelle
+  writes into every model section, and `load-on-startup` -- so
+  `PRESET_ONLY_KEYS` carries them; a catalogue read from `--help` alone rejects
+  Nelle's own `models.ini`. Help text that parses to nothing is `available:
+false`, which *skips* the unknown-key check: refusing to save a parameter
+  because Nelle could not run a binary is worse than the typo. Validation reports
+  every bad key at once as `invalidParams: [{key, reason, message, suggestion?}]`
+  beside a single top-level `error.code`, and the client joins them to rows by
+  `key` -- never by row id, so an edit to one row cannot unmark another.
 - Sampling belongs to the model, not to Pi's requests. Pi sends no sampling
   parameters at all, so llama.cpp's launch flags are what every conversation
   runs with: `models.ini` carries `temp`, `top-k`, `min-p`, `seed` and the rest,

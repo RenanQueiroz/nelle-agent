@@ -99,6 +99,7 @@ import {
   type LlamaRouterModel,
   type LlamaRouterModelUpdate,
   MAX_REASONING_BUDGET,
+  ModelParamsError,
   type LlamaRouterProps,
   type ReasoningBudgets,
   type ReasoningLevel,
@@ -117,7 +118,7 @@ import {NelleSideNav} from './components/sidebar/NelleSideNav';
 import {SettingsDialog} from './components/settings/SettingsDialog';
 import {restoreComposerDraft, useComposerStore} from './stores/composerStore';
 import {useConversationsStore} from './stores/conversationsStore';
-import {useSettingsStore} from './stores/settingsStore';
+import {GLOBAL_PARAM_SCOPE, useSettingsStore} from './stores/settingsStore';
 import {useUiStore} from './stores/uiStore';
 import type {ActiveRunKind, AppNotice, CommandStatusRow, ComposerModelOptionDetail} from './types';
 import {attachmentTooltip, getDraftAttachmentError} from './utils/attachments';
@@ -861,8 +862,33 @@ export function App() {
     }
   }
 
+  /**
+   * A refused save marks the offending rows. `runAction` would show one line of
+   * red text for a form with ten of them, which tells the user nothing they can
+   * act on.
+   */
+  async function runParamsAction(
+    label: string,
+    scope: string,
+    action: () => Promise<void>,
+  ): Promise<void> {
+    setBusyAction(label);
+    setNotice(null);
+    useSettingsStore.getState().setParamErrors(scope, []);
+    try {
+      await action();
+    } catch (error) {
+      if (error instanceof ModelParamsError) {
+        useSettingsStore.getState().setParamErrors(scope, error.invalidParams);
+      }
+      setNotice({type: 'error', text: error instanceof Error ? error.message : String(error)});
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function handleSaveGlobalParams() {
-    await runAction('global-params', async () => {
+    await runParamsAction('global-params', GLOBAL_PARAM_SCOPE, async () => {
       const saved = await updateGlobalModelParams(
         rowsToParams(useSettingsStore.getState().globalParamRows),
       );
@@ -896,7 +922,7 @@ export function App() {
   }
 
   async function handleSaveModelSettings(model: ConfiguredModel) {
-    await runAction(`model-save:${model.id}`, async () => {
+    await runParamsAction(`model-save:${model.id}`, model.id, async () => {
       const {modelAliasDrafts, modelParamRows} = useSettingsStore.getState();
       const saved = await updateConfiguredModel(model.id, {
         name: modelAliasDrafts[model.id] ?? model.name,

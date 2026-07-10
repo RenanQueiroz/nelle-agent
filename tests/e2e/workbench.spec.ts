@@ -3103,6 +3103,87 @@ test('a settings refresh in flight does not overwrite what the user is typing', 
   await expect.poll(() => savedModel?.name).toBe('Edited while refreshing');
 });
 
+test('a refused param names the row, offers the key, and fixing it clears the mark', async ({
+  page,
+}) => {
+  const saves: Array<Record<string, string>> = [];
+  await page.route('**/api/state', async route => {
+    await route.fulfill({
+      json: {
+        state: {
+          activeModelId: null,
+          models: [],
+          chat: [],
+          // Two rows, so an edit to the good one must not unmark the bad one.
+          globalModelParams: {temprature: '0.7', 'top-k': '40'},
+        },
+        runtime: RUNNING_RUNTIME,
+      },
+    });
+  });
+  await page.route('**/api/models/global-params', async route => {
+    const params = (route.request().postDataJSON() as {params: Record<string, string>}).params;
+    saves.push(params);
+    if (params.temprature !== undefined) {
+      // What the server sends: a code a client can branch on, and the key that
+      // was wrong, so the row can be marked rather than the whole form.
+      await route.fulfill({
+        status: 400,
+        json: {
+          error: {
+            code: 'invalid_model_param',
+            message: '"temprature" is not a llama.cpp option. llama-server would refuse to start.',
+            retryable: false,
+          },
+          invalidParams: [
+            {
+              key: 'temprature',
+              reason: 'unknown',
+              message:
+                '"temprature" is not a llama.cpp option. llama-server would refuse to start.',
+              suggestion: 'temperature',
+            },
+          ],
+        },
+      });
+      return;
+    }
+    await route.fulfill({json: {globalModelParams: params}});
+  });
+  await mockConversationRoutes(page, {chat: []});
+
+  await page.goto('/');
+  await page.getByRole('button', {name: 'Settings'}).click();
+  await page.getByRole('button', {name: 'Global Params'}).click();
+  const badKey = page.getByRole('textbox', {name: 'Key'}).first();
+  const goodValue = page.getByRole('textbox', {name: 'Value'}).nth(1);
+  await expect(badKey).toHaveValue('temprature');
+
+  await page.getByRole('button', {name: 'Save global params'}).click();
+
+  // The row is marked, and the sentence is the server's -- shown beside the row,
+  // not only in the app-wide notice, so the user knows which of ten rows is wrong.
+  const message = '"temprature" is not a llama.cpp option. llama-server would refuse to start.';
+  await expect(badKey).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.locator('dialog').getByText(message)).toBeVisible();
+
+  // Editing an unrelated row must not unmark this one: the key is still wrong.
+  await goodValue.fill('50');
+  await expect(badKey).toHaveAttribute('aria-invalid', 'true');
+
+  // The suggestion fills the field, which is the only reason to render it.
+  await page.getByRole('button', {name: 'Did you mean temperature?'}).click();
+  await expect(badKey).toHaveValue('temperature');
+  // The mark is joined to the row by its key, so correcting the key clears it.
+  await expect(badKey).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByRole('button', {name: 'Did you mean temperature?'})).toHaveCount(0);
+
+  await page.getByRole('button', {name: 'Save global params'}).click();
+  await expect(page.getByText('Global params saved')).toBeVisible();
+  await expect.poll(() => saves.length).toBe(2);
+  expect(saves[1]).toEqual({temperature: '0.7', 'top-k': '50'});
+});
+
 test('edits reasoning budgets in settings and rejects invalid token counts', async ({page}) => {
   let savedBudgets: unknown = null;
   const budgets = {low: 512, medium: 2048, high: 8192};
