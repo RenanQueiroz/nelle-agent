@@ -59,6 +59,8 @@ export type LlamaRouterModel = {
   contextWindow?: number;
   /** `n_ctx_train`: the window the model was trained for. Absent until loaded once. */
   contextTrain?: number;
+  /** From the GGUF header of the blob llama.cpp loaded. */
+  parameterCount?: number;
   raw?: unknown;
 };
 
@@ -140,6 +142,11 @@ export type HuggingFaceModelResult = {
   downloads?: number;
   likes?: number;
   tags: string[];
+  /** From Hugging Face's own parsed GGUF header, on the request Nelle already sends. */
+  architecture?: string;
+  parameterCount?: number;
+  /** `gguf.context_length`: the trained window, known before the first load. */
+  contextTrain?: number;
   files: HuggingFaceFile[];
   quants: HuggingFaceQuant[];
 };

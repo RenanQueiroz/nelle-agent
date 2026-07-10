@@ -27,6 +27,8 @@ import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './uploads';
 import {ingestUpload, resolveChatAttachments, UnsupportedAttachmentError} from './attachmentIngest';
 import {ATTACHMENT_LIMITS} from '../../../packages/shared/src/attachments.ts';
 import {ModelCacheRepository} from './modelCache';
+import {GgufMetadataRepository} from './ggufMetadata';
+import {recordModelProps} from './modelProps';
 import {effectiveContextWindow} from './contextWindow';
 import {
   ConversationRepository,
@@ -159,6 +161,7 @@ export async function createServer(
   const preferences = new PreferencesRepository(database);
   const settings = new SettingsRepository(database, options.settingsRegistry ?? SETTINGS_REGISTRY);
   const modelCache = new ModelCacheRepository(database);
+  const ggufMetadata = new GgufMetadataRepository(database);
   const uploads = new UploadRepository(database, paths);
   const llama = new LlamaCppManager(paths, store);
   const llamaOptions = new LlamaOptionCatalogueCache(() => llama.getServerBinaryPath());
@@ -378,10 +381,15 @@ export async function createServer(
         ...result,
         models: result.models.map(model => {
           const cached = modelCache.getModel(model.sectionId);
+          // The router only reports `n_ctx_train` for a model it has loaded. The
+          // GGUF header knows it without the network, and without a load.
+          const parsed = cached?.modelOid ? ggufMetadata.get(cached.modelOid) : null;
           return {
             ...model,
             contextWindow: cached?.contextWindow,
-            contextTrain: cached?.contextTrain,
+            contextTrain: cached?.contextTrain ?? parsed?.contextTrain,
+            architecture: model.architecture ?? parsed?.architecture,
+            parameterCount: parsed?.parameterCount,
           };
         }),
       };
@@ -444,7 +452,14 @@ export async function createServer(
     return handleLlamaRoute(reply, async () => {
       const props = await llama.getModelProps(id);
       // A sleeping model answers /props with an error, so only a success caches.
-      modelCache.upsertModelProps(id, props);
+      await recordModelProps({
+        sectionId: id,
+        props,
+        modelCache,
+        ggufMetadata,
+        onError: error =>
+          app.log.warn({err: error, modelId: id}, 'could not parse the GGUF header'),
+      });
       return props;
     });
   });
@@ -1013,6 +1028,7 @@ export async function createServer(
         await ensureModelReadyForRun({
           llama,
           modelCache,
+          ggufMetadata,
           conversationId: id,
           modelId: activeModel.id,
           write: event => writeChatEvent(reply.raw, event, id),
@@ -1193,6 +1209,7 @@ export async function createServer(
         await ensureModelReadyForRun({
           llama,
           modelCache,
+          ggufMetadata,
           conversationId: id,
           modelId: regenerateModel.id,
           write: event => writeChatEvent(reply.raw, event, id),
@@ -1385,6 +1402,7 @@ function nelleErrorFromZod(error: ZodError): NelleError {
 async function ensureModelReadyForRun(input: {
   llama: LlamaCppManager;
   modelCache: ModelCacheRepository;
+  ggufMetadata: GgufMetadataRepository;
   conversationId: string;
   modelId: string;
   write: (event: ChatStreamEvent) => void;
@@ -1405,10 +1423,14 @@ async function ensureModelReadyForRun(input: {
     return;
   }
   try {
-    input.modelCache.upsertModelProps(
-      input.modelId,
-      await input.llama.getModelProps(input.modelId),
-    );
+    await recordModelProps({
+      sectionId: input.modelId,
+      props: await input.llama.getModelProps(input.modelId),
+      modelCache: input.modelCache,
+      ggufMetadata: input.ggufMetadata,
+      onError: error =>
+        input.log.warn({err: error, modelId: input.modelId}, 'could not parse the GGUF header'),
+    });
   } catch (error) {
     // A model that will not describe itself can still answer a prompt. Losing the
     // cache entry costs a capability, not the run.

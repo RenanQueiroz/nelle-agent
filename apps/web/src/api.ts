@@ -46,6 +46,7 @@ export type LlamaRouterModel = {
   contextWindow?: number;
   /** The window the model was trained for; the ceiling a cap is measured against. */
   contextTrain?: number;
+  parameterCount?: number;
   raw?: unknown;
 };
 
@@ -109,6 +110,10 @@ export type HuggingFaceModelResult = {
   downloads?: number;
   likes?: number;
   tags: string[];
+  /** From Hugging Face's own parsed GGUF header. Absent when it could not read one. */
+  architecture?: string;
+  parameterCount?: number;
+  contextTrain?: number;
   files: Array<{filename: string; size: number | null}>;
   quants: Array<{
     quant: string;

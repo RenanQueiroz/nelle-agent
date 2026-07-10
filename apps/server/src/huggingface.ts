@@ -8,24 +8,44 @@ import type {
 } from './types';
 import {AppStore} from './store';
 
+/**
+ * Hugging Face already parsed the GGUF, and Nelle used to throw it away.
+ *
+ * `gguf.total` is the parameter count, `context_length` the window the model was
+ * trained for, and `architecture` its family. `totalFileSize` is **not** a repo
+ * total and **not** a per-quant size -- it is the size of the one file Hugging
+ * Face chose to parse -- so it is deliberately not read.
+ */
+type HfGguf = {
+  total?: number;
+  architecture?: string;
+  context_length?: number;
+};
+
 type HfModelListItem = {
   id: string;
   author?: string;
   downloads?: number;
   likes?: number;
   tags?: string[];
+  gguf?: HfGguf;
+  siblings?: Array<{rfilename: string; size?: number}>;
 };
 
-type HfModelInfo = HfModelListItem & {
-  siblings?: Array<{
-    rfilename: string;
-    size?: number;
-  }>;
-};
+type HfModelInfo = HfModelListItem;
 
 export class HuggingFaceService {
   constructor(private readonly store: AppStore) {}
 
+  /**
+   * One list request carries the GGUF metadata and the file names for every hit;
+   * the per-repo request that follows exists only for file *sizes*, which the
+   * list endpoint does not return however it is asked.
+   *
+   * Before this, the detail requests were made anyway and returned less: no
+   * architecture, no parameter count, no trained context window, and -- because
+   * `?blobs=true` was never passed -- `size: null` for every file.
+   */
   async searchGgufModels(query: string): Promise<HuggingFaceModelResult[]> {
     const search = query.trim() || 'gguf';
     const url = new URL('https://huggingface.co/api/models');
@@ -34,6 +54,9 @@ export class HuggingFaceService {
     url.searchParams.set('sort', 'downloads');
     url.searchParams.set('direction', '-1');
     url.searchParams.set('limit', '12');
+    for (const field of ['gguf', 'siblings', 'downloads', 'likes', 'tags', 'author']) {
+      url.searchParams.append('expand[]', field);
+    }
 
     const response = await fetch(url);
     if (!response.ok) {
@@ -61,35 +84,34 @@ export class HuggingFaceService {
     });
   }
 
+  /** `?blobs=true` is what makes `size` a number instead of `null`. */
   private async getModelInfo(
     repoId: string,
     fallback: HfModelListItem,
   ): Promise<HuggingFaceModelResult> {
-    const response = await fetch(`https://huggingface.co/api/models/${repoId}`);
-    if (!response.ok) {
-      return {
-        id: repoId,
-        author: fallback.author,
-        downloads: fallback.downloads,
-        likes: fallback.likes,
-        tags: fallback.tags ?? [],
-        files: [],
-        quants: [],
-      };
-    }
-
-    const info = (await response.json()) as HfModelInfo;
+    const response = await fetch(`https://huggingface.co/api/models/${repoId}?blobs=true`);
+    // A repo that answers nothing, or one with no `gguf` block, degrades to what
+    // the list already said rather than throwing the whole search away.
+    const info = response.ok ? ((await response.json()) as HfModelInfo) : fallback;
     const files = extractGgufFiles(info);
+    const gguf = fallback.gguf ?? info.gguf;
     return {
-      id: info.id,
-      author: info.author,
-      downloads: info.downloads,
-      likes: info.likes,
-      tags: info.tags ?? [],
+      id: info.id ?? repoId,
+      author: info.author ?? fallback.author,
+      downloads: info.downloads ?? fallback.downloads,
+      likes: info.likes ?? fallback.likes,
+      tags: info.tags ?? fallback.tags ?? [],
+      architecture: gguf?.architecture,
+      parameterCount: positiveInteger(gguf?.total),
+      contextTrain: positiveInteger(gguf?.context_length),
       files,
       quants: extractGgufQuants(files),
     };
   }
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function extractGgufFiles(info: HfModelInfo): HuggingFaceFile[] {

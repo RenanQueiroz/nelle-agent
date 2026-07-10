@@ -253,6 +253,27 @@ const MIGRATIONS: Migration[] = [
     `,
     isApplied: db => tableHasColumn(db, 'model_cache', 'context_train'),
   },
+  {
+    version: 11,
+    name: 'gguf_metadata_by_blob_oid',
+    checksum: '2026-07-10-gguf-metadata-by-blob-oid',
+    // Keyed by the blob's sha256 -- the same value Hugging Face reports as
+    // `lfs.oid`, and the name of the file in its content-addressed cache. A
+    // content hash cannot be stale, and the repo's commit sha is not the file:
+    // two snapshots of one repo can point at the same blob.
+    sql: `
+      CREATE TABLE IF NOT EXISTS gguf_metadata (
+        oid TEXT PRIMARY KEY,
+        architecture TEXT,
+        context_train INTEGER,
+        parameter_count INTEGER,
+        updated_at TEXT NOT NULL
+      );
+
+      ALTER TABLE model_cache ADD COLUMN model_oid TEXT;
+    `,
+    isApplied: db => tableHasColumn(db, 'model_cache', 'model_oid'),
+  },
 ];
 
 /** The proof-of-concept default chat was stored under this id. */

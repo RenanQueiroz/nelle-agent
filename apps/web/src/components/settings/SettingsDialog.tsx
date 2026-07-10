@@ -42,6 +42,7 @@ import {useEffect, useState} from 'react';
 import type {
   ConfiguredModel,
   HostToolSettings,
+  HuggingFaceModelResult,
   InvalidModelParam,
   LlamaRouterModel,
   LlamaRouterProps,
@@ -546,6 +547,30 @@ function GlobalSettingsSection({
 }
 
 /**
+ * What Hugging Face already parsed out of the GGUF, on the request Nelle was
+ * making anyway: the architecture, the parameter count, and the window the model
+ * was trained for. A repo whose header it could not read says only what it can.
+ */
+function describeHuggingFaceModel(result: HuggingFaceModelResult): string {
+  return [
+    `${result.downloads?.toLocaleString() ?? '0'} downloads`,
+    result.architecture,
+    result.parameterCount ? `${formatParameterCount(result.parameterCount)} params` : null,
+    result.contextTrain ? `${formatInteger(result.contextTrain)} ctx` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** 25,233,142,046 -> `25.2B`. A parameter count is read, never computed with. */
+function formatParameterCount(value: number): string {
+  if (value >= 1e9) {
+    return `${(value / 1e9).toFixed(1)}B`;
+  }
+  return value >= 1e6 ? `${(value / 1e6).toFixed(0)}M` : formatInteger(value);
+}
+
+/**
  * Both windows, so a cap is comprehensible: against what?
  *
  * `contextWindow` is what llama.cpp reports it is running at, and `contextTrain`
@@ -556,13 +581,17 @@ function GlobalSettingsSection({
 function ContextWindowSummary({routerModel}: {routerModel?: LlamaRouterModel}) {
   const running = routerModel?.contextWindow;
   const trained = routerModel?.contextTrain;
-  if (running == null && trained == null) {
-    return null;
-  }
+  const parameters = routerModel?.parameterCount;
+  const architecture = routerModel?.architecture;
   const parts = [
+    architecture,
+    parameters ? `${formatParameterCount(parameters)} params` : null,
     trained == null ? null : `Full window: ${formatInteger(trained)}`,
     running == null ? null : `running at ${formatInteger(running)}`,
   ].filter(Boolean);
+  if (parts.length === 0) {
+    return null;
+  }
   return (
     <Text type="supporting" color="secondary">
       {parts.join(' · ')}
@@ -761,7 +790,7 @@ function ModelSettingsSection({
                   {result.id}
                 </Text>
                 <Text type="supporting" color="secondary">
-                  {result.downloads?.toLocaleString() ?? '0'} downloads
+                  {describeHuggingFaceModel(result)}
                 </Text>
               </VStack>
               {result.quants.map(quant => (

@@ -87,7 +87,12 @@ Project-specific guidance for AI coding agents.
   router reports `status.exit_code`, and the child's stderr is already in
   `.nelle/logs/llama-server.log` behind its pid.
 - Cache GGUF metadata by the file's blob oid, never by repo, commit, path or
-  mtime. llama.cpp hands the child `--hf-repo`, so it re-resolves the repo and
+  mtime. `recordModelProps` is the single place a successful `/props` is
+  recorded: it takes `raw.model_path`, `realpath`s it, keeps the basename when it
+  is a 64-hex sha256, writes it to `model_cache.model_oid`, and re-reads the
+  header only when that oid moves. A path outside a content-addressed cache has
+  no oid, so nothing is cached; a header that will not parse is a missing detail,
+  never a failed turn. llama.cpp hands the child `--hf-repo`, so it re-resolves the repo and
   re-downloads on *every* model load; a chat-template fix lands without Nelle
   being told. The commit sha is not the file: this repository's HF cache holds two
   snapshots of `unsloth/gemma-4-26B-A4B-it-qat-GGUF` whose GGUF symlinks point at
@@ -101,14 +106,18 @@ Project-specific guidance for AI coding agents.
   its cache when the API is unreachable (`download.cpp:694`), so an offline load
   works but pays a failed round trip; `offline = 1` in `models.ini` (or
   `LLAMA_ARG_OFFLINE`, which children inherit) skips it.
-- GGUF metadata has three sources, and the cheapest that answers wins.
-  `GET https://huggingface.co/api/models/{repo}` already returns a `gguf` field
-  with `architecture`, `context_length` and the parameter count, and Nelle
-  discards it; the list endpoint returns the same inline with `expand[]=gguf`.
-  `@huggingface/gguf` parses a header from a local path or over HTTP range
-  requests -- 9 requests and 17.6 MiB for a 14.2 GB file -- which is a detail
-  view, never a search result. `gguf.totalFileSize` is the size of the one file
-  Hugging Face parsed, not a repo total and not a per-quant size.
+- GGUF metadata has three sources, and the cheapest that answers wins. The search
+  takes `architecture`, `context_length` and the parameter count from
+  `expand[]=gguf` on the *list* endpoint -- one request, no extra cost -- and the
+  per-repo request that follows exists only for file sizes, which need
+  `?blobs=true` and which used to come back `null` for every file.
+  `gguf.totalFileSize` is the size of the one file Hugging Face parsed, not a
+  repo total and not a per-quant size; do not display it as either.
+  `@huggingface/gguf` is a detail view, never a search result: it parses the
+  local blob in ~1.5 s (`computeParametersCount` costs nothing extra, and is the
+  only way to know gemma-4-26B's 25.2B parameters, which its header does not
+  declare). It is server-only and `tests/unit/webBundle.test.ts` guards the
+  bundle against it, the way it guards `pdfjs-dist`.
 - `/props` `default_generation_settings.n_ctx` is the per-conversation window --
   with `kv_unified = true` each of the four slots sees the whole thing -- and it
   is cached in `model_cache.context_window`. The router also reports

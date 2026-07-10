@@ -77,6 +77,7 @@ test('SQLite migration creates conversation tables and migration records', async
         [8, 'uploads'],
         [9, 'uploads_page_count'],
         [10, 'model_cache_context_train'],
+        [11, 'gguf_metadata_by_blob_oid'],
       ],
     );
     assert.equal(table?.name, 'conversations');
@@ -184,7 +185,7 @@ test('SQLite migration backs up existing databases before repairing migration re
       .all() as Array<{version: number}>;
     assert.deepEqual(
       migrations.map(migration => migration.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
     );
   } finally {
     repaired.close();
@@ -207,7 +208,7 @@ test('SQLite migration backs up existing databases before repairing migration re
     // this test deleted, so it is missing while the others remain.
     assert.deepEqual(
       backupMigrations.map(migration => migration.version),
-      [1, 3, 4, 5, 6, 7, 8, 9, 10],
+      [1, 3, 4, 5, 6, 7, 8, 9, 10, 11],
     );
     assert.equal(contextColumn, true);
   } finally {

@@ -12,6 +12,8 @@ export type CachedModel = {
   contextWindow?: number;
   /** `n_ctx_train`: the window the model was trained for. The ceiling, not the run. */
   contextTrain?: number;
+  /** The sha256 of the blob llama.cpp last loaded. `undefined` until it has. */
+  modelOid?: string;
   /** `null` when llama.cpp has never reported a chat template for this model. */
   canReason: boolean | null;
   updatedAt: string;
@@ -26,6 +28,7 @@ type ModelCacheRow = {
   modalities_json: string | null;
   context_window: number | null;
   context_train: number | null;
+  model_oid: string | null;
   can_reason: number | null;
   updated_at: string;
 };
@@ -84,17 +87,23 @@ export class ModelCacheRepository {
     }
   }
 
-  /** Records what `/props?model=...` just reported for one model. */
-  upsertModelProps(sectionId: string, props: LlamaModelProps): void {
+  /**
+   * Records what `/props?model=...` just reported for one model.
+   *
+   * `modelOid` is the content hash of the blob llama.cpp actually loaded. A
+   * `null` must not erase what an earlier load learned, so it coalesces.
+   */
+  upsertModelProps(sectionId: string, props: LlamaModelProps, modelOid?: string | null): void {
     this.database.connection
       .prepare(
         `INSERT INTO model_cache (
-           section_id, modalities_json, context_window, can_reason, updated_at
-         ) VALUES (?, ?, ?, ?, ?)
+           section_id, modalities_json, context_window, can_reason, model_oid, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(section_id) DO UPDATE SET
            modalities_json = excluded.modalities_json,
            context_window = excluded.context_window,
            can_reason = excluded.can_reason,
+           model_oid = COALESCE(excluded.model_oid, model_cache.model_oid),
            updated_at = excluded.updated_at`,
       )
       .run(
@@ -102,6 +111,7 @@ export class ModelCacheRepository {
         JSON.stringify(props.modalities),
         props.contextWindow ?? null,
         props.canReason == null ? null : Number(props.canReason),
+        modelOid ?? null,
         new Date().toISOString(),
       );
   }
@@ -150,6 +160,7 @@ function mapRow(row: ModelCacheRow): CachedModel {
     modalities: parseModalities(row.modalities_json),
     contextWindow: row.context_window ?? undefined,
     contextTrain: row.context_train ?? undefined,
+    modelOid: row.model_oid ?? undefined,
     canReason: row.can_reason == null ? null : row.can_reason === 1,
     updatedAt: row.updated_at,
   };
