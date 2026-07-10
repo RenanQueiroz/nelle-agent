@@ -10,7 +10,13 @@ import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {createServer} from '../../apps/server/src/server.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
-import {maxAffordableImages, replyTokenBudget} from '../../packages/shared/src/piContext.ts';
+import {
+  MEASURED_AGENT_PROMPT_TOKENS,
+  PI_MINIMUM_CONTEXT_TOKENS,
+  maxAffordableImages,
+  minimumUsableContextSize,
+  replyTokenBudget,
+} from '../../packages/shared/src/piContext.ts';
 import {getModelsIniSectionValues, parseModelsIni} from '../../packages/shared/src/modelsIni.ts';
 
 const MODEL = {id: 'repo/model:Q4', name: 'Model Q4'};
@@ -93,11 +99,20 @@ test('Nelle writes a floor for llama.cpp auto-fit, never a context size', async 
   assert.doesNotMatch(preset, /ctx-size/);
 
   // `--fit` is on by default and would otherwise settle on llama.cpp's own floor
-  // of 4,096, in which Pi's ~9,439-token system prompt does not fit. Measured
-  // against the real binary: gemma-4-26B came up at 4,096 with nothing set, and
-  // at 16,384 with this floor.
-  assert.match(preset, /^fitc = 16384$/m);
-  assert.deepEqual((await store.getState()).globalModelParams, {fitc: '16384'});
+  // of 4,096, in which Pi's system prompt does not fit. Measured against the real
+  // binary: gemma-4-26B came up at 4,096 with nothing set, at 16,384 with a
+  // 16,384 floor -- where it clamped every reply to one token, because its
+  // empty-conversation prompt is 13,458 tokens and Pi reserves 4,096 more -- and
+  // at 32,768 with this one, where it answers.
+  assert.match(preset, new RegExp(`^fitc = ${PI_MINIMUM_CONTEXT_TOKENS}$`, 'm'));
+  assert.deepEqual((await store.getState()).globalModelParams, {
+    fitc: String(PI_MINIMUM_CONTEXT_TOKENS),
+  });
+  // The floor has to clear the arithmetic that makes a turn possible at all.
+  assert.ok(
+    PI_MINIMUM_CONTEXT_TOKENS >= minimumUsableContextSize(MEASURED_AGENT_PROMPT_TOKENS),
+    "a floor below the measured prompt plus Pi's reserve clamps every reply to one token",
+  );
 
   // A floor is not a cap: it must not become the model's context window.
   assert.equal((await store.getModel(model.id))?.params.contextSize, undefined);

@@ -20,11 +20,19 @@ import {z} from 'zod';
 import {DEFAULT_TITLE_MAX_WORDS, DEFAULT_TITLE_PROMPT, TITLE_MAX_CHARACTERS} from './titles.ts';
 import {
   ATTACHMENTS_SETTINGS_SLUG,
+  CUSTOM_INSTRUCTIONS_KEY,
+  INSTRUCTIONS_SETTINGS_SLUG,
   PASTE_TO_FILE_CHARACTERS_KEY,
   TITLES_SETTINGS_SLUG,
 } from './settingsKeys.ts';
 
-export {ATTACHMENTS_SETTINGS_SLUG, TITLES_SETTINGS_SLUG};
+export {ATTACHMENTS_SETTINGS_SLUG, INSTRUCTIONS_SETTINGS_SLUG, TITLES_SETTINGS_SLUG};
+
+/**
+ * Pi's own agent prompt already costs ~9,439 tokens of the context window, and a
+ * long instruction block eats the reply budget. 8k characters is about 2k tokens.
+ */
+export const MAX_CUSTOM_INSTRUCTIONS_CHARACTERS = 8000;
 
 export type SettingsFieldType = 'text' | 'textarea' | 'number' | 'boolean' | 'select';
 
@@ -41,7 +49,17 @@ type SettingsFieldBase = {
 };
 
 export type SettingsField =
-  | (SettingsFieldBase & {type: 'text' | 'textarea'; default: string; maxLength?: number})
+  | (SettingsFieldBase & {
+      type: 'text' | 'textarea';
+      default: string;
+      maxLength?: number;
+      /**
+       * Render an estimated token cost beneath the control. A rendering hint the
+       * server serves, so the client shows the cost without a round trip and
+       * without knowing what the field means.
+       */
+      tokenCost?: boolean;
+    })
   | (SettingsFieldBase & {
       type: 'number';
       default: number;
@@ -77,6 +95,23 @@ export type SettingsValues = Record<string, SettingsValue>;
 export const DEFAULT_PASTE_TO_FILE_CHARACTERS = 2500;
 
 export const SETTINGS_REGISTRY: readonly SettingsGroup[] = [
+  {
+    slug: INSTRUCTIONS_SETTINGS_SLUG,
+    title: 'Custom instructions',
+    description:
+      "Appended to Nelle's system prompt for every conversation. Saving it rebuilds open sessions, so the next turn reprocesses the whole prompt.",
+    fields: [
+      {
+        key: CUSTOM_INSTRUCTIONS_KEY,
+        label: 'Custom instructions',
+        help: 'Tell the model who you are and how it should answer. Left empty, nothing is appended.',
+        type: 'textarea',
+        default: '',
+        maxLength: MAX_CUSTOM_INSTRUCTIONS_CHARACTERS,
+        tokenCost: true,
+      },
+    ],
+  },
   {
     slug: ATTACHMENTS_SETTINGS_SLUG,
     title: 'Attachments',

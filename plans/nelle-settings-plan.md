@@ -227,14 +227,22 @@ Measured on this machine, gemma-4-26B (trained window 262,144):
 | _nothing_      | **4,096**        |
 | `fitc = 16384` | 16,384           |
 
-4,096 is below Pi's ~9,439-token system prompt: every answer would come back one
-token long. So "write nothing" is not the fix.
+4,096 is below Pi's system prompt: every answer would come back one token long.
+So "write nothing" is not the fix — and neither is a 16,384 floor.
 
 **The fix is a floor, not a cap.** Nelle writes `fitc` (`--fit-ctx`) =
-`PI_MINIMUM_CONTEXT_TOKENS` (16,384) and no `c` at all. llama.cpp then gives a
-model as much context as the machine allows — up to its trained window, more than
-16,384 wherever there is memory for it — and fails to load rather than running
-uselessly. That is llama.cpp deciding, which was the point.
+`PI_MINIMUM_CONTEXT_TOKENS` and no `c` at all. llama.cpp then gives a model as
+much context as the machine allows — up to its trained window — and fails to load
+rather than running uselessly. That is llama.cpp deciding, which was the point.
+
+**And the floor is 32,768, not 16,384.** Measured while implementing Phase 2:
+gemma-4-26B's empty-conversation prompt is **13,458 tokens**, not the 9,439 that
+`PI_AGENT_PROMPT_TOKENS` records as Pi's own estimate. Pi reserves 4,096 more
+before it allocates any reply, so a turn needs 17,810 tokens before it can say
+anything at all. On a 16,384-token window the arithmetic is _negative_: every
+reply clamps to one token. The old `c = 16384` default had this bug too, and it
+looked like it worked — one-word answers read as terse models. gemma loads at
+32,768 on this machine and answers normally.
 
 Nelle previously overrode the window with `c = 16384` in `models.ini`'s `[*]`
 section (`store.ts:49`), a hard cap on every model, added because Pi's system
@@ -415,12 +423,13 @@ type TitleSettings = {
 - `'llm'` falls back to `'first-line'` when the request fails or times out,
   rather than leaving "New chat" behind. This is strictly better than today.
 - The trigger must not require an assistant reply. Found against the real
-  server: gemma spent its whole reasoning budget on "Explain sliding window
-  attention briefly" and returned no text, so a trigger demanding one assistant
-  message left the chat as "New chat" even in `first-line` mode, where the reply
-  was never needed. Require one user turn and at most one assistant turn; when
-  there is no reply to summarize, `'llm'` uses the first line too rather than
-  asking the model to title an empty exchange.
+  server: gemma returned no text at all for "Explain sliding window attention
+  briefly", so a trigger demanding one assistant message left the chat as "New
+  chat" even in `first-line` mode, where the reply was never needed. Require one
+  user turn and at most one assistant turn; when there is no reply to summarize,
+  `'llm'` uses the first line too rather than asking the model to title an empty
+  exchange. (The empty answer was itself the reply-budget clamp on a 16,384-token
+  window — see Phase 4 — not a spent reasoning budget, as first supposed.)
 - The prompt template is rendered server-side. Substitution is literal and the
   result is capped; `sanitizeGeneratedTitle` already strips quotes and prefixes.
 - Title generation keeps its own `temperature: 0.2`, sent explicitly, because it
@@ -696,7 +705,7 @@ exact thing this phase exists to allow. Fix it in the same breath: an absent
 ### No migration
 
 Nelle has no installs to migrate. `DEFAULT_STATE.globalModelParams` becomes
-`{fitc: '16384'}`, `DEFAULT_PARAMS.contextSize` disappears, and
+`{fitc: '32768'}`, `DEFAULT_PARAMS.contextSize` disappears, and
 `contextSizeFromParams`'s 16,384 fallback goes with it: there is no fallback,
 only `null`. The `c = 16384` already sitting in this repository's
 `.nelle/llama/models.ini` and `.nelle/state.json` is edited out by hand when the
@@ -710,7 +719,7 @@ says `c = 0` (an explicit removal of a global cap), and a number when it caps.
 Collapsing the first two makes a per-model `c = 0` inherit the very cap it was
 written to remove.
 
-On this machine the hand-edit is not a no-op: gemma comes up at 16,384 through
+On this machine the hand-edit is not a no-op: gemma comes up at 32,768 through
 auto-fit rather than through a Nelle constant, and would come up higher on a
 machine with more memory. A model that cannot fit even the floor fails to load,
 which is the reason the load failure has to be legible.

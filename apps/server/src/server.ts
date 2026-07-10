@@ -53,6 +53,7 @@ import {
   type SettingsGroup,
   type SettingsValues,
 } from '../../../packages/shared/src/settings.ts';
+import {SESSION_RESETTING_SETTINGS_SLUGS} from '../../../packages/shared/src/settingsKeys.ts';
 import {
   invalidModelParamsCode,
   invalidModelParamsMessage,
@@ -304,10 +305,19 @@ export async function createServer(
   // loud failure at boot instead of a route that silently never matches.
   for (const group of settings.groups) {
     const patchSchema = settingsPatchSchema(group);
+    // Pi bakes the system prompt into a session at construction, so a change to
+    // the custom instructions reaches an open conversation only if the session it
+    // would reuse is thrown away. `PATCH /api/settings/host-tools` already does
+    // exactly this, for exactly the same reason.
+    const resetsSessions = SESSION_RESETTING_SETTINGS_SLUGS.includes(group.slug);
     app.get(`/api/settings/${group.slug}`, async () => settings.getGroup(group.slug));
     app.patch(`/api/settings/${group.slug}`, async request => {
       const body = patchSchema.parse(request.body) as SettingsValues;
-      return settings.updateGroup(group.slug, body);
+      const saved = settings.updateGroup(group.slug, body);
+      if (resetsSessions) {
+        pi.resetSession();
+      }
+      return saved;
     });
   }
 

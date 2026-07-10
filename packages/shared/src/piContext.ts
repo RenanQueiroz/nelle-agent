@@ -30,33 +30,68 @@ export const PI_MIN_MAX_TOKENS = 1;
 export const PI_ESTIMATED_IMAGE_TOKENS = 1200;
 
 /**
- * What Pi's agent system prompt costs its own estimate, measured off the wire
- * with host tools disabled: `max_tokens` of 1,649 for a single image on a
- * 16,384-token window puts the rest of the estimate at 9,439.
+ * A **lower bound** on what Pi's agent prompt costs, deliberately so.
  *
- * Pi estimates characters divided by four, so this does not move with the
- * tokenizer. It *does* grow when host tools are enabled and their schemas join
- * the prompt, which is why it is only ever used to refuse a message that could
- * not fit even an empty conversation.
+ * Measured off the wire with host tools disabled: `max_tokens` of 1,649 for a
+ * single image on a 16,384-token window puts Pi's own estimate at 9,439. But
+ * what llama.cpp actually tokenizes depends on the model's chat template --
+ * gemma-4-26B reports **13,458 prompt tokens** for a two-character first message,
+ * four thousand more than Pi's estimate.
+ *
+ * The gap is why this stays low. It is only ever used to refuse a message that
+ * could not fit even an empty conversation, and understating the prompt means
+ * `maxAffordableImages` can let through a message that then reports
+ * `reply_budget_exhausted` -- but never refuses one that would have worked. An
+ * accurate-per-model number would need `/api/llama/tokenize` and a loaded model.
+ *
+ * It also grows when host tools are enabled and their schemas join the prompt.
  */
 export const PI_AGENT_PROMPT_TOKENS = 9439;
+
+/**
+ * What gemma-4-26B actually costs llama.cpp for an empty conversation, measured:
+ * 13,458 prompt tokens with host tools disabled and reasoning at `max`. It
+ * derives the floor below, and is recorded so the next reader does not have to
+ * re-measure it to discover that 16,384 is not enough.
+ */
+export const MEASURED_AGENT_PROMPT_TOKENS = 13_458;
 
 /** Below this many reply tokens the model cannot finish a sentence, let alone a turn. */
 export const MIN_USABLE_REPLY_TOKENS = 256;
 
 /**
- * The smallest context window in which Pi can hold a conversation, rounded up to
- * a power of two: 9,439 (agent prompt) + 4,096 (Pi's reserve) + 256 (a usable
- * reply) is 13,791, and the rest is room for what the user actually typed.
+ * Pi's own estimate: four characters to a token, whatever the tokenizer says.
+ *
+ * Exact enough to tell a user that eight thousand characters of instructions
+ * cost about two thousand tokens of every prompt, and cheap enough to run on
+ * each keystroke. `/api/llama/tokenize` is the precise answer, and needs a
+ * loaded model and a round trip.
+ */
+export function estimatePromptTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * The smallest context window in which Pi can hold a conversation.
+ *
+ * Not a guess. gemma-4-26B's empty-conversation prompt is 13,458 tokens, Pi
+ * reserves 4,096 more before it will allocate any reply, and a reply below 256
+ * tokens cannot finish a sentence: 17,810 is where a turn stops failing. A
+ * 16,384-token window leaves that arithmetic **negative**, which is why every
+ * answer on it came back one token long -- and why the old `c = 16384` default
+ * looked like it worked while quietly clamping every reply.
+ *
+ * 32,768 leaves about 15,000 tokens for the conversation itself before
+ * compaction. Verified: gemma-4-26B loads at it and answers.
  *
  * This is a **floor for llama.cpp's `--fit`**, never a cap. llama.cpp adjusts an
  * unset context to the memory it finds, between `--fit-ctx` and the model's
  * trained window, and its own default floor of 4,096 is a window in which Pi's
- * system prompt alone does not fit -- every answer comes back one token long.
- * Told this floor instead, llama.cpp gives a model as much context as the
- * machine allows, and fails to load rather than running uselessly.
+ * system prompt alone does not fit. Told this floor instead, llama.cpp gives a
+ * model as much context as the machine allows, and fails to load -- legibly --
+ * rather than running uselessly.
  */
-export const PI_MINIMUM_CONTEXT_TOKENS = 16_384;
+export const PI_MINIMUM_CONTEXT_TOKENS = 32_768;
 
 /** Upper bound we advertise to Pi. Pi clamps it down to whatever the context allows. */
 const MAX_REPLY_TOKENS = 8192;

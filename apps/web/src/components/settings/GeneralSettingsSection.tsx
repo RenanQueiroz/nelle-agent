@@ -11,6 +11,7 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 
 import type {SettingsFieldSchema, SettingsGroupSchema, SettingsValues} from '../../api';
 import {useSettingsStore} from '../../stores/settingsStore';
+import {estimatePromptTokens} from '../../../../../packages/shared/src/piContext.ts';
 
 /**
  * Renders `GET /api/settings/schema`. Nothing here knows what a setting means.
@@ -113,18 +114,29 @@ function SettingsFieldControl({
           data-testid={testId}
         />
       );
-    case 'textarea':
+    case 'textarea': {
+      const value = String(draft[field.key] ?? field.default);
       return (
-        <TextArea
-          label={field.label}
-          description={field.help}
-          value={String(draft[field.key] ?? field.default)}
-          maxLength={field.maxLength}
-          rows={6}
-          onChange={onChange}
-          data-testid={testId}
-        />
+        <VStack gap={1}>
+          <TextArea
+            label={field.label}
+            description={field.help}
+            value={value}
+            maxLength={field.maxLength}
+            rows={6}
+            onChange={onChange}
+            data-testid={testId}
+          />
+          {/* A pure helper, not a round trip: Pi counts four characters to a
+              token, and this text costs that on every prompt of every turn. */}
+          {field.tokenCost && value.length > 0 && (
+            <Text type="supporting" color="secondary">
+              About {estimatePromptTokens(value).toLocaleString()} tokens of every prompt.
+            </Text>
+          )}
+        </VStack>
       );
+    }
     case 'number':
       return (
         <NumberInput

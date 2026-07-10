@@ -1146,6 +1146,8 @@ export type SettingsFieldSchema =
       type: 'text' | 'textarea';
       default: string;
       maxLength?: number;
+      /** Show an estimated token cost beneath the control. */
+      tokenCost?: boolean;
     }
   | {
       key: string;

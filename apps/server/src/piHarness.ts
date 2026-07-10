@@ -32,7 +32,11 @@ import type {HostToolRepository} from './hostTools';
 import type {ModelCacheRepository} from './modelCache';
 import type {SettingsRepository} from './settings';
 import {effectiveContextWindow, requireContextWindow} from './contextWindow';
-import {TITLES_SETTINGS_SLUG} from '../../../packages/shared/src/settings.ts';
+import {
+  CUSTOM_INSTRUCTIONS_KEY,
+  INSTRUCTIONS_SETTINGS_SLUG,
+  TITLES_SETTINGS_SLUG,
+} from '../../../packages/shared/src/settingsKeys.ts';
 import {
   TITLE_SYSTEM_PROMPT,
   firstLineTitle,
@@ -154,6 +158,12 @@ export class PiHarness {
   /** What llama.cpp reports for this model, or the configured cap, or `null`. */
   private contextWindow(model: ConfiguredModel): number | null {
     return effectiveContextWindow(model, this.modelCache);
+  }
+
+  private customInstructions(): string {
+    const values = this.settings?.tryGetGroup(INSTRUCTIONS_SETTINGS_SLUG);
+    const text = values?.[CUSTOM_INSTRUCTIONS_KEY];
+    return typeof text === 'string' ? text : '';
   }
 
   resetSession(conversationId?: string): void {
@@ -1255,16 +1265,11 @@ export class PiHarness {
     const resourceLoader = new DefaultResourceLoader({
       cwd: this.paths.repoRoot,
       agentDir: this.paths.piDir,
-      systemPromptOverride: () =>
-        [
-          'You are Nelle Agent, a local-first personal AI agent.',
-          toolsEnabled
-            ? 'You may use host file and shell tools when needed.'
-            : 'Host file and shell tools are disabled in Nelle settings.',
-          toolsEnabled
-            ? 'Nelle runs host tools unsandboxed as the launching OS user, so be careful and explain destructive operations before running them.'
-            : 'Do not claim that you can inspect files or run shell commands unless host tools are enabled.',
-        ].join('\n'),
+      systemPromptOverride: () => nelleOperationalPrompt(toolsEnabled),
+      // Appended, never substituted. Replacing the operational prompt with user
+      // text would delete the sentence that tells the model host tools run
+      // unsandboxed as the launching OS user.
+      appendSystemPromptOverride: () => appendedSystemPrompts(this.customInstructions()),
     });
     await resourceLoader.reload();
 
@@ -2406,6 +2411,36 @@ async function ensureSessionFile(sessionPath: string, manager: any): Promise<voi
       throw error;
     }
   }
+}
+
+/**
+ * Nelle's own system prompt, which replaces Pi's.
+ *
+ * It states whether host tools are enabled and, when they are, that they run
+ * unsandboxed as the launching OS user. That sentence is why user text is
+ * appended rather than substituted: llama.cpp's web UI calls its equivalent
+ * "System Message" and lets it replace the prompt, and Nelle must not.
+ */
+export function nelleOperationalPrompt(toolsEnabled: boolean): string {
+  return [
+    'You are Nelle Agent, a local-first personal AI agent.',
+    toolsEnabled
+      ? 'You may use host file and shell tools when needed.'
+      : 'Host file and shell tools are disabled in Nelle settings.',
+    toolsEnabled
+      ? 'Nelle runs host tools unsandboxed as the launching OS user, so be careful and explain destructive operations before running them.'
+      : 'Do not claim that you can inspect files or run shell commands unless host tools are enabled.',
+  ].join('\n');
+}
+
+/**
+ * What Pi appends after the operational prompt. Empty instructions append
+ * nothing at all -- not an empty string, which would put a blank section into
+ * every prompt and cost a token to say nothing.
+ */
+export function appendedSystemPrompts(customInstructions: string): string[] {
+  const text = customInstructions.trim();
+  return text ? [text] : [];
 }
 
 function createConversationTitleEvent(conversationId: string, title: string): ChatStreamEvent {

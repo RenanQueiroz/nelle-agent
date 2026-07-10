@@ -48,16 +48,21 @@ Project-specific guidance for AI coding agents.
 - Launch llama-server with configurable `modelsMax` and `sleepIdleSeconds`
   settings. Defaults are `1` and `90`, and changes require a server restart.
 - Nelle writes no context size. It writes a *floor* for llama.cpp's auto-fit --
-  `fitc` (`--fit-ctx`) = `PI_MINIMUM_CONTEXT_TOKENS` (16,384) in `[*]` -- and
+  `fitc` (`--fit-ctx`) = `PI_MINIMUM_CONTEXT_TOKENS` (32,768) in `[*]` -- and
   llama.cpp picks the window. `--fit` is on by default and interpolates an unset
   context between the model's trained window and `--fit-ctx`, whose own default
-  is 4,096; Pi's agent system prompt is ~9,439 tokens and its
-  `clampMaxTokensToContext` reserves another 4,096, so a 4k window clamps
-  `max_tokens` to 1 and every answer stops after one word with
-  `finish_reason: "length"`. Measured: gemma-4-26B came up at 4,096 with nothing
-  set and at 16,384 with the floor, and would come up higher on a machine with
-  more memory. `c = 0` is not "the default": `common/arg.cpp` reads it as "the
-  user explicitly wants the full trained window" and disables fit reduction.
+  is 4,096. `c = 0` is not "the default": `common/arg.cpp` reads it as "the user
+  explicitly wants the full trained window" and disables fit reduction.
+- The floor is 32,768 because 16,384 does not work, and this is measured, not
+  assumed. gemma-4-26B's empty-conversation prompt is **13,458 tokens** (host
+  tools off, reasoning `max`), Pi's `clampMaxTokensToContext` reserves 4,096
+  more, and a reply under 256 tokens cannot finish a sentence: a turn needs
+  17,810. On a 16,384 window the arithmetic is negative, so `max_tokens` clamps
+  to 1 and every reply stops after one token with `finish_reason: "length"` --
+  which is what the old `c = 16384` default did, while looking like it worked.
+  `PI_AGENT_PROMPT_TOKENS` (9,439) is Pi's *own* estimate and a deliberate
+  lower bound: it may let a message through that then reports
+  `reply_budget_exhausted`, but it must never refuse one that would have worked.
   Keep the arithmetic in `packages/shared/src/piContext.ts`.
 - What a conversation actually gets is llama.cpp's to report, never Nelle's to
   assume. `effectiveContextWindow()` (`apps/server/src/contextWindow.ts`) is the
@@ -110,7 +115,7 @@ Project-specific guidance for AI coding agents.
   `raw.meta.n_ctx_train`, the model's trained window, once it has loaded it;
   that is cached in `model_cache.context_train` and both are served on
   `GET /api/llama/models` so Settings can say "Full window: 262,144 · running at
-  16,384" without a client re-deriving either from `raw`.
+  32,768" without a client re-deriving either from `raw`.
 - Never advertise a fixed `maxTokens` to Pi. Scale it with the context window
   (`replyTokenBudget`); Pi clamps it down against the live context anyway.
 - Pi charges a flat `PI_ESTIMATED_IMAGE_TOKENS` (1200) against its context
@@ -664,7 +669,9 @@ Project-specific guidance for AI coding agents.
   containing the literal text `{{ASSISTANT}}` reaches the model as that text.
   The trigger needs one user turn and at most one assistant turn: a turn the
   model answered with nothing is still titled from the user's first line, and
-  `llm` skips the round trip when there is no reply to summarize. Title
+  `llm` skips the round trip when there is no reply to summarize. (An answerless
+  turn is usually the reply-budget clamp, not a spent reasoning budget: see
+  `PI_MINIMUM_CONTEXT_TOKENS`.) Title
   generation sets its own `temperature: 0.2` because it bypasses Pi and so never
   sees `models.ini` sampling; the system message is not user-editable because it
   states the output format Nelle parses.
