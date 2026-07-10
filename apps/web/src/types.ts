@@ -25,7 +25,14 @@ export type ComposerModelOptionDetail = {
   progressPercent: number | null;
 };
 
-export type SettingsSection = 'runtime' | 'models' | 'reasoning' | 'global' | 'tools' | 'chats';
+export type SettingsSection =
+  | 'general'
+  | 'runtime'
+  | 'models'
+  | 'reasoning'
+  | 'global'
+  | 'tools'
+  | 'chats';
 
 export type ActiveRunKind = Extract<ChatStreamEvent, {type: 'run.started'}>['kind'];
 

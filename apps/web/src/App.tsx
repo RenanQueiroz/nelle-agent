@@ -105,6 +105,9 @@ import {
   type RuntimeStatus,
   fetchSlashCommands,
   fetchPreferences,
+  fetchSettingsGroup,
+  fetchSettingsSchema,
+  updateSettingsGroup,
   updatePreferences,
 } from './api';
 import {ChatComposerPanel} from './components/chat/ChatComposerPanel';
@@ -392,6 +395,28 @@ export function App() {
         }
       } catch {
         // The bundled registry stands in until the server can be reached.
+      }
+    })();
+  }, []);
+
+  // The field list and its values both come from the server, so a setting added
+  // there appears here without a client release. Drafts are seeded once, and
+  // only the save that makes one stale may overwrite it.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const {sections} = await fetchSettingsSchema();
+        const values = await Promise.all(sections.map(group => fetchSettingsGroup(group.slug)));
+        if (isMountedRef.current) {
+          useSettingsStore
+            .getState()
+            .seedSettings(
+              sections,
+              Object.fromEntries(sections.map((group, index) => [group.slug, values[index]!])),
+            );
+        }
+      } catch {
+        // The General section says it is loading. Nothing else depends on this.
       }
     })();
   }, []);
@@ -812,6 +837,28 @@ export function App() {
           : 'Runtime settings saved.',
       });
     });
+  }
+
+  /**
+   * The server validates and returns the whole group, so the reset carries what
+   * it stored rather than what the user typed. A field it refused names itself
+   * in the error, which is the only thing the user needs.
+   */
+  async function handleSaveSettingsGroup(slug: string) {
+    const settingsStore = useSettingsStore.getState();
+    setBusyAction(`settings:${slug}`);
+    settingsStore.setSettingsError(null);
+    try {
+      const draft = settingsStore.settingsDrafts[slug];
+      if (draft) {
+        settingsStore.resetSettingsDraft(slug, await updateSettingsGroup(slug, draft));
+        setNotice({type: 'success', text: 'Settings saved.'});
+      }
+    } catch (error) {
+      settingsStore.setSettingsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   async function handleSaveGlobalParams() {
@@ -2049,6 +2096,7 @@ export function App() {
                 onDuplicateModel={handleDuplicateConfiguredModel}
                 onDeleteModel={handleDeleteConfiguredModel}
                 onSaveGlobalParams={handleSaveGlobalParams}
+                onSaveSettingsGroup={handleSaveSettingsGroup}
                 onSaveReasoningBudgets={handleSaveReasoningBudgets}
                 hostTools={hostTools}
                 onAcknowledgeHostTools={handleHostToolsAcknowledgement}

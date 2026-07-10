@@ -19,6 +19,7 @@ import {Text, Heading} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Token} from '@astryxdesign/core/Token';
 import {
+  AdjustmentsHorizontalIcon,
   ArrowDownTrayIcon,
   ArrowPathIcon,
   ArrowUpTrayIcon,
@@ -47,6 +48,7 @@ import type {
 } from '../../api';
 import {getConversations} from '../../api';
 import type {ParamRow, SettingsSection} from '../../types';
+import {GeneralSettingsSection} from './GeneralSettingsSection';
 import {useSettingsStore} from '../../stores/settingsStore';
 import {useUiStore} from '../../stores/uiStore';
 import {formatBytes, formatRouterStatus, routerStatusColor} from '../../utils/format';
@@ -78,6 +80,7 @@ type SettingsDialogProps = {
   onDuplicateModel: (model: ConfiguredModel) => void | Promise<void>;
   onDeleteModel: (model: ConfiguredModel) => void | Promise<void>;
   onSaveGlobalParams: () => void | Promise<void>;
+  onSaveSettingsGroup: (slug: string) => void | Promise<void>;
   onSaveReasoningBudgets: () => void | Promise<void>;
   hostTools: HostToolSettings | null;
   onAcknowledgeHostTools: () => void | Promise<void>;
@@ -97,6 +100,7 @@ const SETTINGS_SECTIONS: Array<{
   id: SettingsSection;
   icon: typeof Cog6ToothIcon;
 }> = [
+  {id: 'general', icon: AdjustmentsHorizontalIcon},
   {id: 'runtime', icon: CpuChipIcon},
   {id: 'models', icon: SparklesIcon},
   {id: 'reasoning', icon: LightBulbIcon},
@@ -132,6 +136,7 @@ export function SettingsDialog({
   onDuplicateModel,
   onDeleteModel,
   onSaveGlobalParams,
+  onSaveSettingsGroup,
   onSaveReasoningBudgets,
   hostTools,
   onAcknowledgeHostTools,
@@ -184,6 +189,12 @@ export function SettingsDialog({
         }
         content={
           <LayoutContent padding={4} className="nelle-settings-dialog-content">
+            {section === 'general' && (
+              <GeneralSettingsSection
+                busyAction={busyAction}
+                onSaveSettingsGroup={onSaveSettingsGroup}
+              />
+            )}
             {section === 'runtime' && (
               <RuntimeSettingsSection
                 runtime={runtime}
@@ -916,6 +927,9 @@ function createParamRowId(): string {
 }
 
 function settingsSectionLabel(section: SettingsSection): string {
+  if (section === 'general') {
+    return 'General';
+  }
   if (section === 'runtime') {
     return 'Runtime';
   }

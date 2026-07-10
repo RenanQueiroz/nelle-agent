@@ -1,6 +1,13 @@
 import {create} from 'zustand';
 
-import type {ConfiguredModel, HuggingFaceModelResult, ReasoningBudgets} from '../api';
+import type {
+  ConfiguredModel,
+  HuggingFaceModelResult,
+  ReasoningBudgets,
+  SettingsGroupSchema,
+  SettingsValue,
+  SettingsValues,
+} from '../api';
 import {DEFAULT_REASONING_BUDGETS} from '../api';
 import type {ParamRow} from '../types';
 import {paramsToRows} from '../utils/params';
@@ -44,6 +51,17 @@ type SettingsStore = {
   resetModelDraft: (model: ConfiguredModel) => void;
   resetReasoningDrafts: (budgets: ReasoningBudgets | undefined) => void;
   resetRuntimeDrafts: (modelsMax: number | undefined, sleepIdleSeconds: number | undefined) => void;
+
+  /** The server's field list. Empty until `GET /api/settings/schema` answers. */
+  settingsSchema: SettingsGroupSchema[];
+  /** What the user is typing, per group slug. Empty until the values arrive. */
+  settingsDrafts: Record<string, SettingsValues>;
+  settingsError: string | null;
+  seedSettings: (schema: SettingsGroupSchema[], values: Record<string, SettingsValues>) => void;
+  setSettingsField: (slug: string, key: string, value: SettingsValue) => void;
+  setSettingsError: (message: string | null) => void;
+  /** After the save that made the draft stale, from the values the server returned. */
+  resetSettingsDraft: (slug: string, values: SettingsValues) => void;
 };
 
 function budgetInputs(budgets: ReasoningBudgets): Record<keyof ReasoningBudgets, string> {
@@ -130,4 +148,24 @@ export const useSettingsStore = create<SettingsStore>(set => ({
       modelsMaxInput: String(modelsMax ?? 1),
       sleepIdleInput: String(sleepIdleSeconds ?? 90),
     }),
+
+  settingsSchema: [],
+  settingsDrafts: {},
+  settingsError: null,
+  seedSettings: (schema, values) => set({settingsSchema: schema, settingsDrafts: values}),
+  setSettingsField: (slug, key, value) =>
+    set(state => ({
+      settingsDrafts: {
+        ...state.settingsDrafts,
+        [slug]: {...state.settingsDrafts[slug], [key]: value},
+      },
+      // The user changed something, so whatever the last save said is stale.
+      settingsError: null,
+    })),
+  setSettingsError: message => set({settingsError: message}),
+  resetSettingsDraft: (slug, values) =>
+    set(state => ({
+      settingsDrafts: {...state.settingsDrafts, [slug]: values},
+      settingsError: null,
+    })),
 }));

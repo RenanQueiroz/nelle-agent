@@ -40,6 +40,7 @@ them in this sequence:
 | ----- | ----------------------------- | --------------------------------------------------------------------------------- |
 | 1     | Phase 0 — foundations         | Everything after it is a field.                                                   |
 | 2     | Phase 1 — titles              | Smallest real feature; proves the plumbing.                                       |
+| 2a    | General section               | Renders the served schema. Without it, every field above is invisible.            |
 | 3     | Phase 3 — param validation    | Before anyone is told to type `temp` into the editor.                             |
 | 4     | Phase 4 — context window      | Needs Phase 3's option catalogue to know `c` = `ctx-size` = `LLAMA_ARG_CTX_SIZE`. |
 | 5     | Phase 6 — paste to file       | Cheapest user-visible win.                                                        |

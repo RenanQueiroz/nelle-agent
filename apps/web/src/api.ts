@@ -1086,6 +1086,87 @@ export async function updatePreferences(input: {
   return (await response.json()) as {favoriteModelIds: string[]};
 }
 
+export type SettingsFieldSchema =
+  | {
+      key: string;
+      label: string;
+      help: string;
+      type: 'text' | 'textarea';
+      default: string;
+      maxLength?: number;
+    }
+  | {
+      key: string;
+      label: string;
+      help: string;
+      type: 'number';
+      default: number;
+      min?: number;
+      max?: number;
+      step?: number;
+      integer?: boolean;
+    }
+  | {key: string; label: string; help: string; type: 'boolean'; default: boolean}
+  | {
+      key: string;
+      label: string;
+      help: string;
+      type: 'select';
+      default: string;
+      options: Array<{value: string; label: string}>;
+    };
+
+export type SettingsGroupSchema = {
+  slug: string;
+  title: string;
+  description?: string;
+  fields: SettingsFieldSchema[];
+};
+
+export type SettingsValue = string | number | boolean;
+export type SettingsValues = Record<string, SettingsValue>;
+
+/**
+ * The server's field list, fetched rather than bundled.
+ *
+ * A client that renders this gets every future setting without a release, and
+ * carries no copy of a label, a bound, or a default -- `GET /api/settings/<slug>`
+ * returns effective values, so there is nothing here to fall out of date.
+ */
+export async function fetchSettingsSchema(): Promise<{sections: SettingsGroupSchema[]}> {
+  const response = await fetch('/api/settings/schema');
+  if (!response.ok) {
+    throw new Error(`Settings schema request failed: ${response.status}`);
+  }
+  return (await response.json()) as {sections: SettingsGroupSchema[]};
+}
+
+export async function fetchSettingsGroup(slug: string): Promise<SettingsValues> {
+  const response = await fetch(`/api/settings/${encodeURIComponent(slug)}`);
+  if (!response.ok) {
+    throw new Error(`Settings request failed: ${response.status}`);
+  }
+  return (await response.json()) as SettingsValues;
+}
+
+export async function updateSettingsGroup(
+  slug: string,
+  patch: SettingsValues,
+): Promise<SettingsValues> {
+  const response = await fetch(`/api/settings/${encodeURIComponent(slug)}`, {
+    method: 'PATCH',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify(patch),
+  });
+  if (!response.ok) {
+    // The server names the field it refused; that message is the whole point.
+    throw new Error(
+      await nelleErrorMessage(response, `Settings update failed (${response.status}).`),
+    );
+  }
+  return (await response.json()) as SettingsValues;
+}
+
 /** Sends the bytes. The server classifies, extracts, and refuses. */
 export async function uploadAttachment(
   file: File,
@@ -1109,6 +1190,10 @@ export async function deleteUpload(uploadId: string): Promise<void> {
 
 /** The server sends a `NelleError`; show its message, not the status code. */
 async function uploadErrorMessage(response: Response, fileName: string): Promise<string> {
+  return nelleErrorMessage(response, `${fileName} could not be uploaded (${response.status}).`);
+}
+
+async function nelleErrorMessage(response: Response, fallback: string): Promise<string> {
   try {
     const body = (await response.json()) as {error?: {message?: string}};
     if (body.error?.message) {
@@ -1117,5 +1202,5 @@ async function uploadErrorMessage(response: Response, fileName: string): Promise
   } catch {
     // A response that is not JSON. Fall through to the generic message.
   }
-  return `${fileName} could not be uploaded (${response.status}).`;
+  return fallback;
 }

@@ -615,6 +615,14 @@ Project-specific guidance for AI coding agents.
   untouched rather than eating a setting the user would lose on the way back up.
   Reads coerce field by field, so one unreadable value falls back to its default
   alone and takes no sibling with it.
+- The Settings dialog's **General** section renders the served schema and nothing
+  else. `GeneralSettingsSection.tsx` knows what a `select` is; it must never know
+  what a title is. Labels, help text, bounds, options and defaults all arrive
+  from `GET /api/settings/schema`, so a new field appears in the dialog with no
+  client change -- which is the whole reason the schema is served. Its draft
+  state lives in `settingsStore`, seeded once and reset only by the save that
+  made it stale; a refused save keeps the draft and shows the server's own
+  sentence, because that sentence names the field.
 - Conversation titles are a setting (`GET`/`PATCH /api/settings/titles`), and the
   pure helpers live in `packages/shared/src/titles.ts`.
   `streamConversationTitleIfNeeded` is the only path that runs; it fires once per
