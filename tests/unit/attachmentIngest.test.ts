@@ -320,6 +320,56 @@ test('a window too small for even one image says so', async () => {
   );
 });
 
+test('an unknown context window skips the image pre-flight rather than refusing', async () => {
+  // llama.cpp has never reported a window and no `c` caps it. There is no
+  // arithmetic to do, and `maxAffordableImages(0)` is `0` -- which would refuse
+  // every image. Refusing on a guess is the one thing worse than not refusing:
+  // the run-time `reply_budget_exhausted` still catches what Pi cannot answer.
+  const images = Array.from({length: 5}, (_, index) => ({
+    id: `i${index}`,
+    kind: 'image' as const,
+    name: `page-${index}.png`,
+    mimeType: 'image/png',
+    bytes: Buffer.from([1]),
+  }));
+  const reader = uploadReader(images);
+  const references = images.map(image => ({uploadId: image.id}));
+
+  // Five images would never fit a 16,384-token window.
+  await assert.rejects(
+    () => resolveChatAttachments(reader, references, {contextSize: 16_384, visionSupport: true}),
+    /fits about 2 images/,
+  );
+
+  const {attachments} = await resolveChatAttachments(reader, references, {
+    contextSize: null,
+    visionSupport: true,
+  });
+  assert.equal(attachments.length, 5, 'nothing is priced, so nothing is refused');
+});
+
+test('the hard page cap still applies when the window is unknown', async () => {
+  // Skipping the *context* limit must not skip the limit that is not a guess.
+  const pages = ATTACHMENT_LIMITS.maxRenderedPdfPages + 1;
+  const reader = uploadReader([
+    {
+      id: 'p1',
+      kind: 'pdf',
+      name: 'scan.pdf',
+      mimeType: 'application/pdf',
+      pageCount: pages,
+      bytes: simplePdfBuffer('x'),
+    },
+  ]);
+  const error = await resolveChatAttachments(reader, [{uploadId: 'p1'}], {
+    contextSize: null,
+    visionSupport: true,
+  }).catch((thrown: Error) => thrown);
+  assert.match(error.message, /renders at most 20 pages per document/);
+  // And it does not name a context window it never measured.
+  assert.doesNotMatch(error.message, /token context window/);
+});
+
 test('a missing upload is named, so the user knows to attach it again', async () => {
   await assert.rejects(
     () => resolveChatAttachments(uploadReader([]), [{uploadId: 'gone'}], VISION_MODEL),

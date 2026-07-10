@@ -17,7 +17,7 @@ import {registerLlamaProxy} from './llamaProxy';
 import {PiHarness, isConversationNotFoundError} from './piHarness';
 import {streamDirectLlama} from './directLlama';
 import {createErrorEvent, normalizeNelleError} from './errors';
-import {AppStore, DEFAULT_CONTEXT_SIZE} from './store';
+import {AppStore} from './store';
 import {AppDatabase} from './database';
 import {exportConversationArchive, importConversationArchive} from './conversationArchive';
 import {HostToolRepository} from './hostTools';
@@ -27,6 +27,7 @@ import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './uploads';
 import {ingestUpload, resolveChatAttachments, UnsupportedAttachmentError} from './attachmentIngest';
 import {ATTACHMENT_LIMITS} from '../../../packages/shared/src/attachments.ts';
 import {ModelCacheRepository} from './modelCache';
+import {effectiveContextWindow} from './contextWindow';
 import {
   ConversationRepository,
   LEGACY_DEFAULT_CONVERSATION_ID,
@@ -359,7 +360,21 @@ export async function createServer(
     handleLlamaRoute(reply, async () => {
       const result = await llama.getRouterModels();
       modelCache.upsertRouterModels(result.models);
-      return result;
+      // Both windows, so a client renders "Full window: 262,144 · running at
+      // 16,384" without re-deriving either from `raw`. `contextWindow` is
+      // llama.cpp's `/props` answer and `contextTrain` its `n_ctx_train`; both
+      // are `undefined` until the model has been loaded once.
+      return {
+        ...result,
+        models: result.models.map(model => {
+          const cached = modelCache.getModel(model.sectionId);
+          return {
+            ...model,
+            contextWindow: cached?.contextWindow,
+            contextTrain: cached?.contextTrain,
+          };
+        }),
+      };
     }),
   );
 
@@ -1000,7 +1015,9 @@ export async function createServer(
       // six-page scan is six attachments. Runs after the load, so `model_cache`
       // can answer whether the model sees images.
       const resolved = await resolveChatAttachments(uploads, body.attachments ?? [], {
-        contextSize: activeModel?.params.contextSize ?? DEFAULT_CONTEXT_SIZE,
+        // llama.cpp's answer if it has one, else the configured cap, else `null`
+        // -- which skips the pre-flight rather than refusing on a guess.
+        contextSize: activeModel ? effectiveContextWindow(activeModel, modelCache) : null,
         visionSupport: activeModel ? modelCache.getVisionSupport(activeModel.id) : null,
       });
       assertSupportedAttachments(resolved.attachments, modelCache, await store.getState());

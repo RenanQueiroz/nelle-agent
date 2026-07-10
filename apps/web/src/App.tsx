@@ -136,7 +136,7 @@ import {
   registerPendingDeleteFlush,
   schedulePendingDelete,
 } from './utils/pendingDeletes';
-import {formatInteger, getContextOverflowMessage, positiveTokenCount} from './utils/context';
+import {formatInteger, getContextOverflowMessage} from './utils/context';
 import {parseReasoningBudgets} from './utils/reasoning';
 import {rowsToParams} from './utils/params';
 
@@ -469,14 +469,12 @@ export function App() {
   const isStreaming = activeRunKind === 'chat' || activeRunKind === 'regenerate';
   const isCompacting = activeRunKind === 'compact';
   const isActiveConversationBusy = isStreaming || isCompacting;
-  const displayedContextUsage = useMemo(
-    () =>
-      mergeContextTotals(
-        contextUsage,
-        activeModelProps?.contextWindow ?? activeModel?.params.contextSize,
-      ),
-    [activeModel?.params.contextSize, activeModelProps?.contextWindow, contextUsage],
-  );
+  // The server resolves the effective window -- llama.cpp's `/props` answer, the
+  // configured cap, or nothing -- and stamps it on every snapshot and
+  // `context.updated`. The browser used to override that with its own guess,
+  // which is how a client comes to disagree with the server about a number only
+  // the server can know.
+  const displayedContextUsage = contextUsage;
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
@@ -2157,16 +2155,6 @@ function applyConversationSnapshot(
   setContextUsage(snapshot.context ?? {});
   setReasoningLevel(snapshot.conversation.reasoningLevel ?? 'off');
   setCapabilities(snapshot.capabilities);
-}
-
-function mergeContextTotals(
-  context: ConversationContextUsage,
-  totalTokens?: number,
-): ConversationContextUsage {
-  return {
-    ...context,
-    totalTokens: positiveTokenCount(totalTokens) ?? context.totalTokens,
-  };
 }
 
 function getAbortWarningMessage(response: {warning?: {message?: string}}): string | null {

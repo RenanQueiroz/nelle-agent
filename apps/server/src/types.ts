@@ -55,6 +55,10 @@ export type LlamaRouterModel = {
   source?: string;
   canRemove?: boolean;
   architecture?: string;
+  /** llama.cpp's `/props` answer: the window a conversation on it actually gets. */
+  contextWindow?: number;
+  /** `n_ctx_train`: the window the model was trained for. Absent until loaded once. */
+  contextTrain?: number;
   raw?: unknown;
 };
 
@@ -93,7 +97,14 @@ export type AbortConversationResult = {
 };
 
 export type ModelParams = {
-  contextSize: number;
+  /**
+   * The context cap the user configured, through `c` in this model's section or
+   * in `[*]`. Absent means "no cap": llama.cpp uses the model's trained window.
+   *
+   * It is a *prediction* of what llama.cpp will do. Once the model has loaded,
+   * `/props` is the truth -- see `effectiveContextWindow`.
+   */
+  contextSize?: number;
   gpuLayers?: number;
   threads?: number;
   batchSize?: number;

@@ -54,6 +54,7 @@ import {GeneralSettingsSection} from './GeneralSettingsSection';
 import {GLOBAL_PARAM_SCOPE, useSettingsStore} from '../../stores/settingsStore';
 import {useUiStore} from '../../stores/uiStore';
 import {formatBytes, formatRouterStatus, routerStatusColor} from '../../utils/format';
+import {formatInteger} from '../../utils/context';
 
 type SettingsDialogProps = {
   isOpen: boolean;
@@ -545,6 +546,31 @@ function GlobalSettingsSection({
 }
 
 /**
+ * Both windows, so a cap is comprehensible: against what?
+ *
+ * `contextWindow` is what llama.cpp reports it is running at, and `contextTrain`
+ * is what the model was trained for. Nelle asks for neither: it writes a floor
+ * for llama.cpp's auto-fit and llama.cpp picks the rest. Both are unknown until
+ * the model has been loaded once, and saying so is better than guessing.
+ */
+function ContextWindowSummary({routerModel}: {routerModel?: LlamaRouterModel}) {
+  const running = routerModel?.contextWindow;
+  const trained = routerModel?.contextTrain;
+  if (running == null && trained == null) {
+    return null;
+  }
+  const parts = [
+    trained == null ? null : `Full window: ${formatInteger(trained)}`,
+    running == null ? null : `running at ${formatInteger(running)}`,
+  ].filter(Boolean);
+  return (
+    <Text type="supporting" color="secondary">
+      {parts.join(' · ')}
+    </Text>
+  );
+}
+
+/**
  * Discoverability is the whole reason this is not simply "type whatever you
  * like". Pi sends no sampling parameters at all, so these launch flags are what
  * every conversation runs with.
@@ -823,6 +849,7 @@ function ModelSettingsRow({
           router id: {routerModel.routerModelId ?? routerModel.sectionId}
         </Text>
       )}
+      <ContextWindowSummary routerModel={routerModel} />
       <TextInput
         label="Alias"
         value={aliasDraft}

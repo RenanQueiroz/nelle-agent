@@ -326,7 +326,9 @@ export class LlamaCppManager {
         return {loaded: true};
       }
       if (next?.status === 'failed') {
-        throw modelLoadError(`${modelId} failed to load. Check the llama.cpp logs.`);
+        throw modelLoadError(modelLoadFailureMessage(modelId, next, this.paths.llamaLogPath), {
+          logRef: this.paths.llamaLogPath,
+        });
       }
       await delayMs(pollMs);
     }
@@ -1112,10 +1114,46 @@ function normalizeRouterModel(raw: unknown): LlamaRouterModel {
   };
 }
 
-function modelLoadError(message: string): Error {
+function modelLoadError(message: string, extra: {logRef?: string} = {}): Error {
   const error = new Error(message);
-  Object.assign(error, {code: NELLE_ERROR_CODES.modelLoadFailed, retryable: true});
+  Object.assign(error, {code: NELLE_ERROR_CODES.modelLoadFailed, retryable: true, ...extra});
   return error;
+}
+
+/**
+ * Nelle does not guess why a model would not load; llama.cpp already wrote it
+ * down. The router reports the child's exit code, and the child's own stderr --
+ * the line that actually says what went wrong -- is in the runtime log behind
+ * its pid.
+ *
+ * Removing the context default made this legible-or-useless: a model that loaded
+ * yesterday at 16k may not load today at its trained window, and "Check the
+ * llama.cpp logs" neither says why nor opens them.
+ */
+export function modelLoadFailureMessage(
+  modelId: string,
+  model: {raw?: unknown},
+  logPath: string,
+): string {
+  const exitCode = routerExitCode(model.raw);
+  const exit = exitCode == null ? '' : ` (llama-server exited with code ${exitCode})`;
+  return (
+    `${modelId} failed to load${exit}. The reason is in ${logPath}. ` +
+    'A model may not fit its trained context window: set `c` to a smaller size, quantise the KV ' +
+    'cache with `ctk`/`ctv`, or move layers with `ngl`, `cmoe` or `ot` in Settings > Models.'
+  );
+}
+
+function routerExitCode(raw: unknown): number | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const status = (raw as {status?: unknown}).status;
+  if (!status || typeof status !== 'object') {
+    return null;
+  }
+  const exitCode = (status as {exit_code?: unknown}).exit_code;
+  return typeof exitCode === 'number' ? exitCode : null;
 }
 
 function delayMs(milliseconds: number): Promise<void> {

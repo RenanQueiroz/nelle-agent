@@ -206,11 +206,39 @@ that gap much easier to hit, which is why Phase 3 exists.
 
 Nelle invents a context window and tells nobody who could correct it.
 
-**llama.cpp already defaults to the model's own window.** `-c, --ctx-size N` is
-`(default: 0, 0 = loaded from model)`. Nelle overrides it with `c = 16384` in
-`models.ini`'s `[*]` section (`store.ts:49`), which is not llama.cpp's default —
-it is ours, added because Pi's system prompt plus its 4,096-token reserve made an
-8k window useless.
+**Correction, found by running it.** This section was written believing that
+`-c, --ctx-size N (default: 0, 0 = loaded from model)` meant "with no `c`,
+llama.cpp uses the trained window". It does not, and the mistake is worth
+recording because it would have shipped a regression.
+
+`--fit` is **on by default** (`common.h`: `bool fit_params = true`). It adjusts
+_unset_ parameters to the memory it finds, and for the context it interpolates
+between the model's trained window and `--fit-ctx`, whose default is **4,096**.
+Writing `c = 0` is not "the default" either: `common/arg.cpp` sets
+`fit_params_min_ctx = UINT32_MAX` when it sees `0`, which _disables_ the
+reduction, because zero is read as "the user explicitly requests the full
+context size".
+
+Measured on this machine, gemma-4-26B (trained window 262,144):
+
+| `[*]` section  | `/props` `n_ctx` |
+| -------------- | ---------------- |
+| `c = 16384`    | 16,384           |
+| _nothing_      | **4,096**        |
+| `fitc = 16384` | 16,384           |
+
+4,096 is below Pi's ~9,439-token system prompt: every answer would come back one
+token long. So "write nothing" is not the fix.
+
+**The fix is a floor, not a cap.** Nelle writes `fitc` (`--fit-ctx`) =
+`PI_MINIMUM_CONTEXT_TOKENS` (16,384) and no `c` at all. llama.cpp then gives a
+model as much context as the machine allows — up to its trained window, more than
+16,384 wherever there is memory for it — and fails to load rather than running
+uselessly. That is llama.cpp deciding, which was the point.
+
+Nelle previously overrode the window with `c = 16384` in `models.ini`'s `[*]`
+section (`store.ts:49`), a hard cap on every model, added because Pi's system
+prompt plus its 4,096-token reserve made an 8k window useless.
 
 **The models we ship against want far more.** The router reports both numbers
 once it has loaded a model, on `GET /api/llama/models` as `raw.meta`:
@@ -667,18 +695,25 @@ exact thing this phase exists to allow. Fix it in the same breath: an absent
 
 ### No migration
 
-Nelle has no installs to migrate. `DEFAULT_STATE.globalModelParams` becomes `{}`,
-`DEFAULT_PARAMS.contextSize` disappears, and `contextSizeFromParams`'s 16,384
-fallback goes with it: there is no fallback, only `null`. The `c = 16384` already
-sitting in this repository's `.nelle/llama/models.ini` and `.nelle/state.json` is
-edited out by hand when the phase lands — not before, because until
-`DEFAULT_STATE.globalModelParams` changes, `writePreset` puts it straight back.
-No code path exists to patch an old install, because there are none.
+Nelle has no installs to migrate. `DEFAULT_STATE.globalModelParams` becomes
+`{fitc: '16384'}`, `DEFAULT_PARAMS.contextSize` disappears, and
+`contextSizeFromParams`'s 16,384 fallback goes with it: there is no fallback,
+only `null`. The `c = 16384` already sitting in this repository's
+`.nelle/llama/models.ini` and `.nelle/state.json` is edited out by hand when the
+phase lands — not before, because until `DEFAULT_STATE.globalModelParams`
+changes, `writePreset` puts it straight back. No code path exists to patch an old
+install, because there are none.
 
-On this machine that hand-edit is not a no-op: gemma comes up at its full
-262,144-token window, and Qwen does not come up at all until it is given a `c`, a
-KV cache type, or an offload flag. That is the intended behaviour. It is also the
-reason the load failure has to be legible.
+`contextSizeFromParams` returns three things, and the difference matters:
+`undefined` when the section says nothing (so `[*]` cascades), `null` when it
+says `c = 0` (an explicit removal of a global cap), and a number when it caps.
+Collapsing the first two makes a per-model `c = 0` inherit the very cap it was
+written to remove.
+
+On this machine the hand-edit is not a no-op: gemma comes up at 16,384 through
+auto-fit rather than through a Nelle constant, and would come up higher on a
+machine with more memory. A model that cannot fit even the floor fails to load,
+which is the reason the load failure has to be legible.
 
 ### Two things to verify before building
 

@@ -44,6 +44,20 @@ export const PI_AGENT_PROMPT_TOKENS = 9439;
 /** Below this many reply tokens the model cannot finish a sentence, let alone a turn. */
 export const MIN_USABLE_REPLY_TOKENS = 256;
 
+/**
+ * The smallest context window in which Pi can hold a conversation, rounded up to
+ * a power of two: 9,439 (agent prompt) + 4,096 (Pi's reserve) + 256 (a usable
+ * reply) is 13,791, and the rest is room for what the user actually typed.
+ *
+ * This is a **floor for llama.cpp's `--fit`**, never a cap. llama.cpp adjusts an
+ * unset context to the memory it finds, between `--fit-ctx` and the model's
+ * trained window, and its own default floor of 4,096 is a window in which Pi's
+ * system prompt alone does not fit -- every answer comes back one token long.
+ * Told this floor instead, llama.cpp gives a model as much context as the
+ * machine allows, and fails to load rather than running uselessly.
+ */
+export const PI_MINIMUM_CONTEXT_TOKENS = 16_384;
+
 /** Upper bound we advertise to Pi. Pi clamps it down to whatever the context allows. */
 const MAX_REPLY_TOKENS = 8192;
 

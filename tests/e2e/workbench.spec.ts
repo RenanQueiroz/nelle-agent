@@ -97,8 +97,13 @@ test('loads the Nelle workbench and searches GGUF models', async ({page}) => {
     .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))
     .toContain('hf-repo = unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL');
 
+  // `[*]` carries only `fitc`, a floor for llama.cpp's auto-fit. Nelle writes no
+  // context size at all; capping one is the user's to type, in a new row.
   await page.getByRole('button', {name: 'Global Params'}).click();
-  await page.getByLabel('Value').first().fill('12288');
+  await expect(page.getByLabel('Key').first()).toHaveValue('fitc');
+  await page.getByRole('button', {name: 'Add parameter'}).click();
+  await page.getByLabel('Key').nth(1).fill('c');
+  await page.getByLabel('Value').nth(1).fill('12288');
   await page.getByRole('button', {name: 'Save global params'}).click();
   await expect
     .poll(() => fs.readFile(path.join(repoRoot, '.nelle-e2e', 'llama', 'models.ini'), 'utf8'))

@@ -8,7 +8,10 @@ export type CachedModel = {
   routerModelId?: string;
   status?: string;
   modalities?: LlamaModelProps['modalities'];
+  /** llama.cpp's `/props` answer: the window a conversation on it actually gets. */
   contextWindow?: number;
+  /** `n_ctx_train`: the window the model was trained for. The ceiling, not the run. */
+  contextTrain?: number;
   /** `null` when llama.cpp has never reported a chat template for this model. */
   canReason: boolean | null;
   updatedAt: string;
@@ -22,6 +25,7 @@ type ModelCacheRow = {
   status: string | null;
   modalities_json: string | null;
   context_window: number | null;
+  context_train: number | null;
   can_reason: number | null;
   updated_at: string;
 };
@@ -45,15 +49,19 @@ export class ModelCacheRepository {
   upsertRouterModels(models: LlamaRouterModel[]): void {
     const db = this.database.connection;
     const now = new Date().toISOString();
+    // `COALESCE` on `context_train`: the router reports `n_ctx_train` only for a
+    // model it has loaded, so a later `unloaded` listing must not erase what an
+    // earlier load taught us.
     const statement = db.prepare(
       `INSERT INTO model_cache (
-         section_id, hf_repo, alias, router_model_id, status, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?)
+         section_id, hf_repo, alias, router_model_id, status, context_train, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(section_id) DO UPDATE SET
          hf_repo = excluded.hf_repo,
          alias = excluded.alias,
          router_model_id = excluded.router_model_id,
          status = excluded.status,
+         context_train = COALESCE(excluded.context_train, model_cache.context_train),
          updated_at = excluded.updated_at`,
     );
     db.exec('BEGIN');
@@ -65,6 +73,7 @@ export class ModelCacheRepository {
           model.alias ?? null,
           model.routerModelId ?? null,
           model.status ?? null,
+          routerContextTrain(model.raw),
           now,
         );
       }
@@ -140,9 +149,26 @@ function mapRow(row: ModelCacheRow): CachedModel {
     status: row.status ?? undefined,
     modalities: parseModalities(row.modalities_json),
     contextWindow: row.context_window ?? undefined,
+    contextTrain: row.context_train ?? undefined,
     canReason: row.can_reason == null ? null : row.can_reason === 1,
     updatedAt: row.updated_at,
   };
+}
+
+/**
+ * `raw.meta.n_ctx_train`, which `GET /models` carries once the router has loaded
+ * the model. Nelle already received it and threw it away.
+ */
+function routerContextTrain(raw: unknown): number | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const meta = (raw as {meta?: unknown}).meta;
+  if (!meta || typeof meta !== 'object') {
+    return null;
+  }
+  const value = (meta as {n_ctx_train?: unknown}).n_ctx_train;
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
 }
 
 function parseModalities(value: string | null): LlamaModelProps['modalities'] | undefined {

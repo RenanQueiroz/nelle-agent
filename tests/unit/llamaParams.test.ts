@@ -198,11 +198,11 @@ test('without a binary, an unknown key is saved rather than refused', async () =
       payload: {params: {temprature: '0.7'}},
     });
     assert.equal(response.statusCode, 200);
-    const saved = response.json<{globalModelParams: Record<string, string>}>().globalModelParams;
-    assert.equal(saved.temprature, '0.7', 'the key llama.cpp does not know was saved anyway');
-    // `c` rides along from the default preset: `[*]` params are upserted, not
-    // replaced. `plans/nelle-settings-plan.md` Phase 4 is what removes it.
-    assert.equal(saved.c, '16384');
+    // A full replacement of `[*]`, and no invented `c` riding along.
+    assert.deepEqual(
+      response.json<{globalModelParams: Record<string, string>}>().globalModelParams,
+      {temprature: '0.7'},
+    );
 
     // The catalogue route says so plainly, rather than serving an empty list as
     // though llama.cpp had no options.

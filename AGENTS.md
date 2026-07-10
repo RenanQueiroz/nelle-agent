@@ -47,16 +47,34 @@ Project-specific guidance for AI coding agents.
   offload flags when the user explicitly configures them.
 - Launch llama-server with configurable `modelsMax` and `sleepIdleSeconds`
   settings. Defaults are `1` and `90`, and changes require a server restart.
-- The default context size is 16384, not llama.cpp's own default. Pi's agent
-  system prompt costs ~4k tokens and Pi's `clampMaxTokensToContext` reserves
-  another 4096 before allocating any reply tokens, so an 8k window clamps
+- Nelle writes no context size. It writes a *floor* for llama.cpp's auto-fit --
+  `fitc` (`--fit-ctx`) = `PI_MINIMUM_CONTEXT_TOKENS` (16,384) in `[*]` -- and
+  llama.cpp picks the window. `--fit` is on by default and interpolates an unset
+  context between the model's trained window and `--fit-ctx`, whose own default
+  is 4,096; Pi's agent system prompt is ~9,439 tokens and its
+  `clampMaxTokensToContext` reserves another 4,096, so a 4k window clamps
   `max_tokens` to 1 and every answer stops after one word with
-  `finish_reason: "length"`. Keep the arithmetic in
-  `packages/shared/src/piContext.ts` and warn when the reply budget is exhausted.
-  `plans/nelle-settings-plan.md` Phase 4 removes this default: llama.cpp's own
-  `--ctx-size` default is `0`, meaning the model's trained window, and Nelle caps
-  gemma-4-26B at 6% of its 262,144 tokens. Until that lands the default stays,
-  because with it gone nothing tells Pi the real window.
+  `finish_reason: "length"`. Measured: gemma-4-26B came up at 4,096 with nothing
+  set and at 16,384 with the floor, and would come up higher on a machine with
+  more memory. `c = 0` is not "the default": `common/arg.cpp` reads it as "the
+  user explicitly wants the full trained window" and disables fit reduction.
+  Keep the arithmetic in `packages/shared/src/piContext.ts`.
+- What a conversation actually gets is llama.cpp's to report, never Nelle's to
+  assume. `effectiveContextWindow()` (`apps/server/src/contextWindow.ts`) is the
+  one resolver: `model_cache.context_window` (llama.cpp's `/props` answer, always
+  wins) ?? the configured `c` cap (a prediction) ?? `null`. `null` is a real
+  value and must be handled as one: the context bar shows usage with no total,
+  the image pre-flight is *skipped* rather than refusing, and Pi never sees it
+  (`requireContextWindow` asserts, and `writePiModels` omits a model whose window
+  is unknown). Coercing `null` to a number is the way to break this silently --
+  `maxAffordableImages(0)` is `0`, which refuses every image. Cached Pi sessions
+  are keyed by `(model, contextWindow)`, because Pi bakes the window in at
+  construction and clamps against it for the session's life.
+- `contextSizeFromParams` answers `undefined` (the section is silent, so `[*]`
+  cascades), `null` (`c = 0`, an explicit removal of a global cap), or a number.
+  Collapsing the first two makes a per-model `c = 0` inherit the cap it was
+  written to remove. `models.ini` param payloads are full replacements, so an
+  empty object clears the section -- that is what makes a cap removable.
 - Nelle does not police how a model is loaded. `c`, `ctk`, `ctv`, `ngl`, `cmoe`,
   `ncmoe` and `ot` are the user's levers, and a MoE model with its experts on the
   CPU has a memory profile no estimate of ours would get right. Write what the
@@ -86,15 +104,13 @@ Project-specific guidance for AI coding agents.
   requests -- 9 requests and 17.6 MiB for a 14.2 GB file -- which is a detail
   view, never a search result. `gguf.totalFileSize` is the size of the one file
   Hugging Face parsed, not a repo total and not a per-quant size.
-- The context window a conversation gets is llama.cpp's to report, not Nelle's to
-  assume. `/props` `default_generation_settings.n_ctx` is the per-conversation
-  window -- with `kv_unified = true` each of the four slots sees the whole thing --
-  and it is already cached in `model_cache.context_window`. The router also
-  reports `raw.meta.n_ctx_train`, the model's full window, on
-  `GET /api/llama/models` once it has loaded it. `writePiModels` tells Pi
-  `model.params.contextSize` instead, which `contextSizeFromParams` derives from
-  the `c` key with a 16384 fallback; the day `c` stops being written, that
-  fallback becomes a lie.
+- `/props` `default_generation_settings.n_ctx` is the per-conversation window --
+  with `kv_unified = true` each of the four slots sees the whole thing -- and it
+  is cached in `model_cache.context_window`. The router also reports
+  `raw.meta.n_ctx_train`, the model's trained window, once it has loaded it;
+  that is cached in `model_cache.context_train` and both are served on
+  `GET /api/llama/models` so Settings can say "Full window: 262,144 · running at
+  16,384" without a client re-deriving either from `raw`.
 - Never advertise a fixed `maxTokens` to Pi. Scale it with the context window
   (`replyTokenBudget`); Pi clamps it down against the live context anyway.
 - Pi charges a flat `PI_ESTIMATED_IMAGE_TOKENS` (1200) against its context

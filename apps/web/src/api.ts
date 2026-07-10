@@ -41,6 +41,10 @@ export type LlamaRouterModel = {
   source?: string;
   canRemove?: boolean;
   architecture?: string;
+  /** What llama.cpp reports it is running at. Absent until the model is loaded. */
+  contextWindow?: number;
+  /** The window the model was trained for; the ceiling a cap is measured against. */
+  contextTrain?: number;
   raw?: unknown;
 };
 
@@ -88,7 +92,8 @@ export type ConfiguredModel = {
   quant?: string;
   hfRef?: string;
   params: {
-    contextSize: number;
+    /** The `c` cap the user configured, absent when llama.cpp picks the window. */
+    contextSize?: number;
     gpuLayers?: number;
     threads?: number;
     batchSize?: number;

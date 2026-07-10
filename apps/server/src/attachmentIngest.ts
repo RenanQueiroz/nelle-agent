@@ -235,7 +235,7 @@ export function pdfNeedsPageImages(upload: Upload): boolean {
 export async function resolveChatAttachments(
   uploads: UploadReader,
   references: ChatAttachmentReference[],
-  model: {contextSize: number; visionSupport: boolean | null},
+  model: {contextSize: number | null; visionSupport: boolean | null},
 ): Promise<{attachments: ChatAttachmentInput[]}> {
   const resolved = references.map(reference => {
     const upload = uploads.get(reference.uploadId);
@@ -255,7 +255,13 @@ export async function resolveChatAttachments(
     );
   }
 
-  const imageBudget = maxAffordableImages(model.contextSize);
+  // With no known window there is no arithmetic to do, so the context-derived
+  // limit is skipped. `maxAffordableImages(0)` is `0`, which would refuse every
+  // image, and refusing on a guess is the one thing worse than not refusing: a
+  // run-time `reply_budget_exhausted` still catches a payload Pi cannot answer
+  // within. The hard page cap is not a guess, so it still applies.
+  const imageBudget =
+    model.contextSize == null ? Number.POSITIVE_INFINITY : maxAffordableImages(model.contextSize);
   const pageBudget = Math.min(imageBudget, ATTACHMENT_LIMITS.maxRenderedPdfPages);
   for (const scan of scans) {
     const pages = scan.pageCount ?? 1;
@@ -331,17 +337,28 @@ export async function resolveChatAttachments(
  * the arithmetic rather than letting the run die with a clamped reply budget.
  */
 function imageBudgetError(input: {
-  contextSize: number;
+  /** `null` when the window is unknown, so only the page cap can have refused. */
+  contextSize: number | null;
   imageCount: number;
   imageBudget: number;
   scanName?: string;
 }): UnsupportedAttachmentError {
   const tokens = (input.imageCount * PI_ESTIMATED_IMAGE_TOKENS).toLocaleString();
-  const needed = minimumContextSizeForImages(input.imageCount, PI_AGENT_PROMPT_TOKENS);
   const subject = input.scanName
     ? `${input.scanName} has no text layer, so its ${plural(input.imageCount, 'page')} must be ` +
       `read as images (${tokens} tokens)`
     : `${plural(input.imageCount, 'image')} need ${tokens} tokens`;
+
+  // The window is unknown, so nothing was priced: only the hard page cap, which
+  // is not a guess about context, could have refused this.
+  if (input.contextSize == null) {
+    return new UnsupportedAttachmentError(
+      `${subject}. Nelle renders at most ` +
+        `${plural(ATTACHMENT_LIMITS.maxRenderedPdfPages, 'page')} per document. Attach less.`,
+    );
+  }
+
+  const needed = minimumContextSizeForImages(input.imageCount, PI_AGENT_PROMPT_TOKENS);
   // "about", because Pi's system prompt is not a fixed size: it was measured at
   // 9,439 tokens and observed 350 higher, which is a third of an image.
   const fits =

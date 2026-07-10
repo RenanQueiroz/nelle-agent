@@ -21,7 +21,7 @@ import {localLlamaProxyBaseUrl} from './llamaProxy';
 import {chatTemplateKwargsForModel, llamaRuntimeModelId} from './modelCompat';
 import {createErrorEvent} from './errors';
 import type {AppPaths} from './paths';
-import {AppStore, DEFAULT_CONTEXT_SIZE} from './store';
+import {AppStore} from './store';
 import {
   createLiveContextTracker,
   LEGACY_DEFAULT_CONVERSATION_ID,
@@ -31,6 +31,7 @@ import {
 import type {HostToolRepository} from './hostTools';
 import type {ModelCacheRepository} from './modelCache';
 import type {SettingsRepository} from './settings';
+import {effectiveContextWindow, requireContextWindow} from './contextWindow';
 import {TITLES_SETTINGS_SLUG} from '../../../packages/shared/src/settings.ts';
 import {
   TITLE_SYSTEM_PROMPT,
@@ -86,6 +87,13 @@ const ATTACHMENT_TEXT_INLINE_MAX = 200_000;
 type ManagedSession = {
   conversationId: string;
   modelId: string;
+  /**
+   * Pi reads `contextWindow` from `.pi/models.json` at session creation and
+   * clamps against it for the session's life. Loading a model for the first time
+   * -- or editing its `c` cap -- changes that number, and a session that did not
+   * notice keeps clamping against one nobody believes.
+   */
+  contextWindow: number;
   session: any;
 };
 
@@ -141,6 +149,11 @@ export class PiHarness {
 
   private titleSettings(): TitleSettings {
     return readTitleSettings(this.settings?.tryGetGroup(TITLES_SETTINGS_SLUG));
+  }
+
+  /** What llama.cpp reports for this model, or the configured cap, or `null`. */
+  private contextWindow(model: ConfiguredModel): number | null {
+    return effectiveContextWindow(model, this.modelCache);
   }
 
   resetSession(conversationId?: string): void {
@@ -543,7 +556,7 @@ export class PiHarness {
       const result = await this.llamaRuntime.tokenize(content);
       const context: ConversationContextUsage = {
         usedTokens: result.tokens,
-        totalTokens: activeModel.params.contextSize,
+        totalTokens: this.contextWindow(activeModel) ?? undefined,
         source: 'estimate',
         updatedAt: new Date().toISOString(),
       };
@@ -777,7 +790,7 @@ export class PiHarness {
     session.setThinkingLevel?.(piThinkingLevel(reasoningLevel));
     const state = await this.store.getState();
     let warnedAboutReplyBudget = false;
-    const trackContext = createLiveContextTracker(activeModel.params.contextSize);
+    const trackContext = createLiveContextTracker(this.contextWindow(activeModel) ?? undefined);
     const pushPerformance = (performance: ChatPerformance) => {
       assistantMessage.performance = mergeChatPerformance(
         assistantMessage.performance,
@@ -794,10 +807,11 @@ export class PiHarness {
       const promptTokens =
         assistantMessage.performance.prompt?.totalTokens ??
         assistantMessage.performance.prompt?.tokens;
-      const contextSize = activeModel.params.contextSize;
+      const contextSize = this.contextWindow(activeModel);
       if (
         !warnedAboutReplyBudget &&
         promptTokens != null &&
+        contextSize != null &&
         isReplyBudgetExhausted(contextSize, promptTokens)
       ) {
         warnedAboutReplyBudget = true;
@@ -986,7 +1000,7 @@ export class PiHarness {
           throw emptyAnswerError({
             providerError: providerError ?? undefined,
             maxTokens: lastRequestedMaxTokens,
-            contextSize: activeModel.params.contextSize,
+            contextSize: this.contextWindow(activeModel),
             imageCount: promptAttachments.items.filter(item => item.image).length,
           });
         }
@@ -1218,7 +1232,10 @@ export class PiHarness {
 
   private async ensureSession(conversationId: string, activeModel: ConfiguredModel): Promise<any> {
     const cached = this.#sessions.get(conversationId);
-    if (cached && cached.modelId === activeModel.id) {
+    // Not just the model: a session created before llama.cpp first reported this
+    // model's window clamps against the old number for its whole life.
+    const contextWindow = requireContextWindow(activeModel, this.modelCache);
+    if (cached && cached.modelId === activeModel.id && cached.contextWindow === contextWindow) {
       return cached.session;
     }
 
@@ -1282,6 +1299,7 @@ export class PiHarness {
     this.#sessions.set(conversationId, {
       conversationId,
       modelId: activeModel.id,
+      contextWindow,
       session,
     });
     return session;
@@ -1565,7 +1583,7 @@ export class PiHarness {
         name: 'Unknown model',
         presetName: 'unknown',
         source: 'huggingface',
-        params: {contextSize: DEFAULT_CONTEXT_SIZE},
+        params: {},
         createdAt: new Date().toISOString(),
       }
     );
@@ -1796,28 +1814,45 @@ export class PiHarness {
 
   private async writePiModels(activeModel: ConfiguredModel): Promise<void> {
     await fs.mkdir(this.paths.piDir, {recursive: true});
+    // Pi bakes `contextWindow` into a session at construction and clamps against
+    // it for the session's life, so it must never see a number nobody believes.
+    // The chat and regenerate routes load the model before this runs, which is
+    // what makes the window known; the assertion states that invariant.
+    const activeContextWindow = requireContextWindow(activeModel, this.modelCache);
     const state = await this.store.getState();
-    const models = state.models.map(model => ({
-      id: llamaRuntimeModelId(model),
-      name: model.name,
-      // Whether a model can actually think is decided by its chat template, not
-      // by its name. Declaring `reasoning` unlocks Pi's thinking levels for
-      // every model; a template that ignores `enable_thinking` just answers
-      // normally. `templateSupportsThinking` gates the UI control instead.
-      reasoning: true,
-      input: ['text', 'image'],
-      contextWindow: model.params.contextSize,
-      // Pi clamps this against the live context, so advertise a generous ceiling
-      // instead of a flat 512-token cap that truncated every long answer.
-      maxTokens: replyTokenBudget(model.params.contextSize),
-      cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
-      // Pi hides `xhigh` unless the model maps it, and Nelle's `max` level maps
-      // onto it. The value is never sent: `supportsReasoningEffort` is false.
-      thinkingLevelMap: {xhigh: 'xhigh'},
-      // Pi's name for "pass `chat_template_kwargs.enable_thinking`", which is
-      // how Qwen3, Gemma 4, and every other llama.cpp thinking template read it.
-      compat: {thinkingFormat: 'qwen-chat-template' as const},
-    }));
+    const models = state.models.flatMap(model => {
+      const contextWindow =
+        model.id === activeModel.id ? activeContextWindow : this.contextWindow(model);
+      // Never loaded and never capped. Omit it rather than invent a window: Pi
+      // only looks up the model it is about to run, and that one is loaded.
+      if (contextWindow == null) {
+        return [];
+      }
+      return [
+        {
+          id: llamaRuntimeModelId(model),
+          name: model.name,
+          // Whether a model can actually think is decided by its chat template,
+          // not by its name. Declaring `reasoning` unlocks Pi's thinking levels
+          // for every model; a template that ignores `enable_thinking` just
+          // answers normally. `templateSupportsThinking` gates the UI control.
+          reasoning: true,
+          input: ['text', 'image'],
+          contextWindow,
+          // Pi clamps this against the live context, so advertise a generous
+          // ceiling instead of a flat 512-token cap that truncated long answers.
+          maxTokens: replyTokenBudget(contextWindow),
+          cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
+          // Pi hides `xhigh` unless the model maps it, and Nelle's `max` level
+          // maps onto it. The value is never sent: `supportsReasoningEffort` is
+          // false.
+          thinkingLevelMap: {xhigh: 'xhigh'},
+          // Pi's name for "pass `chat_template_kwargs.enable_thinking`", which
+          // is how Qwen3, Gemma 4, and every llama.cpp thinking template read it.
+          compat: {thinkingFormat: 'qwen-chat-template' as const},
+        },
+      ];
+    });
 
     const config = {
       providers: {
@@ -2461,7 +2496,8 @@ export function squeezedReplyBudgetWarning(maxTokens: number | undefined): strin
 export function emptyAnswerError(input: {
   providerError?: string;
   maxTokens?: number;
-  contextSize: number;
+  /** `null` when llama.cpp has never reported a window and none is configured. */
+  contextSize: number | null;
   imageCount: number;
 }): Error {
   if (input.providerError) {
@@ -2473,15 +2509,19 @@ export function emptyAnswerError(input: {
     );
   }
 
+  // Pi clamped the reply, so it knew a window even where Nelle does not. Say
+  // what happened without naming a number nobody measured.
+  const window =
+    input.contextSize == null
+      ? "this model's context window"
+      : `this model's ${input.contextSize.toLocaleString()} token context window`;
   const message =
     input.imageCount > 0
       ? `The ${input.imageCount === 1 ? 'image' : `${input.imageCount} images`} left no room for a ` +
         `reply: Pi charges about ${PI_ESTIMATED_IMAGE_TOKENS.toLocaleString()} tokens per image ` +
-        `against this model's ${input.contextSize.toLocaleString()} token context window, and ` +
-        `reserves ${PI_CONTEXT_SAFETY_TOKENS.toLocaleString()} more. Attach fewer images, or raise ` +
-        'the context size in Settings > Models.'
-      : `The prompt left no room for a reply inside this model's ` +
-        `${input.contextSize.toLocaleString()} token context window. Run /compact, or raise the ` +
+        `against ${window}, and reserves ${PI_CONTEXT_SAFETY_TOKENS.toLocaleString()} more. ` +
+        'Attach fewer images, or raise the context size in Settings > Models.'
+      : `The prompt left no room for a reply inside ${window}. Run /compact, or raise the ` +
         'context size in Settings > Models.';
 
   const error = new Error(message);

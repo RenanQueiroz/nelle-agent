@@ -75,6 +75,8 @@ export async function streamDirectLlama(
 
   void (async () => {
     const modelId = llamaRuntimeModelId(activeModel);
+    // The direct fallback runs when Pi is unavailable and never loads a model,
+    // so it has only the configured cap. `undefined` leaves the bar without a total.
     const trackContext = createLiveContextTracker(activeModel.params.contextSize);
     const pushPerformance = (performance: ChatPerformance) => {
       assistantMessage.performance = mergeChatPerformance(

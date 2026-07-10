@@ -2,19 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {useSettingsStore} from '../../apps/web/src/stores/settingsStore.ts';
-import {DEFAULT_CONTEXT_SIZE} from '../../apps/server/src/store.ts';
 
 test('settings drafts invent nothing before the server answers', () => {
   const initial = useSettingsStore.getState();
 
   // The store used to seed `{c: '8192'}`, a second copy of a policy the server
-  // owns -- and the exact context size that clamps max_tokens to 1.
+  // owns -- and the exact context size that clamps max_tokens to 1. There is now
+  // no default context size anywhere: llama.cpp picks the window.
   assert.deepEqual(initial.globalParamRows, []);
   assert.equal(initial.modelsMaxInput, '');
   assert.equal(initial.sleepIdleInput, '');
 
   const paramValues = initial.globalParamRows.map(row => row.value);
-  assert.equal(paramValues.includes(String(DEFAULT_CONTEXT_SIZE)), false);
+  assert.equal(paramValues.includes('16384'), false);
   assert.equal(paramValues.includes('8192'), false);
 });
 

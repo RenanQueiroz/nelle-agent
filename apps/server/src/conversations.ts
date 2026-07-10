@@ -29,6 +29,7 @@ import {
 import type {AppDatabase} from './database';
 import {buildConversationMessages} from '../../../packages/shared/src/messages.ts';
 import {ModelCacheRepository} from './modelCache';
+import {effectiveContextWindow} from './contextWindow';
 import {sanitizeStoredPerformance} from './llamaThroughput';
 import type {AppState, ChatMessage, ConfiguredModel} from './types';
 
@@ -773,7 +774,10 @@ export class ConversationRepository {
       attachments,
       context: buildContextUsage(
         entries,
-        defaultModel?.params.contextSize,
+        // What llama.cpp reports, not what `models.ini` asked for. `undefined`
+        // leaves the context bar without a total rather than claiming a
+        // percentage of a window nobody has measured.
+        (defaultModel && effectiveContextWindow(defaultModel, this.modelCache)) ?? undefined,
         contextUsageFromRow(row.context_usage_json),
       ),
       models: {

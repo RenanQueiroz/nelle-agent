@@ -241,6 +241,18 @@ const MIGRATIONS: Migration[] = [
     `,
     isApplied: db => tableHasColumn(db, 'uploads', 'page_count'),
   },
+  {
+    version: 10,
+    name: 'model_cache_context_train',
+    checksum: '2026-07-10-model-cache-context-train',
+    // The window a model was trained for, which the router reports as
+    // `raw.meta.n_ctx_train` and Nelle used to receive and discard. It is what
+    // makes "running at 16,384" comprehensible: against what?
+    sql: `
+      ALTER TABLE model_cache ADD COLUMN context_train INTEGER;
+    `,
+    isApplied: db => tableHasColumn(db, 'model_cache', 'context_train'),
+  },
 ];
 
 /** The proof-of-concept default chat was stored under this id. */

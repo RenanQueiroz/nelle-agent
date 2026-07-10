@@ -31,7 +31,14 @@ import {
 } from '../../apps/server/src/piHarness.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {createServer} from '../../apps/server/src/server.ts';
-import {AppStore, DEFAULT_CONTEXT_SIZE} from '../../apps/server/src/store.ts';
+import {AppStore} from '../../apps/server/src/store.ts';
+
+/**
+ * There is no default context size any more: with no `c`, llama.cpp uses the
+ * window the model was trained for. These tests configure a cap explicitly,
+ * because they are about the arithmetic, not about the default.
+ */
+const CAPPED_CONTEXT_SIZE = 16_384;
 import type {ChatMessage, ChatStreamEvent, ConfiguredModel} from '../../apps/server/src/types.ts';
 import {
   assertConversationTransition,
@@ -69,6 +76,7 @@ test('SQLite migration creates conversation tables and migration records', async
         [7, 'model_cache_can_reason'],
         [8, 'uploads'],
         [9, 'uploads_page_count'],
+        [10, 'model_cache_context_train'],
       ],
     );
     assert.equal(table?.name, 'conversations');
@@ -176,7 +184,7 @@ test('SQLite migration backs up existing databases before repairing migration re
       .all() as Array<{version: number}>;
     assert.deepEqual(
       migrations.map(migration => migration.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     );
   } finally {
     repaired.close();
@@ -199,7 +207,7 @@ test('SQLite migration backs up existing databases before repairing migration re
     // this test deleted, so it is missing while the others remain.
     assert.deepEqual(
       backupMigrations.map(migration => migration.version),
-      [1, 3, 4, 5, 6, 7, 8, 9],
+      [1, 3, 4, 5, 6, 7, 8, 9, 10],
     );
     assert.equal(contextColumn, true);
   } finally {
@@ -233,6 +241,7 @@ test('repository mirrors the legacy default chat into a conversation snapshot', 
       quant: 'UD-Q4_K_M',
       name: 'Model Q4',
     });
+    await store.updateGlobalModelParams({c: String(CAPPED_CONTEXT_SIZE)});
     await store.appendChatMessage({
       id: 'user-1',
       role: 'user',
@@ -1023,6 +1032,7 @@ test('repository derives context usage from assistant performance metadata', asy
       quant: 'UD-Q4_K_M',
       name: 'Model Q4',
     });
+    await store.updateGlobalModelParams({c: String(CAPPED_CONTEXT_SIZE)});
     const repository = new ConversationRepository(database);
     const conversation = repository.createConversation({title: 'Context chat'});
 
@@ -1064,7 +1074,7 @@ test('repository derives context usage from assistant performance metadata', asy
 
     assert.deepEqual(snapshot?.context, {
       usedTokens: 134,
-      totalTokens: DEFAULT_CONTEXT_SIZE,
+      totalTokens: CAPPED_CONTEXT_SIZE,
       source: 'timings',
       // The snapshot carries the threshold verdict, so no client re-derives it.
       status: 'ok',
@@ -1082,6 +1092,7 @@ test('a snapshot whose prompt filled the window reports an overflow status', asy
   await database.open();
   try {
     await store.addHuggingFaceModel({repoId: 'repo/model', quant: 'UD-Q4_K_M', name: 'Model Q4'});
+    await store.updateGlobalModelParams({c: String(CAPPED_CONTEXT_SIZE)});
     const repository = new ConversationRepository(database);
     const conversation = repository.createConversation({title: 'Full chat'});
     repository.replaceConversationProjection(conversation.id, {
@@ -1096,7 +1107,7 @@ test('a snapshot whose prompt filled the window reports an overflow status', asy
           createdAt: '2026-07-08T12:00:01.000Z',
           performance: {
             source: 'llamacpp-timings',
-            prompt: {tokens: DEFAULT_CONTEXT_SIZE, totalTokens: DEFAULT_CONTEXT_SIZE},
+            prompt: {tokens: CAPPED_CONTEXT_SIZE, totalTokens: CAPPED_CONTEXT_SIZE},
             generation: {tokens: 1},
           },
         },
@@ -1105,7 +1116,7 @@ test('a snapshot whose prompt filled the window reports an overflow status', asy
 
     const snapshot = repository.getSnapshot(conversation.id, await store.getState());
     assert.equal(snapshot?.context.status, 'overflow');
-    assert.equal(snapshot?.context.usedTokens, DEFAULT_CONTEXT_SIZE + 1);
+    assert.equal(snapshot?.context.usedTokens, CAPPED_CONTEXT_SIZE + 1);
   } finally {
     database.close();
   }
@@ -1344,6 +1355,7 @@ test('Pi harness does not recreate a missing bound session file', async () => {
       quant: 'UD-Q4_K_M',
       name: 'Model Q4',
     });
+    await store.updateGlobalModelParams({c: String(CAPPED_CONTEXT_SIZE)});
 
     const repository = new ConversationRepository(database);
     const conversation = repository.createConversation({title: 'Missing session'});
@@ -2276,6 +2288,7 @@ test('Pi compact stream emits run and compaction lifecycle events', async () => 
     quant: 'UD-Q4_K_M',
     name: 'Model Q4',
   });
+  await store.updateGlobalModelParams({c: String(CAPPED_CONTEXT_SIZE)});
   const database = new AppDatabase(paths);
   await database.open();
   try {
@@ -2341,7 +2354,7 @@ test('Pi compact stream emits run and compaction lifecycle events', async () => 
     assert.equal(events[1]?.instructions, 'keep setup details');
     assert.equal(events[2]?.type, 'context.updated');
     assert.equal(events[2]?.usedTokens, 42);
-    assert.equal(events[2]?.totalTokens, DEFAULT_CONTEXT_SIZE);
+    assert.equal(events[2]?.totalTokens, CAPPED_CONTEXT_SIZE);
     assert.equal(events[2]?.source, 'estimate');
     assert.equal(events[3]?.type, 'compact.completed');
     assert.equal(events[4]?.type, 'run.completed');
@@ -2352,7 +2365,7 @@ test('Pi compact stream emits run and compaction lifecycle events', async () => 
     assert.equal(snapshot?.conversation.activeLeafPiEntryId, 'entry-compaction');
     assert.equal(snapshot?.entries[2]?.entryType, 'compaction');
     assert.equal(snapshot?.context.usedTokens, 42);
-    assert.equal(snapshot?.context.totalTokens, DEFAULT_CONTEXT_SIZE);
+    assert.equal(snapshot?.context.totalTokens, CAPPED_CONTEXT_SIZE);
     assert.equal(snapshot?.context.source, 'estimate');
   } finally {
     database.close();
@@ -2367,6 +2380,7 @@ test('Pi compact stream reports busy conversations with stable error codes', asy
     quant: 'UD-Q4_K_M',
     name: 'Model Q4',
   });
+  await store.updateGlobalModelParams({c: String(CAPPED_CONTEXT_SIZE)});
   const database = new AppDatabase(paths);
   await database.open();
   let releaseCompact: (() => void) | undefined;
@@ -2599,6 +2613,7 @@ test('a second chat run in the same conversation is rejected as busy', async () 
     quant: 'UD-Q4_K_M',
     name: 'Model Q4',
   });
+  await store.updateGlobalModelParams({c: String(CAPPED_CONTEXT_SIZE)});
   const database = new AppDatabase(paths);
   await database.open();
   let releasePrompt: (() => void) | undefined;
@@ -3302,6 +3317,7 @@ test('chat stream emits SSE envelopes with run lifecycle events', async () => {
     quant: 'UD-Q4_K_M',
     name: 'Model Q4',
   });
+  await store.updateGlobalModelParams({c: String(CAPPED_CONTEXT_SIZE)});
   const originalFetch = globalThis.fetch;
   const previousPiDisabled = process.env.NELLE_PI_DISABLED;
   process.env.NELLE_PI_DISABLED = '1';
@@ -3392,7 +3408,7 @@ test('chat stream emits SSE envelopes with run lifecycle events', async () => {
     };
     // 4 prompt tokens + 2 predicted, from the mocked `timings` chunk.
     assert.equal(context.usedTokens, 6);
-    assert.equal(context.totalTokens, DEFAULT_CONTEXT_SIZE);
+    assert.equal(context.totalTokens, CAPPED_CONTEXT_SIZE);
     assert.equal(context.status, 'ok');
   } finally {
     await app.close();

@@ -15,6 +15,7 @@ import {
   writeModelsIniAtomic,
   type ModelsIniDocument,
 } from '../../../packages/shared/src/modelsIni.ts';
+import {PI_MINIMUM_CONTEXT_TOKENS} from '../../../packages/shared/src/piContext.ts';
 import type {ReasoningBudgets} from '../../../packages/shared/src/reasoning.ts';
 import {
   DEFAULT_REASONING_SETTINGS,
@@ -22,14 +23,33 @@ import {
 } from '../../../packages/shared/src/reasoning.ts';
 
 /**
- * llama.cpp itself is happy with 8k, but Nelle drives it through Pi, whose agent
- * system prompt costs ~4k tokens and whose max_tokens clamp reserves another 4k.
- * Anything below ~12k leaves no reply budget at all, so 8k produced one-word
- * answers. See `piContext.ts`. Kept at 16k rather than higher because KV cache
- * is allocated per slot and users on small GPUs must still be able to load a
- * model; raise it in Settings > Global Params when there is VRAM to spare.
+ * The `models.ini` keys that cap a model's context window.
+ *
+ * `common/preset.cpp` maps an option by every spelling and every env name, so
+ * all three of these set `--ctx-size`. Nelle writes none of them.
+ *
+ * `c = 0` is not "the default": it tells llama.cpp the user explicitly wants the
+ * full trained window, and disables the context reduction `--fit` would
+ * otherwise do (`common/arg.cpp`). So it is not a cap either -- it is the
+ * opposite of one.
  */
-export const DEFAULT_CONTEXT_SIZE = 16_384;
+const CONTEXT_SIZE_KEYS = ['c', 'ctx-size', 'LLAMA_ARG_CTX_SIZE'] as const;
+
+/**
+ * `--fit-ctx`: the smallest window llama.cpp's auto-fit may settle on.
+ *
+ * `--fit` is on by default and adjusts an *unset* context to the memory it
+ * finds, anywhere between this floor and the model's trained window. Measured on
+ * gemma-4-26B (262,144 trained): with nothing set, llama.cpp chose llama.cpp's
+ * own floor of 4,096 -- a window Pi's ~9,439-token system prompt does not fit
+ * in, so every answer came back one token long. With `fitc = 16384` it chose
+ * 16,384, and on a machine with more memory it would choose more.
+ *
+ * This is the one number Nelle writes, and it is a floor rather than a cap:
+ * llama.cpp still decides the window, and still fails to load if even this does
+ * not fit -- which is a legible failure rather than a silent uselessness.
+ */
+const FIT_CONTEXT_KEY = 'fitc';
 
 /**
  * Read lazily: the e2e harness sets `NELLE_LLAMA_PORT` in its own module body,
@@ -43,11 +63,11 @@ const DEFAULT_STATE: AppState = {
   version: 1,
   activeModelId: null,
   models: [],
-  globalModelParams: {
-    // Pi's agent system prompt is ~4k tokens and Pi reserves another 4k before
-    // it will allocate any reply tokens, so an 8k window yields one-word answers.
-    c: String(DEFAULT_CONTEXT_SIZE),
-  },
+  // Nelle used to write `c = 16384` here, capping gemma-4-26B at six percent of
+  // the 262,144-token window it was trained for. It now writes a *floor* for
+  // llama.cpp's auto-fit instead, and llama.cpp picks the window. What a
+  // conversation actually gets is its to report, not Nelle's to assume.
+  globalModelParams: {[FIT_CONTEXT_KEY]: String(PI_MINIMUM_CONTEXT_TOKENS)},
   reasoning: DEFAULT_REASONING_SETTINGS,
   runtime: {
     host: '127.0.0.1',
@@ -62,7 +82,6 @@ const DEFAULT_STATE: AppState = {
 };
 
 const DEFAULT_PARAMS: ModelParams = {
-  contextSize: DEFAULT_CONTEXT_SIZE,
   extra: {},
 };
 
@@ -180,13 +199,23 @@ export class AppStore {
     return structuredClone(state.models.find(item => item.id === id) ?? model);
   }
 
+  /**
+   * A full replacement of the `[*]` section's params.
+   *
+   * Upserting instead left every key the payload omitted behind, so the context
+   * cap could not be removed through the UI -- which is the one thing removing
+   * the default has to allow.
+   */
   async updateGlobalModelParams(params: Record<string, string>): Promise<Record<string, string>> {
     const state = await this.load();
     await this.syncModelCatalogFromPreset(state);
     const nextParams = normalizeParamRecord(params, DEFAULT_STATE.globalModelParams);
-    await this.updateModelsIniDocument(document =>
-      upsertModelsIniValues(document, '*', nextParams),
-    );
+    await this.updateModelsIniDocument(document => {
+      const stale = [...getModelsIniSectionValues(document, '*').keys()].filter(
+        key => !(key in nextParams),
+      );
+      return upsertModelsIniValues(removeModelsIniKeys(document, '*', stale), '*', nextParams);
+    });
     await this.syncModelCatalogFromPreset(state);
     await this.save();
     return structuredClone(state.globalModelParams);
@@ -212,10 +241,7 @@ export class AppStore {
     if (index < 0) {
       throw new Error(`Unknown model: ${id}`);
     }
-    const globalContextSize = contextSizeFromParams(
-      state.globalModelParams,
-      DEFAULT_PARAMS.contextSize,
-    );
+    const globalContextSize = globalContextSizeFromParams(state.globalModelParams);
     const previous = state.models[index]!;
     const next: ConfiguredModel = {
       ...previous,
@@ -367,7 +393,7 @@ function normalizeState(input: Partial<AppState>): AppState {
     input.globalModelParams,
     DEFAULT_STATE.globalModelParams,
   );
-  const globalContextSize = contextSizeFromParams(globalModelParams, DEFAULT_PARAMS.contextSize);
+  const globalContextSize = globalContextSizeFromParams(globalModelParams);
   const models = (input.models ?? []).filter(isHuggingFaceModel).map(model => ({
     ...model,
     source: 'huggingface' as const,
@@ -413,7 +439,7 @@ function getConfiguredModelsFromModelsIni(
   globalModelParams: Record<string, string>,
 ): ConfiguredModel[] {
   const previousById = new Map(previousModels.map(model => [model.id, model] as const));
-  const globalContextSize = contextSizeFromParams(globalModelParams, DEFAULT_PARAMS.contextSize);
+  const globalContextSize = globalContextSizeFromParams(globalModelParams);
   const now = new Date().toISOString();
   return listModelsIniSections(document)
     .filter(sectionId => sectionId !== '*')
@@ -495,16 +521,22 @@ function nonNegativeInteger(value: unknown, fallback: number): number {
   return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : fallback;
 }
 
+/**
+ * `contextSize` is the cap, and it is absent when there is none. llama.cpp's own
+ * cascade applies the `[*]` section and then the model's, so a per-model `c`
+ * overrides the global one and needs no storage of its own.
+ */
 function normalizeModelParams(
   input: Partial<ModelParams> | undefined,
-  fallbackContextSize: number,
+  globalContextSize: number | null,
 ): ModelParams {
   const extra = normalizeParamRecord(input?.extra, {});
+  // `undefined` means this section is silent, so `[*]` applies. `null` means it
+  // wrote `c = 0`, which removes a global cap rather than inheriting it.
+  const own = contextSizeFromParams(extra);
+  const contextSize = own === undefined ? globalContextSize : own;
   return {
-    contextSize: positiveInteger(
-      input?.contextSize,
-      contextSizeFromParams(extra, fallbackContextSize),
-    ),
+    ...(contextSize != null ? {contextSize} : {}),
     ...(input?.gpuLayers != null ? {gpuLayers: input.gpuLayers} : {}),
     ...(input?.threads != null ? {threads: input.threads} : {}),
     ...(input?.batchSize != null ? {batchSize: input.batchSize} : {}),
@@ -512,6 +544,13 @@ function normalizeModelParams(
   };
 }
 
+/**
+ * An absent `params` key means "the user sent nothing", and falls back. An empty
+ * object means "the user removed everything", and does not.
+ *
+ * Conflating the two made the context cap unremovable through the UI: `PATCH
+ * /api/models/global-params {"params":{}}` answered `{"c":"16384"}`.
+ */
 function normalizeParamRecord(
   input: unknown,
   fallback: Record<string, string>,
@@ -519,15 +558,39 @@ function normalizeParamRecord(
   if (input == null || typeof input !== 'object' || Array.isArray(input)) {
     return {...fallback};
   }
-  const entries = Object.entries(input)
-    .map(([key, value]) => [key.trim(), String(value).trim()] as const)
-    .filter(([key]) => key.length > 0);
-  return entries.length > 0 ? Object.fromEntries(entries) : {...fallback};
+  return Object.fromEntries(
+    Object.entries(input)
+      .map(([key, value]) => [key.trim(), String(value).trim()] as const)
+      .filter(([key]) => key.length > 0),
+  );
 }
 
-function contextSizeFromParams(params: Record<string, string>, fallback: number): number {
-  const value = Number.parseInt(params.c ?? params['ctx-size'] ?? '', 10);
-  return Number.isInteger(value) && value > 0 ? value : fallback;
+/**
+ * The context cap this section configures.
+ *
+ * Three answers, and the difference matters: `undefined` means the section says
+ * nothing, so a caller cascades to `[*]`. `null` means it says `c = 0`, which is
+ * llama.cpp's own way of spelling "loaded from model" -- an explicit *removal* of
+ * a global cap, not a silent absence of one. A number is a cap.
+ *
+ * Even a cap is only a prediction of what llama.cpp will do. Once the model has
+ * loaded, `/props` is the truth -- see `effectiveContextWindow`.
+ */
+function contextSizeFromParams(params: Record<string, string>): number | null | undefined {
+  for (const key of CONTEXT_SIZE_KEYS) {
+    const raw = params[key];
+    if (raw === undefined) {
+      continue;
+    }
+    const value = Number.parseInt(raw, 10);
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+  return undefined;
+}
+
+/** The `[*]` cap, where "says nothing" and "says no cap" mean the same thing. */
+function globalContextSizeFromParams(params: Record<string, string>): number | null {
+  return contextSizeFromParams(params) ?? null;
 }
 
 function uniqueModelId(base: string, models: ConfiguredModel[]): string {
