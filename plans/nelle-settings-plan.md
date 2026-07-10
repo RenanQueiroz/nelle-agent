@@ -286,34 +286,132 @@ nothing (not an empty string); saving resets cached sessions; the appended text
 reaches `session.systemPrompt`; and the character cap is enforced server-side,
 not only in the browser.
 
-## Phase 3: Make Model Params Safe
+## Phase 3: Validate Model Params, And Say Which Field Is Wrong
 
 This phase exists because sampling now lives in `models.ini`, and one typo there
-stops llama.cpp from starting at all.
+stops llama.cpp from starting at all. It covers **both** editors: the global
+`[*]` params (`PATCH /api/models/global-params`) and the per-model params
+(`PATCH /api/models/:id`). They already share `validateEditableParams`
+(`server.ts:1261`), which is where the check belongs.
 
-- **Validate keys against llama.cpp's own option list.** `llama-server --help`
-  prints all 252 options with every spelling; parse it once per binary, cache it
-  against the binary's path and mtime, and expose it as
-  `GET /api/llama/params -> {options: [{key, aliases, help, type}]}`. The
-  catalogue is served, so a settings UI can offer completion and a client does
-  not carry a copy of llama.cpp's argument list that goes stale on upgrade.
-- `validateEditableParams` gains an unknown-key check that fails with
-  `invalid_model_param`, names the key, and suggests the nearest match. It must
-  accept short spellings: `c` is `--ctx-size`, and Nelle's own `models.ini`
-  already uses it.
-- **Do not** try to validate values. `temp = not-a-number` starts the server
-  quite happily and fails later at model load, where the router already reports
-  `failed` and Nelle already surfaces it. Guessing each option's type from
-  `--help` would be a second, worse copy of llama.cpp's parser.
-- The Models settings section gets a short, curated hint listing the sampling
-  keys people actually want — `temp`, `top-k`, `top-p`, `min-p`, `seed`,
-  `repeat-penalty` — with `[*]` explained as the global default. Discoverability
-  is the whole reason this is not simply "type whatever you like".
+### What counts as a valid key
 
-**Tests.** An unknown key is refused before `models.ini` is written; a short
-spelling is accepted; the catalogue parses from a captured `--help` fixture, so
-the test does not need the binary; a stale cache is invalidated when the binary
-changes; and `models.ini` is never written when validation fails.
+`common/preset.cpp`'s `get_map_key_opt` maps every option by **each of its
+argument spellings with the dashes stripped**, and by **each of its environment
+variable names**. All four of these are therefore valid, and all four were
+confirmed against the real binary:
+
+```ini
+c = 16384                 # short spelling of --ctx-size, and what Nelle writes today
+ctx-size = 16384          # long spelling
+n-predict = 128           # a second long spelling of --predict
+LLAMA_ARG_TOP_K = 40      # the environment variable name
+```
+
+The accept-set is therefore the union of every spelling and every env name, not
+just the canonical long option. A validator that only knows `ctx-size` would
+reject Nelle's own `models.ini`.
+
+### The catalogue is served, not carried
+
+`llama-server --help` prints 252 options across four sections
+(`----- common params -----`, `sampling`, `speculative`, `example-specific`).
+Parse it once per binary and cache against the binary's path, size and mtime.
+
+The format, from the real output:
+
+```
+-h,    --help, --usage                  print usage and exit
+-c,    --ctx-size N                     size of the prompt context (default: 0, ...)
+-n,    --predict, --n-predict N         number of tokens to predict (default: -1, ...)
+--cpu-strict <0|1>                      use strict CPU placement (default: 0)
+-t,    --threads N                      number of CPU threads to use during generation
+                                        (env: LLAMA_ARG_THREADS)
+```
+
+An entry starts at column 0 with a dash. Spellings are comma-separated; the
+token after the last spelling, if it does not start with a dash, is the value
+hint (`N`, `M`, `<0|1>`, `<0...100>`). Description and `(env: NAME)` arrive as
+continuation lines indented to the description column — 127 of the 252 options
+carry one.
+
+```http
+GET /api/llama/params
+  -> {available: true,
+      options: [{keys: ['c', 'ctx-size'], env: ['LLAMA_ARG_CTX_SIZE'],
+                 valueHint: 'N', help: 'size of the prompt context', section: 'common'}]}
+```
+
+Served, so a settings UI can offer completion and a client never carries a copy
+of llama.cpp's argument list that goes stale on the next upgrade.
+
+**When the catalogue is unavailable** — no binary installed, an external binary
+that will not run, `--help` exits non-zero — the response is
+`{available: false, options: []}` and the unknown-key check is **skipped**.
+Syntax, reserved keys and duplicates are still enforced. Refusing to save a
+parameter because Nelle could not run a binary would be worse than the typo.
+
+### The error names the field
+
+Today `validateEditableParams` returns the first problem as one sentence, and the
+dialog shows one line of red text for a form with ten rows. A client cannot tell
+which row is wrong, so it cannot mark it, and the next client would have to guess
+the same way. The server knows exactly which keys failed and what each should
+probably have been, so it says so:
+
+```jsonc
+400 {
+  "error": {
+    "code": "invalid_model_param",
+    "message": "2 parameters are not llama.cpp options.",
+    "retryable": false
+  },
+  "invalidParams": [
+    {"key": "temprature", "reason": "unknown", "message": "…is not a llama.cpp option.",
+     "suggestion": "temperature"},
+    {"key": "tpo-k", "reason": "unknown", "message": "…is not a llama.cpp option.",
+     "suggestion": "top-k"}
+  ]
+}
+```
+
+- `reason` is one of `unknown | reserved | duplicate | syntax`, so a client can
+  branch without parsing prose. The existing `reserved_model_param` and
+  `duplicate_model_param` codes fold into it as reasons; the route keeps
+  returning a single top-level `code` for clients that only read that.
+- `suggestion` is the nearest key by edit distance, and only when it is close
+  enough to be worth offering. The distance function lives in
+  `packages/shared/src/modelParams.ts`, zod-free, so a client could use it for
+  live completion later without a round trip.
+- **Every** invalid parameter is reported, not just the first. A form with three
+  typos should light up three rows on one save, not on three.
+
+The composer for this is the existing `KeyValueEditor` in `SettingsDialog.tsx`:
+each row's key input gets an error state and the message beneath it, plus a
+"Did you mean `temperature`?" affordance that fills the field on click. The rows
+are already keyed by a stable `id`, and `invalidParams` is keyed by `key`, so the
+join is trivial. The client renders; it does not decide.
+
+### What we deliberately do not validate
+
+`temp = not-a-number` starts llama-server quite happily: the option's callback
+does not run until the model instance is spawned, so the failure is contained and
+the router already reports the model as `failed`, which Nelle already surfaces.
+Guessing each option's type from a `--help` value hint would be a second, worse
+copy of llama.cpp's parser, and it would reject values llama.cpp accepts.
+
+The Models settings section also gets a short, curated hint listing the sampling
+keys people actually want — `temp`, `top-k`, `top-p`, `min-p`, `seed`,
+`repeat-penalty` — with `[*]` explained as the global default. Discoverability is
+the whole reason this is not simply "type whatever you like".
+
+**Tests.** The parser reads `tests/fixtures/llama-server-help.txt` — 647 lines
+captured from llama.cpp `ee445f9`, checked in so the test never needs the binary
+— and finds `c`, `ctx-size`, `n-predict`, and `LLAMA_ARG_TOP_K`; an unknown key is refused before `models.ini` is written, on
+both routes; three typos produce three `invalidParams`; `suggestion` is absent
+when nothing is close; a missing binary yields `available: false` and lets any
+key through; a stale cache is invalidated when the binary's mtime changes; and an
+e2e that types `temprature`, saves, and sees that row marked with the suggestion.
 
 ## Phase 4: Display Preferences
 
@@ -374,8 +472,10 @@ no gain).
    is a field.
 2. **Phase 1 (titles)** — self-contained, server-only, fixes a real gap, and
    proves the settings plumbing on something small.
-3. **Phase 3 (model param safety)** — before anyone is encouraged to type
-   `temp` into the params editor and take llama.cpp down with a typo.
+3. **Phase 3 (model param validation)** — before anyone is encouraged to type
+   `temp` into the params editor and take llama.cpp down with a typo. Covers the
+   global `[*]` params and the per-model params, and marks the offending rows
+   rather than printing one sentence above a form.
 4. **Phase 5 (paste to file)** — cheapest user-visible win.
 5. **Phase 2 (custom instructions)** — the one people ask for.
 6. **Phase 4 (display preferences)** — mechanical.
