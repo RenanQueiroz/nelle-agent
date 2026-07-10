@@ -550,10 +550,20 @@ Project-specific guidance for AI coding agents.
   llama.cpp's webui settings Nelle adopts and where each one lives. It records
   why the rest are skipped, so the question does not get reopened by accident:
   Pi owns the agent loop and the context, `max_tokens` must never be advertised
-  to Pi, and PDF-as-image was removed on purpose. Two measurements in it are
-  load-bearing: Pi sends no sampling parameters at all, so injecting them through
-  `agent.onPayload` cannot fight it; and gemma's vision encoder saturates near
-  0.8 MP, so an image-resolution cap saves bytes, not context tokens.
+  to Pi, and PDF-as-image was removed on purpose. The settings schema is served
+  from `GET /api/settings/schema`, the way `GET /api/commands` serves the
+  slash-command registry, so a second client renders it without a copy of the
+  copy.
+- Sampling belongs to the model, not to Pi's requests. Pi sends no sampling
+  parameters at all, so llama.cpp's launch flags are what every conversation
+  runs with: `models.ini` carries `temp`, `top-k`, `min-p`, `seed` and the rest,
+  with `[*]` as the global default and a `[model]` section overriding it. An
+  unrecognized key there is fatal -- llama-server refuses to start with
+  `option '...' not recognized in preset` -- while a bad *value* only fails the
+  model load, so validate keys and do not guess at values.
+- gemma's vision encoder saturates near 0.8 MP (104/208/282/282/276 prompt tokens
+  from 0.2 to 6.0 MP), so an image-resolution cap saves bytes and prompt
+  processing, not context tokens.
 
 <!-- ASTRYX:START -->
 Astryx v0.1.3 · 149 components

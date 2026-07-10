@@ -10,25 +10,39 @@ the agent loop, the context, the tool calls, and the session file, and fighting
 it for those knobs would buy complexity and nothing else.
 
 A handful, though, are things Nelle already does badly or not at all: it
-generates conversation titles with a prompt nobody can see or change, it gives
-the user no way to tell the model who they are, and it offers no sampling control
-whatsoever.
+generates conversation titles with a prompt nobody can see or change, and it
+gives the user no way to tell the model who they are.
 
 This plan takes the settings worth taking, says plainly why the rest are skipped,
 and puts every one of them on the server. A setting whose rule lives in the
 browser is a setting the React Native and desktop clients reimplement.
 
+## Two Decisions Already Made
+
+1. **The settings schema is served.** `GET /api/settings/schema` returns the
+   fields — key, label, help, type, default, bounds — the way `GET /api/commands`
+   already serves the slash-command registry. A second client renders the
+   settings UI without rewriting fifteen fields of copy, and a new setting ships
+   without a client release.
+2. **Sampling parameters do not go through Pi's requests.** They are
+   model-dependent, so they belong to the model, and `models.ini` already carries
+   them. See "Sampling belongs to the model" below, which is the measurement that
+   makes this work.
+
 ## Where Each Setting Lives
 
 Following `plans/nelle-thin-client-plan.md`:
 
-- **A rule the server enforces** — the system prompt, the title prompt, sampling
-  parameters, the image cap — lives in the `settings` table and is applied
-  server-side. A client sends what the user typed and never re-derives anything.
+- **A rule the server enforces** — the system prompt, the title prompt, the image
+  cap — lives in the `settings` table and is applied server-side. A client sends
+  what the user typed and never re-derives anything.
 - **A preference the client applies** — whether the stats widget starts open,
   whether the transcript auto-scrolls — lives in the `settings` table too, under
   the `preferences` key, because it should follow the user to their phone. The
   _applying_ stays in the client; only the storage moves.
+- **A property of the model** — temperature, top-k, min-p, seed — lives in
+  `models.ini`, per section, with `[*]` as the global default. Nelle already
+  writes that file losslessly.
 - **Genuinely local state** — sidebar collapse, open settings section, drafts —
   stays in the browser stores, as it does today.
 
@@ -44,25 +58,28 @@ Read at `ee445f9`, `tools/ui/src/lib/constants/settings-registry.ts`.
 | Use LLM to generate conversation title                               | `false`                                      | Nelle does this **unconditionally** and offers no way off.                       |
 | LLM title generation prompt                                          | a template with `{{USER}}` / `{{ASSISTANT}}` | Nelle's title prompt is hardcoded in `piHarness.ts:1718`.                        |
 | Use first non-empty line for title                                   | `false`                                      | A title without a model round trip, which works while llama.cpp is stopped.      |
-| Sampling: temperature, top_p, top_k, min_p                           | llama.cpp defaults                           | Nelle exposes **none**. Pi sends none either, so this is purely additive.        |
-| Penalties: repeat, presence, frequency                               | llama.cpp defaults                           | Same.                                                                            |
-| Custom JSON                                                          | `{}`                                         | One escape hatch beats a UI field per exotic sampler.                            |
 | Paste long text to file length                                       | `2500`                                       | Fits the upload flow Nelle already has; a 40k-character paste belongs in a file. |
 | Maximum image resolution                                             | `0` (off)                                    | Bounded value — see the measurement below.                                       |
 | Display toggles (stats, thinking, tool calls, markdown, auto-scroll) | various                                      | Cheap, and they should follow the user rather than the browser profile.          |
 
 ### Skipped, and why
 
-- **API key.** llama.cpp is local and unauthenticated. Nothing to key.
-- **Parse PDF as image.** Deliberately removed on 2026-07-10: the server decides
-  from the document. See `plans/nelle-thin-client-plan.md`, Phase 1.
+- **Sampling parameters, penalties, and Custom JSON.** Not through Pi's requests.
+  Temperature that suits one model ruins another, so the knob belongs beside the
+  model, and `models.ini` already holds it — verified below. Injecting it into
+  every request instead would put one global number in front of every model the
+  router can load. Custom JSON existed only as the escape hatch for the exotic
+  samplers (XTC, DRY, dynatemp, typical-p, sampler order); `models.ini` reaches
+  all of them already, so the hatch is redundant and the deny-list it would have
+  needed is one fewer thing to get wrong.
 - **Max tokens.** `AGENTS.md` is explicit: never advertise a fixed `maxTokens` to
   Pi. Pi clamps it against the live context, and an override would silently
   reintroduce the one-word-answer bug that `packages/shared/src/piContext.ts`
-  exists to prevent.
-- **Samplers order, backend sampling, XTC, DRY, dynatemp, typical-p.** Reachable
-  through Custom JSON. A field each is a maintenance bill for settings almost
-  nobody moves.
+  exists to prevent. Not in requests, and not in `models.ini` either — llama.cpp
+  would apply it as a server-side cap Pi cannot see.
+- **API key.** llama.cpp is local and unauthenticated. Nothing to key.
+- **Parse PDF as image.** Deliberately removed on 2026-07-10: the server decides
+  from the document. See `plans/nelle-thin-client-plan.md`, Phase 1.
 - **Agentic max turns, max tool preview lines.** Pi owns the agent loop.
 - **Pre-encode conversation, disable reasoning parsing, exclude reasoning from
   context, raw output toggle.** Pi owns the context and Nelle depends on
@@ -79,18 +96,44 @@ Read at `ee445f9`, `tools/ui/src/lib/constants/settings-registry.ts`.
 - **Enable "Continue" button.** Needs a Pi continue primitive. Revisit if Pi
   grows one.
 
-## Two Measurements That Shaped This
+## Sampling Belongs To The Model
+
+Three facts, each checked rather than assumed, and together they say the whole
+thing:
 
 **Pi sends no sampling parameters at all.** None of `temperature`, `top_p`,
 `top_k`, `min_p` or `repeat_penalty` appears anywhere in
 `@earendil-works/pi-coding-agent/dist`, and the single hit for `seed` is inside a
-bundled copy of highlight.js. Whatever llama.cpp's own
-defaults are, that is what every Nelle conversation runs with today. Injecting
-sampling through `agent.onPayload` — the hook Nelle already uses for
-`thinking_budget_tokens` — therefore cannot fight Pi over a field it never sets.
+bundled copy of highlight.js. So the request never overrides anything.
 
-**Image resolution is not a token lever, at least not on gemma.** Sending one
-generated PNG through `/v1/chat/completions` at five sizes:
+**`models.ini` accepts them, and llama.cpp applies them.** `common/preset.cpp`'s
+`get_map_key_opt` maps every option by its environment variable _and_ by each of
+its argument spellings with the dashes stripped, so `temp`, `top-k`, `min-p` and
+`seed` are all valid keys. Confirmed against the real binary: a preset carrying
+them loads and the server reports `Available models`. Because Pi sends no
+sampling fields, those launch flags are exactly what every conversation runs
+with. `[*]` gives a global default and a `[model]` section overrides it — which
+is precisely the shape the knob wants, and it costs no new storage.
+
+**An unknown key is fatal; a bad value is not.** A typo is refused at startup:
+
+```
+$ llama-server --models-preset bad.ini
+E srv llama_server: failed to initialize router models:
+      option 'temprature' not recognized in preset 'demo'
+```
+
+llama-server exits, and Nelle's runtime never comes up. A _bad value_ is milder:
+`temp = not-a-number` parses fine and the server starts, because the option's
+callback does not run until the model instance is spawned. So the fatal case is
+the one a settings editor invites, and Nelle's
+`validateEditableParams` (`server.ts:1261`) checks syntax and reserved keys but
+never asks whether the key is real. Routing sampling through `models.ini` makes
+that gap much easier to hit, which is why Phase 3 exists.
+
+## Image Resolution Is Not A Token Lever
+
+Sending one generated PNG through `/v1/chat/completions` at five sizes:
 
 | Image     | Megapixels | `prompt_tokens` |
 | --------- | ---------- | --------------- |
@@ -108,7 +151,7 @@ not be sold as a way to fit more images in the window, and it must default to
 off. Other vision encoders tile rather than saturate, so the setting's value is
 model-dependent; the help text should say so.
 
-## Phase 0: One Place For Server Settings
+## Phase 0: One Place For Server Settings, And A Served Schema
 
 Nelle's settings are scattered: `state.json` holds runtime and reasoning budgets,
 the `settings` table holds `hostTools` and `preferences`, `models.ini` holds
@@ -132,11 +175,6 @@ PATCH /api/settings/instructions
 GET   /api/settings/titles         -> {mode, prompt, maxWords}
 PATCH /api/settings/titles
 
-GET   /api/settings/sampling       -> {temperature?, topP?, topK?, minP?,
-                                       repeatPenalty?, presencePenalty?,
-                                       frequencyPenalty?, seed?, customJson?}
-PATCH /api/settings/sampling
-
 GET   /api/settings/attachments    -> {pasteToFileCharacters, maxImageMegapixels}
 PATCH /api/settings/attachments
 ```
@@ -144,13 +182,7 @@ PATCH /api/settings/attachments
 `GET`/`PATCH /api/settings/preferences` already exists and grows the display
 toggles.
 
-### Phase 0b: A served settings schema (recommended, decide first)
-
-llama.cpp's registry is a data structure: key, label, help, type, default,
-section, bounds. Nelle already serves its slash-command registry over
-`GET /api/commands` so that allowlisting a command needs no client release. The
-same argument applies here, more strongly, because these are fifteen fields of
-copy that three clients would otherwise write out three times.
+### The schema is served
 
 ```http
 GET /api/settings/schema
@@ -159,12 +191,22 @@ GET /api/settings/schema
         default, min?, max?, step?, options?}]}]}
 ```
 
-The bespoke sections (Runtime, Models) stay hand-built; they are not fields. The
-new ones are, and a client that renders this schema gets every future setting for
-free. The cost is that the settings UI becomes data-driven, which trades some
-design control for it. **This is a decision to make before Phase 1**, because
-every later phase is either "add a field to the registry" or "add a field, a
-zod schema, a store slice, and a component".
+The registry is one exported constant in `packages/shared/src/settings.ts`, and
+the same constant is what the zod schemas and the server's validation are built
+from. There is then exactly one place a setting exists, and a client that renders
+the schema gets every future field for free.
+
+The bespoke sections — Runtime, Models, Reasoning, Tools, Chats — stay
+hand-built. They are not fields; they are surfaces with their own affordances.
+The schema drives a new **General** section and grows the display toggles.
+
+Field keys are a contract the way `NELLE_ERROR_CODES` is. Renaming one breaks a
+client that stored it, and there is no migration path through a phone's cache.
+
+**Tests.** The schema's field keys match the zod schemas' keys exactly (a drift
+guard: adding a field to one without the other fails); every field's `default`
+parses against its own schema; `PATCH` rejects a key absent from the registry
+with `invalid_request` naming it.
 
 ## Phase 1: Conversation Titles
 
@@ -198,9 +240,11 @@ type TitleSettings = {
   rather than leaving "New chat" behind. This is strictly better than today.
 - The prompt template is rendered server-side. Substitution is literal and the
   result is capped; `sanitizeGeneratedTitle` already strips quotes and prefixes.
-- Title generation keeps its own `temperature: 0.2`. It is not a conversation and
-  must not inherit the user's sampling settings — a creative temperature makes
-  bad titles. Say so in a comment, because the next reader will wonder.
+- Title generation keeps its own `temperature: 0.2`, sent explicitly, because it
+  bypasses Pi and talks to `/chat/completions` directly. It therefore ignores the
+  model's `models.ini` sampling defaults, which is correct: a creative
+  temperature makes bad titles. Say so in a comment, because the next reader will
+  wonder why one code path sets temperature and the other never does.
 
 **Tests.** `{{USER}}`/`{{ASSISTANT}}` substitution including a message that
 itself contains `{{USER}}`; `first-line` on a message whose first line is blank,
@@ -242,45 +286,34 @@ nothing (not an empty string); saving resets cached sessions; the appended text
 reaches `session.systemPrompt`; and the character cap is enforced server-side,
 not only in the browser.
 
-## Phase 3: Sampling
+## Phase 3: Make Model Params Safe
 
-Injected in `attachReasoningBudget`'s sibling, through the `agent.onPayload` hook
-that already carries `thinking_budget_tokens`. Pi sets none of these fields, so
-there is nothing to override and nothing to break.
+This phase exists because sampling now lives in `models.ini`, and one typo there
+stops llama.cpp from starting at all.
 
-```ts
-type SamplingSettings = {
-  temperature?: number; // 0 .. 2
-  topP?: number; // 0 .. 1
-  topK?: number; // >= 0
-  minP?: number; // 0 .. 1
-  repeatPenalty?: number;
-  presencePenalty?: number;
-  frequencyPenalty?: number;
-  seed?: number; // for a reproducible run
-  /** Merged last. The escape hatch for xtc, dry_*, dynatemp, samplers, typ_p. */
-  customJson?: Record<string, unknown>;
-};
-```
+- **Validate keys against llama.cpp's own option list.** `llama-server --help`
+  prints all 252 options with every spelling; parse it once per binary, cache it
+  against the binary's path and mtime, and expose it as
+  `GET /api/llama/params -> {options: [{key, aliases, help, type}]}`. The
+  catalogue is served, so a settings UI can offer completion and a client does
+  not carry a copy of llama.cpp's argument list that goes stale on upgrade.
+- `validateEditableParams` gains an unknown-key check that fails with
+  `invalid_model_param`, names the key, and suggests the nearest match. It must
+  accept short spellings: `c` is `--ctx-size`, and Nelle's own `models.ini`
+  already uses it.
+- **Do not** try to validate values. `temp = not-a-number` starts the server
+  quite happily and fails later at model load, where the router already reports
+  `failed` and Nelle already surfaces it. Guessing each option's type from
+  `--help` would be a second, worse copy of llama.cpp's parser.
+- The Models settings section gets a short, curated hint listing the sampling
+  keys people actually want — `temp`, `top-k`, `top-p`, `min-p`, `seed`,
+  `repeat-penalty` — with `[*]` explained as the global default. Discoverability
+  is the whole reason this is not simply "type whatever you like".
 
-Every field is optional and **omitted when unset**, so an untouched Nelle sends
-exactly the payload it sends today and llama.cpp's defaults continue to apply.
-That is the difference between a settings page and a behaviour change.
-
-`customJson` needs a deny-list, enforced on the server, for the keys Nelle and Pi
-own: `model`, `messages`, `stream`, `max_tokens`, `thinking_budget_tokens`,
-`chat_template_kwargs`. A client that sets `max_tokens` through the escape hatch
-would resurrect the clamped-reply-budget bug; refuse it with
-`invalid_request` and name the key.
-
-Scope: global. `models.ini` free-form params are _launch flags_ for llama-server
-and stay what they are; these are request fields. The two are not the same knob
-and the settings UI should not pretend they are.
-
-**Tests.** An unset field is absent from the payload, not `undefined` or `null`;
-bounds rejected with `invalid_request` naming the field; `customJson` merged last
-and deny-listed keys refused; and a payload snapshot proving `thinking_budget_tokens`
-still survives alongside the new fields.
+**Tests.** An unknown key is refused before `models.ini` is written; a short
+spelling is accepted; the catalogue parses from a captured `--help` fixture, so
+the test does not need the binary; a stale cache is invalidated when the binary
+changes; and `models.ini` is never written when validation fails.
 
 ## Phase 4: Display Preferences
 
@@ -337,13 +370,14 @@ no gain).
 
 ## Sequencing
 
-1. **Phase 0**, and the Phase 0b decision. Everything else is a field.
+1. **Phase 0** — the registry, the repository, the served schema. Everything else
+   is a field.
 2. **Phase 1 (titles)** — self-contained, server-only, fixes a real gap, and
    proves the settings plumbing on something small.
-3. **Phase 5 (paste to file)** — cheapest user-visible win.
-4. **Phase 2 (custom instructions)** — the one people ask for.
-5. **Phase 3 (sampling)** — the largest surface, and the one with the most ways
-   to be subtly wrong.
+3. **Phase 3 (model param safety)** — before anyone is encouraged to type
+   `temp` into the params editor and take llama.cpp down with a typo.
+4. **Phase 5 (paste to file)** — cheapest user-visible win.
+5. **Phase 2 (custom instructions)** — the one people ask for.
 6. **Phase 4 (display preferences)** — mechanical.
 7. **Phase 6 (image cap)** — optional, and honest about being optional.
 
@@ -352,13 +386,14 @@ no gain).
 - **Changing the system prompt invalidates llama.cpp's KV cache** for every open
   conversation, and Pi's cached sessions must be reset. Expect the next turn
   after a save to reprocess the whole prompt. Say so in the UI.
-- **`seed` makes a run reproducible only if nothing else moves.** A different
-  model, context, or sampling field changes the output. Do not promise
-  determinism.
-- **Sampling settings apply to the agent loop, not to title generation.** Two
-  code paths reach llama.cpp; only one of them is a conversation.
-- **Custom JSON is a footgun by design.** The deny-list is the guard rail, and it
-  belongs on the server where every client inherits it.
+- **An unknown `models.ini` key is fatal to llama-server.** Phase 3 is what
+  stands between the params editor and a runtime that will not start. Until it
+  lands, the params editor is sharper than it looks.
+- **`seed` in `models.ini` makes a run reproducible only if nothing else moves.**
+  A different context or prompt changes the output. Do not promise determinism.
+- **Sampling defaults apply to the agent loop, not to title generation.** Two
+  code paths reach llama.cpp; only one of them is a conversation, and the title
+  path sets its own temperature on purpose.
 - **A settings schema served over HTTP is a contract.** Renaming a key breaks a
   client that stored it. Treat `SETTINGS_KEYS` the way `NELLE_ERROR_CODES` is
   treated.
