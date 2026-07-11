@@ -184,15 +184,22 @@ commit.
   boot exercising health, CORS preflight + reflected origin, the SPA fallback,
   and a 405. Verify gate #3 (encoded `/` and `:` in model-id params) passes here.
 
-### Phase 6 — Subprocess + file I/O + misc built-ins
+### Phase 6 — Subprocess + file I/O + misc built-ins 🟡 partial
 
-- `process.ts`: `spawn` → `Bun.spawn` (stdout/stderr readers, `.pid`, `.kill`,
-  exit code); confirm llama-server launch, pidfile adoption, log capture,
-  `commandExists` probe.
-- Adopt `Bun.file`/`Bun.write`/`Bun.Glob` for attachment/upload/archive read &
-  write paths; keep `node:fs/promises` for directory operations.
-- Optional: a per-OS browser launcher (`open`/`xdg-open`/`start`) to drop the
-  `open` dep; consider `Bun.CryptoHasher` for content-addressing.
+- `process.ts` (git/cmake/tar/ps/taskkill/`--help`) → `Bun.spawn`. Verified: a
+  real command, existence probes, and a non-zero exit; 311/311 `bun test`.
+- **Deferred to Phase 7 (needs a real binary / Windows):** the long-running,
+  **detached** llama-server spawn in `llamacpp.ts` stays on `node:child_process`
+  (which Bun runs natively). `Bun.spawn` does expose `detached`, but the full
+  lifecycle — log-fd capture, `process.kill(-pid)` group kill, Windows
+  `taskkill` — can only be verified against a running server, not in WSL unit
+  tests. Convert it on the target.
+- **Kept on `node:fs/promises` (deliberate):** it runs on Bun's native
+  implementation, and the file code mixes single-file read/write with dir ops
+  (`mkdir`/`readdir`/`rm`/`stat`) that have no `Bun.*` equivalent — half-porting
+  to `Bun.file`/`Bun.write` would be less organised, not more.
+- **Browser open stays `open`** (cross-platform); the per-OS launcher and
+  `Bun.CryptoHasher` are not worth the churn.
 
 ### Phase 7 — Single binary (per platform)
 
