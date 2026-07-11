@@ -9,13 +9,25 @@ Project-specific guidance for AI coding agents.
   behavior, setup commands, architecture, or workflow expectations change.
 - `AGENTS.md` is the single source of truth for shared agent guidance. Root
   `CLAUDE.md` should contain only `@AGENTS.md`.
-- Use a Node version matching `package.json` `engines` before running npm
-  commands.
-- Primary checks are `npm run format:check`, `npm run lint`, `npm run check`,
-  `npm run test:unit`, `npm run build:web`, `npm run test:e2e`, and
-  `npm test`.
-- Formatting and linting use Oxfmt and Oxlint. Run `npm run format` for
-  formatter writes and `npm run lint:fix` for safe lint fixes.
+- The server, tests, and toolchain run on **Bun** (`engines.bun`, ≥1.3); there
+  is no npm/Node runtime dependency. Use `bun install`, `bun run <script>`, and
+  `bun test`. `plans/nelle-bun-migration.md` is the source of truth for the
+  migration off Node/Fastify.
+- The HTTP server is `Bun.serve` over a small native router
+  (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
+  owns JSON-body parsing, zod→400 mapping, CORS, and a `Bun.file` static + SPA
+  fallback. SQLite is `bun:sqlite` (`Database`, used directly, no wrapper). Short
+  subprocesses use `Bun.spawn` (`process.ts`); the long-running detached
+  llama-server stays on `node:child_process` (`llamacpp.ts`) until its lifecycle
+  is verified against a real binary. `index.ts` runs `Bun.serve`.
+- Primary checks are `bun run format:check`, `bun run lint`, `bun run check`,
+  `bun run test:unit`, `bun run build:web`, `bun run test:e2e`, and
+  `bun run test`.
+- Formatting and linting use Oxfmt and Oxlint. Run `bun run format` for
+  formatter writes and `bun run lint:fix` for safe lint fixes.
+- Unit tests run on `bun:test` with `node:assert/strict`; a `createTestServer`
+  helper (`tests/unit/helpers/testServer.ts`) drives the `Bun.serve` `fetch`
+  handler through an `inject`/`close` surface, so route tests did not churn.
 - Run Playwright e2e tests for UI behavior changes when possible. The e2e
   server uses `.nelle-e2e/` and starts on `127.0.0.1:8799`.
 - Codex has a local Playwright MCP server configured in `~/.codex/config.toml`;

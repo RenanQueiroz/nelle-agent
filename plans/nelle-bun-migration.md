@@ -84,9 +84,9 @@ First-class Windows, macOS, and Linux. Constraints this imposes:
 | HTTP server                | `Bun.serve`                             | Drop `fastify` + `@fastify/cors` + `@fastify/static` + `@fastify/multipart`.                                                                      |
 | Multipart uploads          | `Request.formData()`                    | Native; reimplement the size limit manually.                                                                                                      |
 | Static assets              | `Bun.file()`                            | Only needed until the web client is retired by the Flutter rewrite.                                                                               |
-| Test runner                | `bun test`                              | Runs the existing `node:test` + `node:assert/strict` files **unchanged**; only the `test:unit` script changed.                                    |
-| Subprocess                 | `Bun.spawn`                             | `process.ts` wrapper; used by llama-server management.                                                                                            |
-| File I/O                   | `Bun.file` / `Bun.write` / `Bun.Glob`   | For attachment/upload reads & writes; keep `node:fs/promises` for dir ops.                                                                        |
+| Test runner                | `bun test`                              | Files migrated to `bun:test` (`node:test` cascades under `bun test`'s concurrency); assertions stay on `node:assert/strict`.                      |
+| Subprocess                 | `Bun.spawn`                             | Short commands (`process.ts`). The detached llama-server stays on `node:child_process` until its lifecycle is verified on-target.                 |
+| File I/O                   | `node:fs/promises` (kept)               | Runs on Bun natively; dir ops have no `Bun.*` equivalent, so half-porting reads/writes to `Bun.file`/`Bun.write` would be less organised.         |
 | Client disconnect          | `req.signal`                            | Replaces `reply.raw.on('close')` for forwarding aborts to the upstream llama.cpp fetch.                                                           |
 | HTTP client                | native `fetch`                          | Already used everywhere; no change. Pi's `undici` runs under Bun.                                                                                 |
 | Dev / run / env            | `bun --watch`, `Bun.serve`, auto-`.env` | Replaces `tsx watch` + `concurrently` for the server; Bun auto-loads `.env`.                                                                      |
@@ -201,22 +201,31 @@ commit.
 - **Browser open stays `open`** (cross-platform); the per-OS launcher and
   `Bun.CryptoHasher` are not worth the churn.
 
-### Phase 7 — Single binary (per platform)
+### Phase 7 — Single binary (per platform) 🟡 Linux validated
 
-- `bun build --compile` on **Linux-x64 first** (here in WSL), then a CI matrix
-  for `darwin-arm64`, `darwin-x64`, `windows-x64`. Build each on its own runner —
-  the `@napi-rs/canvas` addon is host-specific and does not cross-compile.
-- Embed/validate per target: `@napi-rs/canvas` `.node`, Pi's photon WASM +
-  assets, `bun:sqlite` (built-in, free).
-- Smoke-test each artifact end-to-end (upload w/ PDF render, streamed chat,
-  llama-server spawn).
+- `bun run build:binary` (`bun build --compile apps/server/src/index.ts
+--outfile dist/nelle-server`). **Linux-x64 validated here:** a 164 MB binary
+  builds in ~0.5s, boots, and serves (`/api/health`, `/api/state`), embedding
+  Pi, `bun:sqlite`, and `@napi-rs/canvas`. The compiled-binary canvas render
+  (the documented crash risk) works — a standalone compiled `createCanvas`
+  renders a PNG with no crash. Gates #0 and #1 pass on Linux.
+- **Remaining: a CI matrix** for `darwin-arm64`, `darwin-x64`, `windows-x64` —
+  build each on its own runner (the `@napi-rs/canvas` addon is host-specific and
+  does not cross-compile), and re-run gates #0/#1 there. Validate the deferred
+  llama-server spawn (Phase 6) against a real binary on each while you are there.
 
-### Phase 8 — Measure + cleanup
+### Phase 8 — Measure + cleanup ✅ done
 
-- Measure RSS: Node vs Bun, idle and mid-run, to confirm the win is real.
-- Remove `fastify`, `@fastify/cors`, `@fastify/multipart`, `@fastify/static`,
-  `tsx`, and (if adopted) `open` from dependencies. Update `README.md` and
-  `AGENTS.md` per the docs-current rule.
+- Measured idle-after-boot RSS on Linux: **~154 MB** compiled binary, ~182 MB
+  `bun run` (Pi in-process is the bulk of the heap). A clean Node-vs-Bun
+  comparison is no longer possible — the server is Bun-only (`bun:sqlite`,
+  `Bun.serve`) — but it confirms the footprint is modest, as predicted; the real
+  RAM lever was Flutter over Electron on the client.
+- Removed `fastify`, `@fastify/*`, and `tsx` (Phase 3). `open` stays
+  (cross-platform browser launch).
+- `engines` is now `bun >= 1.3`; every `package.json` script runs under `bun`
+  (no `npm`/`node`). `README.md` and `AGENTS.md` updated to Bun. Vite still
+  builds the web app, and it runs fine under `bun run build:web` (1.2s).
 
 ## Verify gates (empirical, per platform)
 

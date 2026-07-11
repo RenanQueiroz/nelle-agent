@@ -10,7 +10,7 @@ the separate React Native mobile app (`nelle-client`) will consume later.
 
 Implemented:
 
-- Fastify API server with browser-opened app flow.
+- Bun.serve API server with browser-opened app flow.
 - React/Vite UI using Meta Astryx components, React Compiler, and generated
   Astryx agent guidance.
 - Frontend UI surfaces are split into focused component directories with
@@ -146,7 +146,7 @@ Implemented:
 Not implemented yet:
 
 - Mobile LAN pairing and Expo push.
-- Packaging and a launcher. There is no `bin` entrypoint or installer; `npm start`
+- Packaging and a launcher. There is no `bin` entrypoint or installer; `bun run start`
   runs the server and `--open` launches the system browser.
 - A first-run setup wizard. Runtime install, model import, and parameter editing
   all live in the Settings dialog rather than a guided onboarding flow.
@@ -166,11 +166,12 @@ Not implemented yet:
 
 ## Setup
 
-Use Node 22.18+ on the 22.x line, or Node 24.11+:
+Use Bun 1.3+. The server, tests, and toolchain all run on Bun — there is no
+npm/Node runtime dependency.
 
 ```bash
-node --version
-npm install
+bun --version
+bun install
 ```
 
 ## Run
@@ -178,7 +179,7 @@ npm install
 Development mode starts the API server and Vite web server:
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 The API server listens on `127.0.0.1:8787`. The Vite UI listens on
@@ -187,14 +188,14 @@ The API server listens on `127.0.0.1:8787`. The Vite UI listens on
 Run the server alone:
 
 ```bash
-npm run dev:server
+bun run dev:server
 ```
 
 Run a built/static UI through the server:
 
 ```bash
-npm run build
-npm start
+bun run build
+bun run start
 ```
 
 Set these environment variables when needed:
@@ -323,28 +324,28 @@ tooling. It is intentionally user-triggered because it can take several minutes.
 ## Checks
 
 ```bash
-npm run format:check
-npm run lint
-npm run check
-npm run test:unit
-npm run build:web
-npm run test:e2e
-npm test
+bun run format:check
+bun run lint
+bun run check
+bun run test:unit
+bun run build:web
+bun run test:e2e
+bun run test
 ```
 
 Formatting and linting use Oxfmt and Oxlint with repo-local config files:
-`.oxfmtrc.json` and `.oxlintrc.json`. `npm test` runs format check, lint, unit
+`.oxfmtrc.json` and `.oxlintrc.json`. `bun run test` runs format check, lint, unit
 tests, TypeScript, and the web build. Playwright e2e remains a separate
 explicit check.
 
 Useful Oxc commands:
 
 ```bash
-npm run format
-npm run lint:fix
+bun run format
+bun run lint:fix
 ```
 
-`npm run test:e2e` starts an isolated server on `127.0.0.1:8799`, stores test
+`bun run test:e2e` starts an isolated server on `127.0.0.1:8799`, stores test
 data in `.nelle-e2e/`, and runs Chromium Playwright tests from `tests/e2e`.
 Install the browser once with:
 
@@ -355,9 +356,9 @@ npx playwright install chromium
 Useful Playwright commands:
 
 ```bash
-npm run test:e2e:headed
-npm run test:e2e:ui
-npm run test:e2e:report
+bun run test:e2e:headed
+bun run test:e2e:ui
+bun run test:e2e:report
 ```
 
 Codex is configured locally with the Playwright MCP server in
