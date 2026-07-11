@@ -23,6 +23,7 @@ import {SettingsRepository} from './settings';
 import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './uploads';
 import {DeviceRepository} from './devices';
 import {ensureServerCert, localIPv4s, type ServerCert} from './tls';
+import {buildOpenApiDocument} from './openapi';
 import {ingestUpload, resolveChatAttachments, UnsupportedAttachmentError} from './attachmentIngest';
 import {ATTACHMENT_LIMITS} from '../../../packages/shared/src/attachments.ts';
 import {ModelCacheRepository} from './modelCache';
@@ -1142,6 +1143,10 @@ export async function createServer(
     }
     return json({ok: true});
   });
+
+  // The machine-readable API contract, derived from the zod schemas + the live
+  // route list, for client codegen. See plans/nelle-pre-flutter-prep.md.
+  router.get('/api/openapi.json', async () => json(buildOpenApiDocument(router.routes())));
 
   const staticHandler = (await hasBuiltWeb(paths.webDistDir))
     ? createStaticHandler(paths.webDistDir)

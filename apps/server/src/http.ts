@@ -47,7 +47,13 @@ export function nelleErrorFromZod(error: ZodError): NelleError {
   };
 }
 
-type CompiledRoute = {method: string; regex: RegExp; params: string[]; handler: RouteHandler};
+type CompiledRoute = {
+  method: string;
+  path: string;
+  regex: RegExp;
+  params: string[];
+  handler: RouteHandler;
+};
 
 export class Router {
   #routes: CompiledRoute[] = [];
@@ -58,7 +64,12 @@ export class Router {
       params.push(match.slice(1));
       return '([^/]+)';
     });
-    this.#routes.push({method, regex: new RegExp(`^${source}$`), params, handler});
+    this.#routes.push({method, path: routePath, regex: new RegExp(`^${source}$`), params, handler});
+  }
+
+  /** Every registered route as `{method, path}`, for the OpenAPI document. */
+  routes(): Array<{method: string; path: string}> {
+    return this.#routes.map(route => ({method: route.method, path: route.path}));
   }
 
   get(routePath: string, handler: RouteHandler): void {
