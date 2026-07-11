@@ -66,8 +66,7 @@ Implemented:
   active timeline projection when needed, so restart recovery does not depend on
   stale SQLite projection rows.
 - Conversation-scoped chat streaming through
-  `/api/conversations/:id/chat/stream`, with the legacy `/api/chat/stream`
-  route kept as a default-conversation compatibility wrapper.
+  `/api/conversations/:id/chat/stream`.
 - Chat streams are sent as Nelle SSE envelopes with monotonic event ids, stable
   run ids, `run.started` / `run.completed` terminal run events, and
   `message.assistant.completed` final assistant events. Stream `error` events

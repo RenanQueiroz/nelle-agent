@@ -1062,7 +1062,23 @@ export async function createServer(
     if (routed) {
       return applyCors(req, routed);
     }
-    // Any unmatched path falls to the SPA (a file if one exists, else
+    // An unknown API path is a 404 JSON, never the SPA: a non-browser client
+    // expects JSON, and a typo'd endpoint returning index.html hides the mistake.
+    if (url.pathname.startsWith('/api/')) {
+      return applyCors(
+        req,
+        json(
+          {
+            error: {
+              code: NELLE_ERROR_CODES.notFound,
+              message: `No route for ${req.method} ${url.pathname}.`,
+            },
+          },
+          404,
+        ),
+      );
+    }
+    // Any other unmatched path falls to the SPA (a file if one exists, else
     // `index.html`), for every method -- the `setNotFoundHandler` fallback.
     if (staticHandler) {
       const served = await staticHandler(url.pathname);

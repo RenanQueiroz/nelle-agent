@@ -247,12 +247,17 @@ test('the real server serves the real registry, and a route for each of its grou
       assert.deepEqual(values.json(), settingsGroupDefaults(group));
     }
 
-    // A group route exists only if its group does. Nelle's not-found handler
-    // serves the SPA's `index.html` for anything unmatched, so "no route" reads
-    // as HTML rather than as a 404; a `/api/settings/:group` parameter route
-    // would have answered this with JSON.
+    // A group route exists only if its group does. An unknown `/api/*` path is a
+    // 404 JSON with a coded error -- never the SPA's `index.html`, which would
+    // hide the mistake from a non-browser client.
     const absent = await app.inject({method: 'PATCH', url: '/api/settings/demo'});
-    assert.match(absent.headers['content-type'] as string, /text\/html/);
+    assert.equal(absent.statusCode, 404);
+    assert.equal(absent.json<{error: {code: string}}>().error.code, 'not_found');
+    assert.match(absent.headers['content-type'] as string, /application\/json/);
+
+    // A non-`/api` path still falls through to the SPA when the web build exists.
+    const appRoute = await app.inject({method: 'GET', url: '/some/app/route'});
+    assert.match(appRoute.headers['content-type'] as string, /text\/html/);
   } finally {
     await app.close();
   }
