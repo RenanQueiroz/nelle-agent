@@ -12,6 +12,13 @@
 export const TITLES_SETTINGS_SLUG = 'titles';
 export const ATTACHMENTS_SETTINGS_SLUG = 'attachments';
 export const INSTRUCTIONS_SETTINGS_SLUG = 'instructions';
+export const NETWORK_SETTINGS_SLUG = 'network';
+
+/**
+ * Whether the server also binds a token-authenticated HTTPS listener for other
+ * devices on the LAN. Off means localhost only. Takes effect on restart.
+ */
+export const ALLOW_LAN_ACCESS_KEY = 'allowLanAccess';
 
 /** How long a paste has to be before it becomes a file. `0` disables. */
 export const PASTE_TO_FILE_CHARACTERS_KEY = 'pasteToFileCharacters';

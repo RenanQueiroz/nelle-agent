@@ -61,6 +61,11 @@ export const NELLE_ERROR_CODES = {
   invalidRequest: 'invalid_request',
   notFound: 'not_found',
 
+  // Device authentication (LAN clients).
+  unauthorized: 'unauthorized',
+  pairingCodeInvalid: 'pairing_code_invalid',
+  refreshTokenInvalid: 'refresh_token_invalid',
+
   // `models.ini` parameter editing. The response also carries `invalidParams`,
   // so a client can mark the rows rather than parse one sentence.
   invalidModelParam: 'invalid_model_param',

@@ -19,10 +19,12 @@ import {z} from 'zod';
 
 import {DEFAULT_TITLE_MAX_WORDS, DEFAULT_TITLE_PROMPT, TITLE_MAX_CHARACTERS} from './titles.ts';
 import {
+  ALLOW_LAN_ACCESS_KEY,
   ATTACHMENTS_SETTINGS_SLUG,
   CUSTOM_INSTRUCTIONS_KEY,
   INSTRUCTIONS_SETTINGS_SLUG,
   MAX_IMAGE_MEGAPIXELS_KEY,
+  NETWORK_SETTINGS_SLUG,
   PASTE_TO_FILE_CHARACTERS_KEY,
   TITLES_SETTINGS_SLUG,
 } from './settingsKeys.ts';
@@ -180,6 +182,21 @@ export const SETTINGS_REGISTRY: readonly SettingsGroup[] = [
         min: 1,
         max: 20,
         integer: true,
+      },
+    ],
+  },
+  {
+    slug: NETWORK_SETTINGS_SLUG,
+    title: 'Remote access',
+    description:
+      'Let other devices on your network reach this server over authenticated HTTPS. Off by default -- the server binds to localhost only.',
+    fields: [
+      {
+        key: ALLOW_LAN_ACCESS_KEY,
+        label: 'Allow LAN devices',
+        help: 'Bind an HTTPS listener that paired devices on your network can reach. Takes effect after a server restart.',
+        type: 'boolean',
+        default: false,
       },
     ],
   },

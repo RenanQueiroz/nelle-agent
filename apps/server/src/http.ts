@@ -22,6 +22,8 @@ export type Ctx = {
   query: Record<string, string>;
   /** Parsed JSON body, or `undefined` for an empty body (matches Fastify's `request.body`). */
   body: <T = unknown>() => Promise<T>;
+  /** True when the request arrived on the trusted loopback listener. */
+  trusted: boolean;
 };
 
 export type RouteHandler = (ctx: Ctx) => Response | Promise<Response>;
@@ -80,7 +82,7 @@ export class Router {
    * caller can fall through to static serving). A path that matches but a method
    * that does not is a 405.
    */
-  async dispatch(req: Request, url: URL): Promise<Response | null> {
+  async dispatch(req: Request, url: URL, trusted: boolean): Promise<Response | null> {
     let pathMatched = false;
     for (const route of this.#routes) {
       const match = route.regex.exec(url.pathname);
@@ -101,6 +103,7 @@ export class Router {
         params,
         query: Object.fromEntries(url.searchParams),
         body: <T>() => readJsonBody<T>(req),
+        trusted,
       };
       try {
         return await route.handler(ctx);

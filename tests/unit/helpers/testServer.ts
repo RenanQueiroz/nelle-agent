@@ -16,6 +16,8 @@ export type InjectOptions = {
   url: string;
   payload?: unknown;
   headers?: Record<string, string>;
+  /** Simulate the listener: `true` (default) = trusted loopback, `false` = LAN. */
+  trusted?: boolean;
 };
 
 export type InjectResponse = {
@@ -44,7 +46,7 @@ export async function createTestServer(
 }
 
 async function inject(app: NelleServer, options: InjectOptions): Promise<InjectResponse> {
-  const {method = 'GET', url, payload, headers = {}} = options;
+  const {method = 'GET', url, payload, headers = {}, trusted = true} = options;
   const requestHeaders: Record<string, string> = {...headers};
   let body: BodyInit | undefined;
   if (payload !== undefined) {
@@ -57,8 +59,9 @@ async function inject(app: NelleServer, options: InjectOptions): Promise<InjectR
       }
     }
   }
-  const response = await app.fetch(
+  const response = await app.handle(
     new Request(`http://localhost${url}`, {method, headers: requestHeaders, body}),
+    {trusted},
   );
   // Read once as bytes so a binary payload (a `.zip` export) is not corrupted by
   // UTF-8 decoding, then derive the text view from the same bytes.

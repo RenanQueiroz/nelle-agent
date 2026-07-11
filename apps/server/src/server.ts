@@ -13,7 +13,7 @@ import {registerLlamaProxy} from './llamaProxy';
 import {PiHarness, isConversationNotFoundError} from './piHarness';
 import {streamDirectLlama} from './directLlama';
 import {createErrorEvent, normalizeNelleError} from './errors';
-import {Router, applyCors, createStaticHandler, json, preflightResponse} from './http';
+import {Router, applyCors, createStaticHandler, json, preflightResponse, type Ctx} from './http';
 import {AppStore} from './store';
 import {AppDatabase} from './database';
 import {exportConversationArchive, importConversationArchive} from './conversationArchive';
@@ -21,6 +21,8 @@ import {HostToolRepository} from './hostTools';
 import {PreferencesRepository} from './preferences';
 import {SettingsRepository} from './settings';
 import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './uploads';
+import {DeviceRepository} from './devices';
+import {ensureServerCert, localIPv4s, type ServerCert} from './tls';
 import {ingestUpload, resolveChatAttachments, UnsupportedAttachmentError} from './attachmentIngest';
 import {ATTACHMENT_LIMITS} from '../../../packages/shared/src/attachments.ts';
 import {ModelCacheRepository} from './modelCache';
@@ -53,8 +55,10 @@ import {
   type SettingsValues,
 } from '../../../packages/shared/src/settings.ts';
 import {
+  ALLOW_LAN_ACCESS_KEY,
   ATTACHMENTS_SETTINGS_SLUG,
   MAX_IMAGE_MEGAPIXELS_KEY,
+  NETWORK_SETTINGS_SLUG,
   SESSION_RESETTING_SETTINGS_SLUGS,
 } from '../../../packages/shared/src/settingsKeys.ts';
 import {
@@ -146,9 +150,23 @@ const hostToolSettingsSchema = z.object({
   acknowledged: z.boolean().optional(),
 });
 
+const pairRequestSchema = z.object({
+  code: z.string().min(1),
+  deviceName: z.string().min(1).max(200),
+  platform: z.string().max(50).optional(),
+});
+
+const refreshRequestSchema = z.object({
+  refreshToken: z.string().min(1),
+});
+
 export type NelleServer = {
-  fetch: (req: Request) => Promise<Response>;
+  handle: (req: Request, opts: {trusted: boolean}) => Promise<Response>;
   close: () => Promise<void>;
+  /** Whether the "allow LAN access" setting is on (read at construction). */
+  lanAccessEnabled: boolean;
+  /** The self-signed TLS cert for the LAN listener, or `null` when LAN is off. */
+  serverCert: ServerCert | null;
 };
 
 export async function createServer(
@@ -169,6 +187,12 @@ export async function createServer(
   const modelCache = new ModelCacheRepository(database);
   const ggufMetadata = new GgufMetadataRepository(database);
   const uploads = new UploadRepository(database, paths);
+  const devices = new DeviceRepository(database);
+  const lanAccessEnabled =
+    settings.tryGetGroup(NETWORK_SETTINGS_SLUG)?.[ALLOW_LAN_ACCESS_KEY] === true;
+  const tlsPort = Number(process.env.NELLE_TLS_PORT ?? 8788);
+  // Generated once and kept stable so a paired device's pinned fingerprint holds.
+  const serverCert = lanAccessEnabled ? await ensureServerCert(paths) : null;
   const llama = new LlamaCppManager(paths, store);
   const llamaOptions = new LlamaOptionCatalogueCache(() => llama.getServerBinaryPath());
   const hf = new HuggingFaceService(store);
@@ -1049,16 +1073,108 @@ export async function createServer(
     });
   });
 
+  // --- Device authentication (LAN clients) ---
+  // Loopback is trusted; code minting and device management are hidden from the
+  // LAN (they 404 there). `pair` and `auth/refresh` are token-exempt so a device
+  // can bootstrap; everything else on the LAN listener needs a bearer token.
+
+  router.post('/api/pair/code', async ctx => {
+    if (!ctx.trusted) {
+      return loopbackOnly(ctx);
+    }
+    const minted = devices.mintPairingCode();
+    return json({
+      code: minted.code,
+      expiresAt: minted.expiresAt,
+      qrPayload: pairingQrPayload(minted.code, serverCert, tlsPort),
+    });
+  });
+
+  router.post('/api/pair', async ctx => {
+    const body = pairRequestSchema.parse(await ctx.body());
+    const tokens = devices.pair({code: body.code, name: body.deviceName, platform: body.platform});
+    if (!tokens) {
+      return json(
+        {
+          error: {
+            code: NELLE_ERROR_CODES.pairingCodeInvalid,
+            message: 'Invalid or expired pairing code.',
+            retryable: false,
+          },
+        },
+        400,
+      );
+    }
+    return json(tokens);
+  });
+
+  router.post('/api/auth/refresh', async ctx => {
+    const body = refreshRequestSchema.parse(await ctx.body());
+    const tokens = devices.refresh(body.refreshToken);
+    if (!tokens) {
+      return json(
+        {
+          error: {
+            code: NELLE_ERROR_CODES.refreshTokenInvalid,
+            message: 'Invalid or expired refresh token.',
+            retryable: false,
+          },
+        },
+        401,
+      );
+    }
+    return json(tokens);
+  });
+
+  router.get('/api/devices', async ctx => {
+    if (!ctx.trusted) {
+      return loopbackOnly(ctx);
+    }
+    return json({devices: devices.list()});
+  });
+
+  router.delete('/api/devices/:id', async ctx => {
+    if (!ctx.trusted) {
+      return loopbackOnly(ctx);
+    }
+    if (!devices.revoke(ctx.params.id)) {
+      return json({error: {code: NELLE_ERROR_CODES.notFound, message: 'Device not found.'}}, 404);
+    }
+    return json({ok: true});
+  });
+
   const staticHandler = (await hasBuiltWeb(paths.webDistDir))
     ? createStaticHandler(paths.webDistDir)
     : null;
 
-  const fetch = async (req: Request): Promise<Response> => {
+  const handle = async (req: Request, opts: {trusted: boolean}): Promise<Response> => {
     if (req.method === 'OPTIONS') {
       return preflightResponse(req);
     }
     const url = new URL(req.url);
-    const routed = await router.dispatch(req, url);
+    // A LAN client needs a valid device access token for everything but health
+    // and the pairing/refresh endpoints. Loopback is trusted and skips this.
+    if (
+      !opts.trusted &&
+      url.pathname.startsWith('/api/') &&
+      !AUTH_ALLOWLIST.has(url.pathname) &&
+      !authorizeBearer(req, devices)
+    ) {
+      return applyCors(
+        req,
+        json(
+          {
+            error: {
+              code: NELLE_ERROR_CODES.unauthorized,
+              message: 'Authentication required.',
+              retryable: false,
+            },
+          },
+          401,
+        ),
+      );
+    }
+    const routed = await router.dispatch(req, url, opts.trusted);
     if (routed) {
       return applyCors(req, routed);
     }
@@ -1101,11 +1217,52 @@ export async function createServer(
   };
 
   return {
-    fetch,
+    handle,
     close: async () => {
       clearInterval(uploadSweepTimer);
       database.close();
     },
+    lanAccessEnabled,
+    serverCert,
+  };
+}
+
+const AUTH_ALLOWLIST = new Set(['/api/health', '/api/pair', '/api/auth/refresh']);
+
+/** The device id for a valid `Authorization: Bearer` access token, or `null`. */
+function authorizeBearer(req: Request, devices: DeviceRepository): string | null {
+  const header = req.headers.get('authorization');
+  if (!header || !header.startsWith('Bearer ')) {
+    return null;
+  }
+  return devices.validateAccessToken(header.slice('Bearer '.length).trim());
+}
+
+/** Mimics the unknown-route 404 so a loopback-only endpoint is invisible from the LAN. */
+function loopbackOnly(ctx: Ctx): Response {
+  return json(
+    {
+      error: {
+        code: NELLE_ERROR_CODES.notFound,
+        message: `No route for ${ctx.req.method} ${ctx.url.pathname}.`,
+      },
+    },
+    404,
+  );
+}
+
+/** The scannable pairing payload: where the LAN listener is, and its pinned cert. */
+function pairingQrPayload(
+  code: string,
+  cert: ServerCert | null,
+  tlsPort: number,
+): {lanUrl: string | null; tlsPort: number; certFingerprint: string | null; code: string} {
+  const ip = localIPv4s()[0] ?? null;
+  return {
+    lanUrl: ip ? `https://${ip}:${tlsPort}` : null,
+    tlsPort,
+    certFingerprint: cert?.fingerprint ?? null,
+    code,
   };
 }
 
