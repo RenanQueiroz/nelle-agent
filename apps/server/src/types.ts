@@ -1,15 +1,13 @@
-import type {
-  AttachmentMetadata,
-  ConversationContextUsage,
-  ConversationSnapshot,
-} from '../../../packages/shared/src/conversations.ts';
-import type {RunKind, TerminalRunStatus} from '../../../packages/shared/src/conversations.ts';
-import type {
-  ChatAttachmentInput,
-  NelleError,
-  NelleWarning,
-} from '../../../packages/shared/src/contracts.ts';
+import type {ChatAttachmentInput, NelleError} from '../../../packages/shared/src/contracts.ts';
 import type {ReasoningSettings} from '../../../packages/shared/src/reasoning.ts';
+import type {
+  ChatMessage,
+  ChatPerformance,
+  ChatPerformanceMetric,
+  ChatRole,
+  ChatStreamEvent,
+  ToolCallEvent,
+} from '../../../packages/shared/src/streamEvents.ts';
 
 export type {ChatAttachmentInput};
 
@@ -151,146 +149,14 @@ export type HuggingFaceModelResult = {
   quants: HuggingFaceQuant[];
 };
 
-export type ChatRole = 'user' | 'assistant' | 'system';
-
-export type ChatMessage = {
-  id: string;
-  role: ChatRole;
-  content: string;
-  createdAt: string;
-  attachments?: AttachmentMetadata[];
-  modelId?: string;
-  modelRuntimeId?: string;
-  modelAliasSnapshot?: string;
-  regeneratesPiEntryId?: string;
-  displayGroupId?: string;
-  performance?: ChatPerformance;
-  toolCalls?: ToolCallEvent[];
-  /** Thinking text llama.cpp streamed as `reasoning_content`. */
-  reasoning?: string;
+export type {
+  ChatMessage,
+  ChatPerformance,
+  ChatPerformanceMetric,
+  ChatRole,
+  ChatStreamEvent,
+  ToolCallEvent,
 };
-
-export type ChatPerformanceMetric = {
-  tokens: number;
-  /** Absent when the burst was too short for llama.cpp to time it. */
-  tokensPerSecond?: number;
-  milliseconds?: number;
-  totalTokens?: number;
-  cacheTokens?: number;
-};
-
-export type ChatPerformance = {
-  source: 'llamacpp-slots' | 'llamacpp-timings';
-  prompt?: ChatPerformanceMetric;
-  generation?: ChatPerformanceMetric;
-  /**
-   * Legacy generation throughput field. Kept so older persisted messages
-   * can still render throughput metadata after the timing shape change.
-   */
-  tokensPerSecond?: number;
-  /** Legacy generated token count matching tokensPerSecond. */
-  generatedTokens?: number;
-};
-
-export type ToolCallEvent = {
-  id: string;
-  name: string;
-  target?: string;
-  status: 'running' | 'complete' | 'error';
-  duration?: string;
-  input?: string;
-  output?: string;
-  errorMessage?: string;
-};
-
-export type ChatStreamEvent =
-  | {
-      type: 'run.started';
-      runId: string;
-      conversationId: string;
-      kind: RunKind;
-      modelId?: string;
-      status: 'pending' | 'running';
-      createdAt: string;
-    }
-  | {
-      type: 'run.aborted';
-      runId: string;
-      conversationId: string;
-      reason: 'user' | 'server' | 'runtime';
-      createdAt: string;
-    }
-  | {
-      type: 'run.completed';
-      runId: string;
-      conversationId: string;
-      status: TerminalRunStatus;
-      error?: {code: string; message: string; retryable?: boolean};
-      createdAt: string;
-    }
-  | ({
-      type: 'context.updated';
-      conversationId: string;
-      createdAt: string;
-    } & ConversationContextUsage)
-  | {
-      type: 'compact.started';
-      runId: string;
-      conversationId: string;
-      instructions?: string;
-      createdAt: string;
-    }
-  | {
-      type: 'compact.completed';
-      runId: string;
-      conversationId: string;
-      compacted: boolean;
-      tokensBefore?: number;
-      firstKeptEntryId?: string;
-      summaryPreview?: string;
-      createdAt: string;
-    }
-  | {
-      type: 'compact.failed';
-      runId: string;
-      conversationId: string;
-      error: {code: string; message: string; retryable?: boolean};
-      createdAt: string;
-    }
-  | {
-      /** The server is making the requested model runnable before the run starts. */
-      type: 'model.loading';
-      conversationId: string;
-      modelId: string;
-      status: string;
-      progress?: number;
-      createdAt: string;
-    }
-  | {type: 'message.user.created'; message: ChatMessage}
-  | {type: 'message.assistant.started'; message: ChatMessage; harness: 'pi' | 'llamacpp'}
-  // `isReasoning` says which phase the turn is in. llama.cpp is the one that
-  // separates thinking from the answer, so the server states it rather than
-  // letting each client infer it from the order events happen to arrive in.
-  | {type: 'message.assistant.delta'; id: string; delta: string; isReasoning: false}
-  | {type: 'message.assistant.reasoning_delta'; id: string; delta: string; isReasoning: true}
-  | {type: 'message.assistant.completed'; message: ChatMessage}
-  | {type: 'performance.updated'; id: string; performance: ChatPerformance}
-  | {type: 'tool_call.updated'; call: ToolCallEvent}
-  | {
-      type: 'conversation.updated';
-      conversationId: string;
-      title?: string;
-      titleSource?: ConversationSnapshot['conversation']['titleSource'];
-      activeLeafPiEntryId?: string;
-      updatedAt: string;
-    }
-  // `conversation.forked` is specified by the router plan but has no channel to
-  // travel on: fork and clone are plain JSON routes, and Nelle exposes no
-  // conversation-level SSE stream, only per-run ones. Adding the union member
-  // without an emitter would just be a type nobody sends. It belongs with the
-  // conversation event stream a mobile client will need.
-  | ({type: 'run.warning'} & NelleWarning)
-  | ({type: 'error'} & NelleError);
 
 export type AppState = {
   version: 1;
