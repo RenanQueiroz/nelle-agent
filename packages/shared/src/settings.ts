@@ -8,8 +8,8 @@
  *
  * Clients render the served schema. They do not import this module, and they
  * never carry a copy of a default: the server returns effective values. That is
- * `plans/nelle-thin-client-plan.md` Phase 0c, and it is why adding a setting
- * ships without a client release.
+ * the thin-client rule -- rendering and defaults stay server-side -- and it is
+ * why adding a setting ships without a client release.
  *
  * Field keys are a contract, the way `NELLE_ERROR_CODES` is. Renaming one breaks
  * a client that stored it, and there is no migration path through a phone's
@@ -135,7 +135,7 @@ export const SETTINGS_REGISTRY: readonly SettingsGroup[] = [
         help: 'Downscale images above this many megapixels. 0 sends them untouched. This saves bytes and prompt-processing work, not context: how many tokens an image costs depends on the model, and gemma charges the same for six megapixels as for one.',
         type: 'number',
         // Off. On gemma it buys nothing in context, and a silent quality loss is
-        // a bad default. See the measurement in `plans/nelle-settings-plan.md`.
+        // a bad default (the measurement is in AGENTS.md).
         default: 0,
         min: 0,
         max: 24,

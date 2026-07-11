@@ -3,8 +3,8 @@
  * to their phone.
  *
  * Only the storage moves. Whether a thinking block starts open is a rendering
- * decision, and rendering stays in the client -- that is rule 4 of
- * `plans/nelle-thin-client-plan.md`, not an exception to it.
+ * decision, and rendering stays in the client -- that is the thin-client rule,
+ * not an exception to it.
  *
  * Every default is what Nelle did before these existed, so turning them on
  * changes nothing. Zod-free: the web bundle imports this directly.

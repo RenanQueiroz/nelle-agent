@@ -1,10 +1,14 @@
-# Nelle Server
+# Nelle Agent
 
-Local-first MVP server for Nelle Agent.
+Local-first AI agent you run on your own hardware. Nelle Agent is a monorepo — a
+Bun server that manages a local `llama.cpp` runtime and runs the Pi agent
+harness, plus the clients that connect to it — meant to ship as a single
+cross-platform installer.
 
-Nelle Server manages a local `llama.cpp` runtime, runs the Pi agent harness,
-serves a browser-based Astryx/React setup and chat UI, and exposes the API that
-the separate React Native mobile app (`nelle-client`) will consume later.
+Today the client is a browser UI (`apps/web`, React/Vite/Astryx); a Flutter
+desktop + mobile client is next. The server (`apps/server`) runs on Bun with
+`bun:sqlite` and `Bun.serve`, and shared contracts live in `packages/shared`. It
+runs on Windows, macOS, and Linux.
 
 ## Current MVP
 
@@ -36,7 +40,7 @@ Implemented:
   - Runtime start/stop uses router mode with `--models-preset` and
     configurable `--models-max` and `--sleep-idle-seconds` values.
   - The router pid is persisted under `.nelle/llama/` so a restarted
-    `nelle-server` can adopt and stop the llama-server it previously started.
+    server can adopt and stop the llama-server it previously started.
   - The runtime UI can show the llama-server log tail for startup/configuration
     diagnostics and the router-reported loaded/maximum model capacity.
 - Hugging Face GGUF search and quant selection that lets `llama-server`
@@ -145,7 +149,7 @@ Implemented:
 
 Not implemented yet:
 
-- Mobile LAN pairing and Expo push.
+- Mobile LAN pairing and push notifications (for the coming Flutter client).
 - Packaging and a launcher. There is no `bin` entrypoint or installer; `bun run start`
   runs the server and `--open` launches the system browser.
 - A first-run setup wizard. Runtime install, model import, and parameter editing
@@ -163,6 +167,22 @@ Not implemented yet:
   SQLite schema migration paths back up `settings.sqlite`, but the broader
   state/Pi/attachment migration runner is still future work.
 - Progress streaming for long installs/builds.
+
+## Roadmap
+
+- **Flutter client, desktop + mobile.** One Dart codebase to replace the React
+  web app across macOS/Windows/Linux desktop and iOS/Android — chosen for low
+  runtime memory (the server may share a memory-constrained box such as a Mac
+  mini) and a single client to maintain. The server's REST + typed-SSE contract
+  is frozen to keep this a drop-in.
+- **Single cross-platform installer.** Ship the Bun server (`bun run
+build:binary`, per platform) and the client as one executable. The Linux-x64
+  binary is validated — it builds, boots, serves, and renders PDF pages via
+  `@napi-rs/canvas` inside the compiled binary; macOS-arm64 and Windows-x64 still
+  need a CI matrix and an on-target pass (including the llama-server process
+  lifecycle).
+- **First-run setup wizard**, host-tool sandboxing, and a full Pi branch-tree
+  explorer (see "Not implemented yet" above).
 
 ## Setup
 
@@ -376,16 +396,10 @@ curl -fsS 'http://127.0.0.1:8787/api/huggingface/search?q=tiny%20gguf'
 
 ## Architecture
 
-Current planning source of truth:
-
-- [Architecture plan](plans/nelle-agent-architecture.md)
-- [Router and chat UI plan](plans/nelle-router-chat-ui-plan.md)
-- [Thin client plan](plans/nelle-thin-client-plan.md) — what belongs on the
-  server versus in a client
-- [Settings plan](plans/nelle-settings-plan.md) — which of llama.cpp's settings
-  Nelle adopts, and where each one lives
-- [Gap remediation plan](plans/nelle-gap-remediation-plan.md) — known
-  divergences between the implementation and the plans above
+`AGENTS.md` is the committed source of truth for implementation rules and
+architecture — server-vs-client boundaries, the Bun runtime, `models.ini`
+ownership, settings, streaming, and the rest. (Day-to-day planning lives in
+`plans/`, which is local scratch and intentionally not committed to git.)
 
 Server settings are declared once, in `SETTINGS_REGISTRY`
 (`packages/shared/src/settings.ts`), and served to every client from

@@ -4,15 +4,16 @@ Project-specific guidance for AI coding agents.
 
 ## Project Rules
 
-- Keep documentation current with every repository change. Update `README.md`,
-  `plans/nelle-agent-architecture.md`, and `AGENTS.md` whenever implementation
-  behavior, setup commands, architecture, or workflow expectations change.
+- Keep documentation current with every repository change. Update `README.md`
+  and `AGENTS.md` whenever implementation behavior, setup commands, architecture,
+  or workflow expectations change. Anything under `plans/` is local scratch
+  (git-ignored) — never a shared source of truth, and never cited from committed
+  docs or code.
 - `AGENTS.md` is the single source of truth for shared agent guidance. Root
   `CLAUDE.md` should contain only `@AGENTS.md`.
 - The server, tests, and toolchain run on **Bun** (`engines.bun`, ≥1.3); there
   is no npm/Node runtime dependency. Use `bun install`, `bun run <script>`, and
-  `bun test`. `plans/nelle-bun-migration.md` is the source of truth for the
-  migration off Node/Fastify.
+  `bun test`.
 - The HTTP server is `Bun.serve` over a small native router
   (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
   owns JSON-body parsing, zod→400 mapping, CORS, and a `Bun.file` static + SPA
@@ -380,8 +381,9 @@ Project-specific guidance for AI coding agents.
   newer client wrote -- survives; reads narrow field by field, so one malformed
   toggle falls back to its own default and takes no sibling with it. Only the
   *storage* is server-side: the client still decides what a collapsed thinking
-  block looks like, which is rule 4 of `plans/nelle-thin-client-plan.md`.
-  Toggling is optimistic and has no Save button, and reverts if the server
+  block looks like -- a client-local rendering concern (see the server-vs-client
+  boundary rule below). Toggling is optimistic and has no Save button, and
+  reverts if the server
   refuses. Genuinely client-local state -- sidebar collapse, open settings
   section, search text, drafts -- stays in the browser stores.
 - Settings dialog draft state, search results, runtime input fields, and log
@@ -642,28 +644,18 @@ Project-specific guidance for AI coding agents.
 - Let Astryx `ChatComposer` render its default `ChatSendButton` unless you are
   deliberately replacing it through `sendButton`; `sendActions` is only for
   auxiliary controls and must not create a second send affordance.
-- Use `plans/nelle-router-chat-ui-plan.md` as the source of truth for the
-  router-mode model lifecycle, `models.ini` ownership, sidebar, settings, and
-  conversation UI overhaul.
-- Use `plans/nelle-gap-remediation-plan.md` as the source of truth for known
-  divergences between the implementation and the other two plans. Before marking
-  anything there as done, re-verify it against the code; before adding a gap,
-  cite the `file:line` that proves it.
-- Use `plans/nelle-thin-client-plan.md` as the source of truth for what belongs
-  on the server versus in a client. Nelle is growing a React Native client and a
-  desktop shell, so a rule the browser owns is a rule every client reimplements.
-  Before adding logic to `apps/web/src`, ask: does it need server data or CPU, or
-  does it change the shape of what gets rendered? Then it belongs on the server.
-  Is it a pure helper only TypeScript clients will call? Then `packages/shared`.
-  Rendering, drafts, optimistic UI, scroll, and live run state stay in the
-  client, as does `canAbort`/`canCompact`, which the client tracks more freshly
-  than any payload can carry.
-- Use `plans/nelle-settings-plan.md` as the source of truth for which of
-  llama.cpp's webui settings Nelle adopts and where each one lives. It records
-  why the rest are skipped, so the question does not get reopened by accident:
-  Pi owns the agent loop and the context, `max_tokens` must never be advertised
-  to Pi, and PDF-as-image was removed on purpose. The settings schema is served
-  from `GET /api/settings/schema`, the way `GET /api/commands` serves the
+- **Server vs. client boundary.** A rule the browser owns is a rule every client
+  reimplements, and Nelle is growing a Flutter client (desktop + mobile) beside
+  the web app. Before adding logic to `apps/web/src`, ask: does it need server
+  data or CPU, or does it change the shape of what gets rendered? Then it belongs
+  on the server. Is it a pure helper only TypeScript clients will call? Then
+  `packages/shared`. Rendering, drafts, optimistic UI, scroll, and live run state
+  stay in the client, as does `canAbort`/`canCompact`, which the client tracks
+  more freshly than any payload can carry.
+- **Settings scope is settled**, so do not reopen it by accident: Pi owns the
+  agent loop and the context, `max_tokens` must never be advertised to Pi, and
+  PDF-as-image was removed on purpose. The settings schema is served from
+  `GET /api/settings/schema`, the way `GET /api/commands` serves the
   slash-command registry, so a second client renders it without a copy of the
   copy.
 - A server setting exists in exactly one place: `SETTINGS_REGISTRY` in

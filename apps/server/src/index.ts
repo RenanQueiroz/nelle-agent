@@ -19,7 +19,7 @@ const server = Bun.serve({
 });
 
 const url = `http://${server.hostname}:${server.port}`;
-console.log(`Nelle Server listening on ${url}`);
+console.log(`Nelle Agent listening on ${url}`);
 console.log(`App data directory: ${paths.dataDir}`);
 
 if (shouldOpen) {
@@ -27,7 +27,7 @@ if (shouldOpen) {
 }
 
 const shutdown = async (): Promise<void> => {
-  console.log('Shutting down Nelle Server');
+  console.log('Shutting down Nelle Agent');
   await server.stop();
   await app.close();
 };

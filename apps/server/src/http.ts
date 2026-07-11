@@ -10,7 +10,7 @@ import {normalizeNelleError} from './errors';
  * A small native router over Bun's `Request`/`Response`, replacing Fastify.
  * Handlers return a `Response`; cross-cutting concerns (JSON body parsing, zod
  * error mapping, CORS, static serving) live here so `server.ts` stays a list of
- * routes. See plans/nelle-bun-migration.md.
+ * routes.
  */
 
 export type Ctx = {
