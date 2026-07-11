@@ -274,6 +274,31 @@ const MIGRATIONS: Migration[] = [
     `,
     isApplied: db => tableHasColumn(db, 'model_cache', 'model_oid'),
   },
+  {
+    version: 12,
+    name: 'device_auth',
+    checksum: '2026-07-11-device-auth',
+    // Per-device credentials for authenticated LAN clients. A device pairs once
+    // (with a loopback-minted code) and gets a rotating refresh token plus a
+    // short-lived access token; revoking the device cascades its tokens away.
+    sql: `
+      CREATE TABLE IF NOT EXISTS devices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        platform TEXT,
+        created_at TEXT NOT NULL,
+        last_seen_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS device_tokens (
+        device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+        refresh_token_hash TEXT NOT NULL,
+        access_token_hash TEXT,
+        access_expires_at TEXT
+      );
+    `,
+    isApplied: db => tableExists(db, 'devices'),
+  },
 ];
 
 /** The proof-of-concept default chat was stored under this id. */
