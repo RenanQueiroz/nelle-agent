@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import test from 'node:test';
+import {test} from 'bun:test';
 
 const WEB_SRC = path.resolve('apps/web/src');
 const WEB_DIST_ASSETS = path.resolve('dist/web/assets');

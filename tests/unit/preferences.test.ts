@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import {test} from 'bun:test';
 
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {PreferencesRepository} from '../../apps/server/src/preferences.ts';
 import {DEFAULT_DISPLAY_PREFERENCES} from '../../packages/shared/src/displayPreferences.ts';
-import {createServer} from '../../apps/server/src/server.ts';
+import {createTestServer} from './helpers/testServer.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 
@@ -90,7 +90,7 @@ test('the preferences routes filter unknown models without persisting the filter
     quant: 'UD-Q4_K_M',
     name: 'Model Q4',
   });
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     assert.deepEqual((await app.inject({method: 'GET', url: '/api/settings/preferences'})).json(), {
       ...DEFAULT_DISPLAY_PREFERENCES,
@@ -207,7 +207,7 @@ test('a malformed toggle falls back to its default, and takes no sibling with it
 
 test('a preferences payload that is not a string array is rejected, not stored', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject({
       method: 'PATCH',

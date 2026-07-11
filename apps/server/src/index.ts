@@ -5,22 +5,30 @@ import {createServer} from './server';
 
 const paths = createAppPaths();
 const port = Number(process.env.NELLE_PORT ?? 8787);
-const host = process.env.NELLE_HOST ?? '127.0.0.1';
+const hostname = process.env.NELLE_HOST ?? '127.0.0.1';
 const shouldOpen = process.argv.includes('--open');
 
 const app = await createServer(paths);
-await app.listen({host, port});
+const server = Bun.serve({
+  port,
+  hostname,
+  // SSE runs (chat, regenerate, compact, the llama.cpp proxy) can go quiet while
+  // a model loads; 255s is Bun's max idle window, and load progress keeps it warm.
+  idleTimeout: 255,
+  fetch: app.fetch,
+});
 
-const url = `http://${host}:${port}`;
-app.log.info(`Nelle Server listening on ${url}`);
-app.log.info(`App data directory: ${paths.dataDir}`);
+const url = `http://${server.hostname}:${server.port}`;
+console.log(`Nelle Server listening on ${url}`);
+console.log(`App data directory: ${paths.dataDir}`);
 
 if (shouldOpen) {
   await open(url);
 }
 
-const shutdown = async () => {
-  app.log.info('Shutting down Nelle Server');
+const shutdown = async (): Promise<void> => {
+  console.log('Shutting down Nelle Server');
+  await server.stop();
   await app.close();
 };
 

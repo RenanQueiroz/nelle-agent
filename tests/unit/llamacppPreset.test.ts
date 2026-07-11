@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import {test} from 'bun:test';
 
 import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';

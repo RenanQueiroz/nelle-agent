@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test, {afterEach} from 'node:test';
+import {test, afterEach} from 'bun:test';
 
 import {ATTACHMENT_LIMITS} from '../../packages/shared/src/attachments.ts';
 import {chatRequestSchema} from '../../packages/shared/src/contracts.ts';

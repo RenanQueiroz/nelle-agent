@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test, {afterEach} from 'node:test';
+import {test, afterEach} from 'bun:test';
 
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {

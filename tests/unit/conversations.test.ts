@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import {test} from 'bun:test';
 import {Database} from 'bun:sqlite';
 
 import {SessionManager} from '@earendil-works/pi-coding-agent';
@@ -31,7 +31,7 @@ import {
   isToolExecutionEvent,
 } from '../../apps/server/src/piHarness.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
-import {createServer} from '../../apps/server/src/server.ts';
+import {createTestServer} from './helpers/testServer.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
 
 /**
@@ -1461,7 +1461,7 @@ test('conversation delete removes owned session files and unreferenced attachmen
     database.close();
   }
 
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const deleteResponse = await app.inject({
       method: 'DELETE',
@@ -1509,7 +1509,7 @@ test('server startup sweeps orphan attachment files and preserves referenced fil
     database.close();
   }
 
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     await assert.rejects(() => fs.access(orphanAttachmentPath), {code: 'ENOENT'});
     await assert.rejects(() => fs.access(path.dirname(orphanAttachmentPath)), {code: 'ENOENT'});
@@ -1653,7 +1653,7 @@ test('conversation export and import round trip Pi history and attachments', asy
     database.close();
   }
 
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const exportResponse = await app.inject({
       method: 'POST',
@@ -2434,7 +2434,7 @@ test('Pi compact stream reports busy conversations with stable error codes', asy
 
 test('schema failures come back as invalid_request, not a raw 500', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   const database = new AppDatabase(paths);
   await database.open();
   new ConversationRepository(database).createConversation({
@@ -3096,7 +3096,7 @@ test('conversation snapshot route rebuilds active projection from Pi after resta
     database.close();
   }
 
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject({
       method: 'GET',
@@ -3137,7 +3137,7 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
     createdAt: '2026-07-08T12:00:00.000Z',
   });
 
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const listResponse = await app.inject({method: 'GET', url: '/api/conversations'});
     assert.equal(listResponse.statusCode, 200);
@@ -3235,7 +3235,7 @@ test('conversation API exposes list, snapshot, create, patch, pin, and delete ro
 
 test('host tool settings require acknowledgement before enabling tools', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const stateResponse = await app.inject({method: 'GET', url: '/api/state'});
     assert.equal(stateResponse.statusCode, 200);
@@ -3286,7 +3286,7 @@ test('host tool settings require acknowledgement before enabling tools', async (
 
 test('the server serves the slash command registry it enforces', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const body = (await app.inject({method: 'GET', url: '/api/commands'})).json<{
       commands: Array<{name: string; argHint?: string; description: string}>;
@@ -3355,7 +3355,7 @@ test('chat stream emits SSE envelopes with run lifecycle events', async () => {
     );
   }) as typeof fetch;
 
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const database = new AppDatabase(paths);
     await database.open();
@@ -3450,7 +3450,7 @@ test('the chat route enforces the guards the composer enforces', async () => {
     return new Response('[]', {status: 200, headers: {'content-type': 'application/json'}});
   }) as typeof fetch;
 
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   const database = new AppDatabase(paths);
   await database.open();
   try {
@@ -3538,7 +3538,7 @@ test('llama proxy forwards an abort signal to upstream chat completions', async 
     });
   }) as typeof fetch;
 
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject({
       method: 'POST',

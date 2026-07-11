@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import {test} from 'bun:test';
 
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {appendedSystemPrompts, nelleOperationalPrompt} from '../../apps/server/src/piHarness.ts';
 import {SettingsRepository} from '../../apps/server/src/settings.ts';
-import {createServer} from '../../apps/server/src/server.ts';
+import {createTestServer} from './helpers/testServer.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {estimatePromptTokens} from '../../packages/shared/src/piContext.ts';
 import {
@@ -65,7 +65,7 @@ test('saving the instructions is declared as a setting that rebuilds Pi sessions
 
 test('the character cap is enforced by the server, not only by the textarea', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const tooLong = await app.inject({
       method: 'PATCH',

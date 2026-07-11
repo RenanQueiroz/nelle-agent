@@ -1,91 +1,99 @@
-import type {FastifyInstance} from 'fastify';
-
 import {
   emitCapturedLlamaPerformance,
   mergeChatPerformance,
   performanceFromLlamaPromptProgress,
   performanceFromLlamaTimings,
 } from './llamaThroughput';
+import type {Router} from './http';
 import type {AppStore} from './store';
 import type {ChatPerformance} from './types';
 
 type JsonObject = Record<string, unknown>;
 
-export function registerLlamaProxy(app: FastifyInstance, store: AppStore): void {
-  app.post('/api/llama-proxy/v1/chat/completions', async (request, reply) => {
+export function registerLlamaProxy(router: Router, store: AppStore): void {
+  router.post('/api/llama-proxy/v1/chat/completions', async ctx => {
     const state = await store.getState();
-    const body = injectTimingOptions(parseJsonObject(request.body));
+    const body = injectTimingOptions(parseJsonObject(await ctx.body()));
     // Pi clamps `max_tokens` against its own context estimate before it ever
     // reaches us. Reading it off the wire is the only way to know it did.
     emitCapturedLlamaRequest({maxTokens: numberOrUndefined(body.max_tokens)});
-    const controller = new AbortController();
-    const abortUpstream = () => controller.abort();
-    request.raw.on('close', abortUpstream);
-    reply.raw.on('close', abortUpstream);
 
+    // `ctx.req.signal` aborts when the browser drops the request, which aborts the
+    // upstream llama.cpp fetch -- what `reply.raw.on('close')` used to do.
+    let upstream: Response;
     try {
-      const upstream = await fetch(`http://127.0.0.1:${state.runtime.port}/v1/chat/completions`, {
+      upstream = await fetch(`http://127.0.0.1:${state.runtime.port}/v1/chat/completions`, {
         method: 'POST',
         headers: {'content-type': 'application/json'},
         body: JSON.stringify(body),
-        signal: controller.signal,
+        signal: ctx.req.signal,
       });
-
-      const contentType = upstream.headers.get('content-type') ?? '';
-      if (!upstream.body) {
-        reply.status(upstream.status);
-        return reply.send(await upstream.text());
-      }
-
-      if (!contentType.toLowerCase().includes('text/event-stream')) {
-        const text = await upstream.text();
-        observeJsonResponse(text);
-        reply.status(upstream.status);
-        reply.header('content-type', contentType || 'application/json');
-        return reply.send(text);
-      }
-
-      reply.raw.writeHead(upstream.status, {
-        'content-type': contentType || 'text/event-stream; charset=utf-8',
-        'cache-control': upstream.headers.get('cache-control') ?? 'no-cache',
-        connection: upstream.headers.get('connection') ?? 'keep-alive',
-        'x-accel-buffering': 'no',
-      });
-
-      const reader = upstream.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      try {
-        while (true) {
-          const {value, done} = await reader.read();
-          if (done || controller.signal.aborted) {
-            break;
-          }
-          buffer += decoder.decode(value, {stream: true});
-          observeSseBuffer(buffer, nextBuffer => {
-            buffer = nextBuffer;
-          });
-          reply.raw.write(Buffer.from(value));
-        }
-      } finally {
-        buffer += decoder.decode();
-        if (buffer.trim()) {
-          observeSseEvent(buffer);
-        }
-        if (!reply.raw.destroyed) {
-          reply.raw.end();
-        }
-      }
     } catch (error) {
-      if (controller.signal.aborted) {
-        return undefined;
+      if (ctx.req.signal.aborted) {
+        return new Response(null, {status: 499});
       }
       throw error;
-    } finally {
-      request.raw.off('close', abortUpstream);
-      reply.raw.off('close', abortUpstream);
     }
+
+    const contentType = upstream.headers.get('content-type') ?? '';
+    if (!upstream.body) {
+      return new Response(await upstream.text(), {status: upstream.status});
+    }
+
+    if (!contentType.toLowerCase().includes('text/event-stream')) {
+      const text = await upstream.text();
+      observeJsonResponse(text);
+      return new Response(text, {
+        status: upstream.status,
+        headers: {'content-type': contentType || 'application/json'},
+      });
+    }
+
+    const upstreamBody = upstream.body;
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const reader = upstreamBody.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        try {
+          while (true) {
+            const {value, done} = await reader.read();
+            if (done) {
+              break;
+            }
+            buffer += decoder.decode(value, {stream: true});
+            observeSseBuffer(buffer, nextBuffer => {
+              buffer = nextBuffer;
+            });
+            controller.enqueue(value);
+          }
+        } catch (error) {
+          if (!ctx.req.signal.aborted) {
+            controller.error(error);
+            return;
+          }
+        } finally {
+          buffer += decoder.decode();
+          if (buffer.trim()) {
+            observeSseEvent(buffer);
+          }
+          try {
+            controller.close();
+          } catch {
+            // Already errored or closed.
+          }
+        }
+      },
+    });
+
+    return new Response(stream, {
+      status: upstream.status,
+      headers: {
+        'content-type': contentType || 'text/event-stream; charset=utf-8',
+        'cache-control': upstream.headers.get('cache-control') ?? 'no-cache',
+        'x-accel-buffering': 'no',
+      },
+    });
   });
 }
 

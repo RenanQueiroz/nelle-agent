@@ -3,14 +3,14 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import {test} from 'bun:test';
 
 import {ConversationRepository} from '../../apps/server/src/conversations.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';
 import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
-import {createServer} from '../../apps/server/src/server.ts';
+import {createTestServer} from './helpers/testServer.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
 
 process.env.LOG_LEVEL = 'silent';
@@ -26,7 +26,7 @@ test('llama router facade normalizes props, models, model props, actions, and ev
     name: 'Model Q4',
   });
   await new LlamaCppManager(paths, store).writePreset(model);
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
 
   try {
     const propsResponse = await app.inject({method: 'GET', url: '/api/llama/props'});
@@ -124,7 +124,7 @@ test('router responses populate the model cache and survive a stopped router', a
     name: 'Model Q4',
   });
   await new LlamaCppManager(paths, store).writePreset(model);
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   const database = new AppDatabase(paths);
   await database.open();
 
@@ -189,7 +189,7 @@ test('the facade keys every configured model by its section id', async () => {
     name: 'Model Q4',
   });
   await new LlamaCppManager(paths, store).writePreset(model);
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
 
   try {
     const models = (await app.inject({method: 'GET', url: '/api/llama/models'})).json<{
@@ -365,7 +365,7 @@ test('the server decides whether a model can reason, and caches the answer', asy
     name: 'Model Q4',
   });
   await new LlamaCppManager(paths, store).writePreset(model);
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   const database = new AppDatabase(paths);
   await database.open();
 
@@ -463,7 +463,7 @@ test('llama router facade returns stable 502 errors for upstream failures', asyn
   const paths = await createTempPaths();
   const store = new AppStore(paths);
   await store.updateRuntimeSettings({port: router.port});
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
 
   try {
     const response = await app.inject({method: 'GET', url: '/api/llama/models'});
@@ -489,7 +489,7 @@ test('model settings endpoints edit params, duplicate, and remove sections', asy
     name: 'Model Q4',
   });
   await new LlamaCppManager(paths, store).writePreset();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
 
   try {
     const globalResponse = await app.inject({

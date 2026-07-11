@@ -146,40 +146,43 @@ and — from Phase 3 on — Playwright e2e against the Bun server).
 - Green on Linux/WSL: `tsc`, **311/311 `bun test`**, lint, format, and a live
   `/api/health` boot.
 
-### Phase 2 — Test runner → `bun test` ✅ done (free)
+### Phase 2 — Test runner → `bun test` ✅ done
 
-- No code change needed: `bun test` runs the existing `node:test` +
-  `node:assert/strict` files (including `afterEach`) **unchanged**. Only
-  `test:unit` changed to `bun test tests/unit`. All **311** tests pass,
-  including the `@napi-rs/canvas` PDF-render test (`attachmentIngest`).
+- The suite moved to `bun:test` (from `node:test`, whose top-level `test()`
+  cascades under `bun test`'s file concurrency — issue 5090; it looked free on a
+  small run and broke on the full one). The change is a one-line import per file;
+  **assertions stay on `node:assert/strict`**, which Bun implements. All **311**
+  tests pass, including the `@napi-rs/canvas` PDF-render test (`attachmentIngest`).
 
-### Phase 3 — HTTP core → `Bun.serve`
+### Phase 3 — HTTP core + streaming + uploads → `Bun.serve` ✅ done
 
-- Restructure `createServer(paths)` to build a `routes` map and return
-  `Bun.serve({ routes, fetch, error })`; update `index.ts` (no `app.listen`;
-  `server.stop()` on SIGINT/SIGTERM).
-- Port CORS to a header helper; port `setErrorHandler` to a central
-  `NelleError → Response` mapper; serve the web build via `Bun.file()`.
-- Non-streaming JSON routes first. **Verify encoded `/` and `:` in route params
-  round-trip** (model ids, conversation ids).
+Switching off Fastify is atomic (one port, one server), so this absorbed the
+planned Phases 4 (streaming) and 5 (uploads) and the test harness in one green
+commit.
 
-### Phase 4 — Streaming: SSE + llama proxy
-
-- Replace `reply.raw` sinks with a `ReadableStream` controller; reuse the
-  existing `writeChatStream/writeChatEvent/writeChatError` by passing
-  `{ write: chunk => controller.enqueue(encoder.encode(chunk)) }`.
-- In `llamaProxy.ts`, stream `upstream.body` through and wire **`req.signal`**
-  to the upstream `fetch` abort (replacing the `reply.raw.on('close')` dance).
-- Verify: streamed chat, mid-run abort closes the upstream llama.cpp request,
-  `context.updated` throttling intact.
-
-### Phase 5 — Uploads → `Request.formData()`
-
-- Reimplement the multipart route on native `FormData`; enforce the byte cap
-  manually (the behaviour `@fastify/multipart` gave us). Keep the
-  classify/reject/extract pipeline and `uploadId` response unchanged.
-- Verify: text/PDF/image upload, oversize rejection, binary-posing-as-text
-  rejection, PDF text extraction, PDF→image render (`@napi-rs/canvas`).
+- A small native router (`http.ts`, ~180 lines) over `Request`/`Response`:
+  method + pattern dispatch with `decodeURIComponent`'d params, JSON-body
+  parsing, zod → 400 / uncaught → 500 mapping, CORS (reflected origin +
+  preflight), and a `Bun.file()` static + SPA-fallback handler. `createServer`
+  now returns `{fetch, close}`; `index.ts` runs
+  `Bun.serve({fetch, idleTimeout: 255})`.
+- **Streaming:** the SSE routes (chat, regenerate, compact) and the llama.cpp
+  proxy became `ReadableStream` responses; the `writeChatStream/Event/Error`
+  writers were unchanged (they already took a `{write}` sink). Client disconnect
+  aborts the upstream `fetch` through `ctx.req.signal`, replacing
+  `reply.raw.on('close')`.
+- **Uploads:** `@fastify/multipart` → `req.formData()`; the per-file cap is
+  enforced manually (413 with a coded body). The classify/reject/extract
+  pipeline and the `uploadId` response are unchanged.
+- **Test harness:** `createServer` no longer returns a Fastify app, so a
+  `createTestServer` helper adapts `{fetch}` onto the `inject`/`close` surface
+  the ~90 route-test call sites use, buffering the body so `json()`/`rawPayload`
+  stay synchronous. Only the import and creation site changed per file.
+- Removed `fastify`, `@fastify/cors`, `@fastify/multipart`, `@fastify/static`,
+  and `tsx` from dependencies.
+- Green on Linux/WSL: `tsc`, **311/311 `bun test`**, lint, format, and a live
+  boot exercising health, CORS preflight + reflected origin, the SPA fallback,
+  and a 405. Verify gate #3 (encoded `/` and `:` in model-id params) passes here.
 
 ### Phase 6 — Subprocess + file I/O + misc built-ins
 

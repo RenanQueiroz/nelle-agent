@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import {test} from 'bun:test';
 
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
-import {createServer} from '../../apps/server/src/server.ts';
+import {createTestServer} from './helpers/testServer.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
 import {ATTACHMENT_LIMITS} from '../../packages/shared/src/attachments.ts';
 import {imageOnlyPdfBuffer, simplePdfBuffer} from './helpers/pdf.ts';
@@ -16,7 +16,7 @@ const BOUNDARY = 'nelleboundary';
 
 test('a text upload is stored, classified, and its text extracted', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject(
       uploadRequest({name: 'notes.md', mimeType: 'text/markdown', bytes: Buffer.from('hello')}),
@@ -49,7 +49,7 @@ test('a text upload is stored, classified, and its text extracted', async () => 
 
 test('a PDF upload is extracted server-side and reports its page count', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject(
       uploadRequest({
@@ -70,7 +70,7 @@ test('a PDF upload is extracted server-side and reports its page count', async (
 
 test('a PDF with no text layer is accepted and reports its pages', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject(
       uploadRequest({
@@ -93,7 +93,7 @@ test('a PDF with no text layer is accepted and reports its pages', async () => {
 
 test('a PDF with a text layer says so, so the chip can name what will be sent', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const body = (
       await app.inject(
@@ -131,7 +131,7 @@ test('a scan is refused for a model llama.cpp has proven cannot see', async () =
   });
   database.close();
 
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject(
       uploadRequest({name: 'scan.pdf', mimeType: 'application/pdf', bytes: imageOnlyPdfBuffer()}),
@@ -156,7 +156,7 @@ test('a scan is accepted while the model vision support is unproven', async () =
   });
   await store.setActiveModel(model.id);
 
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     // `null` is not `false`. The user can still load the model.
     const response = await app.inject(
@@ -170,7 +170,7 @@ test('a scan is accepted while the model vision support is unproven', async () =
 
 test('a binary file is refused with a coded error, not an HTTP 500', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject(
       uploadRequest({name: 'a.txt', bytes: Buffer.from([0x68, 0x00, 0x69])}),
@@ -186,7 +186,7 @@ test('a binary file is refused with a coded error, not an HTTP 500', async () =>
 
 test('an upload with no file is an invalid request', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject({
       method: 'POST',
@@ -221,7 +221,7 @@ test('an image is refused for a model llama.cpp has proven cannot see it', async
   });
   database.close();
 
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject(
       uploadRequest({name: 'shot.png', mimeType: 'image/png', bytes: Buffer.from('png')}),
@@ -246,7 +246,7 @@ test('an image is allowed for a model whose vision support is unproven', async (
   });
   await store.setActiveModel(model.id);
 
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     // `null` means llama.cpp has never reported props. The server never rejects
     // on a guess; the user can simply load the model.
@@ -262,7 +262,7 @@ test('an image is allowed for a model whose vision support is unproven', async (
 
 test('a file over the per-file limit is refused with a coded error, not a raw 413', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject(
       uploadRequest({
@@ -283,7 +283,7 @@ test('a file over the per-file limit is refused with a coded error, not a raw 41
 
 test('an unsent upload can be dropped, and dropping it twice is a 404', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const created = (
       await app.inject(uploadRequest({name: 'a.txt', bytes: Buffer.from('a')}))
@@ -306,7 +306,7 @@ test('an unsent upload can be dropped, and dropping it twice is a 404', async ()
 
 test('an unknown upload id is a 404, not a crash', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject({method: 'GET', url: '/api/uploads/nope'});
     assert.equal(response.statusCode, 404);
@@ -318,7 +318,7 @@ test('an unknown upload id is a 404, not a crash', async () => {
 
 test('an upload can be bound to the conversation that will send it', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const created = (
       await app.inject(

@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test, {afterEach} from 'node:test';
+import {test, afterEach} from 'bun:test';
 
 import {LlamaOptionCatalogueCache} from '../../apps/server/src/llamaParams.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
-import {createServer} from '../../apps/server/src/server.ts';
+import {createTestServer} from './helpers/testServer.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
 import {getModelsIniSectionValues, parseModelsIni} from '../../packages/shared/src/modelsIni.ts';
 
@@ -98,7 +98,7 @@ test('GET /api/llama/params serves the catalogue', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-bin-'));
   process.env.LLAMA_SERVER_PATH = await helpPrinter(directory, FIXTURE_HELP);
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject({method: 'GET', url: '/api/llama/params'});
     assert.equal(response.statusCode, 200);
@@ -115,7 +115,7 @@ test('a global param typo is refused, named, and never reaches models.ini', asyn
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-bin-'));
   process.env.LLAMA_SERVER_PATH = await helpPrinter(directory, FIXTURE_HELP);
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject({
       method: 'PATCH',
@@ -152,7 +152,7 @@ test('a reserved key keeps its own code, and a good save still lands', async () 
   const paths = await createTempPaths();
   const store = new AppStore(paths);
   const model = await store.addHuggingFaceModel({repoId: 'repo/model', quant: 'UD-Q4_K_M'});
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const reserved = await app.inject({
       method: 'PATCH',
@@ -190,7 +190,7 @@ test('without a binary, an unknown key is saved rather than refused', async () =
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-bin-'));
   process.env.LLAMA_SERVER_PATH = path.join(directory, 'absent');
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject({
       method: 'PATCH',

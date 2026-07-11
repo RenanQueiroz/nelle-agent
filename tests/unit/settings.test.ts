@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import {test} from 'bun:test';
 
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {SettingsRepository} from '../../apps/server/src/settings.ts';
-import {createServer} from '../../apps/server/src/server.ts';
+import {createTestServer} from './helpers/testServer.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {
   SETTINGS_REGISTRY,
@@ -223,7 +223,7 @@ test('a key this build does not declare survives a write by one that does not kn
 
 test('the schema route serves the registry it was built with', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths, {settingsRegistry: FIXTURE});
+  const app = await createTestServer(paths, {settingsRegistry: FIXTURE});
   try {
     const response = await app.inject({method: 'GET', url: '/api/settings/schema'});
     assert.equal(response.statusCode, 200);
@@ -235,7 +235,7 @@ test('the schema route serves the registry it was built with', async () => {
 
 test('the real server serves the real registry, and a route for each of its groups', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const response = await app.inject({method: 'GET', url: '/api/settings/schema'});
     assert.equal(response.statusCode, 200);
@@ -260,7 +260,7 @@ test('the real server serves the real registry, and a route for each of its grou
 
 test('a group route round-trips through HTTP and rejects an undeclared key by name', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths, {settingsRegistry: FIXTURE});
+  const app = await createTestServer(paths, {settingsRegistry: FIXTURE});
   try {
     assert.deepEqual(
       (await app.inject({method: 'GET', url: '/api/settings/demo'})).json(),

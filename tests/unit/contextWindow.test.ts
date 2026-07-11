@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import {test} from 'bun:test';
 
 import {effectiveContextWindow, requireContextWindow} from '../../apps/server/src/contextWindow.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
-import {createServer} from '../../apps/server/src/server.ts';
+import {createTestServer} from './helpers/testServer.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
 import {
   MEASURED_AGENT_PROMPT_TOKENS,
@@ -121,7 +121,7 @@ test('Nelle writes a floor for llama.cpp auto-fit, never a context size', async 
 
 test('an empty params object clears every global param; an absent one does not', async () => {
   const paths = await createTempPaths();
-  const app = await createServer(paths);
+  const app = await createTestServer(paths);
   try {
     const patch = async (payload: unknown) =>
       app.inject({method: 'PATCH', url: '/api/models/global-params', payload});
