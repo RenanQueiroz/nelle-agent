@@ -102,7 +102,8 @@ function subjectAltNames(): Array<{type: number; value?: string; ip?: string}> {
   return names;
 }
 
-function localIPv4s(): string[] {
+/** The host's non-internal IPv4 addresses (for the SAN and the pairing payload). */
+export function localIPv4s(): string[] {
   const out: string[] = [];
   for (const ifaces of Object.values(os.networkInterfaces())) {
     for (const iface of ifaces ?? []) {
