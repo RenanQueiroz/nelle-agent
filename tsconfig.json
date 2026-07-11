@@ -14,7 +14,7 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "types": ["node"]
+    "types": ["node", "bun"]
   },
   "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts"],
   "exclude": ["node_modules", "dist", "apps/web/src/astryx-template-*"]

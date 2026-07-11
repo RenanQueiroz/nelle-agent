@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import {DatabaseSync} from 'node:sqlite';
+import {Database} from 'bun:sqlite';
 
 import {SessionManager} from '@earendil-works/pi-coding-agent';
 import {strFromU8, unzipSync} from 'fflate';
@@ -96,10 +96,10 @@ test('SQLite migration renames poc-default and every table that references it', 
 
   // Rewind to a pre-rename database holding the old id and a child row in each
   // referencing table, then reopen so the migration runs against real data.
-  const raw = new DatabaseSync(paths.settingsDbPath);
+  const raw = new Database(paths.settingsDbPath);
   try {
-    raw.exec('PRAGMA foreign_keys = ON;');
-    raw.exec('DELETE FROM schema_migrations WHERE version = 3;');
+    raw.run('PRAGMA foreign_keys = ON;');
+    raw.run('DELETE FROM schema_migrations WHERE version = 3;');
     raw
       .prepare(
         `INSERT INTO conversations(id, title, title_source, pinned, status, created_at, updated_at)
@@ -170,9 +170,9 @@ test('SQLite migration backs up existing databases before repairing migration re
   await database.open();
   database.close();
 
-  const raw = new DatabaseSync(paths.settingsDbPath);
+  const raw = new Database(paths.settingsDbPath);
   try {
-    raw.exec('DELETE FROM schema_migrations WHERE version = 2;');
+    raw.run('DELETE FROM schema_migrations WHERE version = 2;');
   } finally {
     raw.close();
   }
@@ -195,7 +195,7 @@ test('SQLite migration backs up existing databases before repairing migration re
   const backupDir = path.join(paths.dataDir, 'backups');
   const backupFiles = await fs.readdir(backupDir);
   assert.equal(backupFiles.length, 1);
-  const backup = new DatabaseSync(path.join(backupDir, backupFiles[0]!));
+  const backup = new Database(path.join(backupDir, backupFiles[0]!));
   try {
     const backupMigrations = backup
       .prepare('SELECT version FROM schema_migrations ORDER BY version ASC')
@@ -339,7 +339,7 @@ test('migration 6 drops deleted_at from an existing database without losing rows
   const conversation = repository.createConversation({title: 'Survivor'});
 
   // Rewind to schema 5: put the column back and forget the migration ran.
-  first.connection.exec('ALTER TABLE conversations ADD COLUMN deleted_at TEXT');
+  first.connection.run('ALTER TABLE conversations ADD COLUMN deleted_at TEXT');
   first.connection.prepare('DELETE FROM schema_migrations WHERE version = 6').run();
   assert.equal(hasColumn(first.connection, 'conversations', 'deleted_at'), true);
   first.close();
@@ -364,7 +364,7 @@ test('migration 6 drops deleted_at from an existing database without losing rows
   }
 });
 
-function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
+function hasColumn(db: Database, table: string, column: string): boolean {
   return db
     .prepare(`PRAGMA table_info('${table}')`)
     .all()
@@ -489,7 +489,7 @@ test('conversation search falls back to LIKE when FTS5 is unavailable', async ()
 
     // Stand in for a SQLite build compiled without FTS5, which `tryCreateSearchTable`
     // tolerates by design.
-    database.connection.exec('DROP TABLE conversation_search');
+    database.connection.run('DROP TABLE conversation_search');
 
     const found = repository.listConversations({search: 'Findable'});
     assert.deepEqual(

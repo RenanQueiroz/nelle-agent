@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
-import type {DatabaseSync} from 'node:sqlite';
+import type {Database} from 'bun:sqlite';
 
 import type {
   AttachmentMetadata,
@@ -438,14 +438,14 @@ export class ConversationRepository {
     const statement = db.prepare(
       'UPDATE message_attachments SET pi_entry_id = ? WHERE conversation_id = ? AND pi_entry_id = ?',
     );
-    db.exec('BEGIN');
+    db.run('BEGIN');
     try {
       for (const [previousId, nextId] of mapping) {
         statement.run(nextId, conversationId, previousId);
       }
-      db.exec('COMMIT');
+      db.run('COMMIT');
     } catch (error) {
-      db.exec('ROLLBACK');
+      db.run('ROLLBACK');
       throw error;
     }
   }
@@ -524,7 +524,7 @@ export class ConversationRepository {
          size_bytes, storage_path, text_content, processing_json, created_at
        ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    db.exec('BEGIN');
+    db.run('BEGIN');
     try {
       for (const attachment of attachments) {
         const now = attachment.createdAt ?? new Date().toISOString();
@@ -556,9 +556,9 @@ export class ConversationRepository {
           createdAt: now,
         });
       }
-      db.exec('COMMIT');
+      db.run('COMMIT');
     } catch (error) {
-      db.exec('ROLLBACK');
+      db.run('ROLLBACK');
       throw error;
     }
     return created;
@@ -595,7 +595,7 @@ export class ConversationRepository {
          size_bytes, storage_path, text_content, processing_json, created_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    db.exec('BEGIN');
+    db.run('BEGIN');
     try {
       for (const row of rows) {
         const id = crypto.randomUUID();
@@ -622,9 +622,9 @@ export class ConversationRepository {
           }),
         });
       }
-      db.exec('COMMIT');
+      db.run('COMMIT');
     } catch (error) {
-      db.exec('ROLLBACK');
+      db.run('ROLLBACK');
       throw error;
     }
 
@@ -688,7 +688,7 @@ export class ConversationRepository {
          size_bytes, storage_path, text_content, processing_json, created_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    db.exec('BEGIN');
+    db.run('BEGIN');
     try {
       for (const attachment of attachments) {
         const now = attachment.createdAt ?? new Date().toISOString();
@@ -722,9 +722,9 @@ export class ConversationRepository {
           createdAt: now,
         });
       }
-      db.exec('COMMIT');
+      db.run('COMMIT');
     } catch (error) {
-      db.exec('ROLLBACK');
+      db.run('ROLLBACK');
       throw error;
     }
 
@@ -999,7 +999,7 @@ export class ConversationRepository {
     const existingEntries = new Map(
       this.getEntries(id).map(entry => [entry.piEntryId, entry] as const),
     );
-    db.exec('BEGIN');
+    db.run('BEGIN');
     try {
       db.prepare(
         `UPDATE conversations
@@ -1027,9 +1027,9 @@ export class ConversationRepository {
           displayGroupId: entry.displayGroupId ?? existing?.displayGroupId,
         });
       }
-      db.exec('COMMIT');
+      db.run('COMMIT');
     } catch (error) {
-      db.exec('ROLLBACK');
+      db.run('ROLLBACK');
       throw error;
     }
     return mapConversationListItem(next);
@@ -1117,9 +1117,9 @@ export class ConversationRepository {
 
   hardDeleteAllConversations(): void {
     const db = this.database.connection;
-    db.exec('DELETE FROM conversations;');
+    db.run('DELETE FROM conversations;');
     if (hasConversationSearch(db)) {
-      db.exec('DELETE FROM conversation_search;');
+      db.run('DELETE FROM conversation_search;');
     }
   }
 
@@ -1736,7 +1736,7 @@ function parseJson(value: string | null): unknown {
   }
 }
 
-function hasConversationSearch(db: DatabaseSync): boolean {
+function hasConversationSearch(db: Database): boolean {
   const row = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'conversation_search'")
     .get() as {name: string} | undefined;

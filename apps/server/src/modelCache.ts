@@ -67,7 +67,7 @@ export class ModelCacheRepository {
          context_train = COALESCE(excluded.context_train, model_cache.context_train),
          updated_at = excluded.updated_at`,
     );
-    db.exec('BEGIN');
+    db.run('BEGIN');
     try {
       for (const model of models) {
         statement.run(
@@ -80,9 +80,9 @@ export class ModelCacheRepository {
           now,
         );
       }
-      db.exec('COMMIT');
+      db.run('COMMIT');
     } catch (error) {
-      db.exec('ROLLBACK');
+      db.run('ROLLBACK');
       throw error;
     }
   }

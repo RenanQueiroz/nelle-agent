@@ -169,7 +169,7 @@ export class HostToolRepository {
   }
 
   deleteAllAuditEvents(): void {
-    this.database.connection.exec('DELETE FROM tool_audit_events;');
+    this.database.connection.run('DELETE FROM tool_audit_events;');
   }
 
   private updateToolEnd(

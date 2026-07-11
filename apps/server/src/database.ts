@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {DatabaseSync} from 'node:sqlite';
 
+import {Database} from 'bun:sqlite';
 import type {AppPaths} from './paths';
 
 type Migration = {
@@ -11,8 +11,8 @@ type Migration = {
   checksum: string;
   sql?: string;
   /** For migrations that need conditional logic plain SQL cannot express. */
-  run?: (db: DatabaseSync) => void;
-  isApplied?: (db: DatabaseSync) => boolean;
+  run?: (db: Database) => void;
+  isApplied?: (db: Database) => boolean;
 };
 
 const MIGRATIONS: Migration[] = [
@@ -289,10 +289,10 @@ const RENAMED_DEFAULT_CONVERSATION_ID = 'legacy-default';
  * so renaming the parent row would orphan its children mid-transaction. Defer
  * the checks to COMMIT, by which point every child points at the new id.
  */
-function renamePocDefaultConversation(db: DatabaseSync): void {
+function renamePocDefaultConversation(db: Database): void {
   const from = PREVIOUS_DEFAULT_CONVERSATION_ID;
   const to = RENAMED_DEFAULT_CONVERSATION_ID;
-  db.exec('PRAGMA defer_foreign_keys = ON');
+  db.run('PRAGMA defer_foreign_keys = ON');
 
   db.prepare('UPDATE conversations SET id = ? WHERE id = ?').run(to, from);
   db.prepare(
@@ -325,7 +325,7 @@ function renamePocDefaultConversation(db: DatabaseSync): void {
   }
 }
 
-function countConversations(db: DatabaseSync, id: string): number {
+function countConversations(db: Database, id: string): number {
   return (
     db.prepare('SELECT COUNT(*) AS count FROM conversations WHERE id = ?').get(id) as {
       count: number;
@@ -334,22 +334,22 @@ function countConversations(db: DatabaseSync, id: string): number {
 }
 
 export class AppDatabase {
-  #db: DatabaseSync | null = null;
+  #db: Database | null = null;
   #migrationBackupPath: string | null = null;
 
   constructor(private readonly paths: AppPaths) {}
 
-  async open(): Promise<DatabaseSync> {
+  async open(): Promise<Database> {
     if (this.#db) {
       return this.#db;
     }
 
     await fs.mkdir(path.dirname(this.paths.settingsDbPath), {recursive: true});
     const shouldBackupExistingDatabase = await fileHasContents(this.paths.settingsDbPath);
-    this.#db = new DatabaseSync(this.paths.settingsDbPath);
-    this.#db.exec('PRAGMA foreign_keys = ON;');
+    this.#db = new Database(this.paths.settingsDbPath);
+    this.#db.run('PRAGMA foreign_keys = ON;');
     await this.runMigrations(shouldBackupExistingDatabase);
-    this.#db.exec('PRAGMA journal_mode = WAL;');
+    this.#db.run('PRAGMA journal_mode = WAL;');
     this.tryCreateSearchTable();
     return this.#db;
   }
@@ -360,7 +360,7 @@ export class AppDatabase {
     this.#migrationBackupPath = null;
   }
 
-  get connection(): DatabaseSync {
+  get connection(): Database {
     return this.requireDb();
   }
 
@@ -370,7 +370,7 @@ export class AppDatabase {
     if (!hasMigrationTable) {
       await this.ensureMigrationBackup(shouldBackupExistingDatabase);
     }
-    db.exec(`
+    db.run(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
@@ -396,11 +396,11 @@ export class AppDatabase {
       }
 
       await this.ensureMigrationBackup(shouldBackupExistingDatabase);
-      db.exec('BEGIN');
+      db.run('BEGIN');
       try {
         if (!migration.isApplied?.(db)) {
           if (migration.sql) {
-            db.exec(migration.sql);
+            db.run(migration.sql);
           }
           migration.run?.(db);
         }
@@ -410,9 +410,9 @@ export class AppDatabase {
           new Date().toISOString(),
           migration.checksum,
         );
-        db.exec('COMMIT');
+        db.run('COMMIT');
       } catch (error) {
-        db.exec('ROLLBACK');
+        db.run('ROLLBACK');
         throw error;
       }
     }
@@ -432,7 +432,7 @@ export class AppDatabase {
     await fs.mkdir(backupDir, {recursive: true});
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupPath = path.join(backupDir, `settings.sqlite.${timestamp}.${randomUUID()}.bak`);
-    this.requireDb().exec(`VACUUM INTO ${sqlStringLiteral(backupPath)}`);
+    this.requireDb().run(`VACUUM INTO ${sqlStringLiteral(backupPath)}`);
     this.#migrationBackupPath = backupPath;
     return backupPath;
   }
@@ -440,7 +440,7 @@ export class AppDatabase {
   private tryCreateSearchTable(): void {
     const db = this.requireDb();
     try {
-      db.exec(`
+      db.run(`
         CREATE VIRTUAL TABLE IF NOT EXISTS conversation_search
           USING fts5(conversation_id UNINDEXED, title);
       `);
@@ -450,7 +450,7 @@ export class AppDatabase {
     }
   }
 
-  private requireDb(): DatabaseSync {
+  private requireDb(): Database {
     if (!this.#db) {
       throw new Error('Database is not open.');
     }
@@ -470,21 +470,21 @@ async function fileHasContents(filePath: string): Promise<boolean> {
   }
 }
 
-function tableExists(db: DatabaseSync, tableName: string): boolean {
+function tableExists(db: Database, tableName: string): boolean {
   const row = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
     .get(tableName) as {name: string} | undefined;
   return row?.name === tableName;
 }
 
-function tableHasColumn(db: DatabaseSync, tableName: string, columnName: string): boolean {
+function tableHasColumn(db: Database, tableName: string, columnName: string): boolean {
   return db
     .prepare(`PRAGMA table_info(${sqlIdentifier(tableName)})`)
     .all()
     .some(column => (column as {name?: string}).name === columnName);
 }
 
-function indexExists(db: DatabaseSync, indexName: string): boolean {
+function indexExists(db: Database, indexName: string): boolean {
   return (
     db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`).get(indexName) !=
     null
