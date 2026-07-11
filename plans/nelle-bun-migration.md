@@ -85,7 +85,7 @@ First-class Windows, macOS, and Linux. Constraints this imposes:
 | Multipart uploads          | `Request.formData()`                    | Native; reimplement the size limit manually.                                                                                                      |
 | Static assets              | `Bun.file()`                            | Only needed until the web client is retired by the Flutter rewrite.                                                                               |
 | Test runner                | `bun test`                              | Files migrated to `bun:test` (`node:test` cascades under `bun test`'s concurrency); assertions stay on `node:assert/strict`.                      |
-| Subprocess                 | `Bun.spawn`                             | Short commands (`process.ts`). The detached llama-server stays on `node:child_process` until its lifecycle is verified on-target.                 |
+| Subprocess                 | `Bun.spawn`                             | `process.ts` + the detached llama-server (`llamacpp.ts`), which passes `env: process.env` (Bun.spawn does not inherit it). Verified on Linux.     |
 | File I/O                   | `node:fs/promises` (kept)               | Runs on Bun natively; dir ops have no `Bun.*` equivalent, so half-porting reads/writes to `Bun.file`/`Bun.write` would be less organised.         |
 | Client disconnect          | `req.signal`                            | Replaces `reply.raw.on('close')` for forwarding aborts to the upstream llama.cpp fetch.                                                           |
 | HTTP client                | native `fetch`                          | Already used everywhere; no change. Pi's `undici` runs under Bun.                                                                                 |
@@ -184,16 +184,21 @@ commit.
   boot exercising health, CORS preflight + reflected origin, the SPA fallback,
   and a 405. Verify gate #3 (encoded `/` and `:` in model-id params) passes here.
 
-### Phase 6 — Subprocess + file I/O + misc built-ins 🟡 partial
+### Phase 6 — Subprocess + file I/O + misc built-ins ✅ done (Linux)
 
 - `process.ts` (git/cmake/tar/ps/taskkill/`--help`) → `Bun.spawn`. Verified: a
-  real command, existence probes, and a non-zero exit; 311/311 `bun test`.
-- **Deferred to Phase 7 (needs a real binary / Windows):** the long-running,
-  **detached** llama-server spawn in `llamacpp.ts` stays on `node:child_process`
-  (which Bun runs natively). `Bun.spawn` does expose `detached`, but the full
-  lifecycle — log-fd capture, `process.kill(-pid)` group kill, Windows
-  `taskkill` — can only be verified against a running server, not in WSL unit
-  tests. Convert it on the target.
+  real command, existence probes, and a non-zero exit.
+- The long-running **detached** llama-server (`llamacpp.ts`) → `Bun.spawn` too.
+  `detached` gives POSIX `setsid()` for the `process.kill(-pid)` group kill, and
+  the child outlives the parent for pid-file adoption. **Caught a real bug:**
+  `Bun.spawn` does not inherit the parent env by default (`node:child_process`
+  does), so it now passes `env: process.env` — llama-server needs PATH,
+  `LLAMA_ARG_OFFLINE`, and CUDA vars. Verified end-to-end on Linux with a dummy
+  server: spawn, dual stdout+stderr → the append log fd, health, `stop` via
+  group kill, **detached survival past parent exit**, and cross-process pid-file
+  adoption. The `stop` `taskkill` path and Windows `detached` still need a
+  Windows box. The `/proc` cmdline and `process.kill` helpers stay (node
+  globals, native on Bun).
 - **Kept on `node:fs/promises` (deliberate):** it runs on Bun's native
   implementation, and the file code mixes single-file read/write with dir ops
   (`mkdir`/`readdir`/`rm`/`stat`) that have no `Bun.*` equivalent — half-porting

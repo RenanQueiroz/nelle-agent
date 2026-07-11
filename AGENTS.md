@@ -16,10 +16,15 @@ Project-specific guidance for AI coding agents.
 - The HTTP server is `Bun.serve` over a small native router
   (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
   owns JSON-body parsing, zod→400 mapping, CORS, and a `Bun.file` static + SPA
-  fallback. SQLite is `bun:sqlite` (`Database`, used directly, no wrapper). Short
-  subprocesses use `Bun.spawn` (`process.ts`); the long-running detached
-  llama-server stays on `node:child_process` (`llamacpp.ts`) until its lifecycle
-  is verified against a real binary. `index.ts` runs `Bun.serve`.
+  fallback. SQLite is `bun:sqlite` (`Database`, used directly, no wrapper).
+  Subprocesses use `Bun.spawn`: short commands (`process.ts`) and the
+  long-running detached llama-server (`llamacpp.ts`). `Bun.spawn` does **not**
+  inherit the parent env by default (`node:child_process` does), so the
+  llama-server spawn passes `env: process.env` explicitly — PATH for shared
+  libs, `LLAMA_ARG_OFFLINE`, CUDA vars. `detached` gives POSIX `setsid()` so
+  `process.kill(-pid)` kills the group, and the child outlives a restart for
+  pid-file adoption; verified end-to-end on Linux, macOS/Windows still to
+  confirm. `index.ts` runs `Bun.serve`.
 - Primary checks are `bun run format:check`, `bun run lint`, `bun run check`,
   `bun run test:unit`, `bun run build:web`, `bun run test:e2e`, and
   `bun run test`.

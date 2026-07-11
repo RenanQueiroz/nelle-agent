@@ -2,7 +2,6 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import {spawn, type ChildProcess} from 'node:child_process';
 
 import type {AppPaths} from './paths';
 import type {
@@ -67,7 +66,7 @@ type LlamaSlotSnapshot = {
 };
 
 export class LlamaCppManager {
-  #process: ChildProcess | null = null;
+  #process: Bun.Subprocess | null = null;
   #managedPid: number | null = null;
   #startPromise: Promise<RuntimeStatus> | null = null;
   #lastError: string | null = null;
@@ -387,7 +386,11 @@ export class LlamaCppManager {
     const closeLog = () => {
       if (!logClosed) {
         logClosed = true;
-        fsSync.closeSync(log);
+        try {
+          fsSync.closeSync(log);
+        } catch {
+          // The fd may already be gone; closing twice is not an error worth raising.
+        }
       }
     };
     const args = [
@@ -403,10 +406,31 @@ export class LlamaCppManager {
       String(state.runtime.sleepIdleSeconds),
     ];
 
-    const child = spawn(binaryPath, args, {
-      detached: process.platform !== 'win32',
-      stdio: ['ignore', log, log],
-    });
+    let child: Bun.Subprocess;
+    try {
+      child = Bun.spawn([binaryPath, ...args], {
+        // `Bun.spawn` does not inherit the parent env by default the way
+        // `node:child_process` does, and llama-server needs it (PATH for shared
+        // libs, `LLAMA_ARG_OFFLINE`, CUDA_VISIBLE_DEVICES, ...).
+        env: process.env,
+        // POSIX: `setsid()`, so the child leads a new process group Nelle can kill
+        // with `process.kill(-pid)`. Windows: `UV_PROCESS_DETACHED`. Both let the
+        // llama-server outlive a nelle-server restart, so a new one can adopt it.
+        detached: process.platform !== 'win32',
+        stdin: 'ignore',
+        // Both streams append to the shared log fd, as `stdio: ['ignore', log, log]`
+        // did under `node:child_process`.
+        stdout: log,
+        stderr: log,
+      });
+    } catch (error) {
+      // `Bun.spawn` throws synchronously when the binary is missing or not
+      // executable, where `node:child_process` emitted an async `error` event.
+      closeLog();
+      this.#process = null;
+      this.#lastError = error instanceof Error ? error.message : String(error);
+      throw error;
+    }
 
     this.#process = child;
     const childPid = child.pid;
@@ -422,8 +446,9 @@ export class LlamaCppManager {
         startedAt: new Date().toISOString(),
       });
     }
-    child.once('exit', code => {
-      this.#lastError = code === 0 ? null : `llama-server exited with code ${code}`;
+    void (async () => {
+      const exitCode = await child.exited;
+      this.#lastError = exitCode === 0 ? null : `llama-server exited with code ${exitCode}`;
       this.#process = null;
       if (this.#managedPid === childPid) {
         this.#managedPid = null;
@@ -432,18 +457,7 @@ export class LlamaCppManager {
         void this.clearPidFile(childPid);
       }
       closeLog();
-    });
-    child.once('error', error => {
-      this.#lastError = error.message;
-      this.#process = null;
-      if (this.#managedPid === childPid) {
-        this.#managedPid = null;
-      }
-      if (childPid) {
-        void this.clearPidFile(childPid);
-      }
-      closeLog();
-    });
+    })();
 
     await this.waitForHealth(state.runtime.host, state.runtime.port);
     return this.getStatus();
