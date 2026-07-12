@@ -14,7 +14,9 @@ import 'dart:io';
 void main() {
   final specFile = File('../../openapi.json');
   if (!specFile.existsSync()) {
-    stderr.writeln('openapi.json not found at ${specFile.absolute.path} — run `bun run build:openapi` first.');
+    stderr.writeln(
+      'openapi.json not found at ${specFile.absolute.path} — run `bun run build:openapi` first.',
+    );
     exit(1);
   }
   final spec = jsonDecode(specFile.readAsStringSync()) as Map<String, dynamic>;
@@ -27,7 +29,9 @@ void main() {
   // stay as their own components.
   (((spec['components'] as Map)['schemas']) as Map).remove('ChatStreamEvent');
   final out = File('openapi.models.json');
-  out.writeAsStringSync('${const JsonEncoder.withIndent('  ').convert(spec)}\n');
+  out.writeAsStringSync(
+    '${const JsonEncoder.withIndent('  ').convert(spec)}\n',
+  );
   stdout.writeln(
     'wrote ${out.path} (models-only, ${(spec['components'] as Map)['schemas'].length} schemas)',
   );
