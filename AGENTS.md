@@ -157,6 +157,58 @@ Project-specific guidance for AI coding agents.
   drivable and was driven (a real Ctrl+V of a copied file produced its chip), and the
   bytes-to-chip path below it is the same one the file picker uses. Do not read a failing
   image-paste drive here as a code fault without first checking `wait_for_targets()`.
+- **Nelle's auth model: the listener is the authority, not the route.** The loopback
+  listener (`127.0.0.1:8787`) is constructed `{trusted: true}` — arriving there *is* proof
+  of local access, so it needs no token and never will; making pairing mandatory for the
+  desktop would be a regression, not a hardening. The LAN listener (TLS, `0.0.0.0:8788`,
+  opt-in via the `network` settings group) is `{trusted: false}`: **every** `/api/` path
+  needs a device bearer except `/api/health`, `/api/pair` and `/api/auth/refresh`
+  (`AUTH_ALLOWLIST`) — which must be exempt, because they are how a device gets a token in
+  the first place. The gate runs *before* dispatch, so an unauthenticated LAN request gets
+  `401` whether or not the route exists (no route-existence leak); `/api/pair/code` and
+  `/api/devices*` answer `404` to an *authenticated* device, so **a paired phone cannot
+  enrol another device or list its siblings**. Verified end-to-end over TLS.
+- **A refresh rotates both tokens, and a device has exactly one token row**
+  (`ON CONFLICT(device_id) DO UPDATE`): after a refresh the previous access token *and* the
+  previous refresh token are dead (measured — both answer 401). A client runs several
+  requests at once (chat SSE, router SSE, snapshot reload), so an expiring access token
+  produces **simultaneous 401s**; a client that refreshes per-401 sends the second request
+  an already-rotated token, gets `refresh_token_invalid`, and destroys its own session.
+  **Any client must single-flight the refresh** — one in-flight future, every caller awaits
+  it. Access tokens live 1h; a refresh token lives until it is rotated or the device is
+  revoked. Pairing codes are single-use, 5 minutes, and drawn from an alphabet with no
+  `0`/`O`/`1`/`I` because **they are meant to be typed** — a QR is an accelerator, never the
+  only way in.
+- Self-signed TLS is **pinned by fingerprint, not validated by chain**. `ensureServerCert()`
+  generates the cert once and keeps it (5 years) precisely so a pinned fingerprint holds;
+  the fingerprint is SHA-256 of the DER as uppercase colon-hex — byte-identical to
+  `openssl x509 -fingerprint -sha256`, so compare against that rather than inventing a
+  format. The pin is handed over **out-of-band at pairing time** (in the code/QR payload),
+  which makes it pre-shared pinning rather than blind trust-on-first-use; do not downgrade
+  it to TOFU. A fingerprint that later changes is a re-key or a MITM and the client cannot
+  tell which, so it must refuse — no "continue anyway".
+- **Secure storage needs a keyring, and Linux may not have one.** `flutter_secure_storage`
+  needs `libsecret` *plus* something answering `org.freedesktop.secrets` (gnome-keyring,
+  KWallet, KeePassXC); a bare window manager has none, and `libsecret-1-dev` is a *build*
+  dependency of ours, not a user's. So the token store must report *unavailable* rather than
+  throw: loopback keeps working with no keyring at all (it is unauthenticated — that is the
+  point), and only remote pairing is refused, with a sentence saying why. Android/iOS/macOS/
+  Windows are unaffected (Keystore/Keychain/credential store are OS-provided).
+- **A drive must never share the developer's keyring.** gnome-keyring pops a GUI dialog
+  whenever a collection must be *created or unlocked*, which blocks an unattended drive
+  exactly as it blocks a human. Give the drive a throwaway keyring where neither is ever
+  true — an isolated `XDG_DATA_HOME`, the `default` alias pre-seeded to `login`, and an
+  empty-password login keyring unlocked on stdin:
+  `printf 'login' > "$XDG_DATA_HOME/keyrings/default"` then
+  `dbus-run-session -- sh -c 'printf "\n" | gnome-keyring-daemon --unlock --components=secrets; flutter run -d linux'`.
+  A real Linux user still sees their OS keyring prompt on first pair, once; that is their
+  desktop asking, and it is correct.
+- **A phone on the LAN cannot reach this WSL2 machine.** WSL2 is NAT'd by default, so Nelle
+  binds the VM's `172.31.x.x`, while the phone is on the host's `192.168.x.x` — the two do
+  not meet without `networkingMode=mirrored` in `.wslconfig` or a Windows `netsh portproxy`.
+  Pairing, pinning, bearer and refresh are therefore driven **Linux↔LAN**: a second desktop
+  instance pointed at the TLS listener is a real remote client and exercises every one of
+  them. This is an environment fact, like the WSLg clipboard — do not read it as a bug.
 - The Flutter client is instrumented for **agent-driven UI testing** — the Flutter
   answer to Playwright MCP. `lib/main.dart` initializes `MarionetteBinding` **only
   under `kDebugMode`** (release keeps the plain `WidgetsFlutterBinding`, so the
