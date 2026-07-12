@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "marionette": {
+      "type": "stdio",
+      "command": "marionette_mcp",
+      "args": [],
+      "env": {}
+    },
+    "dart": {
+      "type": "stdio",
+      "command": "dart",
+      "args": [
+        "mcp-server"
+      ],
+      "env": {}
+    }
+  }
+}

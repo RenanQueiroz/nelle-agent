@@ -36,6 +36,30 @@ dart run build_runner build --delete-conflicting-outputs # *.g.dart (json_serial
 The generated files are committed so the app builds without running codegen.
 `openapi.models.json` is an intermediate and is git-ignored.
 
+## Agent-driven UI testing (MCP)
+
+The app is instrumented so an AI agent can drive the UI and see it — the Flutter
+equivalent of Playwright MCP. Both servers are registered in the repo's `.mcp.json`:
+
+- **`marionette_mcp`** — `get_interactive_elements` (widget inspection), `tap`,
+  `double_tap`, `long_press`, `enter_text`, `swipe`, `scroll_to`,
+  `press_back_button`, `take_screenshots`, `get_logs`, `hot_reload`.
+- **`dart mcp-server`** (official Dart/Flutter) — runtime errors, widget tree, hot
+  reload, run tests, analyze, pub.dev search.
+
+One-time local prerequisites:
+
+```bash
+dart pub global activate marionette_mcp   # installs the marionette_mcp executable
+# ~/.pub-cache/bin and the Flutter SDK bin must be on PATH
+```
+
+`lib/main.dart` initializes `MarionetteBinding` **only under `kDebugMode`**; release
+builds keep the plain `WidgetsFlutterBinding`, so the instrumentation never reaches a
+shipped app. Workflow: run the app in debug (`flutter run -d linux`), and the agent
+attaches to its Dart VM Service to drive it. **Restart the agent session after
+changing `.mcp.json`** — MCP servers load at session start.
+
 ## Checks
 
 ```bash

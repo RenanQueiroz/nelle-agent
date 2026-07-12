@@ -44,6 +44,18 @@ Project-specific guidance for AI coding agents.
   turns, then reloads the authoritative snapshot. The client never re-derives server
   truth: it reads `capabilities`, the server-stamped context `status`, and
   `reasoningLevel` off the snapshot.
+- The Flutter client is instrumented for **agent-driven UI testing** — the Flutter
+  answer to Playwright MCP. `lib/main.dart` initializes `MarionetteBinding` **only
+  under `kDebugMode`** (release keeps the plain `WidgetsFlutterBinding`, so the
+  instrumentation never reaches a shipped app), and the repo's `.mcp.json` registers
+  two stdio servers: `marionette_mcp` (widget inspection plus `tap`, `enter_text`,
+  `swipe`, `scroll_to`, `take_screenshots`, `get_logs`, `hot_reload`) and the
+  official `dart mcp-server` (runtime errors, widget tree, hot reload, run tests,
+  analyze). Prerequisite: `dart pub global activate marionette_mcp`, with
+  `~/.pub-cache/bin` and the Flutter SDK bin on PATH. Run the app in debug, and the
+  agent attaches to its Dart VM Service. Restart the agent session after changing
+  `.mcp.json` — MCP servers load at session start. Prefer driving the real UI over
+  asking the user to eyeball a screen.
 - The HTTP server is `Bun.serve` over a small native router
   (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
   owns JSON-body parsing, zod→400 mapping, CORS, and a `Bun.file` static + SPA

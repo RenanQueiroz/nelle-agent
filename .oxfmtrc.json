@@ -6,6 +6,7 @@
     ".nelle/**",
     ".nelle-e2e/**",
     ".claude/CLAUDE.md",
+    ".mcp.json",
     "AGENTS.md",
     "apps/client/**",
     "plans/**",
