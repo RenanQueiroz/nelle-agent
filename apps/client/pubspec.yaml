@@ -47,6 +47,7 @@ dependencies:
   flutter_math_fork: ^0.7.4
   url_launcher: ^6.3.2
   re_highlight: ^0.0.3
+  file_selector: ^1.1.0
 
 dev_dependencies:
   flutter_test:

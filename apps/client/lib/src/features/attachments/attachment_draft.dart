@@ -4,7 +4,29 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/api_exception.dart';
 import '../../api/generated/models/upload_response.dart';
+import '../../api/generated/models/upload_response_kind.dart';
 import 'upload_repository.dart';
+
+/// One staged attachment: what the server said, plus where the bytes came from.
+///
+/// The source is kept only so an image chip can show a thumbnail — and it is kept as a
+/// *path* wherever there is one, so a 25 MiB photo is not also held in memory. Flutter
+/// decodes it lazily. Pasted bytes have no path, so those we keep.
+class StagedAttachment {
+  const StagedAttachment({required this.upload, this.previewPath, this.previewBytes});
+
+  final UploadResponse upload;
+  final String? previewPath;
+  final Uint8List? previewBytes;
+
+  String get uploadId => upload.uploadId;
+  bool get isImage => upload.kind == UploadResponseKind.image;
+
+  /// A PDF the server could extract no text from: it reaches the model as page images,
+  /// which cost roughly 1200 context tokens each. The chip has to say so.
+  bool get isScan =>
+      upload.kind == UploadResponseKind.pdf && upload.hasTextLayer == false;
+}
 
 /// The attachments staged for one conversation's next message.
 class AttachmentDraft {
@@ -15,7 +37,7 @@ class AttachmentDraft {
   });
 
   /// Uploaded and waiting to be sent. Each already exists on the server, unbound.
-  final List<UploadResponse> uploads;
+  final List<StagedAttachment> uploads;
 
   /// How many are still in flight, so the composer can say so without blocking.
   final int uploading;
@@ -27,10 +49,10 @@ class AttachmentDraft {
   bool get isEmpty => uploads.isEmpty && uploading == 0;
 
   /// The wire form: a chat request carries `{uploadId}` and nothing else.
-  List<String> get uploadIds => [for (final upload in uploads) upload.uploadId];
+  List<String> get uploadIds => [for (final staged in uploads) staged.uploadId];
 
   AttachmentDraft copyWith({
-    List<UploadResponse>? uploads,
+    List<StagedAttachment>? uploads,
     int? uploading,
     String? error,
     bool clearError = false,
@@ -67,6 +89,7 @@ class AttachmentDraftNotifier extends FamilyNotifier<AttachmentDraft, String> {
           conversationId: arg,
           mimeType: mimeType,
         ),
+    previewPath: path,
   );
 
   Future<void> addBytes({
@@ -82,14 +105,26 @@ class AttachmentDraftNotifier extends FamilyNotifier<AttachmentDraft, String> {
           conversationId: arg,
           mimeType: mimeType,
         ),
+    previewBytes: bytes,
   );
 
-  Future<void> _add(Future<UploadResponse> Function() upload) async {
+  Future<void> _add(
+    Future<UploadResponse> Function() upload, {
+    String? previewPath,
+    Uint8List? previewBytes,
+  }) async {
     state = state.copyWith(uploading: state.uploading + 1, clearError: true);
     try {
       final uploaded = await upload();
       state = state.copyWith(
-        uploads: [...state.uploads, uploaded],
+        uploads: [
+          ...state.uploads,
+          StagedAttachment(
+            upload: uploaded,
+            previewPath: previewPath,
+            previewBytes: previewBytes,
+          ),
+        ],
         uploading: state.uploading - 1,
       );
     } on NelleApiException catch (e) {
@@ -105,8 +140,8 @@ class AttachmentDraftNotifier extends FamilyNotifier<AttachmentDraft, String> {
   Future<void> remove(String uploadId) async {
     state = state.copyWith(
       uploads: [
-        for (final upload in state.uploads)
-          if (upload.uploadId != uploadId) upload,
+        for (final staged in state.uploads)
+          if (staged.uploadId != uploadId) staged,
       ],
       clearError: true,
     );

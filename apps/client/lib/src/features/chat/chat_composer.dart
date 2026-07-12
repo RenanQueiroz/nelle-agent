@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
+import '../attachments/attach_button.dart';
+import '../attachments/attachment_chips.dart';
 import '../models/model_selector.dart';
 import 'chat_controller.dart';
 import 'reasoning_selector.dart';
@@ -71,6 +73,9 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
         children: [
           // Per-conversation controls: which model answers this chat, and how hard
           // it thinks.
+          // Only renders when something is attached; an empty row of chrome above every
+          // message is noise.
+          AttachmentChips(conversationId: widget.conversationId),
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Row(
@@ -84,6 +89,8 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              AttachButton(conversationId: widget.conversationId),
+              const SizedBox(width: 8),
               Expanded(
                 child: FTextField(
                   key: const ValueKey('k-composer-input'),
