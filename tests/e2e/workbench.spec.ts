@@ -4192,6 +4192,21 @@ async function mockConversationRoutes(
       });
       return;
     }
+    // The composer's model selector pins the open conversation before it activates the
+    // model, because the run reads the *conversation's* model. The mock never answered
+    // this, so it fell through to the real server, 404'd on a conversation that only
+    // exists in the mock, and threw -- taking the activation after it with it. Nobody
+    // noticed, because the e2e harness itself could not start.
+    if (conversationMatch && request.method() === 'PATCH') {
+      const conversationId = decodeURIComponent(conversationMatch[1]!);
+      const patch = request.postDataJSON() as {title?: string; defaultModelId?: string | null};
+      conversations = conversations.map(conversation =>
+        conversation.id === conversationId ? {...conversation, ...patch} : conversation,
+      );
+      const conversation = conversations.find(entry => entry.id === conversationId);
+      await route.fulfill({json: {conversation}});
+      return;
+    }
     if (conversationMatch && request.method() === 'DELETE') {
       const conversationId = decodeURIComponent(conversationMatch[1]!);
       input.onDelete?.(conversationId);

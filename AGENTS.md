@@ -139,6 +139,55 @@ Project-specific guidance for AI coding agents.
     off it. Parsing an error body as a settings or command payload yields silent nonsense
     -- an *empty* registry says "no commands are supported" and would refuse `/compact`
     itself. Check the status before believing the body.
+- `apps/client` (Milestone 5: LAN pairing + auth). A `ServerConnection` is *loopback*
+  (`http://127.0.0.1:8787`, no token, no pin — the server trusts that listener because
+  arriving there is proof of local access) or *paired* (`https://<lan>:8788`, a pinned
+  certificate and a device bearer token). The three travel together, so pointing at a new
+  URL drops the pin and the device id that belonged to the old one — carrying them over
+  would pin one server's certificate against another server's address. Loopback stays the
+  default, so a desktop install is untouched by all of this.
+  - **The refresh lives in `onResponse`, not `onError`.** dio is built with
+    `validateStatus: (_) => true` so callers can read `NelleError` bodies off non-2xx
+    responses, which means dio routes *every* response — 401 included — to the success
+    path. The textbook interceptor is dead code here, and the symptom is not an exception:
+    it is a client that silently stops being authenticated with every test still green.
+  - **The refresh is single-flight and version-checked**, because the server rotates both
+    tokens and keeps one pair per device. The client always has several requests in flight,
+    so an expired token 401s all of them at once; a per-401 refresh presents an
+    already-rotated token on the second, is told `refresh_token_invalid`, and tears down a
+    working session. A 401 for a token another request already replaced is *replayed*, not
+    refreshed again.
+  - **Pinning is the whole trust decision.** `badCertificateCallback` fires for any
+    certificate the platform will not validate — which a self-signed one never is — so
+    returning `true` unconditionally (the fix every snippet suggests) disables TLS
+    entirely. It compares SHA-256 of the DER against the pin, and a mismatch is refused
+    with **no way to override**: the certificate is stable for five years so a pin holds,
+    so a change is a re-key or a MITM and the client cannot tell which. It says exactly
+    that, under a red shield — "Server unreachable" would send the user to check the one
+    thing that is definitely not wrong. The web cannot pin at all (a browser decides before
+    any Dart runs), so the adapter is conditionally imported and LAN mode is native-only.
+  - The pairing details are **pasted or scanned as one blob**, never retyped field by
+    field: the fingerprint is 32 bytes of hex, and it is also the entire trust decision. It
+    travels out-of-band (clipboard, camera, a person reading it aloud), which is what makes
+    the pin *pre-shared* rather than trust-on-first-use. The host offers the QR *and* the
+    code *and* the URLs, because the code's alphabet has no `0`/`O`/`1`/`I` precisely so it
+    can be typed, and the desktop-to-desktop case has no camera.
+  - The client **probes every offered address**; `POST /api/pair` tells the device its own
+    id, because `GET /api/devices` is loopback-only and a paired phone can never ask.
+  - `GET /api/attachments/:id/content` serves a past message's bytes, and they are fetched
+    **through the app's dio, never `Image.network`** — which opens its own client, carries
+    no bearer (401) and knows nothing of the pin (handshake failure), and would break on
+    exactly the device the route was added for. `storage_path` comes out of the database,
+    so it is refused if it escapes the attachments tree: a row is not a capability to read
+    any file on the machine.
+- **This app is forui over a bare `FScaffold`, so it has no `Material` ancestor.** A
+  Material-only widget (`Switch`, `IconButton`, anything wanting an ink splash) throws
+  *"No Material widget found"* and Flutter paints a red error box where the control should
+  be — while `flutter analyze` stays clean and every unit test passes. Use `FSwitch`,
+  `FButton`, or a `GestureDetector`. Note the trap in the *tests*: the older widget tests
+  wrap their subject in a Material `Scaffold`, which supplies an ancestor the real screen
+  does not have, so a test harness can be more forgiving than the app. Host a screen in
+  `FScaffold` if that is what it runs in.
 - Clipboard and drag-and-drop use **`pasteboard`** and **`desktop_drop`** (plain
   platform-channel plugins, both maintained). **Do not reach for `super_clipboard` /
   `super_drag_and_drop`**, which are the obvious choice and a dead end: they pull in

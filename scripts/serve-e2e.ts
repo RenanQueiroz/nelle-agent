@@ -30,9 +30,27 @@ process.env.NELLE_HOST = '127.0.0.1';
 process.env.NELLE_LLAMA_PORT = '18080';
 
 const app = await createServer(createAppPaths());
-await app.listen({host: '127.0.0.1', port: 8799});
+
+// `createServer` returns a `fetch` handler, not a Fastify app: this still called
+// `app.listen()`, which has not existed since the move to `Bun.serve`, so the whole
+// Playwright suite failed to start its own server and never ran. Mirrors `index.ts`.
+//
+// The listener is **trusted**, like loopback in production: e2e drives the browser
+// against a local server, and requiring a paired device token would test the harness
+// rather than the app.
+const server = Bun.serve({
+  hostname: '127.0.0.1',
+  port: 8799,
+  // SSE runs can go quiet while a model loads; 255s is Bun's max idle window.
+  idleTimeout: 255,
+  fetch: req => app.handle(req, {trusted: true}),
+});
 
 const shutdown = async () => {
+  // `stop()` is graceful and waits for in-flight requests -- and an SSE stream never
+  // finishes, so a graceful stop hangs forever with a client connected. Playwright
+  // would then never get its port back.
+  await server.stop(true);
   await app.close();
 };
 
