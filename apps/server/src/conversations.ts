@@ -6,6 +6,8 @@ import type {
   AttachmentMetadata,
   ConversationContextUsage,
   ConversationEntryProjection,
+  ConversationListItem,
+  ConversationListResponse,
   ConversationSnapshot,
   ConversationStatus,
   ModelListItem,
@@ -89,22 +91,12 @@ type AttachmentRow = {
   created_at: string;
 };
 
-export type ConversationListItem = {
-  id: string;
-  title: string;
-  titleSource: ConversationSnapshot['conversation']['titleSource'];
-  pinned: boolean;
-  status: ConversationStatus;
-  updatedAt: string;
-  defaultModelId?: string;
-};
-
-export type ConversationPage = {
-  conversations: ConversationListItem[];
-  nextCursor?: string;
-  /** Every conversation matching the search, not only the ones on this page. */
-  total: number;
-};
+// The list-item and page shapes live in packages/shared as zod schemas
+// (conversationListItemSchema / conversationListResponseSchema) so the served
+// OpenAPI can carry them and the Flutter client can codegen them. Re-exported
+// here so existing server call sites keep their import paths.
+export type {ConversationListItem};
+export type ConversationPage = ConversationListResponse;
 
 /**
  * Keyset cursor over `(updated_at, id)`.

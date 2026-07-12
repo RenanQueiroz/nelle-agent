@@ -68,48 +68,7 @@
           "attachments": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "conversationId": {
-                  "type": "string"
-                },
-                "piEntryId": {
-                  "type": "string"
-                },
-                "uploadId": {
-                  "type": "string"
-                },
-                "kind": {
-                  "type": "string",
-                  "enum": ["text", "pdf", "image"]
-                },
-                "name": {
-                  "type": "string"
-                },
-                "mimeType": {
-                  "type": "string"
-                },
-                "sizeBytes": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "storagePath": {
-                  "type": "string"
-                },
-                "textPreview": {
-                  "type": "string"
-                },
-                "processing": {},
-                "createdAt": {
-                  "type": "string"
-                }
-              },
-              "required": ["id", "conversationId", "kind", "name", "createdAt"],
-              "additionalProperties": false
+              "$ref": "#/components/schemas/AttachmentMetadata"
             }
           },
           "modelId": {
@@ -782,6 +741,459 @@
             "type": "boolean"
           }
         },
+        "additionalProperties": false
+      },
+      "ConversationListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "titleSource": {
+            "type": "string",
+            "enum": ["generated", "user", "imported", "fallback"]
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConversationStatus"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "defaultModelId": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "title", "titleSource", "pinned", "status", "updatedAt"],
+        "additionalProperties": false
+      },
+      "ConversationListResponse": {
+        "type": "object",
+        "properties": {
+          "conversations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationListItem"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["conversations", "total"],
+        "additionalProperties": false
+      },
+      "ConversationSnapshot": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "titleSource": {
+                "type": "string",
+                "enum": ["generated", "user", "imported", "fallback"]
+              },
+              "pinned": {
+                "type": "boolean"
+              },
+              "status": {
+                "$ref": "#/components/schemas/ConversationStatus"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "updatedAt": {
+                "type": "string"
+              },
+              "piSessionId": {
+                "type": "string"
+              },
+              "activeLeafPiEntryId": {
+                "type": "string"
+              },
+              "defaultModelId": {
+                "type": "string"
+              },
+              "parentConversationId": {
+                "type": "string"
+              },
+              "forkedFromPiEntryId": {
+                "type": "string"
+              },
+              "forkKind": {
+                "type": "string",
+                "enum": ["fork", "clone"]
+              },
+              "reasoningLevel": {
+                "$ref": "#/components/schemas/ReasoningLevel"
+              },
+              "currentRun": {
+                "type": "object",
+                "properties": {
+                  "runId": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": ["chat", "regenerate", "compact", "title"]
+                  },
+                  "modelId": {
+                    "type": "string"
+                  },
+                  "startedAt": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "$ref": "#/components/schemas/ActiveRunStatus"
+                  }
+                },
+                "required": ["runId", "kind", "startedAt", "status"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "titleSource",
+              "pinned",
+              "status",
+              "createdAt",
+              "updatedAt",
+              "reasoningLevel"
+            ],
+            "additionalProperties": false
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationEntryProjection"
+            }
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationMessage"
+            }
+          },
+          "activePathEntryIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttachmentMetadata"
+            }
+          },
+          "context": {
+            "$ref": "#/components/schemas/ConversationContextUsage"
+          },
+          "models": {
+            "type": "object",
+            "properties": {
+              "selectedModelId": {
+                "type": "string"
+              },
+              "defaultModelId": {
+                "type": "string"
+              },
+              "available": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ModelListItem"
+                }
+              }
+            },
+            "required": ["available"],
+            "additionalProperties": false
+          },
+          "capabilities": {
+            "type": "object",
+            "properties": {
+              "canSend": {
+                "type": "boolean"
+              },
+              "canAbort": {
+                "type": "boolean"
+              },
+              "canCompact": {
+                "type": "boolean"
+              },
+              "canFork": {
+                "type": "boolean"
+              },
+              "canRepair": {
+                "type": "boolean"
+              },
+              "canAttachImages": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "canReason": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "canSend",
+              "canAbort",
+              "canCompact",
+              "canFork",
+              "canRepair",
+              "canAttachImages",
+              "canReason"
+            ],
+            "additionalProperties": false
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NelleError"
+            }
+          }
+        },
+        "required": [
+          "conversation",
+          "entries",
+          "messages",
+          "activePathEntryIds",
+          "attachments",
+          "context",
+          "models",
+          "capabilities",
+          "errors"
+        ],
+        "additionalProperties": false
+      },
+      "ConversationMessage": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["user", "assistant", "system"]
+          },
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "parentPiEntryId": {
+            "type": "string"
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "modelRuntimeId": {
+            "type": "string"
+          },
+          "modelAliasSnapshot": {
+            "type": "string"
+          },
+          "regeneratesPiEntryId": {
+            "type": "string"
+          },
+          "displayGroupId": {
+            "type": "string"
+          },
+          "variantLabel": {
+            "type": "string"
+          },
+          "performance": {},
+          "toolCalls": {},
+          "reasoning": {
+            "type": "string"
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttachmentMetadata"
+            }
+          }
+        },
+        "required": ["id", "role", "content", "createdAt"],
+        "additionalProperties": false
+      },
+      "ConversationEntryProjection": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "piEntryId": {
+            "type": "string"
+          },
+          "parentPiEntryId": {
+            "type": "string"
+          },
+          "entryType": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["user", "assistant", "system"]
+          },
+          "textPreview": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "modelRuntimeId": {
+            "type": "string"
+          },
+          "modelAliasSnapshot": {
+            "type": "string"
+          },
+          "performance": {},
+          "toolCalls": {},
+          "attachmentSummary": {},
+          "regeneratesPiEntryId": {
+            "type": "string"
+          },
+          "displayGroupId": {
+            "type": "string"
+          },
+          "reasoning": {
+            "type": "string"
+          }
+        },
+        "required": ["conversationId", "piEntryId", "entryType", "createdAt"],
+        "additionalProperties": false
+      },
+      "ConversationContextUsage": {
+        "type": "object",
+        "properties": {
+          "usedTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "totalTokens": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "source": {
+            "type": "string",
+            "enum": ["estimate", "prompt_progress", "timings", "pi"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ok", "warning", "overflow"]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConversationStatus": {
+        "type": "string",
+        "enum": ["ready", "running", "compacting", "aborting", "unavailable"]
+      },
+      "ActiveRunStatus": {
+        "type": "string",
+        "enum": ["pending", "running", "aborting"]
+      },
+      "ReasoningLevel": {
+        "type": "string",
+        "enum": ["off", "low", "medium", "high", "max"]
+      },
+      "ModelListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "alias": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "alias"],
+        "additionalProperties": false
+      },
+      "AttachmentMetadata": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "piEntryId": {
+            "type": "string"
+          },
+          "uploadId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["text", "pdf", "image"]
+          },
+          "name": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "storagePath": {
+            "type": "string"
+          },
+          "textPreview": {
+            "type": "string"
+          },
+          "processing": {},
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "conversationId", "kind", "name", "createdAt"],
         "additionalProperties": false
       }
     },

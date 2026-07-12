@@ -13,6 +13,19 @@ import {
   chatStreamEventSchema,
   toolCallEventSchema,
 } from '../../../packages/shared/src/streamEvents.ts';
+import {
+  activeRunStatusSchema,
+  attachmentMetadataSchema,
+  conversationContextUsageSchema,
+  conversationEntryProjectionSchema,
+  conversationListItemSchema,
+  conversationListResponseSchema,
+  conversationSnapshotSchema,
+  conversationStatusSchema,
+  modelListItemSchema,
+} from '../../../packages/shared/src/conversations.ts';
+import {conversationMessageSchema} from '../../../packages/shared/src/messages.ts';
+import {reasoningLevelSchema} from '../../../packages/shared/src/reasoning.ts';
 
 /**
  * Builds the OpenAPI 3.1 document from the zod contract schemas and the router's
@@ -31,6 +44,18 @@ const CONTRACT_SCHEMAS: ReadonlyArray<readonly [string, z.ZodType]> = [
   ['ChatRequest', chatRequestSchema],
   ['ChatAttachmentInput', chatAttachmentInputSchema],
   ['Preferences', preferencesSchema],
+  // Conversation list + snapshot DTOs, so the Flutter client codegens them.
+  ['ConversationListItem', conversationListItemSchema],
+  ['ConversationListResponse', conversationListResponseSchema],
+  ['ConversationSnapshot', conversationSnapshotSchema],
+  ['ConversationMessage', conversationMessageSchema],
+  ['ConversationEntryProjection', conversationEntryProjectionSchema],
+  ['ConversationContextUsage', conversationContextUsageSchema],
+  ['ConversationStatus', conversationStatusSchema],
+  ['ActiveRunStatus', activeRunStatusSchema],
+  ['ReasoningLevel', reasoningLevelSchema],
+  ['ModelListItem', modelListItemSchema],
+  ['AttachmentMetadata', attachmentMetadataSchema],
 ];
 
 export function buildOpenApiDocument(

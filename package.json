@@ -22,7 +22,7 @@
     "check": "tsc --noEmit",
     "build:web": "vite build --config apps/web/vite.config.ts",
     "build:binary": "bun build --compile apps/server/src/index.ts --outfile dist/nelle-server",
-    "build:openapi": "bun scripts/build-openapi.ts",
+    "build:openapi": "bun scripts/build-openapi.ts && oxfmt openapi.json",
     "build": "bun run check && bun run build:web",
     "test:unit": "bun test tests/unit",
     "test:e2e": "playwright test",

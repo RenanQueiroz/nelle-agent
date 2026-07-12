@@ -73,11 +73,15 @@ export const modelListItemSchema = z.object({
 
 export type ModelListItem = z.infer<typeof modelListItemSchema>;
 
+export const conversationTitleSourceSchema = z.enum(['generated', 'user', 'imported', 'fallback']);
+
+export type ConversationTitleSource = z.infer<typeof conversationTitleSourceSchema>;
+
 export const conversationSnapshotSchema = z.object({
   conversation: z.object({
     id: z.string(),
     title: z.string(),
-    titleSource: z.enum(['generated', 'user', 'imported', 'fallback']),
+    titleSource: conversationTitleSourceSchema,
     pinned: z.boolean(),
     status: conversationStatusSchema,
     createdAt: z.string(),
@@ -149,6 +153,32 @@ export const conversationSnapshotSchema = z.object({
 });
 
 export type ConversationSnapshot = z.infer<typeof conversationSnapshotSchema>;
+
+/** One row of the keyset-paginated conversation sidebar list. */
+export const conversationListItemSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  titleSource: conversationTitleSourceSchema,
+  pinned: z.boolean(),
+  status: conversationStatusSchema,
+  updatedAt: z.string(),
+  defaultModelId: z.string().optional(),
+});
+
+export type ConversationListItem = z.infer<typeof conversationListItemSchema>;
+
+/**
+ * `GET /api/conversations`: a page of {@link conversationListItemSchema} rows, an
+ * opaque keyset `nextCursor`, and `total` (every conversation matching the search,
+ * not only the ones on this page).
+ */
+export const conversationListResponseSchema = z.object({
+  conversations: z.array(conversationListItemSchema),
+  nextCursor: z.string().optional(),
+  total: z.number().int().nonnegative(),
+});
+
+export type ConversationListResponse = z.infer<typeof conversationListResponseSchema>;
 
 const allowedConversationTransitions: Record<ConversationStatus, Set<ConversationStatus>> = {
   ready: new Set(['running', 'compacting', 'unavailable']),
