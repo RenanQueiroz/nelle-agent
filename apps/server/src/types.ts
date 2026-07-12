@@ -1,4 +1,5 @@
 import type {ChatAttachmentInput, NelleError} from '../../../packages/shared/src/contracts.ts';
+import type {LlamaRouterModelContract} from '../../../packages/shared/src/llamaModels.ts';
 import type {ReasoningSettings} from '../../../packages/shared/src/reasoning.ts';
 import type {
   ChatMessage,
@@ -42,25 +43,14 @@ export type LlamaRouterProps = {
   raw: unknown;
 };
 
-export type LlamaRouterModel = {
-  sectionId: string;
-  routerModelId?: string;
-  alias: string;
-  hfRepo?: string;
-  status: string;
-  progress?: number;
-  aliases: string[];
-  source?: string;
-  canRemove?: boolean;
-  architecture?: string;
-  /** llama.cpp's `/props` answer: the window a conversation on it actually gets. */
-  contextWindow?: number;
-  /** `n_ctx_train`: the window the model was trained for. Absent until loaded once. */
-  contextTrain?: number;
-  /** From the GGUF header of the blob llama.cpp loaded. */
-  parameterCount?: number;
-  raw?: unknown;
-};
+/**
+ * The published contract (`llamaRouterModelSchema`, which the served OpenAPI carries
+ * and the Flutter client codegens) plus `raw` -- llama.cpp's opaque blob, which the
+ * server keeps and the contract deliberately does not promise. Deriving the type from
+ * the schema means the wire payload cannot drift from the contract without a compile
+ * error.
+ */
+export type LlamaRouterModel = LlamaRouterModelContract & {raw?: unknown};
 
 export type LlamaModelProps = {
   modelId: string;

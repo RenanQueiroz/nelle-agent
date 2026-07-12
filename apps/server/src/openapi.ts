@@ -24,6 +24,10 @@ import {
   conversationStatusSchema,
   modelListItemSchema,
 } from '../../../packages/shared/src/conversations.ts';
+import {
+  llamaModelsResponseSchema,
+  llamaRouterModelSchema,
+} from '../../../packages/shared/src/llamaModels.ts';
 import {conversationMessageSchema} from '../../../packages/shared/src/messages.ts';
 import {reasoningLevelSchema} from '../../../packages/shared/src/reasoning.ts';
 
@@ -56,6 +60,9 @@ const CONTRACT_SCHEMAS: ReadonlyArray<readonly [string, z.ZodType]> = [
   ['ReasoningLevel', reasoningLevelSchema],
   ['ModelListItem', modelListItemSchema],
   ['AttachmentMetadata', attachmentMetadataSchema],
+  // llama.cpp's live model view, so the client codegens the model selector's DTOs.
+  ['LlamaRouterModel', llamaRouterModelSchema],
+  ['LlamaModelsResponse', llamaModelsResponseSchema],
 ];
 
 export function buildOpenApiDocument(

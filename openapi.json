@@ -1195,6 +1195,68 @@
         },
         "required": ["id", "conversationId", "kind", "name", "createdAt"],
         "additionalProperties": false
+      },
+      "LlamaRouterModel": {
+        "type": "object",
+        "properties": {
+          "sectionId": {
+            "type": "string"
+          },
+          "routerModelId": {
+            "type": "string"
+          },
+          "alias": {
+            "type": "string"
+          },
+          "hfRepo": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "progress": {
+            "type": "number"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "type": "string"
+          },
+          "canRemove": {
+            "type": "boolean"
+          },
+          "architecture": {
+            "type": "string"
+          },
+          "contextWindow": {
+            "type": "number"
+          },
+          "contextTrain": {
+            "type": "number"
+          },
+          "parameterCount": {
+            "type": "number"
+          }
+        },
+        "required": ["sectionId", "alias", "status", "aliases"],
+        "additionalProperties": false
+      },
+      "LlamaModelsResponse": {
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlamaRouterModel"
+            }
+          }
+        },
+        "required": ["models"],
+        "additionalProperties": false
       }
     },
     "securitySchemes": {
