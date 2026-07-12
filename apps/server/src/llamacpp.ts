@@ -18,6 +18,7 @@ import {llamaRuntimeModelId} from './modelCompat';
 import {commandExists, runCommand} from './process';
 import {NELLE_ERROR_CODES} from '../../../packages/shared/src/contracts.ts';
 import {templateSupportsThinking} from '../../../packages/shared/src/reasoning.ts';
+import {routerLoadProgress} from '../../../packages/shared/src/routerProgress.ts';
 import {
   MODEL_LOAD_POLL_MS,
   MODEL_LOAD_TIMEOUT_MS,
@@ -314,24 +315,79 @@ export class LlamaCppManager {
     if (!current || isRunnableRouterStatus(current.status)) {
       return {loaded: false};
     }
-    if (current.status !== 'loading') {
-      await this.loadRouterModel(modelId);
-    }
 
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const next = find((await this.getRouterModels()).models);
-      options.onProgress?.({status: next?.status ?? 'unknown', progress: next?.progress});
-      if (isRunnableRouterStatus(next?.status)) {
-        return {loaded: true};
+    // The `/models` list reports a status and never a number: llama.cpp publishes load
+    // progress only on `/models/sse`. Without following it, every `model.loading` event
+    // reaching a client carries no progress, and the transcript can only say "loading"
+    // for the tens of seconds a load takes. Subscribe before asking for the load, so no
+    // early frame is missed.
+    const progress = this.watchModelLoadProgress(modelId);
+    try {
+      if (current.status !== 'loading') {
+        await this.loadRouterModel(modelId);
       }
-      if (next?.status === 'failed') {
-        throw modelLoadError(modelLoadFailureMessage(modelId, next, this.paths.llamaLogPath), {
-          logRef: this.paths.llamaLogPath,
+
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const next = find((await this.getRouterModels()).models);
+        options.onProgress?.({
+          status: next?.status ?? 'unknown',
+          progress: progress.latest() ?? next?.progress,
         });
+        if (isRunnableRouterStatus(next?.status)) {
+          return {loaded: true};
+        }
+        if (next?.status === 'failed') {
+          throw modelLoadError(modelLoadFailureMessage(modelId, next, this.paths.llamaLogPath), {
+            logRef: this.paths.llamaLogPath,
+          });
+        }
+        await delayMs(pollMs);
       }
-      await delayMs(pollMs);
+      throw modelLoadError(`${modelId} did not finish loading before the router timed out.`);
+    } finally {
+      progress.close();
     }
-    throw modelLoadError(`${modelId} did not finish loading before the router timed out.`);
+  }
+
+  /**
+   * Follows llama.cpp's router SSE and keeps the latest load progress for one model.
+   *
+   * A frame with no measurement in it -- llama.cpp's bare `{"stage": ...}` between
+   * stages -- leaves the last number standing rather than erasing it, so the reported
+   * progress only ever moves forward. A stream that never opens (llama.cpp busy
+   * loading, say) is not an error: the poll loop still governs the wait, and the client
+   * simply sees "loading" with no number, which is what it saw before.
+   */
+  private watchModelLoadProgress(modelId: string): {
+    latest: () => number | undefined;
+    close: () => void;
+  } {
+    const abort = new AbortController();
+    let latest: number | undefined;
+
+    void (async () => {
+      try {
+        const response = await this.fetchRouterStream('/models/sse', abort.signal);
+        if (!response.body) {
+          return;
+        }
+        for await (const data of readSseData(response.body)) {
+          const frame = safeJsonParse(data);
+          if (stringOrUndefined(getProp(frame, 'model')) !== modelId) {
+            continue;
+          }
+          const value = routerLoadProgress(getProp(getProp(frame, 'data'), 'progress'));
+          if (value !== undefined) {
+            latest = value;
+          }
+        }
+      } catch {
+        // Aborted when the load finished, or llama.cpp closed the stream. Either way the
+        // poll loop owns the outcome; this only ever adds a number to it.
+      }
+    })();
+
+    return {latest: () => latest, close: () => abort.abort()};
   }
 
   async unloadRouterModel(modelId: string): Promise<{modelId: string; raw: unknown}> {
@@ -1116,10 +1172,11 @@ function normalizeRouterModel(raw: unknown): LlamaRouterModel {
       stringOrUndefined(getProp(raw, 'hfRepo')) ??
       stringOrUndefined(getProp(raw, 'source')),
     status: stringOrUndefined(statusValue) ?? 'unknown',
-    progress:
-      numberOrNull(getProp(raw, 'progress')) ??
-      numberOrNull(getProp(getProp(raw, 'status'), 'progress')) ??
-      undefined,
+    // llama.cpp reports progress per *stage*, as an object, so reading it as a plain
+    // number silently dropped every measurement and left clients with no percentage.
+    progress: routerLoadProgress(
+      getProp(raw, 'progress') ?? getProp(getProp(raw, 'status'), 'progress'),
+    ),
     aliases,
     source: stringOrUndefined(getProp(raw, 'source')),
     canRemove: booleanOrNull(getProp(raw, 'can_remove') ?? getProp(raw, 'canRemove')) ?? undefined,
@@ -1208,6 +1265,40 @@ function getProp(value: unknown, key: string): unknown {
     return undefined;
   }
   return (value as Record<string, unknown>)[key];
+}
+
+/** Yields the payload of each `data:` line in an SSE stream. */
+async function* readSseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, {stream: true});
+      for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
+        const line = buffer.slice(0, end).trim();
+        buffer = buffer.slice(end + 1);
+        if (line.startsWith('data:')) {
+          yield line.slice('data:'.length).trim();
+        }
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+}
+
+/** A frame llama.cpp sent that will not parse is a missing detail, never a thrown run. */
+function safeJsonParse(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
 
 function stringOrNull(value: unknown): string | null {

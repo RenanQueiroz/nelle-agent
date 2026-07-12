@@ -93,6 +93,49 @@ void main() {
     );
   });
 
+  test('a load with no measurement yet is loading, not 0%', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final c = container(events.stream);
+
+    await c.read(chatControllerProvider('c').future);
+    await c.read(chatControllerProvider('c').notifier).send('hi');
+
+    // llama.cpp's first frames carry no value at all.
+    events.add(const ModelLoadingEvent(modelId: 'm', status: 'loading'));
+    await _settle();
+
+    final state = c.read(chatControllerProvider('c')).requireValue;
+    // The placeholder must show — and it must not invent a number the server never
+    // sent, which is what deriving "loading" from "progress != null" would force.
+    expect(state.loadingModel, isTrue);
+    expect(state.modelLoadProgress, isNull);
+  });
+
+  test('a runnable status ends the load even before the first token', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final c = container(events.stream);
+
+    await c.read(chatControllerProvider('c').future);
+    await c.read(chatControllerProvider('c').notifier).send('hi');
+    events.add(
+      const ModelLoadingEvent(modelId: 'm', status: 'loading', progress: 0.5),
+    );
+    await _settle();
+    expect(c.read(chatControllerProvider('c')).requireValue.loadingModel, true);
+
+    // The server polls until the model is up and reports what it last saw.
+    events.add(const ModelLoadingEvent(modelId: 'm', status: 'loaded'));
+    await _settle();
+
+    expect(
+      c.read(chatControllerProvider('c')).requireValue.loadingModel,
+      isFalse,
+      reason: 'the placeholder outlived the load it was describing',
+    );
+  });
+
   test(
     'run.completed reloads the authoritative snapshot and clears pending',
     () async {

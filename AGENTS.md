@@ -551,12 +551,25 @@ Project-specific guidance for AI coding agents.
 - A load runs **one stage per sub-model** -- a vision model loads `text_model`
   and then `mmproj_model` -- and `value` restarts at 0 for each, so `value` alone
   is not the load's progress: it fills the bar, snaps back to zero and fills it
-  again. Progress is `(stageIndex + value) / stages.length`, which is monotonic.
+  again. Progress is `(stageIndex + value) / stages.length`, which is monotonic,
+  and that collapse is `routerLoadProgress` (`packages/shared/src/routerProgress.ts`).
   llama.cpp also emits a bare `{"stage":"mmproj_model"}` between stages --
   singular `stage`, no `value` -- which announces a stage rather than measuring
-  one, so it must leave progress alone rather than reset it. Progress belongs to
-  the `loading` status and must be dropped when the load ends, or a loaded model
-  keeps the last percentage it reported and shows it again on its next load.
+  one, so it must leave progress alone rather than reset it. `undefined` means
+  "loading, amount unknown" and is never zero: a client shows the placeholder
+  without a number rather than inventing a 0% the server never sent. Progress
+  belongs to the `loading` status and must be dropped when the load ends, or a
+  loaded model keeps the last percentage it reported and shows it again on its
+  next load.
+- **llama.cpp publishes load progress only on `/models/sse`.** Its `/models` list
+  answers `status: {value, args, preset}` and has never carried a number, so a
+  poll-based wait can say `loading` and nothing else -- which is why
+  `model.loading.progress` sat empty on the wire while the field existed.
+  `ensureModelRunnable` therefore *follows* the router stream for the life of the
+  load (`watchModelLoadProgress`) and merges it into the events it emits, so the
+  percentage is server truth that every client gets for free. A client must not
+  have to open a second SSE stream and correlate it with the run just to show a
+  number.
 - A client's router SSE subscription must **reattach on its own**. Stopping
   llama.cpp *ends* the stream rather than failing it, so a client that only
   handles `onError` never learns it went deaf: every model status it shows

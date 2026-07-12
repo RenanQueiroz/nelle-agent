@@ -11,12 +11,24 @@ import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
 import '../../api/generated/models/conversation_snapshot.dart';
 import '../../api/generated/models/reasoning_level.dart';
+import '../models/router_models_notifier.dart';
 import 'chat_repository.dart';
 import 'sse_transport.dart';
 
 /// What the chat pane renders. `messages` is the snapshot's rendered list;
 /// `pending` holds the optimistic user turn + the streaming assistant turn during
 /// a run, and is cleared when the run finishes and the snapshot is reloaded.
+/// A model load in flight, with however much llama.cpp has said about it.
+///
+/// [progress] is null while llama.cpp is loading but has not measured anything yet —
+/// its first frames carry no value at all. That is "loading, amount unknown", which is
+/// not zero: rendering it as 0% would invent a number the server never sent.
+class ModelLoad {
+  const ModelLoad({this.progress});
+
+  final double? progress;
+}
+
 class ChatState {
   const ChatState({
     required this.snapshot,
@@ -24,7 +36,7 @@ class ChatState {
     required this.context,
     this.pending = const [],
     this.running = false,
-    this.modelLoadProgress,
+    this.modelLoad,
     this.runError,
     this.refusedMessage,
   });
@@ -41,8 +53,8 @@ class ChatState {
   final List<ConversationMessage> pending;
   final bool running;
 
-  /// Non-null (0..1) while llama.cpp is loading the model's weights for this run.
-  final double? modelLoadProgress;
+  /// Non-null while llama.cpp is loading the model's weights for this run.
+  final ModelLoad? modelLoad;
   final String? runError;
 
   /// A message the server refused before it became a turn (no `run.started`), so
@@ -65,7 +77,13 @@ class ChatState {
   /// a chat template that provably has no thinking mode — locks it to `off`.
   bool? get canReason => snapshot.capabilities.canReason;
 
-  bool get loadingModel => modelLoadProgress != null;
+  /// Whether weights are loading — true even before llama.cpp has measured anything,
+  /// which is why it is not derived from [modelLoadProgress].
+  bool get loadingModel => modelLoad != null;
+
+  /// 0..1 across the whole load, or null when llama.cpp has not measured it yet.
+  double? get modelLoadProgress => modelLoad?.progress;
+
   List<ConversationMessage> get rendered => [...messages, ...pending];
 
   ChatState copyWith({
@@ -73,7 +91,7 @@ class ChatState {
     ConversationContextUsage? context,
     List<ConversationMessage>? pending,
     bool? running,
-    double? modelLoadProgress,
+    ModelLoad? modelLoad,
     bool clearModelLoad = false,
     String? runError,
     bool clearError = false,
@@ -85,9 +103,7 @@ class ChatState {
     context: context ?? this.context,
     pending: pending ?? this.pending,
     running: running ?? this.running,
-    modelLoadProgress: clearModelLoad
-        ? null
-        : (modelLoadProgress ?? this.modelLoadProgress),
+    modelLoad: clearModelLoad ? null : (modelLoad ?? this.modelLoad),
     runError: clearError ? null : (runError ?? this.runError),
     refusedMessage: clearRefused
         ? null
@@ -237,7 +253,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       ChatState.fromSnapshot(snapshot).copyWith(
         pending: current.pending,
         running: current.running,
-        modelLoadProgress: current.modelLoadProgress,
+        modelLoad: current.modelLoad,
         runError: current.runError,
         refusedMessage: current.refusedMessage,
       ),
@@ -253,8 +269,16 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       case RunStartedEvent():
         // The message became a turn, so it is no longer the composer's to keep.
         _runStarted = true;
-      case ModelLoadingEvent(:final progress):
-        state = AsyncData(s.copyWith(modelLoadProgress: progress ?? 0.0));
+      case ModelLoadingEvent(:final status, :final progress):
+        // The last of these can carry a runnable status: the server polls until the
+        // model is up and reports what it saw. Showing "Loading weights" past that
+        // would leave the placeholder on screen until the first token arrives.
+        state = AsyncData(
+          isRunnableRouterStatus(status)
+              ? s.copyWith(clearModelLoad: true)
+              // `progress` is null on llama.cpp's first frames — loading, not 0%.
+              : s.copyWith(modelLoad: ModelLoad(progress: progress)),
+        );
       case AssistantDeltaEvent(:final delta):
         state = AsyncData(
           s.copyWith(
