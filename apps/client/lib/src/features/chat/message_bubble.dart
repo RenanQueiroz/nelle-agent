@@ -3,6 +3,7 @@ import 'package:forui/forui.dart';
 
 import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
+import 'markdown_message.dart';
 
 /// One rendered message. User turns align right; assistant turns align left with
 /// an optional collapsible reasoning block and a model/variant footer.
@@ -59,9 +60,13 @@ class MessageBubble extends StatelessWidget {
                     : scheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: SelectableText(
-                message.content.isEmpty ? '…' : message.content,
-              ),
+              // The model answers in markdown; the user types text. Rendering a user's
+              // own `a * b` as italics would put words in their mouth.
+              child: isUser || message.content.isEmpty
+                  ? SelectableText(
+                      message.content.isEmpty ? '…' : message.content,
+                    )
+                  : MarkdownMessage(text: message.content),
             ),
             if (footer.isNotEmpty || onRegenerate != null)
               Padding(
@@ -151,8 +156,10 @@ class _ReasoningBlockState extends State<_ReasoningBlock> {
           if (_open)
             Padding(
               padding: const EdgeInsets.only(top: 4, left: 18),
-              child: SelectableText(
-                widget.text,
+              // Thinking is model output too, and it is where the model writes its
+              // lists and its arithmetic.
+              child: MarkdownMessage(
+                text: widget.text,
                 style: TextStyle(fontSize: 12, color: scheme.outline),
               ),
             ),
