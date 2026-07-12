@@ -124,6 +124,7 @@ class _Source extends StatelessWidget {
       source: source,
       language: language,
       base: textStyle,
+      brightness: Theme.of(context).brightness,
     );
     return highlighted == null
         ? SelectableText(source, style: textStyle)

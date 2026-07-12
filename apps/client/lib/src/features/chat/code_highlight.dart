@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:re_highlight/languages/all.dart';
 import 'package:re_highlight/re_highlight.dart';
+import 'package:re_highlight/styles/atom-one-dark.dart';
 import 'package:re_highlight/styles/atom-one-light.dart';
 
 /// Syntax highlighting for fenced code blocks.
@@ -20,10 +21,15 @@ class CodeHighlighter {
 
   /// Highlights [source] as [language], or returns null when it cannot — an unknown
   /// language, or highlight.js choking on a fragment that is still streaming.
+  ///
+  /// [brightness] is the *app's*, not the block's: the app carries a full dark theme and
+  /// follows the platform, and a syntax palette is only legible against the background it
+  /// was designed for. A light palette on a dark code block is dark-on-dark.
   static TextSpan? highlight({
     required String source,
     required String? language,
     required TextStyle base,
+    required Brightness brightness,
   }) {
     final name = language?.toLowerCase();
     if (name == null || !_highlight.listLanguages().contains(name)) {
@@ -31,7 +37,7 @@ class CodeHighlighter {
     }
     try {
       final result = _highlight.highlight(code: source, language: name);
-      final renderer = TextSpanRenderer(base, _theme(base));
+      final renderer = TextSpanRenderer(base, _theme(base, brightness));
       result.render(renderer);
       return renderer.span;
     } catch (_) {
@@ -39,17 +45,23 @@ class CodeHighlighter {
     }
   }
 
-  /// The package's own light theme, with its background dropped — the block already
-  /// paints one, and a second would show as a misaligned rectangle behind the text.
-  static Map<String, TextStyle> _theme(TextStyle base) => {
-    for (final entry in atomOneLightTheme.entries)
-      if (entry.key != 'root')
-        entry.key: entry.value.copyWith(
-          fontFamily: base.fontFamily,
-          fontFamilyFallback: base.fontFamilyFallback,
-          fontSize: base.fontSize,
-          height: base.height,
-          backgroundColor: Colors.transparent,
-        ),
-  };
+  /// The package's palette for this brightness, with its own background dropped — the
+  /// block already paints one, and a second shows as a misaligned rectangle behind the
+  /// text.
+  static Map<String, TextStyle> _theme(TextStyle base, Brightness brightness) {
+    final palette = brightness == Brightness.dark
+        ? atomOneDarkTheme
+        : atomOneLightTheme;
+    return {
+      for (final entry in palette.entries)
+        if (entry.key != 'root')
+          entry.key: entry.value.copyWith(
+            fontFamily: base.fontFamily,
+            fontFamilyFallback: base.fontFamilyFallback,
+            fontSize: base.fontSize,
+            height: base.height,
+            backgroundColor: Colors.transparent,
+          ),
+    };
+  }
 }
