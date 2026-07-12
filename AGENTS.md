@@ -139,14 +139,24 @@ Project-specific guidance for AI coding agents.
     off it. Parsing an error body as a settings or command payload yields silent nonsense
     -- an *empty* registry says "no commands are supported" and would refuse `/compact`
     itself. Check the status before believing the body.
-- **Image paste and drag-and-drop are blocked on Gradle 9, not on us.**
-  `super_clipboard`/`super_drag_and_drop` work (driven on Linux: a pasted PNG became an
-  attachment gemma read), but they pull `super_native_extensions` ->
-  `irondash_engine_context` -> **cargokit**, whose `gradle/plugin.gradle` calls
-  `Project.exec()` -- removed in **Gradle 9**, which this project is on (9.1.0 / AGP
-  9.0.1). `irondash_engine_context 0.5.5` is the latest, so there is nothing to pin.
-  `flutter build apk` dies. Revisit when cargokit supports Gradle 9; do not re-attempt it
-  blind.
+- Clipboard and drag-and-drop use **`pasteboard`** and **`desktop_drop`** (plain
+  platform-channel plugins, both maintained). **Do not reach for `super_clipboard` /
+  `super_drag_and_drop`**, which are the obvious choice and a dead end: they pull in
+  `super_native_extensions` -> `irondash_engine_context` -> **cargokit**, whose Gradle
+  plugin calls `Project.exec()` — removed in **Gradle 9**, which this project is on
+  (9.1.0 / AGP 9.0.1). `flutter build apk` dies, **cargokit is archived**, and
+  `super_native_extensions` has not moved in a year, so no patch is coming and a fork
+  would mean owning an abandoned Rust-backed native library across five platforms. The
+  paste path is: an image (`Pasteboard.image`), else a *file* (`Pasteboard.files`), else
+  text — a clipboard carries a picture or a file, and both are attachments; only text
+  belongs in the message.
+- **WSLg cannot carry an image on the clipboard between processes**, so image paste
+  cannot be driven end-to-end on this machine: the WSLg bridge takes the CLIPBOARD
+  selection and only preserves text, and a GTK image set by any other process (verified
+  with PyGObject, and with the image set on the Windows side) vanishes. *File* paste is
+  drivable and was driven (a real Ctrl+V of a copied file produced its chip), and the
+  bytes-to-chip path below it is the same one the file picker uses. Do not read a failing
+  image-paste drive here as a code fault without first checking `wait_for_targets()`.
 - The Flutter client is instrumented for **agent-driven UI testing** — the Flutter
   answer to Playwright MCP. `lib/main.dart` initializes `MarionetteBinding` **only
   under `kDebugMode`** (release keeps the plain `WidgetsFlutterBinding`, so the

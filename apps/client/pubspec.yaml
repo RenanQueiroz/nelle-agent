@@ -48,6 +48,9 @@ dependencies:
   url_launcher: ^6.3.2
   re_highlight: ^0.0.3
   file_selector: ^1.1.0
+  pasteboard: ^0.5.0
+  desktop_drop: ^0.7.1
+  path: ^1.9.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

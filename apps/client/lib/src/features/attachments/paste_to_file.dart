@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pasteboard/pasteboard.dart';
+import 'package:path/path.dart' as p;
 
 import '../settings/attachment_settings.dart';
 import 'attachment_draft.dart';
@@ -60,6 +62,12 @@ class PasteToFile extends ConsumerWidget {
   }
 
   Future<void> _paste(WidgetRef ref) async {
+    // A picture or a file first: pasting a screenshot is the dominant way an image
+    // reaches an AI chat on a desktop, and Flutter's own `Clipboard` is text-only.
+    if (await _pasteAttachment(ref)) {
+      return;
+    }
+
     final clipboard = await Clipboard.getData(Clipboard.kTextPlain);
     final text = clipboard?.text;
     if (text == null || text.isEmpty) {
@@ -83,6 +91,47 @@ class PasteToFile extends ConsumerWidget {
       return;
     }
     _insert(text);
+  }
+
+  /// Uploads an image or a file off the clipboard. False when there is neither, so the
+  /// text path gets its turn.
+  ///
+  /// Two flavours, because a clipboard carries either: a **picture** (a screenshot) or a
+  /// **file** (something copied in a file manager). Both are attachments; text is not.
+  ///
+  /// `pasteboard` reads them through a plain platform channel. The obvious package,
+  /// `super_clipboard`, is a **dead end**: it pulls in cargokit, whose Gradle plugin
+  /// calls `Project.exec()` — removed in Gradle 9 — and cargokit is archived, so the
+  /// Android build could not be fixed by waiting.
+  ///
+  /// Never throws: a clipboard we cannot read is not a reason to swallow the paste.
+  Future<bool> _pasteAttachment(WidgetRef ref) async {
+    final draft = ref.read(attachmentDraftProvider(conversationId).notifier);
+    try {
+      final bytes = await Pasteboard.image;
+      if (bytes != null && bytes.isNotEmpty) {
+        // `Pasteboard.image` normalises to PNG wherever it is supported.
+        await draft.addBytes(
+          bytes: bytes,
+          filename: 'pasted.png',
+          mimeType: 'image/png',
+        );
+        return true;
+      }
+
+      final files = await Pasteboard.files();
+      if (files.isEmpty) {
+        return false;
+      }
+      for (final path in files) {
+        // One at a time, so a refusal names the file that caused it and the rest land.
+        await draft.addFile(path: path, filename: p.basename(path));
+      }
+      return true;
+    } catch (_) {
+      // Fall through to the text path rather than losing the paste entirely.
+      return false;
+    }
   }
 
   /// Inserts [text] at the cursor, replacing any selection — what the text field would

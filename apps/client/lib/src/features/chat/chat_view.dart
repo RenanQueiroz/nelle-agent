@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
 import '../../api/generated/models/conversation_message_role.dart';
+import '../attachments/drop_target.dart';
 import 'chat_composer.dart';
 import 'chat_controller.dart';
 import 'context_bar.dart';
@@ -37,42 +38,45 @@ class ChatView extends ConsumerWidget {
     final async = ref.watch(chatControllerProvider(conversationId));
     final state = async.valueOrNull;
 
-    return Column(
-      children: [
-        FHeader.nested(
-          prefixes: [
-            if (onBack != null)
-              FHeaderAction(
-                key: const ValueKey('k-chat-back'),
-                icon: const Icon(FLucideIcons.arrowLeft),
-                onPress: onBack,
-              ),
-          ],
-          title: Text(
-            state?.title ?? 'Chat',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+    return AttachmentDropTarget(
+      conversationId: conversationId,
+      child: Column(
+        children: [
+          FHeader.nested(
+            prefixes: [
+              if (onBack != null)
+                FHeaderAction(
+                  key: const ValueKey('k-chat-back'),
+                  icon: const Icon(FLucideIcons.arrowLeft),
+                  onPress: onBack,
+                ),
+            ],
+            title: Text(
+              state?.title ?? 'Chat',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-        ),
-        if (state != null) ContextBar(usage: state.context),
-        const Divider(height: 1),
-        Expanded(
-          child: switch (async) {
-            AsyncData(:final value) => _Transcript(
-              state: value,
-              conversationId: conversationId,
-            ),
-            AsyncError(:final error) => _ChatError(
-              message: '$error',
-              onRetry: () => ref
-                  .read(chatControllerProvider(conversationId).notifier)
-                  .reload(),
-            ),
-            _ => const Center(child: CircularProgressIndicator()),
-          },
-        ),
-        if (state != null) ChatComposer(conversationId: conversationId),
-      ],
+          if (state != null) ContextBar(usage: state.context),
+          const Divider(height: 1),
+          Expanded(
+            child: switch (async) {
+              AsyncData(:final value) => _Transcript(
+                state: value,
+                conversationId: conversationId,
+              ),
+              AsyncError(:final error) => _ChatError(
+                message: '$error',
+                onRetry: () => ref
+                    .read(chatControllerProvider(conversationId).notifier)
+                    .reload(),
+              ),
+              _ => const Center(child: CircularProgressIndicator()),
+            },
+          ),
+          if (state != null) ChatComposer(conversationId: conversationId),
+        ],
+      ),
     );
   }
 }
@@ -151,7 +155,9 @@ class _TranscriptState extends ConsumerState<_Transcript> {
           message: message,
           onRegenerate: canRegenerate
               ? () => ref
-                    .read(chatControllerProvider(widget.conversationId).notifier)
+                    .read(
+                      chatControllerProvider(widget.conversationId).notifier,
+                    )
                     .regenerate(message.id)
               : null,
         );
@@ -239,7 +245,6 @@ class _ChatError extends StatelessWidget {
     ),
   );
 }
-
 
 /// "Conversation compacted." — a row the server does not send and never will.
 class _CompactNote extends StatelessWidget {

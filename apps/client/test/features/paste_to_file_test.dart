@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,18 +12,35 @@ import 'package:nelle_agent/src/features/attachments/paste_to_file.dart';
 import '../helpers/fake_dio.dart';
 
 /// The clipboard is a platform channel; a test has to answer it.
-void _clipboard(WidgetTester tester, String text) {
-  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+///
+/// Two channels, because there are two clipboards: Flutter's own (text only) and
+/// `pasteboard`'s (images). The image is asked for **first**, so leaving its channel
+/// unanswered does not merely skip an assertion — it strands the whole paste.
+void _clipboard(
+  WidgetTester tester, {
+  String? text,
+  Uint8List? image,
+  List<String>? files,
+}) {
+  final messenger = tester.binding.defaultBinaryMessenger;
+  messenger.setMockMethodCallHandler(
     SystemChannels.platform,
-    (call) async =>
-        call.method == 'Clipboard.getData' ? <String, dynamic>{'text': text} : null,
+    (call) async => call.method == 'Clipboard.getData' && text != null
+        ? <String, dynamic>{'text': text}
+        : null,
   );
-  addTearDown(
-    () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      null,
-    ),
+  messenger.setMockMethodCallHandler(
+    const MethodChannel('pasteboard'),
+    (call) async => switch (call.method) {
+      'image' => image,
+      'files' => files ?? <String>[],
+      _ => null,
+    },
   );
+  addTearDown(() {
+    messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+    messenger.setMockMethodCallHandler(const MethodChannel('pasteboard'), null);
+  });
 }
 
 Future<ProviderContainer> _pump(
@@ -85,7 +105,7 @@ void main() {
     // Intercepting means owning it: consuming the shortcut stops the field pasting for
     // itself, so a short paste has to be inserted here or it vanishes.
     final controller = TextEditingController();
-    _clipboard(tester, 'short');
+    _clipboard(tester, text: 'short');
     await _pump(tester, controller, threshold: 100);
 
     await _paste(tester);
@@ -97,7 +117,7 @@ void main() {
     tester,
   ) async {
     final controller = TextEditingController();
-    _clipboard(tester, 'x' * 5000);
+    _clipboard(tester, text: 'x' * 5000);
     final c = await _pump(tester, controller, threshold: 100);
 
     await tester.runAsync(() async {
@@ -119,7 +139,7 @@ void main() {
     // The client ships no copy of the default. A stale constant would silently turn a
     // paste into a file against a server that had disabled it.
     final controller = TextEditingController();
-    _clipboard(tester, 'y' * 5000);
+    _clipboard(tester, text: 'y' * 5000);
     final c = await _pump(tester, controller, threshold: null);
 
     await _paste(tester);
@@ -130,12 +150,83 @@ void main() {
 
   testWidgets('0 disables it, exactly as the setting says', (tester) async {
     final controller = TextEditingController();
-    _clipboard(tester, 'z' * 5000);
+    _clipboard(tester, text: 'z' * 5000);
     final c = await _pump(tester, controller, threshold: 0);
 
     await _paste(tester);
 
     expect(controller.text.length, 5000);
     expect(c.read(attachmentDraftProvider('c')).uploads, isEmpty);
+  });
+
+  testWidgets('an image on the clipboard becomes an attachment, not text', (
+    tester,
+  ) async {
+    // Pasting a screenshot is the dominant way a picture reaches an AI chat on a
+    // desktop, and Flutter's own Clipboard is text-only.
+    final png = Uint8List.fromList(
+      base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      ),
+    );
+    final controller = TextEditingController();
+    _clipboard(tester, image: png);
+    final c = await _pump(tester, controller, threshold: 2500);
+
+    await tester.runAsync(() async {
+      await _paste(tester);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pump();
+
+    expect(c.read(attachmentDraftProvider('c')).uploadIds, ['u1']);
+    expect(controller.text, isEmpty);
+  });
+
+  testWidgets('an image wins over text when the clipboard holds both', (
+    tester,
+  ) async {
+    final png = Uint8List.fromList(
+      base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      ),
+    );
+    // A copied image often carries a text flavour too (a filename, a URL). The picture
+    // is what the user meant.
+    final controller = TextEditingController();
+    _clipboard(tester, text: 'screenshot.png', image: png);
+    final c = await _pump(tester, controller, threshold: 2500);
+
+    await tester.runAsync(() async {
+      await _paste(tester);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pump();
+
+    expect(c.read(attachmentDraftProvider('c')).uploadIds, ['u1']);
+    expect(controller.text, isEmpty);
+  });
+
+  testWidgets('a file copied in a file manager pastes as an attachment', (
+    tester,
+  ) async {
+    // A clipboard carries either a picture or a *file*. Both are attachments; only text
+    // belongs in the message.
+    final file = File('${Directory.systemTemp.path}/paste-me.txt')
+      ..writeAsStringSync('hello');
+    addTearDown(() => file.deleteSync());
+
+    final controller = TextEditingController();
+    _clipboard(tester, files: [file.path]);
+    final c = await _pump(tester, controller, threshold: 2500);
+
+    await tester.runAsync(() async {
+      await _paste(tester);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pump();
+
+    expect(c.read(attachmentDraftProvider('c')).uploadIds, ['u1']);
+    expect(controller.text, isEmpty);
   });
 }
