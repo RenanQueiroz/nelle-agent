@@ -9,6 +9,7 @@ part 'issued_tokens.g.dart';
 @JsonSerializable()
 class IssuedTokens {
   const IssuedTokens({
+    required this.deviceId,
     required this.accessToken,
     required this.accessExpiresAt,
     required this.refreshToken,
@@ -17,6 +18,7 @@ class IssuedTokens {
   factory IssuedTokens.fromJson(Map<String, Object?> json) =>
       _$IssuedTokensFromJson(json);
 
+  final String deviceId;
   final String accessToken;
   final String accessExpiresAt;
   final String refreshToken;

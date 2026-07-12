@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/config.dart';
 import 'health.dart';
+import 'join_section.dart';
 import 'remote_access_section.dart';
 import 'server_connection.dart';
 
@@ -70,26 +71,42 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 12),
-                FTextField(
-                  key: const ValueKey('k-connection-url'),
-                  control: FTextFieldControl.managed(controller: _controller),
-                  label: const Text('Server URL'),
-                  hint: defaultServerBaseUrl,
-                  keyboardType: TextInputType.url,
-                  onSubmit: (_) => _save(),
-                ),
-                const SizedBox(height: 12),
-                FButton(
-                  key: const ValueKey('k-connection-save'),
-                  onPress: _save,
-                  child: const Text('Save & test'),
-                ),
-                const SizedBox(height: 20),
+                // The manual URL box is hidden while paired. A pairing *is* the
+                // connection -- it carries the address, the pinned certificate and the
+                // device id together -- so an editable URL beside it is a second,
+                // contradictory answer to the same question. It showed 127.0.0.1 while
+                // the app was talking to the LAN server, which is worse than useless.
+                if (!connection.isPaired) ...[
+                  FTextField(
+                    key: const ValueKey('k-connection-url'),
+                    control: FTextFieldControl.managed(controller: _controller),
+                    label: const Text('Server URL'),
+                    hint: defaultServerBaseUrl,
+                    keyboardType: TextInputType.url,
+                    onSubmit: (_) => _save(),
+                  ),
+                  const SizedBox(height: 12),
+                  FButton(
+                    key: const ValueKey('k-connection-save'),
+                    onPress: _save,
+                    child: const Text('Save & test'),
+                  ),
+                  const SizedBox(height: 20),
+                ],
                 _HealthStatus(health: health),
                 // Minting a code and managing devices are loopback-only on the server
                 // (they answer 404 to a paired device), because enrolling a device is
                 // an act of consent and consent is given at the machine. On a phone
                 // these would be buttons that cannot work.
+                const SizedBox(height: 28),
+                const Divider(),
+                const SizedBox(height: 16),
+                // Joining is possible from anywhere -- that is the point of a client.
+                const JoinSection(),
+                // Hosting is not: minting a code and managing devices are loopback-only
+                // on the server (they answer 404 to a paired device), because enrolling
+                // a device is an act of consent and consent is given at the machine. On
+                // a phone these would be buttons that cannot work.
                 if (connection.isLoopback) ...[
                   const SizedBox(height: 28),
                   const Divider(),

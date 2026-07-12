@@ -8,6 +8,7 @@ import 'package:nelle_agent/src/features/connection/cert_pinning.dart';
 import 'package:nelle_agent/src/features/connection/token_store.dart';
 
 IssuedTokens _tokens(String suffix) => IssuedTokens(
+  deviceId: 'device-1',
   accessToken: 'access-$suffix',
   accessExpiresAt: '2026-07-12T21:17:31.577Z',
   refreshToken: 'refresh-$suffix',

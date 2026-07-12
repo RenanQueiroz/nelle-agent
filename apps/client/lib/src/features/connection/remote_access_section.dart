@@ -272,6 +272,18 @@ class _PairingCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
+          FButton(
+            key: const ValueKey('k-pairing-copy-details'),
+            variant: FButtonVariant.outline,
+            // The joining machine pastes this one blob: it carries the addresses, the
+            // code, *and* the certificate fingerprint -- which is the whole trust
+            // decision and which nobody is going to retype 32 bytes of by hand.
+            onPress: () => Clipboard.setData(
+              ClipboardData(text: pairingQrData(pairing.qrPayload)),
+            ),
+            child: const Text('Copy pairing details'),
+          ),
+          const SizedBox(height: 12),
           const Text('Server address:'),
           for (final url in payload.lanUrls)
             SelectableText(

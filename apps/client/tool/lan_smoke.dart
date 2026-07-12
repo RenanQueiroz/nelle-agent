@@ -157,6 +157,7 @@ Future<void> main(List<String> args) async {
   final live = (await store.read())!;
   await store.write(
     IssuedTokens(
+      deviceId: live.deviceId,
       accessToken: 'expired-nonsense',
       accessExpiresAt: live.accessExpiresAt,
       refreshToken: live.refreshToken,
@@ -179,6 +180,7 @@ Future<void> main(List<String> args) async {
   final live2 = (await store.read())!;
   await store.write(
     IssuedTokens(
+      deviceId: live2.deviceId,
       accessToken: 'expired-again',
       accessExpiresAt: live2.accessExpiresAt,
       refreshToken: live2.refreshToken,

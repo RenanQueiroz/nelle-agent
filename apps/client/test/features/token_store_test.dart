@@ -35,6 +35,7 @@ class _FakeStorage implements SecretStorage {
 }
 
 const _tokens = IssuedTokens(
+  deviceId: 'device-1',
   accessToken: 'access-1',
   accessExpiresAt: '2026-07-12T21:17:31.577Z',
   refreshToken: 'refresh-1',
@@ -97,6 +98,10 @@ void main() {
           jsonDecode(storage.values['nelle_device_tokens']!)
               as Map<String, Object?>;
       expect(stored, {
+        // The device id is stored with the tokens because the server only ever says it
+        // once, at pairing: `GET /api/devices` is loopback-only, so a paired device
+        // that forgets its id can never ask for it again.
+        'deviceId': 'device-1',
         'accessToken': 'access-1',
         'accessExpiresAt': '2026-07-12T21:17:31.577Z',
         'refreshToken': 'refresh-1',
