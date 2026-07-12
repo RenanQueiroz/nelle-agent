@@ -6,8 +6,12 @@
 //   dart run tool/gen_api.dart
 //   dart run swagger_parser
 //   dart run build_runner build --delete-conflicting-outputs
+//   dart format lib/src/api/generated
 //
-// See plans/nelle-flutter-client.md.
+// The format step is not cosmetic: swagger_parser emits unformatted Dart, and any
+// later `dart format` over the package (an IDE, a hook) rewrites it — so without it
+// the committed generated code and the generator's own output never agree, and the
+// diff flips back and forth.
 import 'dart:convert';
 import 'dart:io';
 

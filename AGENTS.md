@@ -33,7 +33,10 @@ Project-specific guidance for AI coding agents.
   `dart run tool/gen_api.dart` strips `paths` (and the `ChatStreamEvent` oneOf) from
   `openapi.json` into a models-only `openapi.models.json`, `swagger_parser`
   generates the DTOs into `lib/src/api/generated/` (committed, analyzer-excluded,
-  regenerated — never hand-edit), and `build_runner` writes the `.g.dart`. The
+  regenerated — never hand-edit), and `build_runner` writes the `.g.dart`. Finish
+  with `dart format lib/src/api/generated`: swagger_parser emits unformatted Dart,
+  and any later `dart format` over the package rewrites it, so skipping the step
+  leaves the committed code and the generator's output permanently disagreeing. The
   18-variant `ChatStreamEvent` is the deliberate exception, hand-written in
   `lib/src/api/chat_stream_event.dart`: codegen mangles the discriminated `oneOf`,
   so a Dart 3 `sealed class` switches on the wire `type` (the stable contract),
