@@ -27,6 +27,23 @@ Project-specific guidance for AI coding agents.
   imports server or `packages/shared` TypeScript — the same server-vs-client
   boundary the web app follows. Run it with `flutter run -d <chrome|linux>`;
   build Android with `flutter build apk`.
+- `apps/client` architecture (Milestone 1: loopback chat MVP): Riverpod for state,
+  `dio` for HTTP plus a hand-written SSE transport, `go_router` for routing, forui
+  over `MaterialApp`. **API models are contract-first codegen**, not hand-written:
+  `dart run tool/gen_api.dart` strips `paths` (and the `ChatStreamEvent` oneOf) from
+  `openapi.json` into a models-only `openapi.models.json`, `swagger_parser`
+  generates the DTOs into `lib/src/api/generated/` (committed, analyzer-excluded,
+  regenerated — never hand-edit), and `build_runner` writes the `.g.dart`. The
+  18-variant `ChatStreamEvent` is the deliberate exception, hand-written in
+  `lib/src/api/chat_stream_event.dart`: codegen mangles the discriminated `oneOf`,
+  so a Dart 3 `sealed class` switches on the wire `type` (the stable contract),
+  tolerating both the SSE envelope (`{type, data:<event>}`) and a raw event, with an
+  `UnknownStreamEvent` so a newer server event never crashes an older client. The
+  chat controller folds `message.assistant.delta`/`.reasoning_delta`,
+  `model.loading`, `context.updated`, and `run.completed` into optimistic pending
+  turns, then reloads the authoritative snapshot. The client never re-derives server
+  truth: it reads `capabilities`, the server-stamped context `status`, and
+  `reasoningLevel` off the snapshot.
 - The HTTP server is `Bun.serve` over a small native router
   (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
   owns JSON-body parsing, zod→400 mapping, CORS, and a `Bun.file` static + SPA
