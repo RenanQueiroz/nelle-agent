@@ -43,8 +43,15 @@ if (shouldOpen) {
 
 const shutdown = async (): Promise<void> => {
   console.log('Shutting down Nelle Agent');
-  await loopback.stop();
-  await lan?.stop();
+  // `stop()` is graceful: it waits for in-flight requests to finish. Nelle's
+  // requests include **SSE streams**, which by design never finish -- a client
+  // holds the router event stream open for its whole life. So a graceful stop
+  // waits forever, and the server cannot be restarted while any client is
+  // connected. That is not academic: enabling LAN access *requires* a restart,
+  // and the client that wants LAN access is the one holding the stream open.
+  // We are going down; close the sockets. Clients already reattach.
+  await loopback.stop(true);
+  await lan?.stop(true);
   await app.close();
 };
 
