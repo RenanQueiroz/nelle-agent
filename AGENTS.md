@@ -604,6 +604,14 @@ Project-specific guidance for AI coding agents.
   `regenerates_pi_entry_id` / `display_group_id` sidecar metadata. The web UI
   preserves existing answer variants, hides replayed duplicate user turns, and
   labels visible assistant variants in the footer.
+- A regenerated-away answer survives **only** in
+  `conversation_entry_projection`. It is off the active branch, so `getBranch()`
+  never returns it again, and `replaceConversationProjection` deletes every row
+  and rewrites it from the entries it is handed -- so `prependVariantEntry` must
+  carry *every* field of a preserved variant, not just the ones a transcript
+  happens to show. It dropped `reasoning`, and so a regenerate silently destroyed
+  the thinking of the answer it branched from, then wrote that loss back over the
+  only copy of it. Adding a field to the projection means adding it there too.
 - The web UI conversation pane is collapsible and uses `@tanstack/react-virtual`
   for pinned/recent conversation sections. Keep row actions and e2e tests aligned
   when changing the sidebar.

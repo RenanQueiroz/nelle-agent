@@ -7,9 +7,14 @@ import '../../api/generated/models/conversation_message_role.dart';
 /// One rendered message. User turns align right; assistant turns align left with
 /// an optional collapsible reasoning block and a model/variant footer.
 class MessageBubble extends StatelessWidget {
-  const MessageBubble({super.key, required this.message});
+  const MessageBubble({super.key, required this.message, this.onRegenerate});
 
   final ConversationMessage message;
+
+  /// Re-answers this turn, keeping the existing answer as a sibling variant. Null when
+  /// regenerating makes no sense: a user turn, a reply still streaming, or a run in
+  /// flight.
+  final VoidCallback? onRegenerate;
 
   @override
   Widget build(BuildContext context) {
@@ -58,12 +63,37 @@ class MessageBubble extends StatelessWidget {
                 message.content.isEmpty ? '…' : message.content,
               ),
             ),
-            if (footer.isNotEmpty)
+            if (footer.isNotEmpty || onRegenerate != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  footer,
-                  style: TextStyle(fontSize: 10, color: scheme.outline),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (footer.isNotEmpty)
+                      Text(
+                        footer,
+                        style: TextStyle(fontSize: 10, color: scheme.outline),
+                      ),
+                    if (onRegenerate != null) ...[
+                      if (footer.isNotEmpty) const SizedBox(width: 8),
+                      GestureDetector(
+                        key: ValueKey('k-msg-regenerate-${message.id}'),
+                        behavior: HitTestBehavior.opaque,
+                        onTap: onRegenerate,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 2,
+                            vertical: 2,
+                          ),
+                          child: Icon(
+                            FLucideIcons.refreshCw,
+                            size: 12,
+                            color: scheme.outline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
           ],

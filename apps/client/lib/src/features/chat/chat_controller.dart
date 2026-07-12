@@ -187,6 +187,58 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         );
   }
 
+  /// Re-answers [messageId] — an **assistant** message — and keeps the old answer.
+  ///
+  /// The server branches the Pi session before the original user turn and replays it,
+  /// so the new answer becomes a *variant* of the old one rather than replacing it.
+  /// Nothing is removed from the transcript here: the streaming answer is appended,
+  /// and the reload afterwards returns both, labelled `variant N/M`.
+  ///
+  /// [modelId] overrides the model for this answer only (a footer model change); the
+  /// conversation's own model is used when it is null.
+  Future<void> regenerate(String messageId, {String? modelId}) async {
+    final current = state.valueOrNull;
+    if (current == null || current.running) {
+      return;
+    }
+    final now = DateTime.now().toUtc().toIso8601String();
+    final assistant = ConversationMessage(
+      id: 'local-assistant-$now',
+      role: ConversationMessageRole.assistant,
+      content: '',
+      createdAt: now,
+    );
+    state = AsyncData(
+      current.copyWith(
+        pending: [assistant],
+        running: true,
+        clearError: true,
+        clearModelLoad: true,
+        clearRefused: true,
+      ),
+    );
+
+    // A regenerate replays a turn that is already in the transcript, so there is no
+    // typed message to hand back to the composer if the server refuses it.
+    _sentMessage = null;
+    _runStarted = false;
+    _cancel = CancelToken();
+    _sub = ref
+        .read(sseTransportProvider)
+        .stream(
+          '/api/conversations/${Uri.encodeComponent(arg)}'
+          '/messages/${Uri.encodeComponent(messageId)}/regenerate',
+          body: {'modelId': ?modelId},
+          cancelToken: _cancel,
+        )
+        .listen(
+          _onEvent,
+          onError: _onStreamError,
+          onDone: _finish,
+          cancelOnError: false,
+        );
+  }
+
   /// Stops the active run: aborts the upstream fetch and tells the server.
   Future<void> abort() async {
     if (_sub == null) {

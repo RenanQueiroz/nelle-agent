@@ -23,13 +23,16 @@ void main() {
   void closeAfterTest(StreamController<ChatStreamEvent> events) =>
       addTearDown(() => unawaited(events.close()));
 
+  late FakeTransport transport;
+
   ProviderContainer container(Stream<ChatStreamEvent> events, {Dio? dio}) {
+    transport = FakeTransport(events);
     final c = ProviderContainer(
       overrides: [
         dioProvider.overrideWithValue(
           dio ?? stubDio((o) => jsonResponse({'snapshot': snapshotJson()})),
         ),
-        sseTransportProvider.overrideWithValue(FakeTransport(events)),
+        sseTransportProvider.overrideWithValue(transport),
       ],
     );
     addTearDown(c.dispose);
@@ -237,6 +240,107 @@ void main() {
       c.read(chatControllerProvider('c')).requireValue.refusedMessage,
       isNull,
     );
+  });
+
+  test('regenerate streams a new answer and keeps the old one', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    var gets = 0;
+    final dio = stubDio((o) {
+      gets++;
+      return jsonResponse({
+        'snapshot': snapshotJson(
+          messages: [
+            {'id': 'u1', 'role': 'user', 'content': 'hi', 'createdAt': 't'},
+            {
+              'id': 'a1',
+              'role': 'assistant',
+              'content': 'first answer',
+              'createdAt': 't',
+              // After the regenerate the server groups both answers as variants.
+              if (gets > 1) 'variantLabel': 'variant 1/2',
+            },
+            // The reload after the run returns the new answer beside the old one.
+            if (gets > 1)
+              {
+                'id': 'a2',
+                'role': 'assistant',
+                'content': 'second answer',
+                'createdAt': 't',
+                'variantLabel': 'variant 2/2',
+              },
+          ],
+        ),
+      });
+    });
+    final c = container(events.stream, dio: dio);
+    await c.read(chatControllerProvider('c').future);
+
+    await c.read(chatControllerProvider('c').notifier).regenerate('a1');
+
+    expect(transport.lastPath, '/api/conversations/c/messages/a1/regenerate');
+    // No override: the conversation's own model answers.
+    expect((transport.lastBody! as Map).containsKey('modelId'), isFalse);
+
+    var state = c.read(chatControllerProvider('c')).requireValue;
+    expect(state.running, isTrue);
+    // The old answer stays on screen while the new one streams beneath it.
+    expect(state.messages.map((m) => m.content), contains('first answer'));
+    expect(state.pending, hasLength(1));
+
+    events.add(const AssistantDeltaEvent(id: 'a2', delta: 'second answer'));
+    await _settle();
+    expect(
+      c.read(chatControllerProvider('c')).requireValue.pending.last.content,
+      'second answer',
+    );
+
+    events.add(const RunCompletedEvent(status: 'completed'));
+    await _settle();
+
+    state = c.read(chatControllerProvider('c')).requireValue;
+    expect(state.running, isFalse);
+    expect(state.pending, isEmpty);
+    // Both answers survive, and the server labels them.
+    expect(state.messages.map((m) => m.content), [
+      'hi',
+      'first answer',
+      'second answer',
+    ]);
+    expect(state.messages.last.variantLabel, 'variant 2/2');
+  });
+
+  test('regenerate can override the model for one answer', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final c = container(events.stream);
+    await c.read(chatControllerProvider('c').future);
+
+    await c
+        .read(chatControllerProvider('c').notifier)
+        .regenerate('a1', modelId: 'E2B');
+
+    expect((transport.lastBody! as Map)['modelId'], 'E2B');
+  });
+
+  test('a refused regenerate is not handed back to the composer', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final c = container(events.stream);
+    await c.read(chatControllerProvider('c').future);
+
+    await c.read(chatControllerProvider('c').notifier).regenerate('a1');
+    events.add(
+      StreamErrorEvent(
+        NelleError(code: 'llama_server_stopped', message: 'not running'),
+      ),
+    );
+    await _settle();
+
+    final state = c.read(chatControllerProvider('c')).requireValue;
+    // There is no typed message to give back: the turn is already in the transcript.
+    expect(state.refusedMessage, isNull);
+    expect(state.runError, 'not running');
   });
 
   test(

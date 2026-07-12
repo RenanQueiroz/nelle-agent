@@ -2189,12 +2189,23 @@ function prependVariantEntry(
     performance: entry.performance,
     toolCalls: entry.toolCalls,
     attachmentSummary: entry.attachmentSummary,
+    // A variant is off the active branch, so `getBranch()` never sees it again and this
+    // row is the only copy left. Dropping its reasoning here -- as this did -- means
+    // regenerating an answer silently destroys the thinking of the answer it branched
+    // from, and a projection rebuild writes the loss back over the row.
+    reasoning: entry.reasoning,
     regeneratesPiEntryId: entry.regeneratesPiEntryId ?? null,
     displayGroupId: entry.displayGroupId ?? entry.piEntryId,
   });
 }
 
-function prependExistingVariantGroup(
+/**
+ * Carries the answers a regenerate branched away from back into the projection.
+ *
+ * Exported for tests: a variant is off the active branch, so `getBranch()` will never
+ * hand it back and the projection row is the last copy of it there is.
+ */
+export function prependExistingVariantGroup(
   entries: SyncConversationEntry[],
   existingEntries: Map<string, ConversationEntryProjection>,
   regeneratesPiEntryId?: string,

@@ -21,12 +21,21 @@ class FakeTransport extends SseTransport {
   /// tested — re-listening to a single-subscription stream would just throw.
   final Stream<Map<String, dynamic>> Function()? jsonEventsBuilder;
 
+  /// What the last chat/regenerate run asked for. Runs go through the transport, not
+  /// dio, so this is the only place a test can see the request they made.
+  String? lastPath;
+  Object? lastBody;
+
   @override
   Stream<ChatStreamEvent> stream(
     String path, {
     Object? body,
     CancelToken? cancelToken,
-  }) => _events;
+  }) {
+    lastPath = path;
+    lastBody = body;
+    return _events;
+  }
 
   @override
   Stream<Map<String, dynamic>> streamJson(

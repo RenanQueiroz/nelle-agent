@@ -58,7 +58,10 @@ class ChatView extends ConsumerWidget {
         const Divider(height: 1),
         Expanded(
           child: switch (async) {
-            AsyncData(:final value) => _Transcript(state: value),
+            AsyncData(:final value) => _Transcript(
+              state: value,
+              conversationId: conversationId,
+            ),
             AsyncError(:final error) => _ChatError(
               message: '$error',
               onRetry: () => ref
@@ -74,20 +77,21 @@ class ChatView extends ConsumerWidget {
   }
 }
 
-class _Transcript extends StatefulWidget {
-  const _Transcript({required this.state});
+class _Transcript extends ConsumerStatefulWidget {
+  const _Transcript({required this.state, required this.conversationId});
 
   final ChatState state;
+  final String conversationId;
 
   @override
-  State<_Transcript> createState() => _TranscriptState();
+  ConsumerState<_Transcript> createState() => _TranscriptState();
 }
 
-class _TranscriptState extends State<_Transcript> {
+class _TranscriptState extends ConsumerState<_Transcript> {
   final _scroll = ScrollController();
 
   @override
-  void didUpdateWidget(_Transcript oldWidget) {
+  void didUpdateWidget(covariant _Transcript oldWidget) {
     super.didUpdateWidget(oldWidget);
     // Keep the newest content in view as deltas stream in.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -128,7 +132,22 @@ class _TranscriptState extends State<_Transcript> {
             (message.reasoning ?? '').isEmpty) {
           return const _Thinking();
         }
-        return MessageBubble(message: message);
+        // `rendered` is messages followed by pending, so anything past the snapshot's
+        // messages is an optimistic turn: it has a local id the server has never seen,
+        // and asking it to regenerate itself would 404.
+        final isPending = i >= widget.state.messages.length;
+        final canRegenerate =
+            !isPending &&
+            !widget.state.running &&
+            message.role == ConversationMessageRole.assistant;
+        return MessageBubble(
+          message: message,
+          onRegenerate: canRegenerate
+              ? () => ref
+                    .read(chatControllerProvider(widget.conversationId).notifier)
+                    .regenerate(message.id)
+              : null,
+        );
       },
     );
   }
