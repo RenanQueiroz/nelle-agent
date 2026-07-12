@@ -1,0 +1,16 @@
+# Generates Dart DTOs from the server's served OpenAPI contract.
+# Regenerate with:
+#   dart run tool/gen_api.dart            # strips paths -> openapi.models.json (models only)
+#   dart run swagger_parser               # reads openapi.models.json below
+#   dart run build_runner build --delete-conflicting-outputs
+# See plans/nelle-flutter-client.md. The streaming union (ChatStreamEvent) is
+# hand-written, not taken from here.
+swagger_parser:
+  schema_path: openapi.models.json
+  output_directory: lib/src/api/generated
+  language: dart
+  json_serializer: json_serializable
+  root_client: false
+  put_clients_in_folder: true
+  enums_to_json: true
+  unknown_enum_values: true

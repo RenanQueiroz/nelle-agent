@@ -12,14 +12,16 @@ test-results/
 # Local planning / scratch docs (not shared; AGENTS.md is the committed source of truth)
 plans/
 
-# Local app/runtime data
+# Local app/runtime data. Anchored to the repo root so an unanchored name like
+# `models/` doesn't also swallow nested dirs -- e.g. the Flutter client's
+# generated `apps/client/lib/src/api/generated/models/`.
 .nelle/
 .nelle-e2e/
-data/
-logs/
-llamacpp/
-llamacpp-src/
-models/
+/data/
+/logs/
+/llamacpp/
+/llamacpp-src/
+/models/
 
 # Environment and secrets
 .env

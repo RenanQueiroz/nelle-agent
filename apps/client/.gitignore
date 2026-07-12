@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Intermediate models-only spec for swagger_parser (derived from ../../openapi.json)
+openapi.models.json
