@@ -44,7 +44,14 @@ final attachmentSettingsProvider = FutureProvider<AttachmentSettings>((ref) asyn
   final dio = ref.watch(dioProvider);
   try {
     final res = await dio.get<Map<String, dynamic>>('/api/settings/attachments');
-    return AttachmentSettings.fromJson(res.data ?? const {});
+    final code = res.statusCode ?? 0;
+    final data = res.data;
+    // A non-2xx does not throw: dio hands back the body so a NelleError can be read off
+    // it. Parsing an error body as settings would silently yield nonsense.
+    if (code < 200 || code >= 300 || data == null) {
+      return const AttachmentSettings();
+    }
+    return AttachmentSettings.fromJson(data);
   } on DioException {
     return const AttachmentSettings();
   }
