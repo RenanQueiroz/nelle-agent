@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/config.dart';
 import 'health.dart';
+import 'remote_access_section.dart';
 import 'server_connection.dart';
 
 /// Settings: edit the server URL and see whether it is reachable.
@@ -41,6 +42,7 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
   @override
   Widget build(BuildContext context) {
     final health = ref.watch(healthProvider);
+    final connection = ref.watch(connectionProvider);
     return FScaffold(
       header: FHeader.nested(
         title: const Text('Settings'),
@@ -56,30 +58,46 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
       ),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Server connection'),
-              const SizedBox(height: 12),
-              FTextField(
-                key: const ValueKey('k-connection-url'),
-                control: FTextFieldControl.managed(controller: _controller),
-                label: const Text('Server URL'),
-                hint: defaultServerBaseUrl,
-                keyboardType: TextInputType.url,
-                onSubmit: (_) => _save(),
-              ),
-              const SizedBox(height: 12),
-              FButton(
-                key: const ValueKey('k-connection-save'),
-                onPress: _save,
-                child: const Text('Save & test'),
-              ),
-              const SizedBox(height: 20),
-              _HealthStatus(health: health),
-            ],
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Server connection',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 12),
+                FTextField(
+                  key: const ValueKey('k-connection-url'),
+                  control: FTextFieldControl.managed(controller: _controller),
+                  label: const Text('Server URL'),
+                  hint: defaultServerBaseUrl,
+                  keyboardType: TextInputType.url,
+                  onSubmit: (_) => _save(),
+                ),
+                const SizedBox(height: 12),
+                FButton(
+                  key: const ValueKey('k-connection-save'),
+                  onPress: _save,
+                  child: const Text('Save & test'),
+                ),
+                const SizedBox(height: 20),
+                _HealthStatus(health: health),
+                // Minting a code and managing devices are loopback-only on the server
+                // (they answer 404 to a paired device), because enrolling a device is
+                // an act of consent and consent is given at the machine. On a phone
+                // these would be buttons that cannot work.
+                if (connection.isLoopback) ...[
+                  const SizedBox(height: 28),
+                  const Divider(),
+                  const SizedBox(height: 16),
+                  const RemoteAccessSection(),
+                ],
+              ],
+            ),
           ),
         ),
       ),
