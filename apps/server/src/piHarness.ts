@@ -1673,6 +1673,7 @@ export class PiHarness {
       projection.regeneratesPiEntryId = existingEntry?.regeneratesPiEntryId;
       projection.displayGroupId = existingEntry?.displayGroupId ?? projection.displayGroupId;
       projection.reasoning = extractMessageThinking(entry.message) || existingEntry?.reasoning;
+      projection.text = displayedUserText(role, text, existingEntry?.textPreview);
       if (role === 'assistant') {
         projection.modelId = existingEntry?.modelId ?? activeModel.id;
         projection.modelRuntimeId =
@@ -2205,6 +2206,28 @@ function prependVariantEntry(
  * Exported for tests: a variant is off the active branch, so `getBranch()` will never
  * hand it back and the projection row is the last copy of it there is.
  */
+/**
+ * The text a turn should *display*, given what Pi holds and what the projection already
+ * held.
+ *
+ * Pi's copy of a **user** turn is the *enriched* prompt: the typed text plus the
+ * attachment payload the model was actually shown — `<attachment name="secret.txt">` with
+ * the whole file inside it. The typed text exists only in the projection, where the run
+ * put it (`metadata.userPromptText`), and it cannot be recovered from Pi afterwards.
+ *
+ * A metadata-less sync — every snapshot read, every restart — rebuilds from `getBranch()`
+ * and would otherwise overwrite the typed text with Pi's copy, so the transcript would
+ * show the user the contents of their own attachment pasted into their message. The
+ * projection wins for user turns, and only for user turns: an assistant's text is Pi's.
+ */
+export function displayedUserText(
+  role: string | null | undefined,
+  piText: string,
+  projectedText: string | undefined,
+): string {
+  return role === 'user' && projectedText != null ? projectedText : piText;
+}
+
 export function prependExistingVariantGroup(
   entries: SyncConversationEntry[],
   existingEntries: Map<string, ConversationEntryProjection>,

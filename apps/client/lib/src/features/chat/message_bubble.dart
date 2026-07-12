@@ -4,6 +4,7 @@ import 'package:forui/forui.dart';
 import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
 import 'markdown_message.dart';
+import 'message_attachments.dart';
 
 /// One rendered message. User turns align right; assistant turns align left with
 /// an optional collapsible reasoning block and a model/variant footer.
@@ -49,6 +50,9 @@ class MessageBubble extends StatelessWidget {
               ? CrossAxisAlignment.end
               : CrossAxisAlignment.start,
           children: [
+            // What the message carried, above it — the same order the user attached and
+            // then typed.
+            MessageAttachments(attachments: message.attachments ?? const []),
             if (!isUser && reasoning != null && reasoning.isNotEmpty)
               _ReasoningBlock(text: reasoning, messageId: message.id),
             Container(

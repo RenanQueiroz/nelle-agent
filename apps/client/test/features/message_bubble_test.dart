@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
+import 'package:nelle_agent/src/api/generated/models/attachment_metadata.dart';
+import 'package:nelle_agent/src/api/generated/models/attachment_metadata_kind.dart';
 import 'package:nelle_agent/src/api/generated/models/conversation_message.dart';
 import 'package:nelle_agent/src/api/generated/models/conversation_message_role.dart';
+import 'package:nelle_agent/src/features/chat/message_attachments.dart';
 import 'package:nelle_agent/src/features/chat/message_bubble.dart';
 
 ConversationMessage _message({
@@ -96,5 +99,66 @@ void main() {
 
     expect(find.textContaining('variant 2/3'), findsOneWidget);
     expect(find.textContaining('gemma'), findsOneWidget);
+  });
+
+  testWidgets('a sent message shows what it carried, as chips', (tester) async {
+    // Chips, not thumbnails, and not by accident: a past message's bytes are not on the
+    // client and no route serves them. `storagePath` is a server-local path, meaningless
+    // to a phone.
+    await tester.pumpWidget(
+      _harness(
+        MessageBubble(
+          message: ConversationMessage(
+            id: 'm',
+            role: ConversationMessageRole.user,
+            content: 'look at these',
+            createdAt: 't',
+            attachments: [
+              AttachmentMetadata(
+                id: 'a1',
+                conversationId: 'c',
+                kind: AttachmentMetadataKind.image,
+                name: 'red.png',
+                sizeBytes: 168,
+                createdAt: 't',
+              ),
+              AttachmentMetadata(
+                id: 'a2',
+                conversationId: 'c',
+                kind: AttachmentMetadataKind.text,
+                name: 'secret.txt',
+                sizeBytes: 48,
+                createdAt: 't',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('k-msg-attachment-a1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('k-msg-attachment-a2')), findsOneWidget);
+    expect(find.text('red.png'), findsOneWidget);
+    expect(find.text('secret.txt'), findsOneWidget);
+    expect(find.text('168 B'), findsOneWidget);
+    expect(find.byType(Image), findsNothing);
+  });
+
+  testWidgets('a message with no attachments shows no chip row', (tester) async {
+    await tester.pumpWidget(
+      _harness(
+        const MessageBubble(
+          message: ConversationMessage(
+            id: 'm',
+            role: ConversationMessageRole.user,
+            content: 'plain',
+            createdAt: 't',
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(MessageAttachments), findsOneWidget);
+    expect(tester.getSize(find.byType(MessageAttachments)), Size.zero);
   });
 }
