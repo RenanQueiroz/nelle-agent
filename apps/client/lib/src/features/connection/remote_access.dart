@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/api_client.dart';
+import '../../api/settings_schema.dart';
 import '../../api/generated/models/device_view.dart';
 import '../../api/generated/models/pairing_code_response.dart';
 import '../../api/generated/models/pairing_payload.dart';
@@ -13,46 +14,35 @@ import '../../api/generated/models/pairing_payload.dart';
 /// answer 404 to a paired device), because enrolling a device is an act of consent and
 /// consent is given at the machine.
 
-/// A field of the server's settings schema, reduced to what this screen renders.
+/// The `allowLanAccess` field, read off the served schema.
 ///
-/// Read from `GET /api/settings/schema` rather than retyped here. The label and the
-/// help — including "Takes effect after a server restart", which is the single most
-/// important sentence on this screen — are the server's to write; a copy in the client
-/// is a copy that goes stale.
-class NetworkSettingField {
-  const NetworkSettingField({required this.label, required this.help});
-
-  final String label;
-  final String help;
-}
-
-final networkSettingSchemaProvider = FutureProvider<NetworkSettingField?>((
+/// M5 hand-rolled a `NetworkSettingField` class for this, because the settings schema
+/// was not itself served and there was no type to codegen. It is served now, and this
+/// reads the real one: the label and the help -- including "Takes effect after a server
+/// restart", the single most important sentence on that screen -- are the server's to
+/// write, and a copy in the client is a copy that goes stale.
+final networkSettingSchemaProvider = FutureProvider<SettingsField?>((
   ref,
 ) async {
+  final schema = await ref.watch(settingsSchemaProvider.future);
+  final section = schema?.sections
+      .where((s) => s.slug == 'network')
+      .firstOrNull;
+  return section?.fields.where((f) => f.key == 'allowLanAccess').firstOrNull;
+});
+
+/// The whole served schema: every section the server offers, with its fields.
+final settingsSchemaProvider = FutureProvider<SettingsSchema?>((ref) async {
   final response = await ref
       .watch(dioProvider)
       .get<Map<String, Object?>>('/api/settings/schema');
+  // A non-2xx does not throw, so the status must be checked before the body is
+  // believed: an error body parsed as a schema yields a settings screen with no
+  // sections, which reads as "this server has no settings".
   if (!_ok(response.statusCode) || response.data == null) {
     return null;
   }
-  final sections =
-      (response.data!['sections'] as List?)?.cast<Map<String, Object?>>() ?? [];
-  for (final section in sections) {
-    if (section['slug'] != 'network') {
-      continue;
-    }
-    final fields =
-        (section['fields'] as List?)?.cast<Map<String, Object?>>() ?? [];
-    for (final field in fields) {
-      if (field['key'] == 'allowLanAccess') {
-        return NetworkSettingField(
-          label: field['label'] as String? ?? 'Allow LAN devices',
-          help: field['help'] as String? ?? '',
-        );
-      }
-    }
-  }
-  return null;
+  return SettingsSchema.fromJson(response.data!);
 });
 
 /// Whether the server is currently binding a LAN listener. Note this is the *setting*,

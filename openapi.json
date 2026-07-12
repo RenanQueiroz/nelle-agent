@@ -1418,6 +1418,204 @@
         },
         "required": ["devices"],
         "additionalProperties": false
+      },
+      "SettingsField": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "const": "text"
+              },
+              "default": {
+                "type": "string"
+              },
+              "maxLength": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "tokenCost": {
+                "type": "boolean"
+              }
+            },
+            "required": ["key", "label", "help", "type", "default"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "const": "textarea"
+              },
+              "default": {
+                "type": "string"
+              },
+              "maxLength": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "tokenCost": {
+                "type": "boolean"
+              }
+            },
+            "required": ["key", "label", "help", "type", "default"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "const": "number"
+              },
+              "default": {
+                "type": "number"
+              },
+              "min": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              },
+              "step": {
+                "type": "number"
+              },
+              "integer": {
+                "type": "boolean"
+              }
+            },
+            "required": ["key", "label", "help", "type", "default"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "const": "boolean"
+              },
+              "default": {
+                "type": "boolean"
+              }
+            },
+            "required": ["key", "label", "help", "type", "default"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "const": "select"
+              },
+              "default": {
+                "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["value", "label"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["key", "label", "help", "type", "default", "options"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "SettingsSection": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingsField"
+            }
+          }
+        },
+        "required": ["slug", "title", "fields"],
+        "additionalProperties": false
+      },
+      "SettingsSchema": {
+        "type": "object",
+        "properties": {
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingsSection"
+            }
+          }
+        },
+        "required": ["sections"],
+        "additionalProperties": false
       }
     },
     "securitySchemes": {

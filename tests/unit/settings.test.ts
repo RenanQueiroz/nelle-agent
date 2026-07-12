@@ -11,7 +11,7 @@ import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {
   SETTINGS_REGISTRY,
   coerceSettingsValues,
-  settingsFieldSchema,
+  settingsValueSchema,
   settingsGroupDefaults,
   settingsGroupSchema,
   settingsPatchSchema,
@@ -72,7 +72,7 @@ test('a field default satisfies the field it belongs to', () => {
   // one grows.
   for (const group of [...FIXTURE, ...SETTINGS_REGISTRY]) {
     for (const field of group.fields) {
-      const parsed = settingsFieldSchema(field).safeParse(field.default);
+      const parsed = settingsValueSchema(field).safeParse(field.default);
       assert.equal(parsed.success, true, `${group.slug}.${field.key} default is invalid`);
     }
   }

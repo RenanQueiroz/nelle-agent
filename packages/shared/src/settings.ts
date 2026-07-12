@@ -37,56 +37,104 @@ export {ATTACHMENTS_SETTINGS_SLUG, INSTRUCTIONS_SETTINGS_SLUG, TITLES_SETTINGS_S
  */
 export const MAX_CUSTOM_INSTRUCTIONS_CHARACTERS = 8000;
 
-export type SettingsFieldType = 'text' | 'textarea' | 'number' | 'boolean' | 'select';
+/**
+ * The registry's own shape, as zod -- so it can be *served* like every other
+ * contract, and a client can codegen it instead of hand-parsing it.
+ *
+ * It was not served before, which is the one gap that made the served schema
+ * pointless: the contract designed to be rendered generically was the only one a
+ * client could not generate a type for. The Flutter client's first settings screen
+ * hand-rolled a `NetworkSettingField` class to render a single toggle.
+ *
+ * The types below are `z.infer`red from these schemas rather than written twice,
+ * so the served document and the registry cannot drift.
+ */
+export const settingsFieldTypeSchema = z.enum(['text', 'textarea', 'number', 'boolean', 'select']);
 
-export type SettingsSelectOption = {
-  value: string;
-  label: string;
-};
+export type SettingsFieldType = z.infer<typeof settingsFieldTypeSchema>;
 
-type SettingsFieldBase = {
-  key: string;
-  label: string;
+export const settingsSelectOptionSchema = z.object({
+  value: z.string(),
+  label: z.string(),
+});
+
+export type SettingsSelectOption = z.infer<typeof settingsSelectOptionSchema>;
+
+const settingsFieldBaseSchema = z.object({
+  key: z.string(),
+  label: z.string(),
   /** One sentence, shown beneath the control. Says what the setting does. */
-  help: string;
-};
+  help: z.string(),
+});
 
-export type SettingsField =
-  | (SettingsFieldBase & {
-      type: 'text' | 'textarea';
-      default: string;
-      maxLength?: number;
-      /**
-       * Render an estimated token cost beneath the control. A rendering hint the
-       * server serves, so the client shows the cost without a round trip and
-       * without knowing what the field means.
-       */
-      tokenCost?: boolean;
-    })
-  | (SettingsFieldBase & {
-      type: 'number';
-      default: number;
-      min?: number;
-      max?: number;
-      step?: number;
-      /** Rejects `2.5` where only whole numbers make sense, e.g. a word count. */
-      integer?: boolean;
-    })
-  | (SettingsFieldBase & {type: 'boolean'; default: boolean})
-  | (SettingsFieldBase & {
-      type: 'select';
-      default: string;
-      options: readonly SettingsSelectOption[];
-    });
+/**
+ * Discriminated on `type`, with one member per type -- including `text` and
+ * `textarea` separately, even though they carry the same keys.
+ *
+ * `z.discriminatedUnion` needs a literal per member, and so does a Dart `sealed
+ * class` switching on the wire `type`. One member per type maps to one variant,
+ * which is what makes the client's `switch` exhaustive.
+ */
+export const settingsFieldSchema = z.discriminatedUnion('type', [
+  settingsFieldBaseSchema.extend({
+    type: z.literal('text'),
+    default: z.string(),
+    maxLength: z.number().int().positive().optional(),
+    tokenCost: z.boolean().optional(),
+  }),
+  settingsFieldBaseSchema.extend({
+    type: z.literal('textarea'),
+    default: z.string(),
+    maxLength: z.number().int().positive().optional(),
+    /**
+     * Render an estimated token cost beneath the control. A rendering hint the
+     * server serves, so the client shows the cost without a round trip and
+     * without knowing what the field means.
+     */
+    tokenCost: z.boolean().optional(),
+  }),
+  settingsFieldBaseSchema.extend({
+    type: z.literal('number'),
+    default: z.number(),
+    min: z.number().optional(),
+    max: z.number().optional(),
+    step: z.number().optional(),
+    /** Rejects `2.5` where only whole numbers make sense, e.g. a word count. */
+    integer: z.boolean().optional(),
+  }),
+  settingsFieldBaseSchema.extend({
+    type: z.literal('boolean'),
+    default: z.boolean(),
+  }),
+  settingsFieldBaseSchema.extend({
+    type: z.literal('select'),
+    default: z.string(),
+    options: z.array(settingsSelectOptionSchema),
+  }),
+]);
 
-export type SettingsGroup = {
+export type SettingsField = z.infer<typeof settingsFieldSchema>;
+
+/**
+ * A group as the *schema* describes it. `GET /api/settings/schema` calls these
+ * `sections`, because that is what a client renders.
+ */
+export const settingsSectionSchema = z.object({
   /** Both the `settings` table row key and the route segment. */
-  slug: string;
-  title: string;
+  slug: z.string(),
+  title: z.string(),
   /** Shown once above the group's fields. */
-  description?: string;
-  fields: readonly SettingsField[];
-};
+  description: z.string().optional(),
+  fields: z.array(settingsFieldSchema),
+});
+
+export type SettingsGroup = z.infer<typeof settingsSectionSchema>;
+
+export const settingsSchemaResponseSchema = z.object({
+  sections: z.array(settingsSectionSchema),
+});
+
+export type SettingsSchemaResponse = z.infer<typeof settingsSchemaResponseSchema>;
 
 export type SettingsValue = string | number | boolean;
 export type SettingsValues = Record<string, SettingsValue>;
@@ -217,8 +265,14 @@ export function settingsGroupDefaults(group: SettingsGroup): SettingsValues {
   return defaults;
 }
 
-/** The schema for one field, bounds and all. Its own `default` must satisfy it. */
-export function settingsFieldSchema(field: SettingsField): z.ZodType<SettingsValue> {
+/**
+ * The validator for one field's **value**, bounds and all. Its own `default` must
+ * satisfy it.
+ *
+ * Not to be confused with `settingsFieldSchema`, which describes the field's
+ * *definition* and is what `GET /api/settings/schema` serves.
+ */
+export function settingsValueSchema(field: SettingsField): z.ZodType<SettingsValue> {
   switch (field.type) {
     case 'text':
     case 'textarea': {
@@ -251,7 +305,7 @@ export function settingsFieldSchema(field: SettingsField): z.ZodType<SettingsVal
 export function settingsGroupSchema(group: SettingsGroup) {
   const shape: Record<string, z.ZodType<SettingsValue>> = {};
   for (const field of group.fields) {
-    shape[field.key] = settingsFieldSchema(field);
+    shape[field.key] = settingsValueSchema(field);
   }
   return z.object(shape);
 }
@@ -282,15 +336,10 @@ export function coerceSettingsValues(group: SettingsGroup, stored: unknown): Set
   }
   const record = stored as Record<string, unknown>;
   for (const field of group.fields) {
-    const parsed = settingsFieldSchema(field).safeParse(record[field.key]);
+    const parsed = settingsValueSchema(field).safeParse(record[field.key]);
     if (parsed.success) {
       values[field.key] = parsed.data;
     }
   }
   return values;
 }
-
-/** The payload of `GET /api/settings/schema`. */
-export type SettingsSchemaResponse = {
-  sections: readonly SettingsGroup[];
-};

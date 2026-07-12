@@ -144,6 +144,23 @@ test('the served OpenAPI document is valid, covers the contract, and matches the
       assert.deepEqual(operation.security, [{bearerAuth: []}], `${routePath} must require a token`);
     }
 
+    // The settings schema's own shape. Without it, the one contract designed to be
+    // rendered generically is the only one a client cannot codegen -- and the Flutter
+    // client hand-rolled a class to parse it, which is exactly the copy-of-the-copy
+    // that serving a schema exists to prevent.
+    for (const id of ['SettingsField', 'SettingsSection', 'SettingsSchema']) {
+      assert.ok(doc.components.schemas[id], `missing component schema ${id}`);
+    }
+    assert.ok(
+      Array.isArray(doc.components.schemas.SettingsField?.oneOf),
+      'SettingsField is a discriminated union (oneOf), one member per field type',
+    );
+    assert.equal(
+      doc.components.schemas.SettingsField!.oneOf!.length,
+      5,
+      'text, textarea, number, boolean, select -- one member each, so a Dart switch is exhaustive',
+    );
+
     // A paired device cannot enrol another device or enumerate its siblings. That is
     // a 404 it would otherwise have to discover by being surprised.
     for (const routePath of ['/api/pair/code', '/api/devices', '/api/devices/{id}']) {

@@ -39,6 +39,11 @@ import {
 } from '../../../packages/shared/src/llamaModels.ts';
 import {conversationMessageSchema} from '../../../packages/shared/src/messages.ts';
 import {reasoningLevelSchema} from '../../../packages/shared/src/reasoning.ts';
+import {
+  settingsFieldSchema,
+  settingsSchemaResponseSchema,
+  settingsSectionSchema,
+} from '../../../packages/shared/src/settings.ts';
 
 /**
  * Builds the OpenAPI 3.1 document from the zod contract schemas and the router's
@@ -87,6 +92,13 @@ const CONTRACT_SCHEMAS: ReadonlyArray<readonly [string, z.ZodType]> = [
   ['IssuedTokens', issuedTokensSchema],
   ['DeviceView', deviceViewSchema],
   ['DevicesResponse', devicesResponseSchema],
+  // The settings schema's own shape. Without it, the one contract designed to be
+  // rendered generically is the only one a client cannot codegen -- and the Flutter
+  // client hand-rolled a class to parse it, which is precisely the copy-of-the-copy
+  // that serving a schema exists to prevent.
+  ['SettingsField', settingsFieldSchema],
+  ['SettingsSection', settingsSectionSchema],
+  ['SettingsSchema', settingsSchemaResponseSchema],
 ];
 
 export function buildOpenApiDocument(

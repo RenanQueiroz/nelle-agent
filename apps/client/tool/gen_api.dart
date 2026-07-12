@@ -31,7 +31,24 @@ void main() {
   // `variant1..16` mess. It is hand-written (lib/src/api/chat_stream_event.dart)
   // from the clean building-block DTOs (ChatMessage, ChatPerformance, ...), which
   // stay as their own components.
-  (((spec['components'] as Map)['schemas']) as Map).remove('ChatStreamEvent');
+  //
+  // The settings schema goes the same way, for a sharper reason. swagger_parser
+  // turns `SettingsField` into `SettingsFieldSealedVariant1..5` and deserializes by
+  // *trying each variant until one does not throw* -- and `text` and `textarea`
+  // carry identical keys apart from the `type` literal, so a textarea would come
+  // back as a text field, silently, forever. It is hand-written in
+  // lib/src/api/settings_schema.dart, switching on the wire `type`, which is the
+  // stable contract. `SettingsSection` and `SettingsSchema` go with it because they
+  // reference it.
+  final schemas = ((spec['components'] as Map)['schemas']) as Map;
+  for (final id in [
+    'ChatStreamEvent',
+    'SettingsField',
+    'SettingsSection',
+    'SettingsSchema',
+  ]) {
+    schemas.remove(id);
+  }
   final out = File('openapi.models.json');
   out.writeAsStringSync(
     '${const JsonEncoder.withIndent('  ').convert(spec)}\n',
