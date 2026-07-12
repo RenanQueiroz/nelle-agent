@@ -13,6 +13,11 @@ import type {SettingsFieldSchema, SettingsGroupSchema, SettingsValues} from '../
 import {useSettingsStore} from '../../stores/settingsStore';
 import {usePreferencesStore} from '../../stores/preferencesStore';
 import {DISPLAY_PREFERENCE_FIELDS} from '../../../../../packages/shared/src/displayPreferences.ts';
+import {
+  DISPLAY_SETTINGS_SLUG,
+  REASONING_SETTINGS_SLUG,
+  RUNTIME_SETTINGS_SLUG,
+} from '../../../../../packages/shared/src/settingsKeys.ts';
 import {estimatePromptTokens} from '../../../../../packages/shared/src/piContext.ts';
 
 /**
@@ -22,6 +27,12 @@ import {estimatePromptTokens} from '../../../../../packages/shared/src/piContext
  * so a new setting appears in this dialog without a line of client code -- which
  * is the whole reason the schema is served rather than bundled.
  */
+const HAND_BUILT_ELSEWHERE = new Set([
+  REASONING_SETTINGS_SLUG,
+  RUNTIME_SETTINGS_SLUG,
+  DISPLAY_SETTINGS_SLUG,
+]);
+
 export function GeneralSettingsSection({
   busyAction,
   onSaveSettingsGroup,
@@ -29,8 +40,17 @@ export function GeneralSettingsSection({
   busyAction: string | null;
   onSaveSettingsGroup: (slug: string) => void | Promise<void>;
 }) {
-  const schema = useSettingsStore(state => state.settingsSchema);
+  const allGroups = useSettingsStore(state => state.settingsSchema);
   const error = useSettingsStore(state => state.settingsError);
+
+  // This dialog has hand-built surfaces for reasoning, runtime and the display toggles --
+  // its own tabs, and switches that save on flip rather than behind a button. They are
+  // registry groups now, so without this they would appear here *as well*, twice over.
+  //
+  // The Flutter client renders all seven generically, with no code that knows what any of
+  // them mean, which is the point of moving them. This app is being retired; it keeps the
+  // UI it has.
+  const schema = allGroups.filter(group => !HAND_BUILT_ELSEWHERE.has(group.slug));
 
   if (schema.length === 0) {
     return <Text type="supporting">Loading settings…</Text>;

@@ -31,15 +31,16 @@ export type NelleWarning = z.infer<typeof nelleWarningSchema>;
  * User-facing text comes from `message`; clients branch on `code`. Keeping the
  * set in one place is the only way a second client can know what it may see.
  */
-/** `PATCH /api/settings/preferences`. Preferences that follow the user. */
+/**
+ * `PATCH /api/settings/preferences`. Favourite models, and nothing else.
+ *
+ * The six display toggles used to live here too. They are the `display` settings group
+ * now, so they render themselves from the served schema like every other boolean. A
+ * favourite is a *set*, not a field -- the registry has no type for it -- which is why it
+ * is still here and still hand-written.
+ */
 export const preferencesSchema = z.object({
   favoriteModelIds: z.array(z.string().min(1)).max(200).optional(),
-  showGenerationStats: z.boolean().optional(),
-  showThinkingInProgress: z.boolean().optional(),
-  showToolCallsInProgress: z.boolean().optional(),
-  renderUserContentAsMarkdown: z.boolean().optional(),
-  renderThinkingAsMarkdown: z.boolean().optional(),
-  disableAutoScroll: z.boolean().optional(),
 });
 
 export type PreferencesInput = z.infer<typeof preferencesSchema>;

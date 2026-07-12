@@ -1,14 +1,8 @@
-import {
-  DEFAULT_DISPLAY_PREFERENCES,
-  DISPLAY_PREFERENCE_KEYS,
-  readDisplayPreferences,
-  type DisplayPreferences,
-} from '../../../packages/shared/src/displayPreferences.ts';
 import type {AppDatabase} from './database';
 
 const PREFERENCES_SETTINGS_KEY = 'preferences';
 
-export type Preferences = DisplayPreferences & {
+export type Preferences = {
   /** Model ids the user pinned to the top of the composer's model selector. */
   favoriteModelIds: string[];
 };
@@ -19,11 +13,16 @@ export type PreferencesPatch = Partial<Preferences>;
  * User preferences that should follow the user between clients.
  *
  * Favorites lived in the browser's `localStorage`, so a phone started with an
- * empty list and could never be told about the desktop's. The display toggles
- * join them for the same reason: only their *storage* is server-side, and the
- * client still decides what a collapsed thinking block looks like. Anything
- * genuinely local -- sidebar collapse, the open settings section, drafts --
- * stays in the client's own stores.
+ * empty list and could never be told about the desktop's.
+ *
+ * The six display toggles used to live here too. They are the `display` settings group
+ * now, because they are booleans with a label and a help string -- which is exactly what
+ * the registry renders -- and every client was hand-building six checkboxes for them. A
+ * favourite is a *set*, and the registry has no field type for that, so it stays here.
+ *
+ * Only the *storage* is server-side either way: the client still decides what a collapsed
+ * thinking block looks like. Anything genuinely local -- sidebar collapse, the open
+ * settings section, drafts -- stays in the client's own stores.
  */
 export class PreferencesRepository {
   constructor(private readonly database: AppDatabase) {}
@@ -56,11 +55,6 @@ export class PreferencesRepository {
     if (input.favoriteModelIds) {
       next.favoriteModelIds = dedupe(input.favoriteModelIds);
     }
-    for (const key of DISPLAY_PREFERENCE_KEYS) {
-      if (typeof input[key] === 'boolean') {
-        next[key] = input[key];
-      }
-    }
     this.database.connection
       .prepare(
         `INSERT INTO settings(key, value_json, updated_at)
@@ -78,7 +72,7 @@ export class PreferencesRepository {
     const favoriteModelIds = Array.isArray(raw.favoriteModelIds)
       ? dedupe(raw.favoriteModelIds.filter((id): id is string => typeof id === 'string'))
       : [];
-    return {...readDisplayPreferences(raw), favoriteModelIds};
+    return {favoriteModelIds};
   }
 
   /** The row as written, or `{}`. Never parsed, so unknown keys survive. */
@@ -100,8 +94,6 @@ export class PreferencesRepository {
     }
   }
 }
-
-export {DEFAULT_DISPLAY_PREFERENCES};
 
 /** Order is the user's; the first occurrence of an id wins. */
 function dedupe(modelIds: string[]): string[] {

@@ -1,7 +1,6 @@
 import {create} from 'zustand';
 
-import {updatePreferences} from '../api';
-import type {Preferences} from '../api';
+import {updateDisplayPreferences} from '../api';
 import {
   DEFAULT_DISPLAY_PREFERENCES,
   type DisplayPreferences,
@@ -17,7 +16,7 @@ import {
  * rendering preference is not worth a spinner.
  */
 type PreferencesStore = DisplayPreferences & {
-  seed: (preferences: Preferences) => void;
+  seed: (preferences: DisplayPreferences) => void;
   toggle: (key: keyof DisplayPreferences, value: boolean) => Promise<void>;
 };
 
@@ -36,7 +35,7 @@ export const usePreferencesStore = create<PreferencesStore>((set, get) => ({
     const previous = get()[key];
     set({[key]: value} as Partial<DisplayPreferences>);
     try {
-      await updatePreferences({[key]: value});
+      await updateDisplayPreferences({[key]: value});
     } catch {
       // The server refused or is unreachable. Put the switch back rather than
       // leave the user looking at a preference that was never saved.

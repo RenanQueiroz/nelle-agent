@@ -733,24 +733,6 @@
               "type": "string",
               "minLength": 1
             }
-          },
-          "showGenerationStats": {
-            "type": "boolean"
-          },
-          "showThinkingInProgress": {
-            "type": "boolean"
-          },
-          "showToolCallsInProgress": {
-            "type": "boolean"
-          },
-          "renderUserContentAsMarkdown": {
-            "type": "boolean"
-          },
-          "renderThinkingAsMarkdown": {
-            "type": "boolean"
-          },
-          "disableAutoScroll": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -2098,6 +2080,64 @@
       },
       "patch": {
         "summary": "PATCH /api/settings/reasoning",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/NelleError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings/display": {
+      "get": {
+        "summary": "GET /api/settings/display",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/NelleError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "PATCH /api/settings/display",
         "security": [
           {
             "bearerAuth": []

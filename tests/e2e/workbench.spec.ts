@@ -3143,8 +3143,10 @@ test('a display preference is saved to the server and changes what is rendered',
       },
     },
   ];
+  // The toggles are the `display` settings group now, so they render themselves from the
+  // served schema and are read and written like every other group. `preferences` is
+  // favourites: a set, which the registry has no field type for.
   let stored: Record<string, unknown> = {
-    favoriteModelIds: [],
     showGenerationStats: true,
     showThinkingInProgress: true,
     showToolCallsInProgress: true,
@@ -3154,6 +3156,9 @@ test('a display preference is saved to the server and changes what is rendered',
   };
   const patches: Array<Record<string, unknown>> = [];
   await page.route('**/api/settings/preferences', async route => {
+    await route.fulfill({json: {favoriteModelIds: []}});
+  });
+  await page.route('**/api/settings/display', async route => {
     if (route.request().method() === 'PATCH') {
       const body = route.request().postDataJSON() as Record<string, unknown>;
       patches.push(body);

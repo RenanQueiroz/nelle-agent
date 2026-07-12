@@ -1129,8 +1129,33 @@ export async function fetchSlashCommands(): Promise<SlashCommandRegistry> {
   return (await response.json()) as SlashCommandRegistry;
 }
 
-/** Favorites, plus the display toggles that follow the user between clients. */
-export type Preferences = DisplayPreferences & {favoriteModelIds: string[]};
+/**
+ * Favourite models. The display toggles used to be here too; they are the `display`
+ * settings group now, and render themselves from the served schema.
+ */
+export type Preferences = {favoriteModelIds: string[]};
+
+export async function fetchDisplayPreferences(): Promise<DisplayPreferences> {
+  const response = await fetch('/api/settings/display');
+  if (!response.ok) {
+    throw new Error(`Display preferences request failed: ${response.status}`);
+  }
+  return (await response.json()) as DisplayPreferences;
+}
+
+export async function updateDisplayPreferences(
+  input: Partial<DisplayPreferences>,
+): Promise<DisplayPreferences> {
+  const response = await fetch('/api/settings/display', {
+    method: 'PATCH',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error(`Display preferences update failed: ${response.status}`);
+  }
+  return (await response.json()) as DisplayPreferences;
+}
 
 export async function fetchPreferences(): Promise<Preferences> {
   const response = await fetch('/api/settings/preferences');

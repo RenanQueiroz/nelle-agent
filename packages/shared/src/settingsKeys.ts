@@ -15,6 +15,7 @@ export const INSTRUCTIONS_SETTINGS_SLUG = 'instructions';
 export const NETWORK_SETTINGS_SLUG = 'network';
 export const REASONING_SETTINGS_SLUG = 'reasoning';
 export const RUNTIME_SETTINGS_SLUG = 'runtime';
+export const DISPLAY_SETTINGS_SLUG = 'display';
 
 /**
  * Whether the server also binds a token-authenticated HTTPS listener for other

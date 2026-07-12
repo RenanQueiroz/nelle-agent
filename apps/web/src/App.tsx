@@ -106,6 +106,7 @@ import {
   type ReasoningLevel,
   type RuntimeStatus,
   fetchSlashCommands,
+  fetchDisplayPreferences,
   fetchPreferences,
   fetchSettingsGroup,
   fetchSettingsSchema,
@@ -430,8 +431,12 @@ export function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const stored = await fetchPreferences();
-        usePreferencesStore.getState().seed(stored);
+        const [stored, display] = await Promise.all([
+          fetchPreferences(),
+          // The toggles are their own settings group now; `preferences` is favourites.
+          fetchDisplayPreferences(),
+        ]);
+        usePreferencesStore.getState().seed(display);
         const orphaned = readLegacyFavoriteModelIds();
         const merged =
           orphaned.length > 0

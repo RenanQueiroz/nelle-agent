@@ -6,7 +6,12 @@ import {test} from 'bun:test';
 
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {PreferencesRepository} from '../../apps/server/src/preferences.ts';
-import {DEFAULT_DISPLAY_PREFERENCES} from '../../packages/shared/src/displayPreferences.ts';
+import {
+  DEFAULT_DISPLAY_PREFERENCES,
+  DISPLAY_PREFERENCE_KEYS,
+} from '../../packages/shared/src/displayPreferences.ts';
+import {SETTINGS_REGISTRY} from '../../packages/shared/src/settings.ts';
+import {DISPLAY_SETTINGS_SLUG} from '../../packages/shared/src/settingsKeys.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
@@ -17,7 +22,6 @@ test('preferences start empty rather than absent', async () => {
   await database.open();
   try {
     assert.deepEqual(new PreferencesRepository(database).getPreferences(), {
-      ...DEFAULT_DISPLAY_PREFERENCES,
       favoriteModelIds: [],
     });
   } finally {
@@ -74,7 +78,6 @@ test('a corrupt preferences row does not take the server down', async () => {
       .prepare('INSERT INTO settings(key, value_json, updated_at) VALUES (?, ?, ?)')
       .run('preferences', '{not json', new Date().toISOString());
     assert.deepEqual(new PreferencesRepository(database).getPreferences(), {
-      ...DEFAULT_DISPLAY_PREFERENCES,
       favoriteModelIds: [],
     });
   } finally {
@@ -93,7 +96,6 @@ test('the preferences routes filter unknown models without persisting the filter
   const app = await createTestServer(paths);
   try {
     assert.deepEqual((await app.inject({method: 'GET', url: '/api/settings/preferences'})).json(), {
-      ...DEFAULT_DISPLAY_PREFERENCES,
       favoriteModelIds: [],
     });
 
@@ -108,7 +110,6 @@ test('the preferences routes filter unknown models without persisting the filter
 
     // And the read filters it too, not just the write that rejected it.
     assert.deepEqual((await app.inject({method: 'GET', url: '/api/settings/preferences'})).json(), {
-      ...DEFAULT_DISPLAY_PREFERENCES,
       favoriteModelIds: [model.id],
     });
 
@@ -128,26 +129,29 @@ test('the preferences routes filter unknown models without persisting the filter
   }
 });
 
-test('a display toggle round-trips, and the rest keep their defaults', async () => {
-  const paths = await createTempPaths();
-  const database = new AppDatabase(paths);
-  await database.open();
-  try {
-    const preferences = new PreferencesRepository(database);
-    const saved = preferences.updatePreferences({disableAutoScroll: true});
-    assert.equal(saved.disableAutoScroll, true);
-    assert.equal(saved.showGenerationStats, DEFAULT_DISPLAY_PREFERENCES.showGenerationStats);
+test('the display toggles are a settings group, not a preference row', () => {
+  // They were six booleans with a label and a help string sitting in the preferences
+  // blob, so every client hand-built six checkboxes for them. That is exactly what the
+  // registry renders, so they are the `display` group now and no client writes a
+  // checkbox again.
+  const group = SETTINGS_REGISTRY.find(entry => entry.slug === DISPLAY_SETTINGS_SLUG);
+  assert.ok(group, 'display must be a registry group');
+  assert.deepEqual(
+    group.fields.map(field => field.key),
+    DISPLAY_PREFERENCE_KEYS,
+    'every toggle moved, and only the toggles',
+  );
+  for (const field of group.fields) {
+    assert.equal(field.type, 'boolean');
+    assert.ok(field.label.length > 0);
+    assert.ok(field.help.length > 0, "the help text came with them; it is the server's to write");
+  }
 
-    // A second repository over the same database sees it: that is the point.
-    assert.equal(new PreferencesRepository(database).getPreferences().disableAutoScroll, true);
-
-    // A patch of one toggle does not reset the others.
-    preferences.updatePreferences({showGenerationStats: false});
-    const both = preferences.getPreferences();
-    assert.equal(both.disableAutoScroll, true);
-    assert.equal(both.showGenerationStats, false);
-  } finally {
-    database.close();
+  // The defaults came with them, unchanged. `renderUserContentAsMarkdown` is off because
+  // the user typed plain text: their asterisks stay asterisks.
+  const byKey = new Map(group.fields.map(field => [field.key, field]));
+  for (const key of DISPLAY_PREFERENCE_KEYS) {
+    assert.equal(byKey.get(key)?.default, DEFAULT_DISPLAY_PREFERENCES[key], key);
   }
 });
 
@@ -167,7 +171,7 @@ test('a key this build does not know survives a write by one that does not know 
         new Date().toISOString(),
       );
     const preferences = new PreferencesRepository(database);
-    preferences.updatePreferences({showThinkingInProgress: false});
+    preferences.updatePreferences({favoriteModelIds: ['a', 'b']});
 
     const stored = JSON.parse(
       (
@@ -177,29 +181,7 @@ test('a key this build does not know survives a write by one that does not know 
       ).value_json,
     ) as Record<string, unknown>;
     assert.equal(stored.fromTheFuture, 'keep me');
-    assert.equal(stored.showThinkingInProgress, false);
-    assert.deepEqual(stored.favoriteModelIds, ['a']);
-  } finally {
-    database.close();
-  }
-});
-
-test('a malformed toggle falls back to its default, and takes no sibling with it', async () => {
-  const paths = await createTempPaths();
-  const database = new AppDatabase(paths);
-  await database.open();
-  try {
-    database.connection
-      .prepare('INSERT INTO settings(key, value_json, updated_at) VALUES (?, ?, ?)')
-      .run(
-        'preferences',
-        // `"yes"` is not a boolean; `disableAutoScroll` beside it is.
-        JSON.stringify({showGenerationStats: 'yes', disableAutoScroll: true}),
-        new Date().toISOString(),
-      );
-    const stored = new PreferencesRepository(database).getPreferences();
-    assert.equal(stored.showGenerationStats, DEFAULT_DISPLAY_PREFERENCES.showGenerationStats);
-    assert.equal(stored.disableAutoScroll, true);
+    assert.deepEqual(stored.favoriteModelIds, ['a', 'b']);
   } finally {
     database.close();
   }

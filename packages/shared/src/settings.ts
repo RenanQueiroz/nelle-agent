@@ -29,12 +29,14 @@ import {
   REASONING_BUDGET_HIGH_KEY,
   REASONING_BUDGET_LOW_KEY,
   REASONING_BUDGET_MEDIUM_KEY,
+  DISPLAY_SETTINGS_SLUG,
   REASONING_SETTINGS_SLUG,
   MODELS_MAX_KEY,
   RUNTIME_SETTINGS_SLUG,
   SLEEP_IDLE_SECONDS_KEY,
   TITLES_SETTINGS_SLUG,
 } from './settingsKeys.ts';
+import {DEFAULT_DISPLAY_PREFERENCES, DISPLAY_PREFERENCE_FIELDS} from './displayPreferences.ts';
 import {
   DEFAULT_REASONING_BUDGETS,
   MAX_REASONING_BUDGET,
@@ -300,6 +302,21 @@ export const SETTINGS_REGISTRY: readonly SettingsGroup[] = [
         integer: true,
       },
     ],
+  },
+  {
+    slug: DISPLAY_SETTINGS_SLUG,
+    title: 'Display',
+    description: 'What a conversation shows you. These follow you to every device.',
+    // Generated from the fields that already existed: `DISPLAY_PREFERENCE_FIELDS` carried
+    // a key, a label and help text for each toggle, which is a registry in all but name.
+    // Moving them here is deletion, not duplication.
+    fields: DISPLAY_PREFERENCE_FIELDS.map(field => ({
+      key: field.key,
+      label: field.label,
+      help: field.help,
+      type: 'boolean' as const,
+      default: DEFAULT_DISPLAY_PREFERENCES[field.key],
+    })),
   },
   {
     slug: RUNTIME_SETTINGS_SLUG,
