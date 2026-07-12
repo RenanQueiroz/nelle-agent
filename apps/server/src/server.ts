@@ -22,6 +22,7 @@ import {PreferencesRepository} from './preferences';
 import {SettingsRepository} from './settings';
 import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './uploads';
 import {DeviceRepository} from './devices';
+import {buildPairingPayload} from './pairing';
 import {ensureServerCert, localIPv4s, type ServerCert} from './tls';
 import {buildOpenApiDocument} from './openapi';
 import {ingestUpload, resolveChatAttachments, UnsupportedAttachmentError} from './attachmentIngest';
@@ -1101,7 +1102,13 @@ export async function createServer(
     return json({
       code: minted.code,
       expiresAt: minted.expiresAt,
-      qrPayload: pairingQrPayload(minted.code, serverCert, tlsPort),
+      qrPayload: buildPairingPayload({
+        code: minted.code,
+        expiresAt: minted.expiresAt,
+        cert: serverCert,
+        tlsPort,
+        addresses: localIPv4s(),
+      }),
     });
   });
 
@@ -1268,21 +1275,6 @@ function loopbackOnly(ctx: Ctx): Response {
     },
     404,
   );
-}
-
-/** The scannable pairing payload: where the LAN listener is, and its pinned cert. */
-function pairingQrPayload(
-  code: string,
-  cert: ServerCert | null,
-  tlsPort: number,
-): {lanUrl: string | null; tlsPort: number; certFingerprint: string | null; code: string} {
-  const ip = localIPv4s()[0] ?? null;
-  return {
-    lanUrl: ip ? `https://${ip}:${tlsPort}` : null,
-    tlsPort,
-    certFingerprint: cert?.fingerprint ?? null,
-    code,
-  };
 }
 
 type Logger = {
