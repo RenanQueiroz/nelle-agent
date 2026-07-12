@@ -38,6 +38,25 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
 
   @override
   Widget build(BuildContext context) {
+    // The server refused the message before it became a turn, so put the text
+    // back instead of making the user retype it.
+    ref.listen(
+      chatControllerProvider(
+        widget.conversationId,
+      ).select((s) => s.valueOrNull?.refusedMessage),
+      (previous, refused) {
+        if (refused == null || refused.isEmpty) {
+          return;
+        }
+        _controller
+          ..text = refused
+          ..selection = TextSelection.collapsed(offset: refused.length);
+        ref
+            .read(chatControllerProvider(widget.conversationId).notifier)
+            .consumeRefusedMessage();
+      },
+    );
+
     final running = ref.watch(
       chatControllerProvider(
         widget.conversationId,

@@ -25,6 +25,7 @@ class ChatState {
     this.running = false,
     this.modelLoadProgress,
     this.runError,
+    this.refusedMessage,
   });
 
   factory ChatState.fromSnapshot(ConversationSnapshot snapshot) => ChatState(
@@ -43,6 +44,10 @@ class ChatState {
   final double? modelLoadProgress;
   final String? runError;
 
+  /// A message the server refused before it became a turn (no `run.started`), so
+  /// the composer can put the text back rather than making the user retype it.
+  final String? refusedMessage;
+
   String get title => snapshot.conversation.title;
   bool get loadingModel => modelLoadProgress != null;
   List<ConversationMessage> get rendered => [...messages, ...pending];
@@ -56,6 +61,8 @@ class ChatState {
     bool clearModelLoad = false,
     String? runError,
     bool clearError = false,
+    String? refusedMessage,
+    bool clearRefused = false,
   }) => ChatState(
     snapshot: snapshot,
     messages: messages ?? this.messages,
@@ -66,6 +73,9 @@ class ChatState {
         ? null
         : (modelLoadProgress ?? this.modelLoadProgress),
     runError: clearError ? null : (runError ?? this.runError),
+    refusedMessage: clearRefused
+        ? null
+        : (refusedMessage ?? this.refusedMessage),
   );
 }
 
@@ -77,6 +87,12 @@ final chatControllerProvider =
 class ChatController extends FamilyAsyncNotifier<ChatState, String> {
   StreamSubscription<ChatStreamEvent>? _sub;
   CancelToken? _cancel;
+
+  /// The message this run is sending, and whether the server ever turned it into
+  /// a run. If it did not (`run.started` never arrived) and the run failed, the
+  /// message was refused and its text goes back to the composer.
+  String? _sentMessage;
+  bool _runStarted = false;
 
   @override
   Future<ChatState> build(String conversationId) async {
@@ -117,9 +133,12 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         running: true,
         clearError: true,
         clearModelLoad: true,
+        clearRefused: true,
       ),
     );
 
+    _sentMessage = message;
+    _runStarted = false;
     _cancel = CancelToken();
     _sub = ref
         .read(sseTransportProvider)
@@ -164,6 +183,9 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       return;
     }
     switch (event) {
+      case RunStartedEvent():
+        // The message became a turn, so it is no longer the composer's to keep.
+        _runStarted = true;
       case ModelLoadingEvent(:final progress):
         state = AsyncData(s.copyWith(modelLoadProgress: progress ?? 0.0));
       case AssistantDeltaEvent(:final delta):
@@ -260,22 +282,44 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
 
     final s = state.valueOrNull;
     final error = errorMessage ?? s?.runError;
+    // The server refused the message before it became a turn (it never sent
+    // run.started), so the text is still the composer's -- hand it back rather
+    // than making the user retype it.
+    final refused = (!_runStarted && error != null) ? _sentMessage : null;
+    _sentMessage = null;
     try {
       final snapshot = await ref.read(chatRepositoryProvider).getSnapshot(arg);
       final next = ChatState.fromSnapshot(snapshot);
-      state = AsyncData(error == null ? next : next.copyWith(runError: error));
+      state = AsyncData(
+        error == null
+            ? next
+            : next.copyWith(runError: error, refusedMessage: refused),
+      );
     } catch (_) {
       if (s != null) {
         state = AsyncData(
           s.copyWith(
             running: false,
             clearModelLoad: true,
-            messages: [...s.messages, ...s.pending],
+            // A refused message never became a turn, so it must not be left in the
+            // transcript as if it had been sent.
+            messages: refused != null
+                ? s.messages
+                : [...s.messages, ...s.pending],
             pending: const [],
             runError: error,
+            refusedMessage: refused,
           ),
         );
       }
+    }
+  }
+
+  /// Clears the refused message once the composer has taken its text back.
+  void consumeRefusedMessage() {
+    final s = state.valueOrNull;
+    if (s?.refusedMessage != null) {
+      state = AsyncData(s!.copyWith(clearRefused: true));
     }
   }
 }

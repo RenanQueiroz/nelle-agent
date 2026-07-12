@@ -124,6 +124,69 @@ void main() {
     },
   );
 
+  test(
+    'a refused message (no run.started) is handed back to the composer',
+    () async {
+      final events = StreamController<ChatStreamEvent>();
+      final c = container(events.stream);
+
+      await c.read(chatControllerProvider('c').future);
+      await c.read(chatControllerProvider('c').notifier).send('keep me');
+      // The server refuses before the message ever becomes a turn.
+      events.add(
+        StreamErrorEvent(
+          NelleError(code: 'llama_server_stopped', message: 'not running'),
+        ),
+      );
+      await events.close();
+      await _settle();
+
+      final state = c.read(chatControllerProvider('c')).requireValue;
+      expect(state.refusedMessage, 'keep me');
+      // and it is not left in the transcript as if it had been sent
+      expect(state.pending, isEmpty);
+      expect(state.messages, isEmpty);
+    },
+  );
+
+  test('a message that became a turn is never handed back', () async {
+    final events = StreamController<ChatStreamEvent>();
+    final c = container(events.stream);
+
+    await c.read(chatControllerProvider('c').future);
+    await c.read(chatControllerProvider('c').notifier).send('real turn');
+    events.add(const RunStartedEvent(runId: 'r'));
+    events.add(
+      StreamErrorEvent(
+        NelleError(code: 'context_overflow', message: 'too big'),
+      ),
+    );
+    await events.close();
+    await _settle();
+
+    final state = c.read(chatControllerProvider('c')).requireValue;
+    expect(state.refusedMessage, isNull);
+    expect(state.runError, 'too big');
+  });
+
+  test('consumeRefusedMessage clears it', () async {
+    final events = StreamController<ChatStreamEvent>();
+    final c = container(events.stream);
+
+    await c.read(chatControllerProvider('c').future);
+    await c.read(chatControllerProvider('c').notifier).send('keep me');
+    events.add(StreamErrorEvent(NelleError(code: 'x', message: 'nope')));
+    await events.close();
+    await _settle();
+
+    c.read(chatControllerProvider('c').notifier).consumeRefusedMessage();
+
+    expect(
+      c.read(chatControllerProvider('c')).requireValue.refusedMessage,
+      isNull,
+    );
+  });
+
   test('a stream error surfaces runError and ends the run', () async {
     final events = StreamController<ChatStreamEvent>();
     final c = container(events.stream);

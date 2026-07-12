@@ -15,6 +15,11 @@ class ContextBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final used = usage.usedTokens;
     final total = usage.totalTokens;
+    // Nothing measured yet (a fresh conversation): show nothing rather than a
+    // bare "context" label.
+    if (used == null && total == null) {
+      return const SizedBox.shrink();
+    }
     final ratio = (used != null && total != null && total > 0)
         ? (used / total).clamp(0.0, 1.0)
         : null;
