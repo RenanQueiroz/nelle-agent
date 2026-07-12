@@ -47,6 +47,23 @@ Project-specific guidance for AI coding agents.
   turns, then reloads the authoritative snapshot. The client never re-derives server
   truth: it reads `capabilities`, the server-stamped context `status`, and
   `reasoningLevel` off the snapshot.
+- `apps/client` (Milestone 2: the per-conversation composer). The model selector and
+  the reasoning control both write the *conversation* -- `PATCH
+/api/conversations/:id {defaultModelId}` and `PUT .../reasoning` -- and apply the
+  snapshot the server answers with, so two chats can sit on two models at once
+  (verified: E4B and E2B resident together, each answering its own chat). Neither
+  disturbs a run in flight: a snapshot describes the conversation and knows nothing
+  about the reply currently streaming, so both preserve `pending`/`running`. The
+  model catalog comes from `snapshot.models.available`, which exists even when
+  llama.cpp is stopped -- you must still be able to choose, because the server loads
+  the conversation's model when the run starts -- and llama.cpp's live router status
+  is only *overlaid* on it, as a subtitle line rather than a label suffix, which the
+  ellipsis would eat. Regenerate is a footer action on an assistant message, never on
+  a pending one: a pending turn's id is local and the server has never seen it.
+- The Flutter client's own `RouterModelEvent` parses llama.cpp's raw `/models/sse`
+  (the model id is top-level, the progress is staged), and `ChatStreamEvent` parses
+  Nelle's envelope. **Two different SSE shapes that must never share a parser** —
+  feeding a router frame to `ChatStreamEvent.fromEnvelope` mis-parses every event.
 - The Flutter client is instrumented for **agent-driven UI testing** — the Flutter
   answer to Playwright MCP. `lib/main.dart` initializes `MarionetteBinding` **only
   under `kDebugMode`** (release keeps the plain `WidgetsFlutterBinding`, so the
