@@ -4,6 +4,8 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:forui/forui.dart';
 import 'package:markdown/markdown.dart' as md;
 
+import 'code_highlight.dart';
+
 /// Renders a fenced code block: language label, copy button, and its own horizontal
 /// scroll.
 ///
@@ -88,12 +90,44 @@ class _CodeBlock extends StatelessWidget {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-              child: SelectableText(source, style: textStyle),
+              child: _Source(
+                source: source,
+                language: language,
+                textStyle: textStyle,
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+}
+
+/// The code itself, highlighted when we can and plain monospace when we cannot.
+///
+/// Highlighting must never be load-bearing: an unknown language, or a block still
+/// streaming and syntactically half-finished, simply falls back to the plain span.
+class _Source extends StatelessWidget {
+  const _Source({
+    required this.source,
+    required this.language,
+    required this.textStyle,
+  });
+
+  final String source;
+  final String? language;
+  final TextStyle textStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    final highlighted = CodeHighlighter.highlight(
+      source: source,
+      language: language,
+      base: textStyle,
+    );
+    return highlighted == null
+        ? SelectableText(source, style: textStyle)
+        : SelectableText.rich(highlighted, style: textStyle);
   }
 }
 
