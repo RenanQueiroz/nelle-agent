@@ -11,6 +11,7 @@ import 'package:markdown/markdown.dart' as md;
 
 import 'code_block.dart';
 import 'latex_math.dart';
+import 'markdown_links.dart';
 import 'latex_syntax.dart';
 
 /// The **one** place markdown is rendered.
@@ -94,6 +95,14 @@ class _MarkdownMessageState extends State<MarkdownMessage> {
       softLineBreak: true,
       selectable: true,
       styleSheet: _styleSheet(context),
+      // A link is text the model wrote. `openMarkdownLink` allowlists the scheme, so a
+      // `file:` or custom-scheme link does nothing rather than handing the OS something
+      // untrusted from a link whose visible text says otherwise.
+      onTapLink: (text, href, title) {
+        if (href != null) {
+          unawaited(openMarkdownLink(href));
+        }
+      },
       builders: {
         'pre': CodeBlockBuilder(textStyle: _codeStyle(context)),
         'latex': LatexMathBuilder(textStyle: widget.style),
