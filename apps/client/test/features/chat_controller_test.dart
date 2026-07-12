@@ -453,9 +453,7 @@ void main() {
       if (o.method == 'PUT') {
         putPath = o.path;
         putBody = o.data;
-        return jsonResponse({
-          'snapshot': snapshotJson(reasoningLevel: 'low'),
-        });
+        return jsonResponse({'snapshot': snapshotJson(reasoningLevel: 'low')});
       }
       return jsonResponse({'snapshot': snapshotJson(reasoningLevel: 'max')});
     });
@@ -693,7 +691,10 @@ void main() {
     );
     events.add(const RunCompletedEvent(status: 'completed'));
     await _settle();
-    expect(c.read(chatControllerProvider('c')).requireValue.runWarning, 'no room');
+    expect(
+      c.read(chatControllerProvider('c')).requireValue.runWarning,
+      'no room',
+    );
 
     // The warning belongs to the run that raised it, not to the conversation.
     await c.read(chatControllerProvider('c').notifier).send('again');

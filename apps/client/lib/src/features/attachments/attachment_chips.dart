@@ -83,7 +83,8 @@ class _Chip extends StatelessWidget {
     // The server may have downscaled the image or truncated the text. It said so, and
     // the user is entitled to know what is actually being sent.
     final notes = [
-      if (staged.isScan) 'scan — sent as ${upload.pageCount ?? 1} page image(s)',
+      if (staged.isScan)
+        'scan — sent as ${upload.pageCount ?? 1} page image(s)',
       ...upload.warnings,
     ];
 

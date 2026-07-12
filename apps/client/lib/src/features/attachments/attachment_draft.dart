@@ -13,7 +13,11 @@ import 'upload_repository.dart';
 /// *path* wherever there is one, so a 25 MiB photo is not also held in memory. Flutter
 /// decodes it lazily. Pasted bytes have no path, so those we keep.
 class StagedAttachment {
-  const StagedAttachment({required this.upload, this.previewPath, this.previewBytes});
+  const StagedAttachment({
+    required this.upload,
+    this.previewPath,
+    this.previewBytes,
+  });
 
   final UploadResponse upload;
   final String? previewPath;

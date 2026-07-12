@@ -142,11 +142,17 @@ class PasteToFile extends ConsumerWidget {
     if (!selection.isValid) {
       controller.value = TextEditingValue(
         text: value.text + text,
-        selection: TextSelection.collapsed(offset: value.text.length + text.length),
+        selection: TextSelection.collapsed(
+          offset: value.text.length + text.length,
+        ),
       );
       return;
     }
-    final replaced = value.text.replaceRange(selection.start, selection.end, text);
+    final replaced = value.text.replaceRange(
+      selection.start,
+      selection.end,
+      text,
+    );
     controller.value = TextEditingValue(
       text: replaced,
       selection: TextSelection.collapsed(offset: selection.start + text.length),

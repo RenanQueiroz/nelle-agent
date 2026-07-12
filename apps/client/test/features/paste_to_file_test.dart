@@ -133,20 +133,21 @@ void main() {
     expect(c.read(attachmentDraftProvider('c')).uploadIds, ['u1']);
   });
 
-  testWidgets('with no threshold from the server, every paste stays in the message', (
-    tester,
-  ) async {
-    // The client ships no copy of the default. A stale constant would silently turn a
-    // paste into a file against a server that had disabled it.
-    final controller = TextEditingController();
-    _clipboard(tester, text: 'y' * 5000);
-    final c = await _pump(tester, controller, threshold: null);
+  testWidgets(
+    'with no threshold from the server, every paste stays in the message',
+    (tester) async {
+      // The client ships no copy of the default. A stale constant would silently turn a
+      // paste into a file against a server that had disabled it.
+      final controller = TextEditingController();
+      _clipboard(tester, text: 'y' * 5000);
+      final c = await _pump(tester, controller, threshold: null);
 
-    await _paste(tester);
+      await _paste(tester);
 
-    expect(controller.text.length, 5000);
-    expect(c.read(attachmentDraftProvider('c')).uploads, isEmpty);
-  });
+      expect(controller.text.length, 5000);
+      expect(c.read(attachmentDraftProvider('c')).uploads, isEmpty);
+    },
+  );
 
   testWidgets('0 disables it, exactly as the setting says', (tester) async {
     final controller = TextEditingController();

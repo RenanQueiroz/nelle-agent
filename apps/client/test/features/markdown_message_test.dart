@@ -84,38 +84,40 @@ void main() {
     expect(_rendered(tester), contains('line one\nline two'));
   });
 
-  testWidgets('a fenced code block gets its language, chrome and a copy button', (
-    tester,
-  ) async {
-    const source = "void main() {\n  print('hi');\n}";
-    await tester.pumpWidget(
-      _harness(const MarkdownMessage(text: '```dart\n$source\n```')),
-    );
+  testWidgets(
+    'a fenced code block gets its language, chrome and a copy button',
+    (tester) async {
+      const source = "void main() {\n  print('hi');\n}";
+      await tester.pumpWidget(
+        _harness(const MarkdownMessage(text: '```dart\n$source\n```')),
+      );
 
-    // The language rides on the code element as `class="language-dart"` — the
-    // HTML-shaped AST showing through.
-    expect(find.text('dart'), findsOneWidget);
-    expect(
-      find.byKey(ValueKey('k-code-copy-${source.hashCode}')),
-      findsOneWidget,
-    );
-    expect(_rendered(tester), contains("print('hi');"));
-    // The fence itself is markup, not content.
-    expect(_rendered(tester), isNot(contains('```')));
-  });
+      // The language rides on the code element as `class="language-dart"` — the
+      // HTML-shaped AST showing through.
+      expect(find.text('dart'), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('k-code-copy-${source.hashCode}')),
+        findsOneWidget,
+      );
+      expect(_rendered(tester), contains("print('hi');"));
+      // The fence itself is markup, not content.
+      expect(_rendered(tester), isNot(contains('```')));
+    },
+  );
 
-  testWidgets('a code block scrolls itself, so a long line cannot move the page', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _harness(MarkdownMessage(text: '```\n${'x' * 400}\n```')),
-    );
+  testWidgets(
+    'a code block scrolls itself, so a long line cannot move the page',
+    (tester) async {
+      await tester.pumpWidget(
+        _harness(MarkdownMessage(text: '```\n${'x' * 400}\n```')),
+      );
 
-    final scroll = tester.widget<SingleChildScrollView>(
-      find.byType(SingleChildScrollView).last,
-    );
-    expect(scroll.scrollDirection, Axis.horizontal);
-  });
+      final scroll = tester.widget<SingleChildScrollView>(
+        find.byType(SingleChildScrollView).last,
+      );
+      expect(scroll.scrollDirection, Axis.horizontal);
+    },
+  );
 
   testWidgets('a wide table scrolls instead of overflowing', (tester) async {
     // The package only wraps a table in a scroll view when the column width is Fixed
@@ -123,9 +125,7 @@ void main() {
     // or overflows. Pin the setting that buys the scroll.
     await tester.pumpWidget(
       _harness(
-        const MarkdownMessage(
-          text: '| a | b |\n| --- | --- |\n| 1 | 2 |',
-        ),
+        const MarkdownMessage(text: '| a | b |\n| --- | --- |\n| 1 | 2 |'),
       ),
     );
 
@@ -191,7 +191,8 @@ void main() {
     await tester.pumpWidget(
       _harness(
         const MarkdownMessage(
-          text: 'Line one<br>Line two. <details><summary>More</summary>hid</details>',
+          text:
+              'Line one<br>Line two. <details><summary>More</summary>hid</details>',
         ),
       ),
     );
@@ -202,16 +203,19 @@ void main() {
     expect(text, contains('Line two.'));
   });
 
-  testWidgets('an empty assistant message shows the placeholder, not markdown', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _harness(
-        MessageBubble(message: _message(ConversationMessageRole.assistant, '')),
-      ),
-    );
+  testWidgets(
+    'an empty assistant message shows the placeholder, not markdown',
+    (tester) async {
+      await tester.pumpWidget(
+        _harness(
+          MessageBubble(
+            message: _message(ConversationMessageRole.assistant, ''),
+          ),
+        ),
+      );
 
-    expect(find.byType(MarkdownMessage), findsNothing);
-    expect(_rendered(tester), contains('…'));
-  });
+      expect(find.byType(MarkdownMessage), findsNothing);
+      expect(_rendered(tester), contains('…'));
+    },
+  );
 }

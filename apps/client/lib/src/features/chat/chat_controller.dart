@@ -574,10 +574,9 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     _sentMessage = null;
     try {
       final snapshot = await ref.read(chatRepositoryProvider).getSnapshot(arg);
-      final next = ChatState.fromSnapshot(snapshot).copyWith(
-        compactNote: compactNote,
-        runWarning: runWarning,
-      );
+      final next = ChatState.fromSnapshot(
+        snapshot,
+      ).copyWith(compactNote: compactNote, runWarning: runWarning);
       state = AsyncData(
         error == null
             ? next

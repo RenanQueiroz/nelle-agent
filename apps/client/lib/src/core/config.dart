@@ -1,10 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../features/connection/server_connection.dart';
+
 /// Loopback address the Bun server binds by default.
 const String defaultServerBaseUrl = 'http://127.0.0.1:8787';
-
-const String _baseUrlKey = 'server_base_url';
 
 /// Overridden in `main()` with the loaded instance so config is available
 /// synchronously to the rest of the app.
@@ -13,28 +13,12 @@ final sharedPreferencesProvider = Provider<SharedPreferences>(
       throw UnimplementedError('Override sharedPreferencesProvider in main()'),
 );
 
-/// The configured server base URL, persisted across launches. Changing it
-/// rebuilds the dio client and re-runs the health check downstream.
-final serverBaseUrlProvider = NotifierProvider<ServerBaseUrlNotifier, String>(
-  ServerBaseUrlNotifier.new,
+/// The base URL of the server the app talks to.
+///
+/// Derived, not stored: the source of truth is `connectionProvider`, because a URL on
+/// its own is only half a destination — a paired server also carries a pinned cert
+/// fingerprint and a device id, and letting the URL move independently of those is how
+/// a client ends up pinning one server's cert against another's address.
+final serverBaseUrlProvider = Provider<String>(
+  (ref) => ref.watch(connectionProvider).baseUrl,
 );
-
-class ServerBaseUrlNotifier extends Notifier<String> {
-  @override
-  String build() {
-    final stored = ref
-        .watch(sharedPreferencesProvider)
-        .getString(_baseUrlKey)
-        ?.trim();
-    return (stored == null || stored.isEmpty) ? defaultServerBaseUrl : stored;
-  }
-
-  /// Persists [url] (falling back to the default when blank) and updates state.
-  Future<void> set(String url) async {
-    final normalized = url.trim().isEmpty ? defaultServerBaseUrl : url.trim();
-    await ref
-        .read(sharedPreferencesProvider)
-        .setString(_baseUrlKey, normalized);
-    state = normalized;
-  }
-}

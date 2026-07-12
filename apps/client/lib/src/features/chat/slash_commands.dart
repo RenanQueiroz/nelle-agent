@@ -45,21 +45,27 @@ class UnsupportedSlashCommand {
 }
 
 class SlashCommandRegistry {
-  const SlashCommandRegistry({this.commands = const [], this.unsupported = const []});
+  const SlashCommandRegistry({
+    this.commands = const [],
+    this.unsupported = const [],
+  });
 
   final List<SlashCommand> commands;
   final List<UnsupportedSlashCommand> unsupported;
 
-  static SlashCommandRegistry fromJson(Map<String, dynamic> json) => SlashCommandRegistry(
-    commands: [
-      for (final c in (json['commands'] as List? ?? const []))
-        SlashCommand.fromJson((c as Map).cast<String, dynamic>()),
-    ],
-    unsupported: [
-      for (final c in (json['unsupported'] as List? ?? const []))
-        UnsupportedSlashCommand.fromJson((c as Map).cast<String, dynamic>()),
-    ],
-  );
+  static SlashCommandRegistry fromJson(Map<String, dynamic> json) =>
+      SlashCommandRegistry(
+        commands: [
+          for (final c in (json['commands'] as List? ?? const []))
+            SlashCommand.fromJson((c as Map).cast<String, dynamic>()),
+        ],
+        unsupported: [
+          for (final c in (json['unsupported'] as List? ?? const []))
+            UnsupportedSlashCommand.fromJson(
+              (c as Map).cast<String, dynamic>(),
+            ),
+        ],
+      );
 }
 
 /// What ships in the binary: only what we cannot do without.

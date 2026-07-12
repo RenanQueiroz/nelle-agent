@@ -238,7 +238,11 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 2600));
 
       expect(lists, 2, reason: 'did not re-list after the stream dropped');
-      expect(streams, hasLength(2), reason: 'did not reattach the event stream');
+      expect(
+        streams,
+        hasLength(2),
+        reason: 'did not reattach the event stream',
+      );
       expect(
         c.read(routerModelsProvider).requireValue.single.status,
         'loaded',

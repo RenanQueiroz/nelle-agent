@@ -143,10 +143,7 @@ class _MarkdownMessageState extends State<MarkdownMessage> {
     return MarkdownStyleSheet.fromTheme(theme).copyWith(
       p: body,
       listBullet: body,
-      a: TextStyle(
-        color: scheme.primary,
-        decoration: TextDecoration.underline,
-      ),
+      a: TextStyle(color: scheme.primary, decoration: TextDecoration.underline),
       code: code.copyWith(backgroundColor: scheme.surfaceContainerHighest),
       blockquoteDecoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,

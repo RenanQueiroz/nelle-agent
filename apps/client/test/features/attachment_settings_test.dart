@@ -43,12 +43,15 @@ void main() {
     expect(off.shouldPasteToFile(1000000), isFalse);
   });
 
-  test('a settings read that fails leaves the threshold unknown, not broken', () async {
-    // Nobody should be unable to type because a settings request 500'd.
-    final c = _container((o) => jsonResponse({'error': 'nope'}, status: 500));
+  test(
+    'a settings read that fails leaves the threshold unknown, not broken',
+    () async {
+      // Nobody should be unable to type because a settings request 500'd.
+      final c = _container((o) => jsonResponse({'error': 'nope'}, status: 500));
 
-    final settings = await c.read(attachmentSettingsProvider.future);
-    expect(settings.pasteToFileCharacters, isNull);
-    expect(settings.shouldPasteToFile(1000000), isFalse);
-  });
+      final settings = await c.read(attachmentSettingsProvider.future);
+      expect(settings.pasteToFileCharacters, isNull);
+      expect(settings.shouldPasteToFile(1000000), isFalse);
+    },
+  );
 }

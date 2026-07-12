@@ -144,7 +144,9 @@ void main() {
     expect(find.byType(Image), findsNothing);
   });
 
-  testWidgets('a message with no attachments shows no chip row', (tester) async {
+  testWidgets('a message with no attachments shows no chip row', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _harness(
         const MessageBubble(

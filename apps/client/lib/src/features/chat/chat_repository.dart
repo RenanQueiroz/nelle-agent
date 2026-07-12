@@ -17,9 +17,7 @@ class ChatRepository {
   final Dio _dio;
 
   Future<ConversationSnapshot> getSnapshot(String conversationId) =>
-      _snapshot(
-        () => _dio.get<Map<String, dynamic>>(_path(conversationId)),
-      );
+      _snapshot(() => _dio.get<Map<String, dynamic>>(_path(conversationId)));
 
   /// Pins the conversation to [modelId]. The run reads the *conversation's* model,
   /// so this — not activating a global model — is what makes this chat answer on it.

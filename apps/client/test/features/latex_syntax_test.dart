@@ -11,10 +11,9 @@ String _html(String source) => md.markdownToHtml(
 );
 
 /// The equations the parser actually found.
-List<String> _equations(String source) => RegExp(r'<latex[^>]*>(.*?)</latex>')
-    .allMatches(_html(source))
-    .map((m) => m.group(1)!)
-    .toList();
+List<String> _equations(String source) => RegExp(
+  r'<latex[^>]*>(.*?)</latex>',
+).allMatches(_html(source)).map((m) => m.group(1)!).toList();
 
 void main() {
   group('real LaTeX is rendered', () {
@@ -57,7 +56,16 @@ void main() {
     });
 
     test('a fenced code block is never read as maths', () {
-      expect(_equations('```sh\n' r'export A=$X' '\n' r'echo $Y $Z' '\n```'), isEmpty);
+      expect(
+        _equations(
+          '```sh\n'
+          r'export A=$X'
+          '\n'
+          r'echo $Y $Z'
+          '\n```',
+        ),
+        isEmpty,
+      );
     });
   });
 

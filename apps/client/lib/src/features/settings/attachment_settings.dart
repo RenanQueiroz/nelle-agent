@@ -11,7 +11,10 @@ import '../../api/api_client.dart';
 /// the message. That is the safe direction to be wrong in: the alternative is a stale
 /// default silently turning someone's paste into a file attachment.
 class AttachmentSettings {
-  const AttachmentSettings({this.pasteToFileCharacters, this.maxImageMegapixels});
+  const AttachmentSettings({
+    this.pasteToFileCharacters,
+    this.maxImageMegapixels,
+  });
 
   /// A paste longer than this becomes a `.txt` upload. `0` disables it, and `null`
   /// means the server has not answered yet — which is *not* the same as `0`, but
@@ -32,18 +35,23 @@ class AttachmentSettings {
     return length > threshold;
   }
 
-  static AttachmentSettings fromJson(Map<String, dynamic> json) => AttachmentSettings(
-    pasteToFileCharacters: (json['pasteToFileCharacters'] as num?)?.toInt(),
-    maxImageMegapixels: (json['maxImageMegapixels'] as num?)?.toDouble(),
-  );
+  static AttachmentSettings fromJson(Map<String, dynamic> json) =>
+      AttachmentSettings(
+        pasteToFileCharacters: (json['pasteToFileCharacters'] as num?)?.toInt(),
+        maxImageMegapixels: (json['maxImageMegapixels'] as num?)?.toDouble(),
+      );
 }
 
 /// Never throws: a settings read that fails must not stop anyone from typing. It simply
 /// leaves every threshold unknown, which is the inert state.
-final attachmentSettingsProvider = FutureProvider<AttachmentSettings>((ref) async {
+final attachmentSettingsProvider = FutureProvider<AttachmentSettings>((
+  ref,
+) async {
   final dio = ref.watch(dioProvider);
   try {
-    final res = await dio.get<Map<String, dynamic>>('/api/settings/attachments');
+    final res = await dio.get<Map<String, dynamic>>(
+      '/api/settings/attachments',
+    );
     final code = res.statusCode ?? 0;
     final data = res.data;
     // A non-2xx does not throw: dio hands back the body so a NelleError can be read off

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/config.dart';
 import 'health.dart';
+import 'server_connection.dart';
 
 /// Settings: edit the server URL and see whether it is reachable.
 ///
@@ -33,7 +34,7 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
   }
 
   Future<void> _save() async {
-    await ref.read(serverBaseUrlProvider.notifier).set(_controller.text);
+    await ref.read(connectionProvider.notifier).setBaseUrl(_controller.text);
     ref.invalidate(healthProvider);
   }
 
@@ -49,8 +50,7 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
             // Pop when this was pushed; fall back to the workbench when it was not —
             // a deep link, or a restart landing straight here — so the screen is never
             // a dead end.
-            onPress: () =>
-                context.canPop() ? context.pop() : context.go('/'),
+            onPress: () => context.canPop() ? context.pop() : context.go('/'),
           ),
         ],
       ),

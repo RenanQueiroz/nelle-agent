@@ -19,7 +19,10 @@ final _served = {
       'name': '/model',
       'guidance': 'Use the model selector in the composer or assistant footer.',
     },
-    {'name': '/new', 'guidance': 'Use the New chat button in the conversation sidebar.'},
+    {
+      'name': '/new',
+      'guidance': 'Use the New chat button in the conversation sidebar.',
+    },
   ],
 };
 
@@ -34,26 +37,29 @@ void main() {
     expect(unsupportedSlashCommandMessage('/compact be brief'), isNull);
   });
 
-  test('a known Pi command is refused with the guidance the server wrote', () async {
-    final c = ProviderContainer(
-      overrides: [
-        dioProvider.overrideWithValue(stubDio((o) => jsonResponse(_served))),
-      ],
-    );
-    addTearDown(c.dispose);
-    final registry = await c.read(slashCommandsProvider.future);
+  test(
+    'a known Pi command is refused with the guidance the server wrote',
+    () async {
+      final c = ProviderContainer(
+        overrides: [
+          dioProvider.overrideWithValue(stubDio((o) => jsonResponse(_served))),
+        ],
+      );
+      addTearDown(c.dispose);
+      final registry = await c.read(slashCommandsProvider.future);
 
-    // Word for word the server's sentence, so a command is refused once, not twice.
-    expect(
-      unsupportedSlashCommandMessage('/model gemma', registry),
-      '/model is handled by Nelle UI. '
-          'Use the model selector in the composer or assistant footer.',
-    );
-    expect(
-      unsupportedSlashCommandMessage('/new', registry),
-      contains('Use the New chat button'),
-    );
-  });
+      // Word for word the server's sentence, so a command is refused once, not twice.
+      expect(
+        unsupportedSlashCommandMessage('/model gemma', registry),
+        '/model is handled by Nelle UI. '
+        'Use the model selector in the composer or assistant footer.',
+      );
+      expect(
+        unsupportedSlashCommandMessage('/new', registry),
+        contains('Use the New chat button'),
+      );
+    },
+  );
 
   test('an unknown command is refused, and told what IS supported', () async {
     final c = ProviderContainer(
@@ -79,19 +85,22 @@ void main() {
     expect(refusal, contains('/compact'));
   });
 
-  test('a failed /api/commands leaves the bundled registry, not an exception', () async {
-    final c = ProviderContainer(
-      overrides: [
-        dioProvider.overrideWithValue(
-          stubDio((o) => jsonResponse({'error': 'nope'}, status: 500)),
-        ),
-      ],
-    );
-    addTearDown(c.dispose);
+  test(
+    'a failed /api/commands leaves the bundled registry, not an exception',
+    () async {
+      final c = ProviderContainer(
+        overrides: [
+          dioProvider.overrideWithValue(
+            stubDio((o) => jsonResponse({'error': 'nope'}, status: 500)),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
 
-    final registry = await c.read(slashCommandsProvider.future);
-    expect(registry.commands.single.name, '/compact');
-  });
+      final registry = await c.read(slashCommandsProvider.future);
+      expect(registry.commands.single.name, '/compact');
+    },
+  );
 
   test('the command name is lowercased, like the server does it', () {
     expect(parseSlashCommandName('/MODEL x'), '/model');

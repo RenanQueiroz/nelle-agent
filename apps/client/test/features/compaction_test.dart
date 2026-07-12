@@ -31,19 +31,25 @@ void main() {
     return c;
   }
 
-  group('parseCompactCommand — the client must intercept, the server will not', () {
-    test('it matches the server helper exactly', () {
-      expect(parseCompactCommand('/compact'), '');
-      expect(parseCompactCommand('/compact be brief'), 'be brief');
-      expect(parseCompactCommand('/compact   keep the code  '), 'keep the code');
-      // Ordinary prompts, and near-misses that must NOT be treated as the command.
-      expect(parseCompactCommand('compact this'), isNull);
-      expect(parseCompactCommand('/compacted'), isNull);
-      expect(parseCompactCommand('tell me about /compact'), isNull);
-      // Case-sensitive and prefix-exact, like the server's.
-      expect(parseCompactCommand('/Compact'), isNull);
-    });
-  });
+  group(
+    'parseCompactCommand — the client must intercept, the server will not',
+    () {
+      test('it matches the server helper exactly', () {
+        expect(parseCompactCommand('/compact'), '');
+        expect(parseCompactCommand('/compact be brief'), 'be brief');
+        expect(
+          parseCompactCommand('/compact   keep the code  '),
+          'keep the code',
+        );
+        // Ordinary prompts, and near-misses that must NOT be treated as the command.
+        expect(parseCompactCommand('compact this'), isNull);
+        expect(parseCompactCommand('/compacted'), isNull);
+        expect(parseCompactCommand('tell me about /compact'), isNull);
+        // Case-sensitive and prefix-exact, like the server's.
+        expect(parseCompactCommand('/Compact'), isNull);
+      });
+    },
+  );
 
   test('compact() streams the compaction endpoint, not the chat one', () async {
     final events = StreamController<ChatStreamEvent>();
@@ -125,55 +131,61 @@ void main() {
     expect(state.compacting, isFalse);
   });
 
-  test('stopping a compaction prefers the run-scoped abort, which has a warning', () async {
-    final events = StreamController<ChatStreamEvent>();
-    addTearDown(() => unawaited(events.close()));
-    final posts = <String>[];
-    final c = container(
-      events.stream,
-      dio: stubDio((o) {
-        if (o.method == 'POST') {
-          posts.add(o.path);
-          return jsonResponse({'ok': true, 'aborted': true});
-        }
-        return jsonResponse({'snapshot': snapshotJson()});
-      }),
-    );
-    await c.read(chatControllerProvider('c').future);
+  test(
+    'stopping a compaction prefers the run-scoped abort, which has a warning',
+    () async {
+      final events = StreamController<ChatStreamEvent>();
+      addTearDown(() => unawaited(events.close()));
+      final posts = <String>[];
+      final c = container(
+        events.stream,
+        dio: stubDio((o) {
+          if (o.method == 'POST') {
+            posts.add(o.path);
+            return jsonResponse({'ok': true, 'aborted': true});
+          }
+          return jsonResponse({'snapshot': snapshotJson()});
+        }),
+      );
+      await c.read(chatControllerProvider('c').future);
 
-    await c.read(chatControllerProvider('c').notifier).compact('');
-    events.add(const RunStartedEvent(runId: 'run-7', kind: 'compact'));
-    await _settle();
+      await c.read(chatControllerProvider('c').notifier).compact('');
+      events.add(const RunStartedEvent(runId: 'run-7', kind: 'compact'));
+      await _settle();
 
-    await c.read(chatControllerProvider('c').notifier).abort();
+      await c.read(chatControllerProvider('c').notifier).abort();
 
-    // `/compact/abort` carries no `warning` field at all; the run-scoped route does, and
-    // a llama.cpp slot still processing is worth saying out loud.
-    expect(posts, ['/api/conversations/c/runs/run-7/abort']);
-  });
+      // `/compact/abort` carries no `warning` field at all; the run-scoped route does, and
+      // a llama.cpp slot still processing is worth saying out loud.
+      expect(posts, ['/api/conversations/c/runs/run-7/abort']);
+    },
+  );
 
-  test('a compaction that ends badly does not stay "Compacting…" forever', () async {
-    final events = StreamController<ChatStreamEvent>();
-    final c = container(events.stream);
-    await c.read(chatControllerProvider('c').future);
+  test(
+    'a compaction that ends badly does not stay "Compacting…" forever',
+    () async {
+      final events = StreamController<ChatStreamEvent>();
+      final c = container(events.stream);
+      await c.read(chatControllerProvider('c').future);
 
-    await c.read(chatControllerProvider('c').notifier).compact('');
-    // Pi's real refusal when there is nothing to compact yet.
-    events.add(
-      StreamErrorEvent(
-        NelleError(
-          code: 'compact_failed',
-          message: 'Nothing to compact (session too small)',
+      await c.read(chatControllerProvider('c').notifier).compact('');
+      // Pi's real refusal when there is nothing to compact yet.
+      events.add(
+        StreamErrorEvent(
+          NelleError(
+            code: 'compact_failed',
+            message: 'Nothing to compact (session too small)',
+          ),
         ),
-      ),
-    );
-    await events.close();
-    await _settle();
+      );
+      await events.close();
+      await _settle();
 
-    final state = c.read(chatControllerProvider('c')).requireValue;
-    expect(state.compacting, isFalse);
-    // The row said "Compacting conversation context…" and would have said it for the
-    // rest of the session. A toast is gone in three seconds; the row is not.
-    expect(state.compactNote, 'Nothing to compact (session too small)');
-  });
+      final state = c.read(chatControllerProvider('c')).requireValue;
+      expect(state.compacting, isFalse);
+      // The row said "Compacting conversation context…" and would have said it for the
+      // rest of the session. A toast is gone in three seconds; the row is not.
+      expect(state.compactNote, 'Nothing to compact (session too small)');
+    },
+  );
 }

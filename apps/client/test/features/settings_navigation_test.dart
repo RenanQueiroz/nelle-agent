@@ -69,7 +69,9 @@ void main() {
     expect(find.text('Server connection'), findsNothing);
   });
 
-  testWidgets('back still escapes when settings was not pushed', (tester) async {
+  testWidgets('back still escapes when settings was not pushed', (
+    tester,
+  ) async {
     // A deep link or a restart can land straight on settings, with nothing to pop.
     // The screen must still let the user out rather than trapping them.
     final router = await _pumpSettings(tester);
