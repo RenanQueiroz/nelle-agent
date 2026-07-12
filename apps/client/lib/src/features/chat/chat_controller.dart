@@ -40,6 +40,8 @@ class ChatState {
     this.modelLoad,
     this.runError,
     this.refusedMessage,
+    this.compacting = false,
+    this.compactNote,
   });
 
   factory ChatState.fromSnapshot(ConversationSnapshot snapshot) => ChatState(
@@ -61,6 +63,17 @@ class ChatState {
   /// A message the server refused before it became a turn (no `run.started`), so
   /// the composer can put the text back rather than making the user retype it.
   final String? refusedMessage;
+
+  /// A compaction is running. The conversation is `compacting` server-side: it cannot
+  /// send, and the stop button aborts the compaction rather than an answer.
+  final bool compacting;
+
+  /// What the compaction is doing, rendered as a system row.
+  ///
+  /// **Synthesized here, because it exists nowhere else.** The compaction summary is a
+  /// `compaction` entry with no role, and `buildConversationMessages` drops it — so
+  /// `snapshot.messages` never contains it and reloading will not make it appear.
+  final String? compactNote;
 
   String get title => snapshot.conversation.title;
 
@@ -98,6 +111,8 @@ class ChatState {
     bool clearError = false,
     String? refusedMessage,
     bool clearRefused = false,
+    bool? compacting,
+    String? compactNote,
   }) => ChatState(
     snapshot: snapshot,
     messages: messages ?? this.messages,
@@ -109,6 +124,8 @@ class ChatState {
     refusedMessage: clearRefused
         ? null
         : (refusedMessage ?? this.refusedMessage),
+    compacting: compacting ?? this.compacting,
+    compactNote: compactNote ?? this.compactNote,
   );
 }
 
@@ -126,6 +143,10 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
   /// message was refused and its text goes back to the composer.
   String? _sentMessage;
   bool _runStarted = false;
+
+  /// The active run's id, so an abort can use the run-scoped route — the only one that
+  /// answers with a `warning` (`/compact/abort` has none).
+  String? _runId;
 
   @override
   Future<ChatState> build(String conversationId) async {
@@ -255,18 +276,68 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         );
   }
 
+  /// Compacts the conversation's context.
+  ///
+  /// `/compact` has its own endpoint and the chat route will **not** refuse it: it is on
+  /// the server's allowlist, so posting it to `chat/stream` would send the model the
+  /// literal text "/compact". Intercepting it is the client's job.
+  ///
+  /// The stream carries the same Nelle envelopes as a chat run, so the transport and the
+  /// fold are the ones already here.
+  Future<void> compact(String instructions) async {
+    final current = state.valueOrNull;
+    if (current == null || current.running || current.compacting) {
+      return;
+    }
+    state = AsyncData(
+      current.copyWith(
+        running: true,
+        compacting: true,
+        compactNote: 'Compacting conversation context…',
+        clearError: true,
+        clearRefused: true,
+      ),
+    );
+
+    // A compaction replays nothing and sends no message, so there is no typed text to
+    // hand back if it is refused.
+    _sentMessage = null;
+    _runStarted = false;
+    _cancel = CancelToken();
+    _sub = ref
+        .read(sseTransportProvider)
+        .stream(
+          '/api/conversations/${Uri.encodeComponent(arg)}/compact/stream',
+          body: {if (instructions.isNotEmpty) 'instructions': instructions},
+          cancelToken: _cancel,
+        )
+        .listen(
+          _onEvent,
+          onError: _onStreamError,
+          onDone: _finish,
+          cancelOnError: false,
+        );
+  }
+
   /// Stops the active run: aborts the upstream fetch and tells the server.
+  ///
+  /// Prefers the **run-scoped** abort when the run id is known, because it is the only
+  /// one that answers with a `warning` — `/compact/abort` does not carry the field at
+  /// all, and a slot still processing is worth saying out loud.
   Future<void> abort() async {
     if (_sub == null) {
       return;
     }
     _cancel?.cancel();
+    final runId = _runId;
+    final compacting = state.valueOrNull?.compacting ?? false;
+    final path = runId != null
+        ? '/api/conversations/${Uri.encodeComponent(arg)}/runs/${Uri.encodeComponent(runId)}/abort'
+        : compacting
+        ? '/api/conversations/${Uri.encodeComponent(arg)}/compact/abort'
+        : '/api/conversations/${Uri.encodeComponent(arg)}/abort';
     try {
-      await ref
-          .read(dioProvider)
-          .post<Map<String, dynamic>>(
-            '/api/conversations/${Uri.encodeComponent(arg)}/abort',
-          );
+      await ref.read(dioProvider).post<Map<String, dynamic>>(path);
     } catch (_) {
       // The stream cancel already stopped the client; _finish reloads state.
     }
@@ -334,13 +405,28 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       return;
     }
     switch (event) {
-      case RunStartedEvent():
+      case RunStartedEvent(:final runId):
         // The message became a turn, so it is no longer the composer's to keep — and
         // neither are its attachments, which the server has now bound to it. Clearing
         // here rather than at send is what lets a refused message keep its chips: no
         // `run.started`, no clear, and the uploads are still on the server, unbound.
         _runStarted = true;
+        _runId = runId;
         ref.read(attachmentDraftProvider(arg).notifier).clear();
+      case CompactStartedEvent():
+        state = AsyncData(
+          s.copyWith(compactNote: 'Compacting conversation context…'),
+        );
+      case CompactCompletedEvent(:final compacted):
+        state = AsyncData(
+          s.copyWith(
+            compactNote: compacted
+                ? 'Conversation compacted.'
+                : 'Nothing to compact.',
+          ),
+        );
+      case CompactFailedEvent(:final error):
+        state = AsyncData(s.copyWith(runError: error.message));
       case ModelLoadingEvent(:final status, :final progress):
         // The last of these can carry a runnable status: the server polls until the
         // model is up and reports what it saw. Showing "Loading weights" past that
@@ -371,10 +457,18 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         state = AsyncData(s.copyWith(runError: error.message));
       case RunCompletedEvent(:final status, :final error):
         _finish(
+          // A specific error already on the state — `compact.failed`, a stream `error` —
+          // is the one the server bothered to write. "The run failed." is what we say
+          // when nobody said anything better.
           errorMessage:
-              error?.message ?? (status == 'failed' ? 'The run failed.' : null),
+              error?.message ??
+              s.runError ??
+              (status == 'failed' ? 'The run failed.' : null),
         );
       case RunAbortedEvent():
+        if (s.compacting) {
+          state = AsyncData(s.copyWith(compactNote: 'Compaction stopped.'));
+        }
         _finish();
       default:
         // run.started, message.*, performance, tool_call, conversation.updated,
@@ -445,6 +539,16 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
 
     final s = state.valueOrNull;
     final error = errorMessage ?? s?.runError;
+    // The compaction row is synthesized and lives nowhere else: `buildConversationMessages`
+    // drops compaction entries, so reloading the snapshot would silently erase it.
+    //
+    // A compaction that ended badly must not leave "Compacting conversation context…" on
+    // screen for the rest of the session. The server's own sentence goes in the row --
+    // it says *why* ("Nothing to compact (session too small)"), and a toast is gone in
+    // three seconds.
+    final compactNote = s == null
+        ? null
+        : (s.compacting && error != null ? error : s.compactNote);
     // The server refused the message before it became a turn (it never sent
     // run.started), so the text is still the composer's -- hand it back rather
     // than making the user retype it.
@@ -452,7 +556,9 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     _sentMessage = null;
     try {
       final snapshot = await ref.read(chatRepositoryProvider).getSnapshot(arg);
-      final next = ChatState.fromSnapshot(snapshot);
+      final next = ChatState.fromSnapshot(snapshot).copyWith(
+        compactNote: compactNote,
+      );
       state = AsyncData(
         error == null
             ? next
@@ -463,6 +569,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         state = AsyncData(
           s.copyWith(
             running: false,
+            compacting: false,
             clearModelLoad: true,
             // A refused message never became a turn, so it must not be left in the
             // transcript as if it had been sent.

@@ -110,14 +110,21 @@ class _TranscriptState extends ConsumerState<_Transcript> {
   @override
   Widget build(BuildContext context) {
     final items = widget.state.rendered;
-    if (items.isEmpty) {
+    final compactNote = widget.state.compactNote;
+    if (items.isEmpty && compactNote == null) {
       return const Center(child: Text('No messages yet.'));
     }
     return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.all(16),
-      itemCount: items.length,
+      itemCount: items.length + (compactNote == null ? 0 : 1),
       itemBuilder: (context, i) {
+        // The compaction row is synthesized: `buildConversationMessages` drops
+        // compaction entries, so `snapshot.messages` never contains it and reloading
+        // would not bring it back.
+        if (i == items.length) {
+          return _CompactNote(note: compactNote!);
+        }
         final message = items[i];
         final isLast = i == items.length - 1;
         final isStreamingAssistant =
@@ -231,4 +238,27 @@ class _ChatError extends StatelessWidget {
       ),
     ),
   );
+}
+
+
+/// "Conversation compacted." — a row the server does not send and never will.
+class _CompactNote extends StatelessWidget {
+  const _CompactNote({required this.note});
+
+  final String note;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      key: const ValueKey('k-chat-compact-note'),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Center(
+        child: Text(
+          note,
+          style: TextStyle(fontSize: 12, color: scheme.outline),
+        ),
+      ),
+    );
+  }
 }

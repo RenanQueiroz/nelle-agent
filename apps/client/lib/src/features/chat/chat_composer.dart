@@ -8,6 +8,7 @@ import '../attachments/attachment_chips.dart';
 import '../models/model_selector.dart';
 import 'chat_controller.dart';
 import 'reasoning_selector.dart';
+import 'slash_commands.dart';
 
 /// The message input. Shows a send button when idle and a stop button while a
 /// run streams.
@@ -34,8 +35,22 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
     if (text.isEmpty) {
       return;
     }
+    final notifier = ref.read(
+      chatControllerProvider(widget.conversationId).notifier,
+    );
+
+    // `/compact` has its own endpoint, and the chat route will NOT refuse it: it is on
+    // the server's allowlist, so sending it as a prompt hands the model the literal text
+    // "/compact". Intercepting it is the client's job.
+    final instructions = parseCompactCommand(text);
+    if (instructions != null) {
+      _controller.clear();
+      notifier.compact(instructions);
+      return;
+    }
+
     _controller.clear();
-    ref.read(chatControllerProvider(widget.conversationId).notifier).send(text);
+    notifier.send(text);
   }
 
   void _stop() =>

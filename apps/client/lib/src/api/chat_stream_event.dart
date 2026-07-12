@@ -27,6 +27,9 @@ sealed class ChatStreamEvent {
       'run.started' => RunStartedEvent(
         runId: str('runId'),
         modelId: inner['modelId'] as String?,
+        // `chat` | `regenerate` | `compact` | `title` — how the fold tells a
+        // compaction from an answer, since a compaction emits no message events at all.
+        kind: inner['kind'] as String?,
       ),
       'run.aborted' => RunAbortedEvent(reason: str('reason')),
       'run.completed' => RunCompletedEvent(
@@ -69,6 +72,20 @@ sealed class ChatStreamEvent {
         title: inner['title'] as String?,
       ),
       'run.warning' => RunWarningEvent(NelleWarning.fromJson(inner)),
+      'compact.started' => CompactStartedEvent(
+        runId: str('runId'),
+        instructions: inner['instructions'] as String?,
+      ),
+      'compact.completed' => CompactCompletedEvent(
+        runId: str('runId'),
+        compacted: inner['compacted'] as bool? ?? false,
+      ),
+      'compact.failed' => CompactFailedEvent(
+        runId: str('runId'),
+        error: NelleError.fromJson(
+          (inner['error'] as Map? ?? const {}).cast<String, Object?>(),
+        ),
+      ),
       'error' => StreamErrorEvent(NelleError.fromJson(inner)),
       final type => UnknownStreamEvent(type ?? 'unknown'),
     };
@@ -76,9 +93,37 @@ sealed class ChatStreamEvent {
 }
 
 class RunStartedEvent extends ChatStreamEvent {
-  const RunStartedEvent({required this.runId, this.modelId});
+  const RunStartedEvent({required this.runId, this.modelId, this.kind});
   final String runId;
   final String? modelId;
+
+  /// `chat` | `regenerate` | `compact` | `title`. A compaction run emits no
+  /// `message.*` at all, so this is how the fold knows what it is watching.
+  final String? kind;
+}
+
+/// A compaction began. `compact.*` used to land in [UnknownStreamEvent], which is why
+/// that member exists.
+class CompactStartedEvent extends ChatStreamEvent {
+  const CompactStartedEvent({required this.runId, this.instructions});
+  final String runId;
+  final String? instructions;
+}
+
+class CompactCompletedEvent extends ChatStreamEvent {
+  const CompactCompletedEvent({required this.runId, required this.compacted});
+  final String runId;
+  final bool compacted;
+
+  // `tokensBefore`, `firstKeptEntryId` and `summaryPreview` are declared by the server's
+  // schema and never populated (`piHarness.ts:2006` emits none of them). Building UI on
+  // them would render nothing, so they are deliberately absent here too.
+}
+
+class CompactFailedEvent extends ChatStreamEvent {
+  const CompactFailedEvent({required this.runId, required this.error});
+  final String runId;
+  final NelleError error;
 }
 
 class RunAbortedEvent extends ChatStreamEvent {
