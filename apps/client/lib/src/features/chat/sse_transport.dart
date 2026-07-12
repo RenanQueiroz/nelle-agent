@@ -8,6 +8,7 @@ import '../../api/api_client.dart';
 import '../../api/api_exception.dart';
 import '../../api/chat_stream_event.dart';
 import '../../api/generated/models/nelle_error.dart';
+import 'sse_parser.dart';
 
 /// POSTs a request and yields parsed [ChatStreamEvent]s from the
 /// `text/event-stream` response. A pre-stream non-2xx (a 400 body) becomes a
@@ -44,43 +45,7 @@ class SseTransport {
     if (code < 200 || code >= 300) {
       throw _errorFromBody(await _collect(byteStream), code);
     }
-    yield* _parseFrames(byteStream);
-  }
-
-  Stream<ChatStreamEvent> _parseFrames(Stream<Uint8List> byteStream) async* {
-    var buffer = '';
-    await for (final chunk in byteStream) {
-      buffer = '$buffer${utf8.decode(chunk, allowMalformed: true)}'.replaceAll(
-        '\r\n',
-        '\n',
-      );
-      int idx;
-      while ((idx = buffer.indexOf('\n\n')) != -1) {
-        final event = _parseFrame(buffer.substring(0, idx));
-        buffer = buffer.substring(idx + 2);
-        if (event != null) yield event;
-      }
-    }
-    final tail = _parseFrame(buffer.trim());
-    if (tail != null) yield tail;
-  }
-
-  ChatStreamEvent? _parseFrame(String frame) {
-    if (frame.isEmpty) return null;
-    final data = <String>[];
-    for (final line in frame.split('\n')) {
-      if (line.startsWith('data:')) data.add(line.substring(5).trimLeft());
-    }
-    if (data.isEmpty) return null;
-    try {
-      final json = jsonDecode(data.join('\n'));
-      if (json is Map<String, dynamic>) {
-        return ChatStreamEvent.fromEnvelope(json);
-      }
-    } catch (_) {
-      // A malformed frame is a missing event, never a failed turn.
-    }
-    return null;
+    yield* parseSseByteStream(byteStream);
   }
 
   Future<String> _collect(Stream<Uint8List> byteStream) async {
