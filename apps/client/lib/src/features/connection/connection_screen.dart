@@ -44,6 +44,19 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
   Widget build(BuildContext context) {
     final health = ref.watch(healthProvider);
     final connection = ref.watch(connectionProvider);
+
+    // The box is seeded once in initState, so it goes stale the moment the connection
+    // changes underneath it -- and it does: pairing, disconnecting, and a revoked device
+    // unpairing itself all move it. After a disconnect the box still read
+    // `https://<lan>:8788` while the app was back on loopback, and pressing "Save & test"
+    // would have pointed it at the LAN server with **no certificate pinned**. Follow the
+    // connection instead.
+    ref.listen<ServerConnection>(connectionProvider, (previous, next) {
+      if (previous?.baseUrl != next.baseUrl) {
+        _controller.text = next.baseUrl;
+      }
+    });
+
     return FScaffold(
       header: FHeader.nested(
         title: const Text('Settings'),
