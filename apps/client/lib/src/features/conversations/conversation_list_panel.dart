@@ -30,7 +30,8 @@ class ConversationListPanel extends ConsumerWidget {
             FHeaderAction(
               key: const ValueKey('k-conv-settings'),
               icon: const Icon(FLucideIcons.settings),
-              onPress: () => context.go('/connection'),
+              // Push, so there is something to pop back to. `go()` replaces the stack.
+              onPress: () => context.push('/connection'),
             ),
           ],
         ),

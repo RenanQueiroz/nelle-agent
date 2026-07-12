@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/config.dart';
 import 'health.dart';
 
-/// M1 landing screen: edit the server URL and see whether it is reachable.
-/// Superseded by the workbench once the conversation list lands.
+/// Settings: edit the server URL and see whether it is reachable.
+///
+/// Reached from the conversation list's gear, which **pushes** it — `go()` replaces
+/// the stack, and with nothing to pop and no back action this screen was a dead end.
 class ConnectionScreen extends ConsumerStatefulWidget {
   const ConnectionScreen({super.key});
 
@@ -38,7 +41,19 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
   Widget build(BuildContext context) {
     final health = ref.watch(healthProvider);
     return FScaffold(
-      header: const FHeader(title: Text('Nelle Agent')),
+      header: FHeader.nested(
+        title: const Text('Settings'),
+        prefixes: [
+          FHeaderAction.back(
+            key: const ValueKey('k-connection-back'),
+            // Pop when this was pushed; fall back to the workbench when it was not —
+            // a deep link, or a restart landing straight here — so the screen is never
+            // a dead end.
+            onPress: () =>
+                context.canPop() ? context.pop() : context.go('/'),
+          ),
+        ],
+      ),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
