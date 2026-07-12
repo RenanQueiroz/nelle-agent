@@ -53,7 +53,13 @@ class ConversationsNotifier extends AsyncNotifier<ConversationsState> {
 
   @override
   Future<ConversationsState> build() async {
-    final page = await _repo.list();
+    // **Watch**, not read. The repository is rebuilt whenever the connection changes,
+    // and a connection change means a different *server*: pairing, disconnecting, or a
+    // revoked device unpairing itself. Reading it here left the list showing whatever
+    // it last saw -- on a phone, whose first launch cannot reach loopback at all, that
+    // meant pairing succeeded and the user still stared at "Can't reach the server"
+    // until they found the Retry button.
+    final page = await ref.watch(conversationsRepositoryProvider).list();
     return ConversationsState(
       items: page.conversations,
       total: page.total,

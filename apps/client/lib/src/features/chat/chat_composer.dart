@@ -171,11 +171,26 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
           AttachmentChips(conversationId: widget.conversationId),
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
+            // Both selectors flex, because a phone is narrower than the sum of what
+            // they would like to be: unflexed, this row overflowed by 91 pixels on a
+            // Pixel, painting Flutter's yellow-and-black hazard stripes over the
+            // composer. A desktop window is wide enough to hide that forever.
+            //
+            // The model gets the larger share: its label is a full model id and the
+            // reasoning label is one short word.
             child: Row(
               children: [
-                ModelSelector(conversationId: widget.conversationId),
+                Expanded(
+                  flex: 3,
+                  child: ModelSelector(conversationId: widget.conversationId),
+                ),
                 const SizedBox(width: 8),
-                ReasoningSelector(conversationId: widget.conversationId),
+                Expanded(
+                  flex: 2,
+                  child: ReasoningSelector(
+                    conversationId: widget.conversationId,
+                  ),
+                ),
               ],
             ),
           ),
