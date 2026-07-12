@@ -22,6 +22,7 @@ import {chatTemplateKwargsForModel, llamaRuntimeModelId} from './modelCompat';
 import {createErrorEvent} from './errors';
 import type {AppPaths} from './paths';
 import {AppStore} from './store';
+import {resolveConversationModel} from './conversationModel';
 import {
   createLiveContextTracker,
   LEGACY_DEFAULT_CONVERSATION_ID,
@@ -457,7 +458,13 @@ export class PiHarness {
     conversationId: string,
     customInstructions?: string,
   ): Promise<{compacted: boolean}> {
-    const activeModel = await this.store.getActiveModel();
+    // Compact the conversation with the conversation's own model, or it would
+    // summarize a chat using a model that never wrote a word of it.
+    const activeModel = await resolveConversationModel(
+      this.conversations,
+      this.store,
+      conversationId,
+    );
     if (!activeModel) {
       throw new Error('Select a model before compacting conversation context.');
     }
@@ -471,7 +478,11 @@ export class PiHarness {
     const queue = createAsyncQueue<ChatStreamEvent>();
     void (async () => {
       try {
-        const activeModel = await this.store.getActiveModel();
+        const activeModel = await resolveConversationModel(
+          this.conversations,
+          this.store,
+          conversationId,
+        );
         if (!activeModel) {
           throw new Error('Select a model before compacting conversation context.');
         }
@@ -607,7 +618,14 @@ export class PiHarness {
     conversationId = 'legacy-default',
     attachments: ChatAttachmentInput[] = [],
   ): Promise<AsyncIterable<ChatStreamEvent>> {
-    const activeModel = await this.store.getActiveModel();
+    // The conversation's own model, not whatever is globally active -- see
+    // resolveConversationModel. A brand-new conversation has none yet, so this
+    // returns the active model, which `ensureConversation` then stamps it with.
+    const activeModel = await resolveConversationModel(
+      this.conversations,
+      this.store,
+      conversationId,
+    );
     if (!activeModel) {
       throw new Error('Select a model before chatting.');
     }
@@ -665,9 +683,12 @@ export class PiHarness {
     assistantMessageId: string;
     modelId?: string;
   }): Promise<AsyncIterable<ChatStreamEvent>> {
+    // An explicit override wins (a footer model change); otherwise regenerate on the
+    // conversation's own model. Must match how server.ts picked the model to load, or
+    // the run loads one model and answers with another.
     const activeModel = input.modelId
       ? await this.store.getModel(input.modelId)
-      : await this.store.getActiveModel();
+      : await resolveConversationModel(this.conversations, this.store, input.conversationId);
     if (!activeModel) {
       throw new Error(
         input.modelId ? `Unknown model: ${input.modelId}` : 'Select a model before regenerating.',

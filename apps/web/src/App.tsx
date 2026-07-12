@@ -1073,9 +1073,9 @@ export function App() {
   }
 
   async function handleSelectComposerModel(model: ConfiguredModel) {
-    if (model.id === activeModelId) {
-      return;
-    }
+    // No early return on `model.id === activeModelId`: a run now uses the
+    // *conversation's* model, so a chat pinned to B while A is globally active must
+    // still be able to pin A. Re-picking the same model is idempotent anyway.
     await runAction(`composer-model:${model.id}`, async () => {
       // Kick the load off so the weights are warming while the user types; do not
       // wait for it. The chat route waits, and router SSE reports the progress.
@@ -1085,8 +1085,15 @@ export function App() {
           // The send will surface a real failure with model_load_failed.
         });
       }
+      // Pin the open conversation: the run reads the conversation's model, so
+      // activating alone would leave this selector looking inert.
+      if (activeConversationId) {
+        await updateConversation(activeConversationId, {defaultModelId: model.id});
+      }
+      // Still activate, so the choice also becomes the default new chats inherit.
       const activatedModel = await activateModel(model.id);
       setActiveModelId(activatedModel.id);
+      await refreshConversations(activeConversationId);
       await refreshState();
     });
   }

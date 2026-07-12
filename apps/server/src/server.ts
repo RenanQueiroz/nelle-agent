@@ -35,6 +35,7 @@ import {
   LEGACY_DEFAULT_CONVERSATION_ID,
   type ConversationDeleteResources,
 } from './conversations';
+import {resolveConversationModel} from './conversationModel';
 import type {AppPaths} from './paths';
 import type {AppState, ChatAttachmentInput, ChatStreamEvent} from './types';
 import type {NelleError} from '../../../packages/shared/src/contracts.ts';
@@ -863,7 +864,9 @@ export async function createServer(
         assertSupportedSlashCommand(body.message);
         await assertRuntimeRunning(llama);
 
-        const activeModel = await store.getActiveModel();
+        // Load the model this conversation will actually answer with (piHarness
+        // resolves the same way), or the run loads one model and answers with another.
+        const activeModel = await resolveConversationModel(conversations, store, id);
         if (activeModel) {
           await ensureModelReadyForRun({
             llama,
@@ -1048,9 +1051,11 @@ export async function createServer(
           throw new Error('Regeneration requires the Pi harness.');
         }
         await assertRuntimeRunning(llama);
+        // An explicit override wins (that is what a footer model change is);
+        // otherwise regenerate on the conversation's own model.
         const regenerateModel = body.modelId
           ? await store.getModel(body.modelId)
-          : await store.getActiveModel();
+          : await resolveConversationModel(conversations, store, id);
         if (regenerateModel) {
           await ensureModelReadyForRun({
             llama,
