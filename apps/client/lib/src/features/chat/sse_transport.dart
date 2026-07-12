@@ -74,8 +74,9 @@ class SseTransport {
     if (data.isEmpty) return null;
     try {
       final json = jsonDecode(data.join('\n'));
-      if (json is Map<String, dynamic>)
+      if (json is Map<String, dynamic>) {
         return ChatStreamEvent.fromEnvelope(json);
+      }
     } catch (_) {
       // A malformed frame is a missing event, never a failed turn.
     }
