@@ -72,6 +72,18 @@ Project-specific guidance for AI coding agents.
   found this way gets a regression test before the fix is committed. Marionette
   matches by `ValueKey` or visible text, so give every interactive widget a stable
   `ValueKey` — without one you are tapping raw coordinates, which silently rots.
+- **Test against the small models, not the real ones.** For any model-backed test
+  (agent-driven UI drives, e2e, a real generation), use
+  `unsloth/gemma-4-E4B-it-qat-GGUF:Q4_K_XL` (4.22 GB) — and add
+  `unsloth/gemma-4-E2B-it-qat-GGUF:Q4_K_XL` (2.62 GB) as the *second* model whenever a
+  test needs two. `gemma-4-26B` and `Qwen3.6-35B` are the real workloads; loading one
+  costs tens of seconds and a lot of RAM, which makes the drive loop useless. Import
+  with `POST /api/huggingface/use {repoId, quant}` — never hand-roll the section id
+  (`hf-repo` keeps the exact `…:UD-Q4_K_XL` ref; the section id uses llama.cpp's
+  canonical `…:Q4_K_XL`). **Simultaneous multi-model testing needs
+  `runtime.modelsMax >= 2`** (the default `1` evicts the first model when the second
+  loads, so you would be testing eviction and calling it a pass); it is set to `2`
+  here, and changing it requires a llama.cpp restart.
 - The HTTP server is `Bun.serve` over a small native router
   (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
   owns JSON-body parsing, zod→400 mapping, CORS, and a `Bun.file` static + SPA
