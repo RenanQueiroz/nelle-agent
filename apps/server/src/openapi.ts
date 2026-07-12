@@ -3,11 +3,19 @@ import {z} from 'zod';
 import {
   chatAttachmentReferenceSchema,
   chatRequestSchema,
+  devicesResponseSchema,
+  deviceViewSchema,
+  issuedTokensSchema,
   nelleErrorSchema,
   nelleWarningSchema,
+  pairingCodeResponseSchema,
+  pairingPayloadSchema,
+  pairRequestSchema,
   preferencesSchema,
+  refreshRequestSchema,
   uploadResponseSchema,
 } from '../../../packages/shared/src/contracts.ts';
+import {AUTH_ALLOWLIST, LOOPBACK_ONLY_PATHS} from './auth';
 import {
   chatMessageSchema,
   chatPerformanceSchema,
@@ -70,6 +78,15 @@ const CONTRACT_SCHEMAS: ReadonlyArray<readonly [string, z.ZodType]> = [
   // llama.cpp's live model view, so the client codegens the model selector's DTOs.
   ['LlamaRouterModel', llamaRouterModelSchema],
   ['LlamaModelsResponse', llamaModelsResponseSchema],
+  // Device pairing + auth. Served for the same reason as everything else here: a
+  // second client should codegen these, not reverse-engineer them from a 401.
+  ['PairingPayload', pairingPayloadSchema],
+  ['PairingCodeResponse', pairingCodeResponseSchema],
+  ['PairRequest', pairRequestSchema],
+  ['RefreshRequest', refreshRequestSchema],
+  ['IssuedTokens', issuedTokensSchema],
+  ['DeviceView', deviceViewSchema],
+  ['DevicesResponse', devicesResponseSchema],
 ];
 
 export function buildOpenApiDocument(
@@ -92,9 +109,20 @@ export function buildOpenApiDocument(
   for (const {method, path} of routes) {
     const openApiPath = path.replace(/:([A-Za-z0-9_]+)/g, '{$1}');
     const item = paths[openApiPath] ?? (paths[openApiPath] = {});
+    // The allowlisted routes are how a device *gets* a token, so declaring that they
+    // need one describes a lock whose key is inside it. A generated client would send
+    // an Authorization header it cannot yet have, or -- worse -- conclude it cannot
+    // pair at all.
+    const security = AUTH_ALLOWLIST.has(path) ? [] : [{bearerAuth: []}];
     item[method.toLowerCase()] = {
       summary: `${method} ${path}`,
-      security: [{bearerAuth: []}],
+      ...(LOOPBACK_ONLY_PATHS.has(path)
+        ? {
+            description:
+              'Loopback only. Answers 404 to an authenticated LAN device, so a paired device cannot enrol another or enumerate its siblings.',
+          }
+        : {}),
+      security,
       responses: {
         '200': {description: 'Success'},
         default: {

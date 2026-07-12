@@ -191,6 +191,90 @@ export const uploadResponseSchema = z.object({
 
 export type UploadResponse = z.infer<typeof uploadResponseSchema>;
 
+// --- Device pairing and authentication (LAN clients) ---
+// The loopback listener is trusted and needs none of this. A LAN client pairs once
+// with a code the user reads off the trusted machine, and then carries a bearer
+// token. These schemas are served so a second client codegens them instead of
+// guessing -- the reason every other contract here exists.
+
+/**
+ * What a device needs in order to reach this server and to trust it. Encoded into
+ * the pairing QR, and equally typeable by hand.
+ */
+export const pairingPayloadSchema = z.object({
+  /**
+   * Every candidate LAN URL, because the server cannot know which of its own
+   * addresses a device can see -- and guessing produces a QR that scans perfectly
+   * and connects to nothing. The client probes. Empty when LAN access is off.
+   */
+  lanUrls: z.array(z.string()),
+  tlsPort: z.number().int(),
+  /**
+   * SHA-256 of the cert DER as uppercase colon-hex, identical to
+   * `openssl x509 -fingerprint -sha256`. Delivered here, out-of-band, *before* the
+   * first connection: that is what makes this pre-shared pinning rather than
+   * trust-on-first-use. `null` when LAN access is off.
+   */
+  certFingerprint: z.string().nullable(),
+  code: z.string(),
+  expiresAt: z.string(),
+});
+
+export type PairingPayload = z.infer<typeof pairingPayloadSchema>;
+
+export const pairingCodeResponseSchema = z.object({
+  code: z.string(),
+  expiresAt: z.string(),
+  qrPayload: pairingPayloadSchema,
+});
+
+export type PairingCodeResponse = z.infer<typeof pairingCodeResponseSchema>;
+
+export const pairRequestSchema = z.object({
+  code: z.string().min(1),
+  deviceName: z.string().min(1).max(200),
+  platform: z.string().max(50).optional(),
+});
+
+export type PairRequest = z.infer<typeof pairRequestSchema>;
+
+export const refreshRequestSchema = z.object({
+  refreshToken: z.string().min(1),
+});
+
+export type RefreshRequest = z.infer<typeof refreshRequestSchema>;
+
+/**
+ * A refresh **rotates both tokens**: the previous access token and the previous
+ * refresh token are dead the moment this is issued, and a device holds exactly one
+ * pair. A client therefore has to single-flight its refresh -- several requests
+ * 401ing at once (chat SSE, router SSE, a snapshot reload) would otherwise each
+ * present the same now-rotated refresh token and tear down their own session.
+ */
+export const issuedTokensSchema = z.object({
+  accessToken: z.string(),
+  accessExpiresAt: z.string(),
+  refreshToken: z.string(),
+});
+
+export type IssuedTokens = z.infer<typeof issuedTokensSchema>;
+
+export const deviceViewSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  platform: z.string().nullable(),
+  createdAt: z.string(),
+  lastSeenAt: z.string().nullable(),
+});
+
+export type DeviceView = z.infer<typeof deviceViewSchema>;
+
+export const devicesResponseSchema = z.object({
+  devices: z.array(deviceViewSchema),
+});
+
+export type DevicesResponse = z.infer<typeof devicesResponseSchema>;
+
 export const eventEnvelopeSchema = z.object({
   id: z.string().min(1),
   type: z.string().min(1),

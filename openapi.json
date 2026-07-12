@@ -1269,6 +1269,152 @@
         },
         "required": ["models"],
         "additionalProperties": false
+      },
+      "PairingPayload": {
+        "type": "object",
+        "properties": {
+          "lanUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tlsPort": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "certFingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "code": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": ["lanUrls", "tlsPort", "certFingerprint", "code", "expiresAt"],
+        "additionalProperties": false
+      },
+      "PairingCodeResponse": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "qrPayload": {
+            "$ref": "#/components/schemas/PairingPayload"
+          }
+        },
+        "required": ["code", "expiresAt", "qrPayload"],
+        "additionalProperties": false
+      },
+      "PairRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "deviceName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "platform": {
+            "type": "string",
+            "maxLength": 50
+          }
+        },
+        "required": ["code", "deviceName"],
+        "additionalProperties": false
+      },
+      "RefreshRequest": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["refreshToken"],
+        "additionalProperties": false
+      },
+      "IssuedTokens": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "accessExpiresAt": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          }
+        },
+        "required": ["accessToken", "accessExpiresAt", "refreshToken"],
+        "additionalProperties": false
+      },
+      "DeviceView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["id", "name", "platform", "createdAt", "lastSeenAt"],
+        "additionalProperties": false
+      },
+      "DevicesResponse": {
+        "type": "object",
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceView"
+            }
+          }
+        },
+        "required": ["devices"],
+        "additionalProperties": false
       }
     },
     "securitySchemes": {
@@ -1317,11 +1463,7 @@
     "/api/health": {
       "get": {
         "summary": "GET /api/health",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
+        "security": [],
         "responses": {
           "200": {
             "description": "Success"
@@ -3333,6 +3475,7 @@
     "/api/pair/code": {
       "post": {
         "summary": "POST /api/pair/code",
+        "description": "Loopback only. Answers 404 to an authenticated LAN device, so a paired device cannot enrol another or enumerate its siblings.",
         "security": [
           {
             "bearerAuth": []
@@ -3363,11 +3506,7 @@
     "/api/pair": {
       "post": {
         "summary": "POST /api/pair",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
+        "security": [],
         "responses": {
           "200": {
             "description": "Success"
@@ -3393,11 +3532,7 @@
     "/api/auth/refresh": {
       "post": {
         "summary": "POST /api/auth/refresh",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
+        "security": [],
         "responses": {
           "200": {
             "description": "Success"
@@ -3423,6 +3558,7 @@
     "/api/devices": {
       "get": {
         "summary": "GET /api/devices",
+        "description": "Loopback only. Answers 404 to an authenticated LAN device, so a paired device cannot enrol another or enumerate its siblings.",
         "security": [
           {
             "bearerAuth": []
@@ -3453,6 +3589,7 @@
     "/api/devices/{id}": {
       "delete": {
         "summary": "DELETE /api/devices/:id",
+        "description": "Loopback only. Answers 404 to an authenticated LAN device, so a paired device cannot enrol another or enumerate its siblings.",
         "security": [
           {
             "bearerAuth": []

@@ -22,6 +22,7 @@ import {PreferencesRepository} from './preferences';
 import {SettingsRepository} from './settings';
 import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './uploads';
 import {DeviceRepository} from './devices';
+import {AUTH_ALLOWLIST, authorizeBearer} from './auth';
 import {buildPairingPayload} from './pairing';
 import {ensureServerCert, localIPv4s, type ServerCert} from './tls';
 import {buildOpenApiDocument} from './openapi';
@@ -43,7 +44,9 @@ import type {NelleError, UploadResponse} from '../../../packages/shared/src/cont
 import {
   chatRequestSchema,
   createEventEnvelope,
+  pairRequestSchema,
   preferencesSchema,
+  refreshRequestSchema,
   serializeSseEnvelope,
   NELLE_ERROR_CODES,
 } from '../../../packages/shared/src/contracts.ts';
@@ -151,16 +154,6 @@ const reasoningSettingsSchema = z.object({budgets: reasoningBudgetsSchema});
 const hostToolSettingsSchema = z.object({
   enabled: z.boolean().optional(),
   acknowledged: z.boolean().optional(),
-});
-
-const pairRequestSchema = z.object({
-  code: z.string().min(1),
-  deviceName: z.string().min(1).max(200),
-  platform: z.string().max(50).optional(),
-});
-
-const refreshRequestSchema = z.object({
-  refreshToken: z.string().min(1),
 });
 
 export type NelleServer = {
@@ -1251,17 +1244,6 @@ export async function createServer(
     lanAccessEnabled,
     serverCert,
   };
-}
-
-const AUTH_ALLOWLIST = new Set(['/api/health', '/api/pair', '/api/auth/refresh']);
-
-/** The device id for a valid `Authorization: Bearer` access token, or `null`. */
-function authorizeBearer(req: Request, devices: DeviceRepository): string | null {
-  const header = req.headers.get('authorization');
-  if (!header || !header.startsWith('Bearer ')) {
-    return null;
-  }
-  return devices.validateAccessToken(header.slice('Bearer '.length).trim());
 }
 
 /** Mimics the unknown-route 404 so a loopback-only endpoint is invisible from the LAN. */

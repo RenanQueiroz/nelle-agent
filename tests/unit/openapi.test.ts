@@ -13,7 +13,10 @@ type OpenApiDoc = {
     schemas: Record<string, {oneOf?: unknown[]}>;
     securitySchemes: Record<string, unknown>;
   };
-  paths: Record<string, Record<string, {responses?: unknown}>>;
+  paths: Record<
+    string,
+    Record<string, {responses?: unknown; security?: unknown; description?: string}>
+  >;
 };
 
 function tempPaths(dataDir: string): AppPaths {
@@ -100,6 +103,56 @@ test('the served OpenAPI document is valid, covers the contract, and matches the
       for (const [method, operation] of Object.entries(operations)) {
         assert.ok(operation.responses, `${method} ${routePath} has no responses`);
       }
+    }
+
+    // Pairing and auth are served like every other contract, so a second client
+    // codegens them instead of reverse-engineering them from a 401.
+    for (const id of [
+      'PairingPayload',
+      'PairingCodeResponse',
+      'PairRequest',
+      'RefreshRequest',
+      'IssuedTokens',
+      'DeviceView',
+      'DevicesResponse',
+    ]) {
+      assert.ok(doc.components.schemas[id], `missing component schema ${id}`);
+    }
+
+    // Every candidate address, never the server's guess at the best one: a single
+    // `lanUrl` is a coin flip on any host with a VPN, docker0, or WSL2's NAT.
+    assert.ok(
+      doc.components.schemas.PairingPayload?.properties?.lanUrls,
+      'the pairing payload must offer every LAN URL, not one',
+    );
+
+    // The allowlisted routes are how a device *gets* a token. Declaring that they
+    // need one describes a lock whose key is inside it, and a generated client would
+    // either send a header it cannot have or conclude it cannot pair at all.
+    for (const routePath of ['/api/health', '/api/pair', '/api/auth/refresh']) {
+      const operation = Object.values(doc.paths[routePath]!)[0]!;
+      assert.deepEqual(
+        operation.security,
+        [],
+        `${routePath} is token-exempt on the server; the contract must say so`,
+      );
+    }
+
+    // ...and everything else still demands one.
+    for (const routePath of ['/api/conversations', '/api/pair/code']) {
+      const operation = Object.values(doc.paths[routePath]!)[0]!;
+      assert.deepEqual(operation.security, [{bearerAuth: []}], `${routePath} must require a token`);
+    }
+
+    // A paired device cannot enrol another device or enumerate its siblings. That is
+    // a 404 it would otherwise have to discover by being surprised.
+    for (const routePath of ['/api/pair/code', '/api/devices', '/api/devices/{id}']) {
+      const operation = Object.values(doc.paths[routePath]!)[0]!;
+      assert.match(
+        operation.description ?? '',
+        /Loopback only/,
+        `${routePath} is loopback-only; the contract must say so`,
+      );
     }
 
     // The committed snapshot must match the served document, so it cannot drift
