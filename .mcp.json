@@ -2,15 +2,19 @@
   "mcpServers": {
     "marionette": {
       "type": "stdio",
-      "command": "marionette_mcp",
-      "args": [],
+      "command": "bash",
+      "args": [
+        "-lc",
+        "export PATH=\"$HOME/.pub-cache/bin:$HOME/development/flutter/bin:$PATH\"; exec marionette_mcp"
+      ],
       "env": {}
     },
     "dart": {
       "type": "stdio",
-      "command": "dart",
+      "command": "bash",
       "args": [
-        "mcp-server"
+        "-lc",
+        "export PATH=\"$HOME/development/flutter/bin:$PATH\"; exec dart mcp-server"
       ],
       "env": {}
     }

@@ -47,8 +47,9 @@ Project-specific guidance for AI coding agents.
 - The Flutter client is instrumented for **agent-driven UI testing** — the Flutter
   answer to Playwright MCP. `lib/main.dart` initializes `MarionetteBinding` **only
   under `kDebugMode`** (release keeps the plain `WidgetsFlutterBinding`, so the
-  instrumentation never reaches a shipped app), and the repo's `.mcp.json` registers
-  two stdio servers: `marionette_mcp` (widget inspection plus `tap`, `enter_text`,
+  instrumentation never reaches a shipped app), and the repo registers two stdio
+  servers (in `.mcp.json` for Claude Code and `.codex/config.toml` for Codex):
+  `marionette_mcp` (widget inspection plus `tap`, `enter_text`,
   `swipe`, `scroll_to`, `take_screenshots`, `get_logs`, `hot_reload`) and the
   official `dart mcp-server` (runtime errors, widget tree, hot reload, run tests,
   analyze). Prerequisite: `dart pub global activate marionette_mcp`, with
@@ -78,8 +79,14 @@ Project-specific guidance for AI coding agents.
   handler through an `inject`/`close` surface, so route tests did not churn.
 - Run Playwright e2e tests for UI behavior changes when possible. The e2e
   server uses `.nelle-e2e/` and starts on `127.0.0.1:8799`.
-- Codex has a local Playwright MCP server configured in `~/.codex/config.toml`;
-  restart the Codex session after MCP config changes.
+- MCP servers are configured **per project, in the repo**, not globally: Claude Code
+  reads `.mcp.json` and Codex reads `.codex/config.toml` (Codex does not read
+  `.mcp.json`). Keep the two in sync — both register `playwright` (for the retiring
+  `apps/web`), `marionette` and `dart` (see the Flutter client bullets below).
+  Restart the agent session after changing either file; MCP servers load at session
+  start. Each command exports `PATH` explicitly, because `~/.bashrc` returns early
+  for non-interactive shells, so a bare `bash -lc` misses `~/.pub-cache/bin` and
+  resolves `dart` to the stale **Windows** Flutter on `/mnt/c`.
 - Nelle stores app data under `.nelle/` by default. Do not commit
   generated app data, e2e app data, downloaded models, llama.cpp builds, test
   reports, or logs.

@@ -1,0 +1,30 @@
+# Project-level Codex config (Codex does not read the repo's .mcp.json, which is
+# Claude Code's equivalent — keep the two in sync). Project config only loads for
+# trusted directories; nelle-server is trusted in ~/.codex/config.toml.
+#
+# PATH is exported explicitly in each command: ~/.bashrc returns early for
+# non-interactive shells, so a bare `bash -lc` misses ~/.pub-cache/bin and resolves
+# `dart` to the stale Windows Flutter on /mnt/c.
+#
+# Prerequisite for the Flutter servers:
+#   dart pub global activate marionette_mcp
+#
+# Restart the Codex session after changing this file.
+
+# Browser automation for the (retiring) React web app at apps/web.
+[mcp_servers.playwright]
+command = "bash"
+args = ["-lc", "source ~/.nvm/nvm.sh && npx -y @playwright/mcp@latest --browser chromium --headless --isolated --allowed-hosts 127.0.0.1,localhost"]
+
+# Agent-driven UI testing for the Flutter client (apps/client): widget inspection,
+# tap / enter_text / swipe / scroll_to, take_screenshots, get_logs, hot_reload.
+# Requires the app running in debug (MarionetteBinding is initialized under kDebugMode).
+[mcp_servers.marionette]
+command = "bash"
+args = ["-lc", 'export PATH="$HOME/.pub-cache/bin:$HOME/development/flutter/bin:$PATH"; exec marionette_mcp']
+
+# Official Dart & Flutter MCP: runtime errors, widget tree, hot reload, run tests,
+# analyze, pub.dev search.
+[mcp_servers.dart]
+command = "bash"
+args = ["-lc", 'export PATH="$HOME/development/flutter/bin:$PATH"; exec dart mcp-server']

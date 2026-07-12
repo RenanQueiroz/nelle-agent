@@ -39,7 +39,9 @@ The generated files are committed so the app builds without running codegen.
 ## Agent-driven UI testing (MCP)
 
 The app is instrumented so an AI agent can drive the UI and see it — the Flutter
-equivalent of Playwright MCP. Both servers are registered in the repo's `.mcp.json`:
+equivalent of Playwright MCP. Both servers are registered per project, in the repo:
+`.mcp.json` (Claude Code) and `.codex/config.toml` (Codex, which does not read
+`.mcp.json`) — keep the two in sync.
 
 - **`marionette_mcp`** — `get_interactive_elements` (widget inspection), `tap`,
   `double_tap`, `long_press`, `enter_text`, `swipe`, `scroll_to`,
