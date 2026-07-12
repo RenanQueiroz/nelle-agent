@@ -31,9 +31,10 @@ class Conversation {
     this.forkKind,
     this.currentRun,
   });
-  
-  factory Conversation.fromJson(Map<String, Object?> json) => _$ConversationFromJson(json);
-  
+
+  factory Conversation.fromJson(Map<String, Object?> json) =>
+      _$ConversationFromJson(json);
+
   final String id;
   final String title;
   final TitleSource titleSource;

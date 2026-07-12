@@ -24,9 +24,10 @@ class AttachmentMetadata {
     this.textPreview,
     this.processing,
   });
-  
-  factory AttachmentMetadata.fromJson(Map<String, Object?> json) => _$AttachmentMetadataFromJson(json);
-  
+
+  factory AttachmentMetadata.fromJson(Map<String, Object?> json) =>
+      _$AttachmentMetadataFromJson(json);
+
   final String id;
   final String conversationId;
   final String? piEntryId;

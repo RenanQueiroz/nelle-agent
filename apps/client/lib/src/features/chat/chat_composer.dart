@@ -69,6 +69,7 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
         children: [
           Expanded(
             child: FTextField(
+              key: const ValueKey('k-composer-input'),
               control: FTextFieldControl.managed(controller: _controller),
               hint: 'Message…',
               minLines: 1,
@@ -80,10 +81,12 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
           const SizedBox(width: 8),
           running
               ? FButton.icon(
+                  key: const ValueKey('k-composer-stop'),
                   onPress: _stop,
                   child: const Icon(FLucideIcons.square),
                 )
               : FButton.icon(
+                  key: const ValueKey('k-composer-send'),
                   onPress: _send,
                   child: const Icon(FLucideIcons.arrowUp),
                 ),

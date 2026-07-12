@@ -28,9 +28,10 @@ class ConversationMessage {
     this.reasoning,
     this.attachments,
   });
-  
-  factory ConversationMessage.fromJson(Map<String, Object?> json) => _$ConversationMessageFromJson(json);
-  
+
+  factory ConversationMessage.fromJson(Map<String, Object?> json) =>
+      _$ConversationMessageFromJson(json);
+
   final String id;
   final ConversationMessageRole role;
   final String content;

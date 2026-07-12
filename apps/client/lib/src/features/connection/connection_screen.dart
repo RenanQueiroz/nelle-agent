@@ -49,6 +49,7 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
               const Text('Server connection'),
               const SizedBox(height: 12),
               FTextField(
+                key: const ValueKey('k-connection-url'),
                 control: FTextFieldControl.managed(controller: _controller),
                 label: const Text('Server URL'),
                 hint: defaultServerBaseUrl,
@@ -56,7 +57,11 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
                 onSubmit: (_) => _save(),
               ),
               const SizedBox(height: 12),
-              FButton(onPress: _save, child: const Text('Save & test')),
+              FButton(
+                key: const ValueKey('k-connection-save'),
+                onPress: _save,
+                child: const Text('Save & test'),
+              ),
               const SizedBox(height: 20),
               _HealthStatus(health: health),
             ],

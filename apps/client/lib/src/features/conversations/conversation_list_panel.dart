@@ -23,10 +23,12 @@ class ConversationListPanel extends ConsumerWidget {
           title: Text(total == null ? 'Chats' : 'Chats ($total)'),
           suffixes: [
             FHeaderAction(
+              key: const ValueKey('k-conv-new'),
               icon: const Icon(FLucideIcons.squarePen),
               onPress: () => _newChat(context, ref),
             ),
             FHeaderAction(
+              key: const ValueKey('k-conv-settings'),
               icon: const Icon(FLucideIcons.settings),
               onPress: () => context.go('/connection'),
             ),
@@ -98,6 +100,7 @@ class _ConversationList extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.all(8),
             child: FButton(
+              key: const ValueKey('k-conv-load-more'),
               onPress: state.loadingMore
                   ? null
                   : () => ref.read(conversationsProvider.notifier).loadMore(),
@@ -116,6 +119,7 @@ class _ConversationList extends ConsumerWidget {
   ) {
     final status = _statusLabel(c.status);
     return FTile(
+      key: ValueKey('k-conv-tile-${c.id}'),
       title: Text(
         c.title.isEmpty ? 'Untitled' : c.title,
         maxLines: 1,
@@ -126,6 +130,7 @@ class _ConversationList extends ConsumerWidget {
       onPress: () =>
           ref.read(selectedConversationIdProvider.notifier).state = c.id,
       suffix: FButton.icon(
+        key: ValueKey('k-conv-delete-${c.id}'),
         onPress: () => _delete(context, ref, c),
         child: const Icon(FLucideIcons.trash2, size: 16),
       ),
@@ -200,7 +205,11 @@ class _ErrorState extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 12),
-          FButton(onPress: onRetry, child: const Text('Retry')),
+          FButton(
+            key: const ValueKey('k-conv-retry'),
+            onPress: onRetry,
+            child: const Text('Retry'),
+          ),
         ],
       ),
     ),

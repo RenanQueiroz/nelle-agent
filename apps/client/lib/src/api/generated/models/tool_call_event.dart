@@ -20,9 +20,10 @@ class ToolCallEvent {
     this.output,
     this.errorMessage,
   });
-  
-  factory ToolCallEvent.fromJson(Map<String, Object?> json) => _$ToolCallEventFromJson(json);
-  
+
+  factory ToolCallEvent.fromJson(Map<String, Object?> json) =>
+      _$ToolCallEventFromJson(json);
+
   final String id;
   final String name;
   final String? target;

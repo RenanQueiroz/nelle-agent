@@ -19,9 +19,10 @@ class ChatAttachmentInput {
     this.text,
     this.data,
   });
-  
-  factory ChatAttachmentInput.fromJson(Map<String, Object?> json) => _$ChatAttachmentInputFromJson(json);
-  
+
+  factory ChatAttachmentInput.fromJson(Map<String, Object?> json) =>
+      _$ChatAttachmentInputFromJson(json);
+
   final String id;
   final ChatAttachmentInputKind kind;
   final String name;

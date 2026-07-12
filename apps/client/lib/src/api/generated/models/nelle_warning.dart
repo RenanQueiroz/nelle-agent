@@ -8,14 +8,11 @@ part 'nelle_warning.g.dart';
 
 @JsonSerializable()
 class NelleWarning {
-  const NelleWarning({
-    required this.code,
-    required this.message,
-    this.detail,
-  });
-  
-  factory NelleWarning.fromJson(Map<String, Object?> json) => _$NelleWarningFromJson(json);
-  
+  const NelleWarning({required this.code, required this.message, this.detail});
+
+  factory NelleWarning.fromJson(Map<String, Object?> json) =>
+      _$NelleWarningFromJson(json);
+
   final String code;
   final String message;
   final String? detail;

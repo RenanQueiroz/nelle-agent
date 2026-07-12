@@ -43,6 +43,7 @@ class ChatView extends ConsumerWidget {
           prefixes: [
             if (onBack != null)
               FHeaderAction(
+                key: const ValueKey('k-chat-back'),
                 icon: const Icon(FLucideIcons.arrowLeft),
                 onPress: onBack,
               ),
@@ -202,7 +203,11 @@ class _ChatError extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 12),
-          FButton(onPress: onRetry, child: const Text('Retry')),
+          FButton(
+            key: const ValueKey('k-chat-retry'),
+            onPress: onRetry,
+            child: const Text('Retry'),
+          ),
         ],
       ),
     ),

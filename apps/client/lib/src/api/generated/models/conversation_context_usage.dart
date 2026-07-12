@@ -18,9 +18,10 @@ class ConversationContextUsage {
     this.status,
     this.updatedAt,
   });
-  
-  factory ConversationContextUsage.fromJson(Map<String, Object?> json) => _$ConversationContextUsageFromJson(json);
-  
+
+  factory ConversationContextUsage.fromJson(Map<String, Object?> json) =>
+      _$ConversationContextUsageFromJson(json);
+
   final int? usedTokens;
   final int? totalTokens;
   final ConversationContextUsageSource? source;

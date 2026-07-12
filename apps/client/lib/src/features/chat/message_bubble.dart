@@ -44,7 +44,7 @@ class MessageBubble extends StatelessWidget {
               : CrossAxisAlignment.start,
           children: [
             if (!isUser && reasoning != null && reasoning.isNotEmpty)
-              _ReasoningBlock(text: reasoning),
+              _ReasoningBlock(text: reasoning, messageId: message.id),
             Container(
               margin: const EdgeInsets.symmetric(vertical: 4),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -74,9 +74,10 @@ class MessageBubble extends StatelessWidget {
 }
 
 class _ReasoningBlock extends StatefulWidget {
-  const _ReasoningBlock({required this.text});
+  const _ReasoningBlock({required this.text, required this.messageId});
 
   final String text;
+  final String messageId;
 
   @override
   State<_ReasoningBlock> createState() => _ReasoningBlockState();
@@ -94,6 +95,7 @@ class _ReasoningBlockState extends State<_ReasoningBlock> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           GestureDetector(
+            key: ValueKey('k-msg-reasoning-toggle-${widget.messageId}'),
             behavior: HitTestBehavior.opaque,
             onTap: () => setState(() => _open = !_open),
             child: Row(
