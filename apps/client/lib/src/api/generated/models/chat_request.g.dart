@@ -9,7 +9,7 @@ part of 'chat_request.dart';
 ChatRequest _$ChatRequestFromJson(Map<String, dynamic> json) => ChatRequest(
   message: json['message'] as String,
   attachments: (json['attachments'] as List<dynamic>?)
-      ?.map((e) => Attachments.fromJson(e as Map<String, dynamic>))
+      ?.map((e) => ChatAttachmentReference.fromJson(e as Map<String, dynamic>))
       .toList(),
 );
 

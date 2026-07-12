@@ -4,7 +4,7 @@
 
 import 'package:json_annotation/json_annotation.dart';
 
-import 'attachments.dart';
+import 'chat_attachment_reference.dart';
 
 part 'chat_request.g.dart';
 
@@ -16,7 +16,7 @@ class ChatRequest {
       _$ChatRequestFromJson(json);
 
   final String message;
-  final List<Attachments>? attachments;
+  final List<ChatAttachmentReference>? attachments;
 
   Map<String, Object?> toJson() => _$ChatRequestToJson(this);
 }

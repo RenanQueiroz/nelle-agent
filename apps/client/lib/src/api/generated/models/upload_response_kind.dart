@@ -5,7 +5,7 @@
 import 'package:json_annotation/json_annotation.dart';
 
 @JsonEnum()
-enum ChatAttachmentInputKind {
+enum UploadResponseKind {
   @JsonValue('text')
   text('text'),
   @JsonValue('pdf')
@@ -16,9 +16,9 @@ enum ChatAttachmentInputKind {
   /// Default value for all unparsed values, allows backward compatibility when adding new values on the backend.
   $unknown(null);
 
-  const ChatAttachmentInputKind(this.json);
+  const UploadResponseKind(this.json);
 
-  factory ChatAttachmentInputKind.fromJson(String json) =>
+  factory UploadResponseKind.fromJson(String json) =>
       values.firstWhere((e) => e.json == json, orElse: () => $unknown);
 
   final String? json;
@@ -37,6 +37,6 @@ enum ChatAttachmentInputKind {
   String toString() => json?.toString() ?? super.toString();
 
   /// Returns all defined enum values excluding the $unknown value.
-  static List<ChatAttachmentInputKind> get $valuesDefined =>
+  static List<UploadResponseKind> get $valuesDefined =>
       values.where((value) => value != $unknown).toList();
 }
