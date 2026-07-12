@@ -64,6 +64,53 @@ Project-specific guidance for AI coding agents.
   (the model id is top-level, the progress is staged), and `ChatStreamEvent` parses
   Nelle's envelope. **Two different SSE shapes that must never share a parser** —
   feeding a router frame to `ChatStreamEvent.fromEnvelope` mis-parses every event.
+- `apps/client` (Milestone 3: markdown). Models answer in markdown, so assistant
+  content *and* reasoning render through **one** widget, `MarkdownMessage` — nothing
+  else imports `flutter_markdown_plus`. The engine is a bet (Google discontinued
+  `flutter_markdown`; every option is a successor), and the wrapper is what makes
+  swapping it a one-file change. **User turns are never markdown**: someone who types
+  `a * b` must see what they typed. Load-bearing details, each of which was a bug
+  before it was a rule:
+  - **`softLineBreak: true`.** It defaults to `false`, and CommonMark *collapses* the
+    single newlines a model writes into one paragraph — the difference between a
+    structured answer and a wall of text.
+  - **`md.CodeSyntax()` comes first in `inlineSyntaxes`.** The parser evaluates user
+    syntaxes before its own defaults (*"User specified syntaxes are the first syntaxes
+    to be evaluated"*, `inline_parser.dart:62`), so LaTeX would otherwise reach inside a
+    code span and eat `` `${A}${B}` `` as an equation. Reorder this and shell breaks.
+  - **`tableColumnWidth: IntrinsicColumnWidth()`.** The package wraps a table in a
+    horizontal scroller *only* for a Fixed or Intrinsic width (`builder.dart:447`); its
+    default `FlexColumnWidth` gets none, so a wide model table squashes its columns or
+    pushes the page sideways.
+  - **Raw HTML renders as literal text, and that is correct.** The package does not do
+    inline HTML (*"Flutter isn't an HTML renderer like a web browser"*), and models emit
+    `<br>` and `<details>` anyway. Showing the tag beats silently eating content the
+    model meant to send. It has a test; do not "fix" it.
+  - The streaming bubble **re-parses on a throttle** (80 ms). Measured: a 2.4 kB answer
+    costs 2.9 ms to parse, 12 kB costs 5.3 ms, 51 kB costs 14.4 ms — against a 16.7 ms
+    frame, with a delta per token. Settled messages are free (`MarkdownBody` re-parses
+    only when `data` or `styleSheet` changes, `widget.dart:366`) — which holds *only*
+    while the style sheet stays value-equal across rebuilds, so a test pins that.
+  - **Links are allowlisted by scheme** (`http`/`https`/`mailto`). A markdown link is
+    text the model wrote: its visible text says anything, its target is what runs.
+- The Flutter client renders LaTeX because gemma answers arithmetic in it, but **both
+  halves of `flutter_markdown_plus_latex` are deliberately replaced**. Its inline syntax
+  treats `( x )` and `[ x ]` as maths, so "the result ( see above ) is 391" parses as an
+  equation; ours (`latex_syntax.dart`) keeps only the four real delimiters and guards
+  `$…$` the way KaTeX does — no whitespace inside the delimiters, no digit after the
+  closing `$` — so "it costs $5 and $10" and "set $HOME and $PATH" stay prose. Its
+  element builder (`latex_math.dart` replaces it) wrapped *every* equation in a greedy
+  horizontal scroller, which ate the rest of the line around inline maths, and had no
+  error fallback, so a malformed equation painted a red error box instead of the text the
+  model wrote. Only its **block** syntax is used. Known limitation: text after an inline
+  equation starts on a new line — flutter_markdown lays inline children out in a `Wrap`,
+  not `WidgetSpan`s, so it cannot re-flow around them.
+- Code blocks are highlighted with **`re_highlight`** (a Dart port of highlight.js).
+  `flutter_highlight` is a dead end — it depends on `highlight.dart`, which is
+  discontinued. Highlighting is never load-bearing: an unknown language, or a block still
+  streaming and syntactically half-written, falls back to the plain monospace span. The
+  palette **follows the app's brightness**; the app carries a full dark theme
+  (`app.dart:32`), and a light palette on a dark code block is dark-on-dark.
 - The Flutter client is instrumented for **agent-driven UI testing** — the Flutter
   answer to Playwright MCP. `lib/main.dart` initializes `MarionetteBinding` **only
   under `kDebugMode`** (release keeps the plain `WidgetsFlutterBinding`, so the
