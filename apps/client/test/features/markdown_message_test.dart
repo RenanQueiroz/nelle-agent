@@ -182,6 +182,26 @@ void main() {
     expect(_rendered(tester), contains('one two three four'));
   });
 
+  testWidgets('raw HTML from a model is shown, not executed and not swallowed', (
+    tester,
+  ) async {
+    // "Flutter isn't an HTML renderer like a web browser" — the package does not do
+    // inline HTML, and models emit it anyway. Showing the tag verbatim is the honest
+    // outcome: the alternative is silently eating content the model meant to send.
+    await tester.pumpWidget(
+      _harness(
+        const MarkdownMessage(
+          text: 'Line one<br>Line two. <details><summary>More</summary>hid</details>',
+        ),
+      ),
+    );
+
+    final text = _rendered(tester);
+    expect(text, contains('<br>'));
+    expect(text, contains('<summary>'));
+    expect(text, contains('Line two.'));
+  });
+
   testWidgets('an empty assistant message shows the placeholder, not markdown', (
     tester,
   ) async {
