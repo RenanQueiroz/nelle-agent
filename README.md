@@ -5,8 +5,9 @@ Bun server that manages a local `llama.cpp` runtime and runs the Pi agent
 harness, plus the clients that connect to it — meant to ship as a single
 cross-platform installer.
 
-Today the client is a browser UI (`apps/web`, React/Vite/Astryx); a Flutter
-desktop + mobile client is next. The server (`apps/server`) runs on Bun with
+The mature client is a browser UI (`apps/web`, React/Vite/Astryx); a Flutter
+desktop + mobile client (`apps/client`, Dart) is now scaffolded and being built
+out to replace it with one codebase. The server (`apps/server`) runs on Bun with
 `bun:sqlite` and `Bun.serve`, and shared contracts live in `packages/shared`. It
 runs on Windows, macOS, and Linux.
 
@@ -225,6 +226,40 @@ Set these environment variables when needed:
 - `LLAMA_SERVER_PATH`: use an existing `llama-server` binary instead of the
   managed install.
 - `NELLE_PI_DISABLED=1`: bypass Pi and use direct llama.cpp chat completions.
+
+## Flutter client (`apps/client`)
+
+`apps/client` is the Dart/Flutter client (package `nelle_agent`, bundle id
+`com.renanqueiroz.nelle_agent`) that will become the primary desktop + mobile UI.
+It talks to the server only over the served REST + SSE contract
+(`GET /api/openapi.json`) and never reaches into server internals, so it is
+insulated from the Bun toolchain: Oxfmt, Oxlint, and `tsc` all ignore
+`apps/client`, and its `build/` and `.dart_tool/` artifacts are git-ignored.
+
+The Flutter SDK is a native install kept outside the repo — not committed, and
+not a Homebrew package (Homebrew's `flutter` is a macOS-only cask). Install it
+per the [manual instructions](https://docs.flutter.dev/install/manual); this repo
+is developed against Flutter 3.44 (Dart 3.12). Confirm the toolchain with
+`flutter doctor`.
+
+Per-platform toolchains (install only what you build for):
+
+- **Web** — needs Chrome, nothing else.
+- **Linux desktop** — `sudo apt install clang ninja-build libgtk-3-dev`
+  (`mesa-utils` for GPU info).
+- **Android** — the Android SDK command-line tools (`sdkmanager`) with
+  `platform-tools`, `platforms;android-36`, and `build-tools;36.0.0`, licenses
+  accepted, plus `ANDROID_HOME` exported. A JDK 17+ is required (JDK 21 works).
+- **iOS / macOS** — build on a Mac with Xcode.
+
+Run and build:
+
+```bash
+cd apps/client
+flutter run -d chrome      # web
+flutter run -d linux       # Linux desktop
+flutter build apk          # Android
+```
 
 ## llama.cpp Flow
 

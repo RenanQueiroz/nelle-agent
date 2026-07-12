@@ -12,6 +12,7 @@
   "ignorePatterns": [
     ".nelle/**",
     ".nelle-e2e/**",
+    "apps/client/**",
     "build/**",
     "coverage/**",
     "dist/**",

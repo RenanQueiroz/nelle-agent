@@ -14,6 +14,19 @@ Project-specific guidance for AI coding agents.
 - The server, tests, and toolchain run on **Bun** (`engines.bun`, ≥1.3); there
   is no npm/Node runtime dependency. Use `bun install`, `bun run <script>`, and
   `bun test`.
+- `apps/client` is the Dart/Flutter client (package `nelle_agent`, bundle id
+  `com.renanqueiroz.nelle_agent`) — the desktop + mobile UI that will replace
+  `apps/web`. It is *not* part of the Bun toolchain: Oxfmt, Oxlint, and `tsc`
+  each ignore `apps/client` (via their own ignore lists), and Flutter's `build/`
+  and `.dart_tool/` are git-ignored, so `bun run test` never touches Dart —
+  removing that insulation makes `format:check` fail on Flutter's generated
+  JSON/YAML. The Flutter SDK is a native install kept outside the repo (Homebrew's
+  `flutter` is a macOS-only cask, so it cannot install on Linux); developed
+  against Flutter 3.44 / Dart 3.12, verified with `flutter doctor`. The client
+  speaks only the served REST + SSE contract (`GET /api/openapi.json`) and never
+  imports server or `packages/shared` TypeScript — the same server-vs-client
+  boundary the web app follows. Run it with `flutter run -d <chrome|linux>`;
+  build Android with `flutter build apk`.
 - The HTTP server is `Bun.serve` over a small native router
   (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
   owns JSON-body parsing, zod→400 mapping, CORS, and a `Bun.file` static + SPA

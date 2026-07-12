@@ -17,5 +17,5 @@
     "types": ["node", "bun"]
   },
   "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts"],
-  "exclude": ["node_modules", "dist", "apps/web/src/astryx-template-*"]
+  "exclude": ["node_modules", "dist", "apps/client", "apps/web/src/astryx-template-*"]
 }
