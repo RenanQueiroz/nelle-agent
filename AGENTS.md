@@ -55,8 +55,23 @@ Project-specific guidance for AI coding agents.
   analyze). Prerequisite: `dart pub global activate marionette_mcp`, with
   `~/.pub-cache/bin` and the Flutter SDK bin on PATH. Run the app in debug, and the
   agent attaches to its Dart VM Service. Restart the agent session after changing
-  `.mcp.json` — MCP servers load at session start. Prefer driving the real UI over
-  asking the user to eyeball a screen.
+  `.mcp.json` — MCP servers load at session start.
+- **A client change is not done until it has been driven in the running app.**
+  `flutter analyze` + `flutter test` green is necessary and not sufficient: 36 passing
+  tests did not catch a refused message silently eating the user's typed text, and
+  one minute of driving the UI did. So for every UI-affecting change: run the app in
+  debug, `connect`, `get_interactive_elements`, drive the real flow (`tap`,
+  `enter_text`, `scroll_to`), `take_screenshots` **and look at them**, and check
+  `get_logs` + `dart`'s `get_runtime_errors` for exceptions and overflows. Assert on
+  what is on screen, not on what you believe you built, and never ask the user to
+  eyeball a screen you could have driven yourself. Deliberately drive the edges,
+  because that is where client bugs live and where no unit test looks: empty states,
+  error states (`llama_server_stopped`, `model_load_failed`, `context_overflow`), a
+  refusal before `run.started`, mid-stream abort, degenerate content, the narrow/wide
+  layout break, switching conversations mid-run, and an unknown event type. Any bug
+  found this way gets a regression test before the fix is committed. Marionette
+  matches by `ValueKey` or visible text, so give every interactive widget a stable
+  `ValueKey` — without one you are tapping raw coordinates, which silently rots.
 - The HTTP server is `Bun.serve` over a small native router
   (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
   owns JSON-body parsing, zod→400 mapping, CORS, and a `Bun.file` static + SPA
