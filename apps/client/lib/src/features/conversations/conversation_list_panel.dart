@@ -32,7 +32,7 @@ class ConversationListPanel extends ConsumerWidget {
               key: const ValueKey('k-conv-settings'),
               icon: const Icon(FLucideIcons.settings),
               // Push, so there is something to pop back to. `go()` replaces the stack.
-              onPress: () => context.push('/connection'),
+              onPress: () => context.push('/settings'),
             ),
           ],
         ),
