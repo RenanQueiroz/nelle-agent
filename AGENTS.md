@@ -81,9 +81,14 @@ Project-specific guidance for AI coding agents.
   with `POST /api/huggingface/use {repoId, quant}` — never hand-roll the section id
   (`hf-repo` keeps the exact `…:UD-Q4_K_XL` ref; the section id uses llama.cpp's
   canonical `…:Q4_K_XL`). **Simultaneous multi-model testing needs
-  `runtime.modelsMax >= 2`** (the default `1` evicts the first model when the second
-  loads, so you would be testing eviction and calling it a pass); it is set to `2`
-  here, and changing it requires a llama.cpp restart.
+  `runtime.modelsMax >= 2`**: at the default `1` the router evicts the first model
+  when the second loads, so the test would be exercising eviction and reporting a
+  pass — worse than a failure, because it looks green. So before any multi-model run,
+  read `GET /api/runtime` and assert `modelsMax >= 2` rather than assuming it. It
+  lives in `.nelle/state.json` (git-ignored app data), not in code: `store.ts` keeps
+  the default at `1` on purpose, because a fresh install on memory-constrained
+  hardware must not try to hold two models. Raise it per machine with
+  `PATCH /api/runtime/settings`, which needs a llama.cpp restart.
 - The HTTP server is `Bun.serve` over a small native router
   (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
   owns JSON-body parsing, zod→400 mapping, CORS, and a `Bun.file` static + SPA
