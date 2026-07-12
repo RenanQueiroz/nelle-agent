@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../api/api_exception.dart';
 import '../../api/generated/models/conversation_list_item.dart';
 import '../../api/generated/models/conversation_status.dart';
 import 'conversations_notifier.dart';
@@ -40,6 +41,11 @@ class ConversationListPanel extends ConsumerWidget {
             AsyncData(:final value) => _ConversationList(state: value),
             AsyncError(:final error) => _ErrorState(
               message: '$error',
+              // A rejected certificate is not a network fault, and must not look like
+              // one: the glanceable signal is what a user actually reads.
+              isCertificateMismatch:
+                  error is NelleApiException &&
+                  error.code == 'certificate_mismatch',
               onRetry: () => ref.read(conversationsProvider.notifier).refresh(),
             ),
             _ => const Center(child: CircularProgressIndicator()),
@@ -183,10 +189,19 @@ class _SectionLabel extends StatelessWidget {
 }
 
 class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.message, required this.onRetry});
+  const _ErrorState({
+    required this.message,
+    required this.onRetry,
+    this.isCertificateMismatch = false,
+  });
 
   final String message;
   final VoidCallback onRetry;
+
+  /// The server answered, and we refused to trust it. That is the opposite of
+  /// unreachable, and a wifi-off icon over "Can't reach the server" sends the user to
+  /// check their network -- which is the one thing that is definitely not wrong.
+  final bool isCertificateMismatch;
 
   @override
   Widget build(BuildContext context) => Center(
@@ -195,14 +210,27 @@ class _ErrorState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(FLucideIcons.wifiOff, size: 32),
+          Icon(
+            isCertificateMismatch
+                ? FLucideIcons.shieldAlert
+                : FLucideIcons.wifiOff,
+            size: 32,
+            color: isCertificateMismatch
+                ? Theme.of(context).colorScheme.error
+                : null,
+          ),
           const SizedBox(height: 12),
-          const Text('Can’t reach the server', textAlign: TextAlign.center),
+          Text(
+            isCertificateMismatch
+                ? 'This is not the server you paired with'
+                : 'Can’t reach the server',
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 4),
           Text(
             message,
             textAlign: TextAlign.center,
-            maxLines: 3,
+            maxLines: 4,
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 12),
