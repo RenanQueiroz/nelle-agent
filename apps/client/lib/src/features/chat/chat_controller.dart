@@ -11,6 +11,7 @@ import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
 import '../../api/generated/models/conversation_snapshot.dart';
 import '../../api/generated/models/reasoning_level.dart';
+import '../attachments/attachment_draft.dart';
 import '../models/router_models_notifier.dart';
 import 'chat_repository.dart';
 import 'sse_transport.dart';
@@ -138,14 +139,22 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     return ChatState.fromSnapshot(snapshot);
   }
 
-  /// Sends [text], appends an optimistic user turn + empty assistant turn, and
-  /// folds the SSE stream into the assistant turn until the run finishes.
+  /// Sends [text] with the conversation's staged attachments, appends an optimistic user
+  /// turn + empty assistant turn, and folds the SSE stream into the assistant turn until
+  /// the run finishes.
+  ///
+  /// Attachments are referenced, never embedded: the bytes went to `POST /api/uploads`
+  /// when they were staged, so the request carries `{uploadId}` and nothing else. The
+  /// draft is cleared when the run *starts*, not when the message is sent — a message the
+  /// server refuses before it becomes a turn keeps its chips, because the uploads are
+  /// still up there, unbound.
   Future<void> send(String text) async {
     final current = state.valueOrNull;
     final message = text.trim();
     if (current == null || current.running || message.isEmpty) {
       return;
     }
+    final attachments = ref.read(attachmentDraftProvider(arg)).uploadIds;
     final now = DateTime.now().toUtc().toIso8601String();
     final user = ConversationMessage(
       id: 'local-user-$now',
@@ -176,7 +185,14 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         .read(sseTransportProvider)
         .stream(
           '/api/conversations/${Uri.encodeComponent(arg)}/chat/stream',
-          body: {'message': message},
+          body: {
+            'message': message,
+            // `chatRequestSchema` is `.strict()` at both levels: an id and nothing else.
+            if (attachments.isNotEmpty)
+              'attachments': [
+                for (final uploadId in attachments) {'uploadId': uploadId},
+              ],
+          },
           cancelToken: _cancel,
         )
         .listen(
@@ -319,8 +335,12 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     }
     switch (event) {
       case RunStartedEvent():
-        // The message became a turn, so it is no longer the composer's to keep.
+        // The message became a turn, so it is no longer the composer's to keep — and
+        // neither are its attachments, which the server has now bound to it. Clearing
+        // here rather than at send is what lets a refused message keep its chips: no
+        // `run.started`, no clear, and the uploads are still on the server, unbound.
         _runStarted = true;
+        ref.read(attachmentDraftProvider(arg).notifier).clear();
       case ModelLoadingEvent(:final status, :final progress):
         // The last of these can carry a runnable status: the server polls until the
         // model is up and reports what it saw. Showing "Loading weights" past that

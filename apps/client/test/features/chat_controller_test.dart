@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,12 +8,17 @@ import 'package:nelle_agent/src/api/api_client.dart';
 import 'package:nelle_agent/src/api/chat_stream_event.dart';
 import 'package:nelle_agent/src/api/generated/models/nelle_error.dart';
 import 'package:nelle_agent/src/api/generated/models/reasoning_level.dart';
+import 'package:nelle_agent/src/features/attachments/attachment_draft.dart';
 import 'package:nelle_agent/src/features/chat/chat_controller.dart';
 import 'package:nelle_agent/src/features/chat/sse_transport.dart';
 
 import '../helpers/fake_dio.dart';
 
 Future<void> _settle() => Future.delayed(const Duration(milliseconds: 20));
+
+/// The filename inside a multipart upload, so the stub can echo it back as an id.
+String _filenameOf(Object? data) =>
+    data is FormData ? (data.files.first.value.filename ?? 'file') : 'file';
 
 void main() {
   /// Closes [events] after the test, dropping the future `close()` returns.
@@ -30,7 +36,23 @@ void main() {
     final c = ProviderContainer(
       overrides: [
         dioProvider.overrideWithValue(
-          dio ?? stubDio((o) => jsonResponse({'snapshot': snapshotJson()})),
+          dio ??
+              stubDio((o) {
+                // Staging an attachment really uploads it, so the harness has to answer
+                // for the upload route too. The id is derived from the filename, so a
+                // test can name what it expects on the wire.
+                if (o.path == '/api/uploads') {
+                  final name = _filenameOf(o.data);
+                  return jsonResponse({
+                    'uploadId': 'u-$name',
+                    'kind': 'text',
+                    'name': name,
+                    'sizeBytes': 1,
+                    'warnings': <String>[],
+                  }, status: 201);
+                }
+                return jsonResponse({'snapshot': snapshotJson()});
+              }),
         ),
         sseTransportProvider.overrideWithValue(transport),
       ],
@@ -523,6 +545,90 @@ void main() {
     // `$unknown` has no wire value: sending it would throw, and we do not know what
     // it means anyway.
     expect(writes, 0);
+  });
+
+  test('attachments are sent as {uploadId} and nothing else', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final c = container(events.stream);
+    await c.read(chatControllerProvider('c').future);
+
+    // Two staged uploads — the bytes went to the server when they were staged.
+    await c
+        .read(attachmentDraftProvider('c').notifier)
+        .addBytes(bytes: Uint8List.fromList([1]), filename: 'a.txt');
+    await c
+        .read(attachmentDraftProvider('c').notifier)
+        .addBytes(bytes: Uint8List.fromList([2]), filename: 'b.txt');
+
+    await c.read(chatControllerProvider('c').notifier).send('look at these');
+
+    // `chatRequestSchema` is `.strict()` at both levels: an old client embedding `text`
+    // or `data`, or asking for a rendering mode, is refused by name.
+    final body = transport.lastBody! as Map;
+    expect(body['message'], 'look at these');
+    expect(body['attachments'], [
+      {'uploadId': 'u-a.txt'},
+      {'uploadId': 'u-b.txt'},
+    ]);
+  });
+
+  test('a message with no attachments sends no attachments key', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final c = container(events.stream);
+    await c.read(chatControllerProvider('c').future);
+
+    await c.read(chatControllerProvider('c').notifier).send('just text');
+
+    expect((transport.lastBody! as Map).containsKey('attachments'), isFalse);
+  });
+
+  test('run.started clears the draft: the uploads are a message now', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final c = container(events.stream);
+    await c.read(chatControllerProvider('c').future);
+    await c
+        .read(attachmentDraftProvider('c').notifier)
+        .addBytes(bytes: Uint8List.fromList([1]), filename: 'a.txt');
+
+    await c.read(chatControllerProvider('c').notifier).send('here');
+    expect(c.read(attachmentDraftProvider('c')).uploads, hasLength(1));
+
+    events.add(const RunStartedEvent(runId: 'r'));
+    await _settle();
+
+    expect(c.read(attachmentDraftProvider('c')).uploads, isEmpty);
+  });
+
+  test('a refused message keeps its chips as well as its text', () async {
+    final events = StreamController<ChatStreamEvent>();
+    final c = container(events.stream);
+    await c.read(chatControllerProvider('c').future);
+    await c
+        .read(attachmentDraftProvider('c').notifier)
+        .addBytes(bytes: Uint8List.fromList([1]), filename: 'scan.pdf');
+
+    await c.read(chatControllerProvider('c').notifier).send('read this');
+    // No `run.started`: the server refused it before it became a turn.
+    events.add(
+      StreamErrorEvent(
+        NelleError(
+          code: 'unsupported_attachment',
+          message: 'scan.pdf has no text layer.',
+        ),
+      ),
+    );
+    await events.close();
+    await _settle();
+
+    final state = c.read(chatControllerProvider('c')).requireValue;
+    expect(state.refusedMessage, 'read this');
+    expect(state.runError, contains('scan.pdf'));
+    // The uploads are still on the server, unbound. Making the user pick the files
+    // again is not a fix.
+    expect(c.read(attachmentDraftProvider('c')).uploads, hasLength(1));
   });
 
   test('a stream error surfaces runError and ends the run', () async {
