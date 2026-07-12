@@ -5,6 +5,7 @@ import {
   createThinkingEndTagFilter,
   DEFAULT_NEW_CONVERSATION_REASONING_LEVEL,
   DEFAULT_REASONING_BUDGETS,
+  MAX_REASONING_BUDGET,
   normalizeReasoningBudgets,
   DEFAULT_REASONING_LEVEL,
   normalizeReasoningLevel,
@@ -15,6 +16,11 @@ import {
 } from '../../packages/shared/src/reasoning.ts';
 import {templateSupportsThinking} from '../../packages/shared/src/reasoning.ts';
 import {parseReasoningBudgets} from '../../apps/web/src/utils/reasoning.ts';
+import {
+  reasoningBudgetsFromSettings,
+  SETTINGS_REGISTRY,
+} from '../../packages/shared/src/settings.ts';
+import {REASONING_SETTINGS_SLUG} from '../../packages/shared/src/settingsKeys.ts';
 
 test('thinking support is read from the chat template, not the model name', () => {
   // Qwen3 and Gemma 4 both gate their thinking channel on this kwarg.
@@ -142,4 +148,45 @@ test('the streaming filter flushes a short held answer', () => {
   const other = createThinkingEndTagFilter();
   assert.equal(other.push('</t'), '');
   assert.equal(other.flush(), '</t');
+});
+
+test('the budgets are read from the settings group, not from state.json', () => {
+  // They lived in `state.json` behind a hand-written route, so every client hand-built
+  // three number inputs for them. They are a settings group now: the same three numbers,
+  // served in the schema, rendered by whatever renders every other group.
+  assert.deepEqual(reasoningBudgetsFromSettings({low: 100, medium: 200, high: 300}), {
+    low: 100,
+    medium: 200,
+    high: 300,
+  });
+
+  // Coerced field by field: one unreadable value falls back to its own default and takes
+  // no sibling with it -- the rule every settings read follows.
+  assert.deepEqual(reasoningBudgetsFromSettings({low: 'nonsense' as never, medium: 200}), {
+    low: DEFAULT_REASONING_BUDGETS.low,
+    medium: 200,
+    high: DEFAULT_REASONING_BUDGETS.high,
+  });
+
+  // An empty group is a fresh install, not a broken one.
+  assert.deepEqual(reasoningBudgetsFromSettings({}), DEFAULT_REASONING_BUDGETS);
+
+  // `0` is not "unset": it means *no limit*, and it must survive the read.
+  assert.equal(reasoningBudgetsFromSettings({low: 0}).low, 0);
+});
+
+test('the reasoning group is in the registry, so it renders itself', () => {
+  const group = SETTINGS_REGISTRY.find(entry => entry.slug === REASONING_SETTINGS_SLUG);
+  assert.ok(group, 'reasoning must be a registry group, not a hand-written route');
+  assert.deepEqual(
+    group.fields.map(field => field.key),
+    ['low', 'medium', 'high'],
+    'one number field per budgeted level -- `off` and `max` send no budget, so they have none',
+  );
+  for (const field of group.fields) {
+    assert.equal(field.type, 'number');
+    assert.equal(field.integer, true, 'llama.cpp takes whole token counts');
+    assert.equal(field.min, 0, '0 means no limit, so it must be reachable');
+    assert.equal(field.max, MAX_REASONING_BUDGET);
+  }
 });

@@ -3,10 +3,7 @@ import fs from 'node:fs/promises';
 
 import {z} from 'zod';
 
-import {
-  reasoningBudgetsSchema,
-  reasoningLevelSchema,
-} from '../../../packages/shared/src/reasoning.ts';
+import {reasoningLevelSchema} from '../../../packages/shared/src/reasoning.ts';
 import {HuggingFaceService} from './huggingface';
 import {LlamaCppManager} from './llamacpp';
 import {registerLlamaProxy} from './llamaProxy';
@@ -149,8 +146,6 @@ const patchConversationSchema = z.object({
 
 const conversationReasoningSchema = z.object({level: reasoningLevelSchema});
 
-const reasoningSettingsSchema = z.object({budgets: reasoningBudgetsSchema});
-
 const hostToolSettingsSchema = z.object({
   enabled: z.boolean().optional(),
   acknowledged: z.boolean().optional(),
@@ -273,11 +268,6 @@ export async function createServer(
     const state = await store.getState();
     const known = new Set(state.models.map(model => model.id));
     return json({...saved, favoriteModelIds: saved.favoriteModelIds.filter(id => known.has(id))});
-  });
-
-  router.patch('/api/settings/reasoning', async ctx => {
-    const body = reasoningSettingsSchema.parse(await ctx.body());
-    return json({budgets: await store.updateReasoningBudgets(body.budgets)});
   });
 
   // The settings schema is served for the same reason the slash-command registry

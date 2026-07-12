@@ -26,8 +26,18 @@ import {
   MAX_IMAGE_MEGAPIXELS_KEY,
   NETWORK_SETTINGS_SLUG,
   PASTE_TO_FILE_CHARACTERS_KEY,
+  REASONING_BUDGET_HIGH_KEY,
+  REASONING_BUDGET_LOW_KEY,
+  REASONING_BUDGET_MEDIUM_KEY,
+  REASONING_SETTINGS_SLUG,
   TITLES_SETTINGS_SLUG,
 } from './settingsKeys.ts';
+import {
+  DEFAULT_REASONING_BUDGETS,
+  MAX_REASONING_BUDGET,
+  UNLIMITED_REASONING_BUDGET,
+  type ReasoningBudgets,
+} from './reasoning.ts';
 
 export {ATTACHMENTS_SETTINGS_SLUG, INSTRUCTIONS_SETTINGS_SLUG, TITLES_SETTINGS_SLUG};
 
@@ -145,6 +155,14 @@ export type SettingsValues = Record<string, SettingsValue>;
  */
 export const DEFAULT_PASTE_TO_FILE_CHARACTERS = 2500;
 
+/**
+ * `0` is not "unset". It means **no limit** -- the model stops thinking when it is done.
+ * Asking for no thinking at all is what the level `off` is for.
+ */
+const BUDGET_HELP =
+  `Tokens the model may spend thinking at this level. ${UNLIMITED_REASONING_BUDGET} means no limit -- ` +
+  'the model stops when it is done.';
+
 export const SETTINGS_REGISTRY: readonly SettingsGroup[] = [
   {
     slug: INSTRUCTIONS_SETTINGS_SLUG,
@@ -229,6 +247,46 @@ export const SETTINGS_REGISTRY: readonly SettingsGroup[] = [
         default: DEFAULT_TITLE_MAX_WORDS,
         min: 1,
         max: 20,
+        integer: true,
+      },
+    ],
+  },
+  {
+    slug: REASONING_SETTINGS_SLUG,
+    title: 'Reasoning budgets',
+    description:
+      "How long the model may think at each level. Nelle's `max` sends no budget at all and `off` " +
+      'asks for no thinking, so neither has a number here. A spent budget forces the thinking ' +
+      'block closed mid-thought, and llama.cpp hands the model its own end tag.',
+    fields: [
+      {
+        key: REASONING_BUDGET_LOW_KEY,
+        label: 'Low',
+        help: BUDGET_HELP,
+        type: 'number',
+        default: DEFAULT_REASONING_BUDGETS.low,
+        min: 0,
+        max: MAX_REASONING_BUDGET,
+        integer: true,
+      },
+      {
+        key: REASONING_BUDGET_MEDIUM_KEY,
+        label: 'Medium',
+        help: BUDGET_HELP,
+        type: 'number',
+        default: DEFAULT_REASONING_BUDGETS.medium,
+        min: 0,
+        max: MAX_REASONING_BUDGET,
+        integer: true,
+      },
+      {
+        key: REASONING_BUDGET_HIGH_KEY,
+        label: 'High',
+        help: BUDGET_HELP,
+        type: 'number',
+        default: DEFAULT_REASONING_BUDGETS.high,
+        min: 0,
+        max: MAX_REASONING_BUDGET,
         integer: true,
       },
     ],
@@ -342,4 +400,28 @@ export function coerceSettingsValues(group: SettingsGroup, stored: unknown): Set
     }
   }
   return values;
+}
+
+/**
+ * The reasoning budgets, read out of the `reasoning` settings group.
+ *
+ * They used to live in `state.json` behind a hand-written route. Reading them here means
+ * `piHarness` and the settings screen see the same value, and the group renders itself
+ * from the schema like every other.
+ *
+ * Coerced field by field: one unreadable value falls back to its own default and takes no
+ * sibling with it -- the same rule the settings reads already follow.
+ */
+export function reasoningBudgetsFromSettings(values: SettingsValues): ReasoningBudgets {
+  const read = (key: string, fallback: number): number => {
+    const value = values[key];
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+      ? Math.trunc(value)
+      : fallback;
+  };
+  return {
+    low: read(REASONING_BUDGET_LOW_KEY, DEFAULT_REASONING_BUDGETS.low),
+    medium: read(REASONING_BUDGET_MEDIUM_KEY, DEFAULT_REASONING_BUDGETS.medium),
+    high: read(REASONING_BUDGET_HIGH_KEY, DEFAULT_REASONING_BUDGETS.high),
+  };
 }

@@ -1,6 +1,5 @@
 import type {ChatAttachmentInput, NelleError} from '../../../packages/shared/src/contracts.ts';
 import type {LlamaRouterModelContract} from '../../../packages/shared/src/llamaModels.ts';
-import type {ReasoningSettings} from '../../../packages/shared/src/reasoning.ts';
 import type {
   ChatMessage,
   ChatPerformance,
@@ -153,7 +152,6 @@ export type AppState = {
   activeModelId: string | null;
   models: ConfiguredModel[];
   globalModelParams: Record<string, string>;
-  reasoning: ReasoningSettings;
   runtime: {
     host: string;
     port: number;

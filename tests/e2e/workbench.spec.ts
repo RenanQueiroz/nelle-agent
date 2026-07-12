@@ -3343,14 +3343,20 @@ test('edits reasoning budgets in settings and rejects invalid token counts', asy
   await page.route('**/api/state', async route => {
     await route.fulfill({
       json: {
-        state: {activeModelId: null, models: [], chat: [], reasoning: {budgets}},
+        state: {activeModelId: null, models: [], chat: []},
         runtime: RUNNING_RUNTIME,
       },
     });
   });
+  // The budgets are a settings group now, not a corner of `state.json`: flat keys, read
+  // with a GET as well as written with a PATCH, like every other group.
   await page.route('**/api/settings/reasoning', async route => {
-    savedBudgets = (route.request().postDataJSON() as {budgets: unknown}).budgets;
-    await route.fulfill({json: {budgets: savedBudgets}});
+    if (route.request().method() === 'PATCH') {
+      savedBudgets = {...budgets, ...(route.request().postDataJSON() as object)};
+      await route.fulfill({json: savedBudgets});
+      return;
+    }
+    await route.fulfill({json: savedBudgets ?? budgets});
   });
   await mockConversationRoutes(page, {chat: []});
 

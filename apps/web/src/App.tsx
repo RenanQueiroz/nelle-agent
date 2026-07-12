@@ -82,6 +82,7 @@ import {
   updateConfiguredModel,
   updateGlobalModelParams,
   updateHostToolSettings,
+  fetchReasoningBudgets,
   updateReasoningBudgets,
   updateRuntimeSettings,
   useHuggingFaceModel,
@@ -555,9 +556,10 @@ export function App() {
         return;
       }
       setRuntime(response.runtime);
-      setReasoningBudgets(response.state.reasoning?.budgets ?? DEFAULT_REASONING_BUDGETS);
+      const budgets = await fetchReasoningBudgets().catch(() => DEFAULT_REASONING_BUDGETS);
+      setReasoningBudgets(budgets);
       const settings = useSettingsStore.getState();
-      settings.resetReasoningDrafts(response.state.reasoning?.budgets);
+      settings.resetReasoningDrafts(budgets);
       settings.resetRuntimeDrafts(
         response.runtime.modelsMax ?? response.state.runtime?.modelsMax,
         response.runtime.sleepIdleSeconds ?? response.state.runtime?.sleepIdleSeconds,
@@ -698,7 +700,7 @@ export function App() {
   async function refreshState() {
     const response = await getState();
     setRuntime(response.runtime);
-    setReasoningBudgets(response.state.reasoning?.budgets ?? DEFAULT_REASONING_BUDGETS);
+    setReasoningBudgets(await fetchReasoningBudgets().catch(() => DEFAULT_REASONING_BUDGETS));
     useSettingsStore.getState().reconcileModelDrafts(response.state.models);
     setModels(response.state.models);
     setActiveModelId(response.state.activeModelId);

@@ -16,11 +16,6 @@ import {
   type ModelsIniDocument,
 } from '../../../packages/shared/src/modelsIni.ts';
 import {PI_MINIMUM_CONTEXT_TOKENS} from '../../../packages/shared/src/piContext.ts';
-import type {ReasoningBudgets} from '../../../packages/shared/src/reasoning.ts';
-import {
-  DEFAULT_REASONING_SETTINGS,
-  normalizeReasoningBudgets,
-} from '../../../packages/shared/src/reasoning.ts';
 
 /**
  * The `models.ini` keys that cap a model's context window.
@@ -68,7 +63,6 @@ const DEFAULT_STATE: AppState = {
   // llama.cpp's auto-fit instead, and llama.cpp picks the window. What a
   // conversation actually gets is its to report, not Nelle's to assume.
   globalModelParams: {[FIT_CONTEXT_KEY]: String(PI_MINIMUM_CONTEXT_TOKENS)},
-  reasoning: DEFAULT_REASONING_SETTINGS,
   runtime: {
     host: '127.0.0.1',
     // Placeholder; `defaultLlamaPort()` is what actually applies. Overridable so
@@ -219,13 +213,6 @@ export class AppStore {
     await this.syncModelCatalogFromPreset(state);
     await this.save();
     return structuredClone(state.globalModelParams);
-  }
-
-  async updateReasoningBudgets(budgets: unknown): Promise<ReasoningBudgets> {
-    const state = await this.load();
-    state.reasoning = {budgets: normalizeReasoningBudgets(budgets)};
-    await this.save();
-    return structuredClone(state.reasoning.budgets);
   }
 
   async updateModel(
@@ -409,7 +396,6 @@ function normalizeState(input: Partial<AppState>): AppState {
     activeModelId,
     models,
     globalModelParams,
-    reasoning: {budgets: normalizeReasoningBudgets(input.reasoning?.budgets)},
     runtime: normalizeRuntime(input.runtime),
     chat: Array.isArray(input.chat) ? input.chat : [],
   };

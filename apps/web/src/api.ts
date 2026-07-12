@@ -469,11 +469,17 @@ export async function updateHostToolSettings(input: {
   return response.hostTools;
 }
 
+/**
+ * The reasoning budgets are a settings group now, not a corner of `state.json` behind a
+ * hand-written route -- so they are read and written like every other group, with flat
+ * keys, and they render themselves from the served schema.
+ */
+export async function fetchReasoningBudgets(): Promise<ReasoningBudgets> {
+  return apiGet<ReasoningBudgets>('/api/settings/reasoning');
+}
+
 export async function updateReasoningBudgets(budgets: ReasoningBudgets): Promise<ReasoningBudgets> {
-  const response = await apiPatch<{budgets: ReasoningBudgets}>('/api/settings/reasoning', {
-    budgets,
-  });
-  return response.budgets;
+  return apiPatch<ReasoningBudgets>('/api/settings/reasoning', budgets);
 }
 
 export async function setConversationReasoningLevel(

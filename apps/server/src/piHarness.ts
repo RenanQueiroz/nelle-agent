@@ -36,8 +36,10 @@ import {effectiveContextWindow, requireContextWindow} from './contextWindow';
 import {
   CUSTOM_INSTRUCTIONS_KEY,
   INSTRUCTIONS_SETTINGS_SLUG,
+  REASONING_SETTINGS_SLUG,
   TITLES_SETTINGS_SLUG,
 } from '../../../packages/shared/src/settingsKeys.ts';
+import {reasoningBudgetsFromSettings} from '../../../packages/shared/src/settings.ts';
 import {
   TITLE_SYSTEM_PROMPT,
   firstLineTitle,
@@ -1249,10 +1251,11 @@ export class PiHarness {
     const previous = agent.onPayload?.bind(agent);
     agent.onPayload = async (payload: unknown, model: unknown) => {
       const next = (await previous?.(payload, model)) ?? payload;
-      const state = await this.store.getState();
+      // The budgets are a settings group now, not a corner of `state.json`: the settings
+      // screen and this read the same row, and the group renders itself from the schema.
       const budget = reasoningBudgetTokens(
         this.conversations.getReasoningLevel(conversationId),
-        state.reasoning.budgets,
+        reasoningBudgetsFromSettings(this.settings?.tryGetGroup(REASONING_SETTINGS_SLUG) ?? {}),
       );
       if (budget == null || next == null || typeof next !== 'object') {
         return next;
