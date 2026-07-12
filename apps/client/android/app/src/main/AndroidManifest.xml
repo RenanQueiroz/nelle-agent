@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The entire point of this app is to reach a Nelle server over the network.
+         Flutter's template declares INTERNET only in the debug and profile manifests
+         (so hot reload works), which means a *release* build had no network access at
+         all: every request would fail, on a phone, after shipping, while working
+         perfectly in debug. It belongs here. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="nelle_agent"
         android:name="${applicationName}"
