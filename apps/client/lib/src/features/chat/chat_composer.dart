@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
 import '../attachments/attach_button.dart';
+import '../attachments/paste_to_file.dart';
 import '../attachments/attachment_chips.dart';
 import '../models/model_selector.dart';
 import 'chat_controller.dart';
@@ -92,14 +93,18 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
               AttachButton(conversationId: widget.conversationId),
               const SizedBox(width: 8),
               Expanded(
-                child: FTextField(
-                  key: const ValueKey('k-composer-input'),
-                  control: FTextFieldControl.managed(controller: _controller),
-                  hint: 'Message…',
-                  minLines: 1,
-                  maxLines: 6,
-                  textInputAction: TextInputAction.send,
-                  onSubmit: running ? null : (_) => _send(),
+                child: PasteToFile(
+                  conversationId: widget.conversationId,
+                  controller: _controller,
+                  child: FTextField(
+                    key: const ValueKey('k-composer-input'),
+                    control: FTextFieldControl.managed(controller: _controller),
+                    hint: 'Message…',
+                    minLines: 1,
+                    maxLines: 6,
+                    textInputAction: TextInputAction.send,
+                    onSubmit: running ? null : (_) => _send(),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
