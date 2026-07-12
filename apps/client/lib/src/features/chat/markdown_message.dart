@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
+import 'code_block.dart';
+
 /// The **one** place markdown is rendered.
 ///
 /// Nothing else in the app imports `flutter_markdown_plus`. The engine is a bet — the
@@ -29,6 +31,18 @@ class MarkdownMessage extends StatelessWidget {
       softLineBreak: true,
       selectable: true,
       styleSheet: _styleSheet(context),
+      builders: {'pre': CodeBlockBuilder(textStyle: _codeStyle(context))},
+    );
+  }
+
+  TextStyle _codeStyle(BuildContext context) {
+    final body = style ?? Theme.of(context).textTheme.bodyMedium;
+    return TextStyle(
+      fontFamily: 'monospace',
+      fontFamilyFallback: const ['Menlo', 'Consolas', 'DejaVu Sans Mono'],
+      fontSize: (body?.fontSize ?? 14) - 1,
+      height: 1.4,
+      color: body?.color,
     );
   }
 
@@ -51,12 +65,6 @@ class MarkdownMessage extends StatelessWidget {
         decoration: TextDecoration.underline,
       ),
       code: code.copyWith(backgroundColor: scheme.surfaceContainerHighest),
-      // A fenced block draws its own chrome, so the span itself must not also paint a
-      // background — that is what leaves a second, misaligned rectangle behind the code.
-      codeblockDecoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
       blockquoteDecoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
         border: Border(left: BorderSide(color: scheme.outline, width: 3)),
@@ -68,6 +76,11 @@ class MarkdownMessage extends StatelessWidget {
       h3: theme.textTheme.titleSmall,
       tableBorder: TableBorder.all(color: scheme.outlineVariant, width: 1),
       tableCellsPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      // The package only wraps a table in a horizontal scroll view when the column
+      // width is Fixed or Intrinsic (`builder.dart:447`) — and the default is
+      // `FlexColumnWidth`, which gets no scroll at all. A wide LLM table would then
+      // squash its columns or push the page sideways, which the workbench forbids.
+      tableColumnWidth: const IntrinsicColumnWidth(),
     );
   }
 }
