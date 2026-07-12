@@ -1,7 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+// Only the addon's *block* syntax is used. Its inline syntax treats `( x )` and `[ x ]`
+// as maths, and its element builder mislays inline equations — see `latex_syntax.dart`
+// and `latex_math.dart`, which replace both.
+import 'package:flutter_markdown_plus_latex/flutter_markdown_plus_latex.dart'
+    show LatexBlockSyntax;
+import 'package:markdown/markdown.dart' as md;
 
 import 'code_block.dart';
+import 'latex_math.dart';
+import 'latex_syntax.dart';
 
 /// The **one** place markdown is rendered.
 ///
@@ -31,7 +39,18 @@ class MarkdownMessage extends StatelessWidget {
       softLineBreak: true,
       selectable: true,
       styleSheet: _styleSheet(context),
-      builders: {'pre': CodeBlockBuilder(textStyle: _codeStyle(context))},
+      builders: {
+        'pre': CodeBlockBuilder(textStyle: _codeStyle(context)),
+        'latex': LatexMathBuilder(textStyle: style),
+      },
+      // `CodeSyntax` first, on purpose: the parser evaluates user syntaxes before its
+      // own defaults, so LaTeX would otherwise reach inside a code span and eat
+      // `` `${A}${B}` `` as an equation.
+      inlineSyntaxes: [md.CodeSyntax(), LatexInlineSyntax()],
+      blockSyntaxes: [LatexBlockSyntax()],
+      // Keep GitHub-flavoured markdown: passing an extension set replaces the default,
+      // and dropping it would take tables and strikethrough with it.
+      extensionSet: md.ExtensionSet.gitHubFlavored,
     );
   }
 
