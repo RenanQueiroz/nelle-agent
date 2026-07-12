@@ -162,6 +162,35 @@ export const chatRequestSchema = z
 
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 
+/**
+ * What `POST /api/uploads` answers with (201).
+ *
+ * The request is `multipart/form-data` (`file`, plus an optional `conversationId`), so
+ * it has no body schema -- but the *response* is the whole reason a client can then
+ * reference the upload by id, and it had none. A client had to hand-write it.
+ *
+ * `warnings` is not decoration: it is how the user learns the image was downscaled or
+ * the text truncated. `hasTextLayer` is PDFs only, and `false` means a scan -- which
+ * reaches the model as page images, because only the server knows both the document and
+ * the model.
+ */
+export const uploadResponseSchema = z.object({
+  uploadId: z.string().min(1).max(120),
+  kind: chatAttachmentKindSchema,
+  name: z.string().min(1).max(255),
+  // Optional, because it genuinely is: a file whose name and bytes name no type is
+  // still classifiable and still uploadable (`uploads.ts:20`). Declaring it required
+  // would have been a contract that lies, which tsc said so at the one call site.
+  mimeType: z.string().min(1).max(120).optional(),
+  sizeBytes: z.number().int().nonnegative(),
+  textPreview: z.string().optional(),
+  pageCount: z.number().int().nonnegative().optional(),
+  hasTextLayer: z.boolean().optional(),
+  warnings: z.array(z.string()),
+});
+
+export type UploadResponse = z.infer<typeof uploadResponseSchema>;
+
 export const eventEnvelopeSchema = z.object({
   id: z.string().min(1),
   type: z.string().min(1),

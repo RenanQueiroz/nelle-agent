@@ -752,12 +752,19 @@ Project-specific guidance for AI coding agents.
   leave the composer draft intact. The uploads are still on the server, unbound,
   and making the user retype the prompt and pick the files again is not a fix.
 - Attachments are uploaded, not embedded. The client posts bytes to
-  `POST /api/uploads`; the server classifies them, rejects a binary file posing
-  as text, extracts PDF text with `pdfjs-dist`, and answers with an `uploadId`.
-  A chat request carries `attachments: [{uploadId, renderPdfAsImages?}]` and
-  nothing else -- `chatAttachmentReferenceSchema` is `.strict()`, so an old
-  client embedding `text` or `data` is told so instead of having its bytes
-  stripped. `resolveChatAttachments` expands a PDF into page images through
+  `POST /api/uploads` (**`multipart/form-data`**: a `file`, plus an optional
+  `conversationId`); the server classifies them, rejects a binary file posing
+  as text, extracts PDF text with `pdfjs-dist`, and answers with an `uploadId`
+  (`uploadResponseSchema` -- whose `warnings[]` is how the user learns the image
+  was downscaled or the text truncated, and whose `hasTextLayer: false` means a
+  scan). A chat request carries `attachments: [{uploadId}]` and **nothing else**
+  -- there is no `renderPdfAsImages`, because there is no rendering switch (see
+  the PDF bullet above), and `chatAttachmentReferenceSchema` is `.strict()`, so an
+  old client embedding `text`, `data`, or a rendering mode is told so instead of
+  having its bytes stripped. Both the reference and the upload response are served
+  in the OpenAPI; `ChatAttachmentInput` deliberately is **not** -- it is the
+  server's post-resolution type, a client never sends it, and serving it only got
+  one codegened into the Flutter client. `resolveChatAttachments` expands a PDF into page images through
   `@napi-rs/canvas` at send time, which is why the per-message limits are checked
   after the expansion. Sent payloads still land content-addressed under
   `.nelle/attachments/`, with metadata bound to the Pi user entry.

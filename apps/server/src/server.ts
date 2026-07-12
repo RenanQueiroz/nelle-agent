@@ -38,7 +38,7 @@ import {
 import {resolveConversationModel} from './conversationModel';
 import type {AppPaths} from './paths';
 import type {AppState, ChatAttachmentInput, ChatStreamEvent} from './types';
-import type {NelleError} from '../../../packages/shared/src/contracts.ts';
+import type {NelleError, UploadResponse} from '../../../packages/shared/src/contracts.ts';
 import {
   chatRequestSchema,
   createEventEnvelope,
@@ -994,21 +994,21 @@ export async function createServer(
       textContent: ingested.textContent,
       pageCount: ingested.pageCount,
     });
-    return json(
-      {
-        uploadId: upload.id,
-        kind: upload.kind,
-        name: upload.name,
-        mimeType: upload.mimeType,
-        sizeBytes: upload.sizeBytes,
-        textPreview: ingested.textContent?.slice(0, 500),
-        pageCount: ingested.pageCount,
-        /** PDFs only. `false` means a scan, which reaches the model as page images. */
-        hasTextLayer: ingested.kind === 'pdf' ? Boolean(ingested.textContent) : undefined,
-        warnings: ingested.warnings,
-      },
-      201,
-    );
+    // Typed through the contract, so the body and the schema a client codegens from
+    // cannot drift apart.
+    const body: UploadResponse = {
+      uploadId: upload.id,
+      kind: upload.kind,
+      name: upload.name,
+      mimeType: upload.mimeType,
+      sizeBytes: upload.sizeBytes,
+      textPreview: ingested.textContent?.slice(0, 500),
+      pageCount: ingested.pageCount,
+      /** PDFs only. `false` means a scan, which reaches the model as page images. */
+      hasTextLayer: ingested.kind === 'pdf' ? Boolean(ingested.textContent) : undefined,
+      warnings: ingested.warnings,
+    };
+    return json(body, 201);
   });
 
   router.get('/api/uploads/:uploadId', async ctx => {

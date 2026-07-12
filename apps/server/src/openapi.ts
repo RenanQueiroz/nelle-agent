@@ -1,11 +1,12 @@
 import {z} from 'zod';
 
 import {
-  chatAttachmentInputSchema,
+  chatAttachmentReferenceSchema,
   chatRequestSchema,
   nelleErrorSchema,
   nelleWarningSchema,
   preferencesSchema,
+  uploadResponseSchema,
 } from '../../../packages/shared/src/contracts.ts';
 import {
   chatMessageSchema,
@@ -46,7 +47,13 @@ const CONTRACT_SCHEMAS: ReadonlyArray<readonly [string, z.ZodType]> = [
   ['ToolCallEvent', toolCallEventSchema],
   ['ChatStreamEvent', chatStreamEventSchema],
   ['ChatRequest', chatRequestSchema],
-  ['ChatAttachmentInput', chatAttachmentInputSchema],
+  // Registered by name so `ChatRequest.attachments` $refs it instead of inlining it:
+  // an inlined object codegens as an anonymous `Attachments` class, which is not a name
+  // anyone can reason about. `ChatAttachmentInput` is deliberately NOT here -- it is the
+  // server's post-resolution type (it carries `text`/`data`), a client never sends it,
+  // and serving it only invites one to try.
+  ['ChatAttachmentReference', chatAttachmentReferenceSchema],
+  ['UploadResponse', uploadResponseSchema],
   ['Preferences', preferencesSchema],
   // Conversation list + snapshot DTOs, so the Flutter client codegens them.
   ['ConversationListItem', conversationListItemSchema],

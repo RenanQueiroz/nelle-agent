@@ -656,26 +656,29 @@
             "maxItems": 20,
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "uploadId": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 120
-                }
-              },
-              "required": ["uploadId"],
-              "additionalProperties": false
+              "$ref": "#/components/schemas/ChatAttachmentReference"
             }
           }
         },
         "required": ["message"],
         "additionalProperties": false
       },
-      "ChatAttachmentInput": {
+      "ChatAttachmentReference": {
         "type": "object",
         "properties": {
-          "id": {
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "required": ["uploadId"],
+        "additionalProperties": false
+      },
+      "UploadResponse": {
+        "type": "object",
+        "properties": {
+          "uploadId": {
             "type": "string",
             "minLength": 1,
             "maxLength": 120
@@ -697,18 +700,27 @@
           "sizeBytes": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 26214400
+            "maximum": 9007199254740991
           },
-          "text": {
-            "type": "string",
-            "maxLength": 200000
+          "textPreview": {
+            "type": "string"
           },
-          "data": {
-            "type": "string",
-            "maxLength": 40000000
+          "pageCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "hasTextLayer": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
-        "required": ["id", "kind", "name"],
+        "required": ["uploadId", "kind", "name", "sizeBytes", "warnings"],
         "additionalProperties": false
       },
       "Preferences": {

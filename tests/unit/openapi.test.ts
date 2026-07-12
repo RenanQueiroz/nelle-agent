@@ -54,10 +54,29 @@ test('the served OpenAPI document is valid, covers the contract, and matches the
       'ChatMessage',
       'NelleError',
       'ChatRequest',
-      'ChatAttachmentInput',
+      // What a client actually sends and receives for an attachment.
+      'ChatAttachmentReference',
+      'UploadResponse',
     ]) {
       assert.ok(doc.components.schemas[id], `missing component schema ${id}`);
     }
+
+    // `ChatAttachmentInput` is the server's *post-resolution* type: it carries `text`
+    // and `data`, a client must never send it, and `chatRequestSchema` is `.strict()`
+    // so one that tried would be refused. Serving it only invites the attempt -- and a
+    // client codegens a DTO for it, which is how a wrong shape gets built in the first
+    // place.
+    assert.equal(
+      doc.components.schemas.ChatAttachmentInput,
+      undefined,
+      'the internal attachment type must not be served to clients',
+    );
+
+    // The reference must be a named component, not inlined: an inlined object codegens
+    // as an anonymous `Attachments` class, which is not a name anyone can reason about.
+    assert.deepEqual(doc.components.schemas.ChatRequest?.properties?.attachments?.items, {
+      $ref: '#/components/schemas/ChatAttachmentReference',
+    });
     assert.ok(doc.components.securitySchemes.bearerAuth);
     assert.ok(
       Array.isArray(doc.components.schemas.ChatStreamEvent?.oneOf),
