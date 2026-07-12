@@ -1,9 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
 import '../../api/generated/models/issued_tokens.dart';
 
 /// Where a paired device's tokens live.
@@ -45,34 +41,17 @@ abstract class SecretStorage {
   Future<void> delete(String key);
 }
 
-class FlutterSecretStorage implements SecretStorage {
-  const FlutterSecretStorage([this.storage = const FlutterSecureStorage()]);
-
-  final FlutterSecureStorage storage;
-
-  @override
-  Future<String?> read(String key) => storage.read(key: key);
-
-  @override
-  Future<void> write(String key, String value) =>
-      storage.write(key: key, value: value);
-
-  @override
-  Future<void> delete(String key) => storage.delete(key: key);
-}
-
 class SecureTokenStore implements TokenStore {
-  SecureTokenStore([SecretStorage? storage])
-    : _storage = storage ?? const FlutterSecretStorage();
+  SecureTokenStore(this._storage);
 
-  static const _key = 'nelle_device_tokens';
+  static const key = 'nelle_device_tokens';
 
   final SecretStorage _storage;
 
   @override
   Future<IssuedTokens?> read() async {
     try {
-      final raw = await _storage.read(_key);
+      final raw = await _storage.read(key);
       if (raw == null) {
         return null;
       }
@@ -81,21 +60,21 @@ class SecureTokenStore implements TokenStore {
       // A keyring that is missing, locked, or holding something we cannot parse is a
       // device that is not usefully paired. Say "no tokens" rather than crash the app
       // on launch; the caller re-pairs.
-      debugPrint('secure storage read failed: $error');
+      _log('read failed: $error');
       return null;
     }
   }
 
   @override
   Future<void> write(IssuedTokens tokens) =>
-      _storage.write(_key, jsonEncode(tokens.toJson()));
+      _storage.write(key, jsonEncode(tokens.toJson()));
 
   @override
   Future<void> clear() async {
     try {
-      await _storage.delete(_key);
+      await _storage.delete(key);
     } catch (error) {
-      debugPrint('secure storage delete failed: $error');
+      _log('delete failed: $error');
     }
   }
 
@@ -104,12 +83,20 @@ class SecureTokenStore implements TokenStore {
     try {
       // A read is enough: it opens the collection, which is exactly the step that
       // fails when no secret service is running.
-      await _storage.read(_key);
+      await _storage.read(key);
       return true;
     } catch (error) {
-      debugPrint('secure storage unavailable: $error');
+      _log('unavailable: $error');
       return false;
     }
+  }
+
+  void _log(String message) {
+    // ignore: avoid_print
+    assert(() {
+      print('[token store] $message');
+      return true;
+    }());
   }
 }
 
@@ -130,11 +117,3 @@ class InMemoryTokenStore implements TokenStore {
   @override
   Future<bool> isAvailable() async => true;
 }
-
-final tokenStoreProvider = Provider<TokenStore>((ref) => SecureTokenStore());
-
-/// Whether this machine can store a token at all. `false` means remote pairing is
-/// unavailable here — not that the app is broken.
-final tokenStorageAvailableProvider = FutureProvider<bool>(
-  (ref) => ref.watch(tokenStoreProvider).isAvailable(),
-);
