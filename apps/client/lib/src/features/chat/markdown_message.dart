@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 // Only the addon's *block* syntax is used. Its inline syntax treats `( x )` and `[ x ]`
@@ -20,7 +22,7 @@ import 'latex_syntax.dart';
 ///
 /// Only model output goes through here. A user's own text is rendered verbatim: someone
 /// who types `a * b` or `_foo_` must see what they typed, not italics.
-class MarkdownMessage extends StatelessWidget {
+class MarkdownMessage extends StatefulWidget {
   const MarkdownMessage({super.key, required this.text, this.style});
 
   final String text;
@@ -29,10 +31,63 @@ class MarkdownMessage extends StatelessWidget {
   /// paragraph looks exactly like the plain text it replaced.
   final TextStyle? style;
 
+  /// How often a *growing* message re-parses while it streams.
+  ///
+  /// Parsing is not free and it is not constant: measured in debug, a 2.4 kB answer
+  /// costs 2.9 ms, a 12 kB one 5.3 ms, a 51 kB one 14.4 ms — against a 16.7 ms frame.
+  /// A delta arrives per token, so an unthrottled bubble re-parses on every build, up
+  /// to 60 times a second, and a long answer would spend most of each second parsing
+  /// itself. Settled messages are already free: `MarkdownBody` re-parses only when
+  /// `data` or `styleSheet` changes (`widget.dart:366`), and neither does.
+  static const throttle = Duration(milliseconds: 80);
+
+  @override
+  State<MarkdownMessage> createState() => _MarkdownMessageState();
+}
+
+class _MarkdownMessageState extends State<MarkdownMessage> {
+  late String _rendered = widget.text;
+  Stopwatch? _sinceRender;
+  Timer? _pending;
+
+  @override
+  void didUpdateWidget(MarkdownMessage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.text == _rendered || _pending != null) {
+      return;
+    }
+    final elapsed = _sinceRender?.elapsed ?? MarkdownMessage.throttle;
+    if (elapsed >= MarkdownMessage.throttle) {
+      _render();
+      return;
+    }
+    // Always schedule: the last delta of a run must still land, and it is the only one
+    // the reader actually stops on.
+    _pending = Timer(MarkdownMessage.throttle - elapsed, () {
+      _pending = null;
+      if (mounted) {
+        _render();
+      }
+    });
+  }
+
+  void _render() {
+    setState(() {
+      _rendered = widget.text;
+      _sinceRender = Stopwatch()..start();
+    });
+  }
+
+  @override
+  void dispose() {
+    _pending?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return MarkdownBody(
-      data: text,
+      data: _rendered,
       // Models write single newlines and mean them. CommonMark *collapses* those into
       // one paragraph, and the default here is `false` — which turns a structured answer
       // into a wall of text. This one flag is most of what makes LLM output readable.
@@ -41,7 +96,7 @@ class MarkdownMessage extends StatelessWidget {
       styleSheet: _styleSheet(context),
       builders: {
         'pre': CodeBlockBuilder(textStyle: _codeStyle(context)),
-        'latex': LatexMathBuilder(textStyle: style),
+        'latex': LatexMathBuilder(textStyle: widget.style),
       },
       // `CodeSyntax` first, on purpose: the parser evaluates user syntaxes before its
       // own defaults, so LaTeX would otherwise reach inside a code span and eat
@@ -55,7 +110,7 @@ class MarkdownMessage extends StatelessWidget {
   }
 
   TextStyle _codeStyle(BuildContext context) {
-    final body = style ?? Theme.of(context).textTheme.bodyMedium;
+    final body = widget.style ?? Theme.of(context).textTheme.bodyMedium;
     return TextStyle(
       fontFamily: 'monospace',
       fontFamilyFallback: const ['Menlo', 'Consolas', 'DejaVu Sans Mono'],
@@ -68,7 +123,7 @@ class MarkdownMessage extends StatelessWidget {
   MarkdownStyleSheet _styleSheet(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final body = style ?? theme.textTheme.bodyMedium;
+    final body = widget.style ?? theme.textTheme.bodyMedium;
     final code = TextStyle(
       fontFamily: 'monospace',
       fontFamilyFallback: const ['Menlo', 'Consolas', 'DejaVu Sans Mono'],

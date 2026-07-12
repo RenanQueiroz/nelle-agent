@@ -134,6 +134,54 @@ void main() {
     expect(find.byType(Table), findsOneWidget);
   });
 
+  testWidgets('an unchanged bubble does not re-parse when the transcript rebuilds', (
+    tester,
+  ) async {
+    // Every SSE delta rebuilds the whole transcript, and MarkdownBody re-parses when
+    // either `data` or `styleSheet` changes (`widget.dart:366`). `data` is stable for a
+    // settled message — so the *style sheet* is what decides whether N messages
+    // re-parse on every token. It must be value-equal across rebuilds, and it is only
+    // equal if every field we set is. Break that and the transcript quietly re-parses
+    // itself token by token.
+    await tester.pumpWidget(_harness(const MarkdownMessage(text: 'settled')));
+    final first = tester
+        .widget<MarkdownBody>(find.byType(MarkdownBody))
+        .styleSheet;
+
+    await tester.pumpWidget(
+      _harness(const MarkdownMessage(text: 'settled', key: Key('x'))),
+    );
+    final second = tester
+        .widget<MarkdownBody>(find.byType(MarkdownBody))
+        .styleSheet;
+
+    expect(second, equals(first));
+  });
+
+  testWidgets('a streaming bubble coalesces deltas but never drops the last one', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_harness(const MarkdownMessage(text: 'one')));
+    expect(_rendered(tester), contains('one'));
+
+    // Deltas arrive per token. Re-parsing on each one costs up to 14 ms against a
+    // 16.7 ms frame, so they are coalesced...
+    for (final text in ['one two', 'one two three', 'one two three four']) {
+      await tester.pumpWidget(_harness(MarkdownMessage(text: text)));
+      await tester.pump(const Duration(milliseconds: 5));
+    }
+    expect(
+      _rendered(tester),
+      isNot(contains('four')),
+      reason: 'every delta re-parsed; the throttle did nothing',
+    );
+
+    // ...and the last delta of a run is the one the reader actually stops on, so it
+    // must still land. Dropping it would freeze the answer one token from the end.
+    await tester.pump(MarkdownMessage.throttle);
+    expect(_rendered(tester), contains('one two three four'));
+  });
+
   testWidgets('an empty assistant message shows the placeholder, not markdown', (
     tester,
   ) async {
