@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import '../../api/generated/models/issued_tokens.dart';
 
@@ -91,13 +92,9 @@ class SecureTokenStore implements TokenStore {
     }
   }
 
-  void _log(String message) {
-    // ignore: avoid_print
-    assert(() {
-      print('[token store] $message');
-      return true;
-    }());
-  }
+  // `dart:developer`, not `debugPrint`: this file must stay free of Flutter so the
+  // interceptor and the LAN smoke tool remain plain Dart.
+  void _log(String message) => developer.log(message, name: 'nelle.tokens');
 }
 
 /// For tests, and for a platform with no keyring where the user has chosen to proceed
