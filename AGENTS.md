@@ -111,6 +111,42 @@ Project-specific guidance for AI coding agents.
   streaming and syntactically half-written, falls back to the plain monospace span. The
   palette **follows the app's brightness**; the app carries a full dark theme
   (`app.dart:32`), and a light palette on a dark code block is dark-on-dark.
+- `apps/client` (Milestone 4: attachments, compaction, slash commands). Attachments are
+  **uploaded, not embedded**: the bytes go to `POST /api/uploads` (multipart, carrying the
+  `conversationId`) the moment a file is staged, and the chat request references
+  `{uploadId}` and nothing else. The draft is **per conversation** -- an image is gated on
+  the model *that chat* answers with -- and it is cleared on `run.started`, never at send:
+  that one choice is what lets a refused message keep its chips as well as its text, since
+  the uploads are still on the server, unbound. Removing a chip **deletes** the upload;
+  `clear()` deletes nothing, because those uploads are a message now.
+  - A chip shows the server's `warnings[]` and, for a PDF with no text layer, that it will
+    be sent as N page **images** (~1200 context tokens each). The composer previews an
+    image it just read -- free, and only there. The transcript renders **chips, not
+    thumbnails**: a past message's bytes are not on the client and no route serves them.
+  - **`/compact` is not refused by the chat route.** It is on the server's allowlist, so
+    posting it to `chat/stream` hands the model the literal text "/compact" --
+    intercepting it is the client's job. Everything else is refused client-side with the
+    **server's own sentence**, from the fetched `GET /api/commands`; the bundled registry
+    holds only `/compact` and exists so `/model` is still refused in the app's first
+    second.
+  - The "context compacted" row is **synthesized** from `compact.completed`.
+    `buildConversationMessages` drops compaction entries (no role), so `snapshot.messages`
+    never carries one and reloading will not make it appear. `compact.completed`'s
+    `tokensBefore`/`summaryPreview`/`firstKeptEntryId` are declared and **never
+    populated** -- do not build on them. Stopping prefers `runs/:runId/abort`, the only
+    abort that answers with a `warning`.
+  - **A non-2xx does not throw**: dio hands back the body so a `NelleError` can be read
+    off it. Parsing an error body as a settings or command payload yields silent nonsense
+    -- an *empty* registry says "no commands are supported" and would refuse `/compact`
+    itself. Check the status before believing the body.
+- **Image paste and drag-and-drop are blocked on Gradle 9, not on us.**
+  `super_clipboard`/`super_drag_and_drop` work (driven on Linux: a pasted PNG became an
+  attachment gemma read), but they pull `super_native_extensions` ->
+  `irondash_engine_context` -> **cargokit**, whose `gradle/plugin.gradle` calls
+  `Project.exec()` -- removed in **Gradle 9**, which this project is on (9.1.0 / AGP
+  9.0.1). `irondash_engine_context 0.5.5` is the latest, so there is nothing to pin.
+  `flutter build apk` dies. Revisit when cargokit supports Gradle 9; do not re-attempt it
+  blind.
 - The Flutter client is instrumented for **agent-driven UI testing** — the Flutter
   answer to Playwright MCP. `lib/main.dart` initializes `MarionetteBinding` **only
   under `kDebugMode`** (release keeps the plain `WidgetsFlutterBinding`, so the

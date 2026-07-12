@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nelle_agent/src/api/api_client.dart';
 import 'package:nelle_agent/src/api/chat_stream_event.dart';
 import 'package:nelle_agent/src/api/generated/models/nelle_error.dart';
+import 'package:nelle_agent/src/api/generated/models/nelle_warning.dart';
 import 'package:nelle_agent/src/api/generated/models/reasoning_level.dart';
 import 'package:nelle_agent/src/features/attachments/attachment_draft.dart';
 import 'package:nelle_agent/src/features/chat/chat_controller.dart';
@@ -648,5 +649,55 @@ void main() {
     final state = c.read(chatControllerProvider('c')).requireValue;
     expect(state.running, false);
     expect(state.runError, 'not running');
+  });
+
+  test('a run warning is surfaced, not swallowed', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final c = container(events.stream);
+    await c.read(chatControllerProvider('c').future);
+    await c.read(chatControllerProvider('c').notifier).send('hi');
+
+    // Not an error: the run completes. But an answer that stops mid-sentence because
+    // the reply budget ran out is not something to leave the user staring at.
+    events.add(
+      RunWarningEvent(
+        NelleWarning(
+          code: 'reply_budget_exhausted',
+          message: 'The prompt left no room for a reply.',
+        ),
+      ),
+    );
+    events.add(const RunCompletedEvent(status: 'completed'));
+    await _settle();
+
+    final state = c.read(chatControllerProvider('c')).requireValue;
+    expect(state.runWarning, 'The prompt left no room for a reply.');
+    // A warning is not an error: the run did not fail.
+    expect(state.runError, isNull);
+    expect(state.running, isFalse);
+  });
+
+  test('the next send clears the previous warning', () async {
+    // Broadcast, because this test sends twice and the fake transport hands back the
+    // same stream each time.
+    final events = StreamController<ChatStreamEvent>.broadcast();
+    closeAfterTest(events);
+    final c = container(events.stream);
+    await c.read(chatControllerProvider('c').future);
+    await c.read(chatControllerProvider('c').notifier).send('hi');
+    events.add(
+      RunWarningEvent(
+        NelleWarning(code: 'reply_budget_exhausted', message: 'no room'),
+      ),
+    );
+    events.add(const RunCompletedEvent(status: 'completed'));
+    await _settle();
+    expect(c.read(chatControllerProvider('c')).requireValue.runWarning, 'no room');
+
+    // The warning belongs to the run that raised it, not to the conversation.
+    await c.read(chatControllerProvider('c').notifier).send('again');
+
+    expect(c.read(chatControllerProvider('c')).requireValue.runWarning, isNull);
   });
 }

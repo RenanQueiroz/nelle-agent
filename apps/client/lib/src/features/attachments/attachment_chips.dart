@@ -115,9 +115,15 @@ class _Chip extends StatelessWidget {
                   [_size(upload.sizeBytes), ...notes].join(' · '),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
+                  // Legible, not decorative: "scan — sent as 6 page image(s)" is how
+                  // someone learns this costs ~1200 context tokens a page, and a washed
+                  // out tertiary is a note nobody reads.
                   style: TextStyle(
                     fontSize: 10,
-                    color: notes.isEmpty ? scheme.outline : scheme.tertiary,
+                    color: notes.isEmpty
+                        ? scheme.outline
+                        : scheme.onSurfaceVariant,
+                    fontWeight: notes.isEmpty ? null : FontWeight.w500,
                   ),
                 ),
               ],

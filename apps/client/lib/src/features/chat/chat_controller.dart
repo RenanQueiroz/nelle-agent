@@ -42,6 +42,7 @@ class ChatState {
     this.refusedMessage,
     this.compacting = false,
     this.compactNote,
+    this.runWarning,
   });
 
   factory ChatState.fromSnapshot(ConversationSnapshot snapshot) => ChatState(
@@ -67,6 +68,12 @@ class ChatState {
   /// A compaction is running. The conversation is `compacting` server-side: it cannot
   /// send, and the stop button aborts the compaction rather than an answer.
   final bool compacting;
+
+  /// A **non-blocking** warning from the run: the reply budget was exhausted, the model
+  /// spent its whole reasoning budget, Pi fell back to direct llama.cpp. The answer still
+  /// arrived (or did not) and the run completed — but without this the user is left
+  /// staring at a truncated or empty reply with no explanation at all.
+  final String? runWarning;
 
   /// What the compaction is doing, rendered as a system row.
   ///
@@ -113,6 +120,8 @@ class ChatState {
     bool clearRefused = false,
     bool? compacting,
     String? compactNote,
+    String? runWarning,
+    bool clearWarning = false,
   }) => ChatState(
     snapshot: snapshot,
     messages: messages ?? this.messages,
@@ -126,6 +135,7 @@ class ChatState {
         : (refusedMessage ?? this.refusedMessage),
     compacting: compacting ?? this.compacting,
     compactNote: compactNote ?? this.compactNote,
+    runWarning: clearWarning ? null : (runWarning ?? this.runWarning),
   );
 }
 
@@ -196,6 +206,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         clearError: true,
         clearModelLoad: true,
         clearRefused: true,
+        clearWarning: true,
       ),
     );
 
@@ -453,6 +464,10 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         );
       case ContextUpdatedEvent(:final usage):
         state = AsyncData(s.copyWith(context: usage));
+      case RunWarningEvent(:final warning):
+        // Not an error: the run completed. But an answer that stops mid-sentence
+        // because the reply budget ran out is not something to leave unexplained.
+        state = AsyncData(s.copyWith(runWarning: warning.message));
       case StreamErrorEvent(:final error):
         state = AsyncData(s.copyWith(runError: error.message));
       case RunCompletedEvent(:final status, :final error):
@@ -549,6 +564,9 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     final compactNote = s == null
         ? null
         : (s.compacting && error != null ? error : s.compactNote);
+    // Survives the reload for the same reason the compaction row does: the snapshot has
+    // never heard of it.
+    final runWarning = s?.runWarning;
     // The server refused the message before it became a turn (it never sent
     // run.started), so the text is still the composer's -- hand it back rather
     // than making the user retype it.
@@ -558,6 +576,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       final snapshot = await ref.read(chatRepositoryProvider).getSnapshot(arg);
       final next = ChatState.fromSnapshot(snapshot).copyWith(
         compactNote: compactNote,
+        runWarning: runWarning,
       );
       state = AsyncData(
         error == null

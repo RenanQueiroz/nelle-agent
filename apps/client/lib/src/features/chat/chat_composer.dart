@@ -102,11 +102,42 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
     ref.watch(slashCommandsProvider);
 
     final refusal = _refusal;
+    final warning = ref.watch(
+      chatControllerProvider(
+        widget.conversationId,
+      ).select((s) => s.valueOrNull?.runWarning),
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Non-blocking: the run finished. But an answer that stops mid-sentence
+          // because the reply budget ran out deserves a sentence saying so.
+          if (warning != null)
+            Padding(
+              key: const ValueKey('k-composer-run-warning'),
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    FLucideIcons.triangleAlert,
+                    size: 14,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      warning,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (refusal != null)
             Padding(
               key: const ValueKey('k-composer-slash-refusal'),
