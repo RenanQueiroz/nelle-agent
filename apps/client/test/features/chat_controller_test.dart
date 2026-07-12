@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nelle_agent/src/api/api_client.dart';
 import 'package:nelle_agent/src/api/chat_stream_event.dart';
 import 'package:nelle_agent/src/api/generated/models/nelle_error.dart';
+import 'package:nelle_agent/src/api/generated/models/reasoning_level.dart';
 import 'package:nelle_agent/src/features/chat/chat_controller.dart';
 import 'package:nelle_agent/src/features/chat/sse_transport.dart';
 
@@ -272,6 +273,110 @@ void main() {
       expect(patches, 0);
     },
   );
+
+  test('setReasoningLevel puts the level on the conversation', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    Object? putBody;
+    String? putPath;
+    final dio = stubDio((o) {
+      if (o.method == 'PUT') {
+        putPath = o.path;
+        putBody = o.data;
+        return jsonResponse({
+          'snapshot': snapshotJson(reasoningLevel: 'low'),
+        });
+      }
+      return jsonResponse({'snapshot': snapshotJson(reasoningLevel: 'max')});
+    });
+    final c = container(events.stream, dio: dio);
+    await c.read(chatControllerProvider('c').future);
+    expect(
+      c.read(chatControllerProvider('c')).requireValue.reasoningLevel,
+      ReasoningLevel.max,
+    );
+
+    await c
+        .read(chatControllerProvider('c').notifier)
+        .setReasoningLevel(ReasoningLevel.low);
+
+    // Reasoning is per conversation — it has its own route, not a global setting.
+    expect(putPath, '/api/conversations/c/reasoning');
+    expect((putBody! as Map)['level'], 'low');
+    expect(
+      c.read(chatControllerProvider('c')).requireValue.reasoningLevel,
+      ReasoningLevel.low,
+    );
+  });
+
+  test('canReason is a tri-state read straight off the snapshot', () async {
+    Future<bool?> canReasonFor(bool? served) async {
+      final events = StreamController<ChatStreamEvent>();
+      closeAfterTest(events);
+      final c = container(
+        events.stream,
+        dio: stubDio(
+          (o) => jsonResponse({'snapshot': snapshotJson(canReason: served)}),
+        ),
+      );
+      await c.read(chatControllerProvider('c').future);
+      return c.read(chatControllerProvider('c')).requireValue.canReason;
+    }
+
+    // null is "llama.cpp has never loaded this model", NOT "cannot reason".
+    expect(await canReasonFor(null), isNull);
+    expect(await canReasonFor(false), isFalse);
+    expect(await canReasonFor(true), isTrue);
+  });
+
+  test('changing reasoning mid-run does not wipe the streaming reply', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final dio = stubDio((o) {
+      if (o.method == 'PUT') {
+        return jsonResponse({'snapshot': snapshotJson(reasoningLevel: 'off')});
+      }
+      return jsonResponse({'snapshot': snapshotJson(reasoningLevel: 'max')});
+    });
+    final c = container(events.stream, dio: dio);
+    await c.read(chatControllerProvider('c').future);
+
+    await c.read(chatControllerProvider('c').notifier).send('hi');
+    events.add(const AssistantDeltaEvent(id: 'm', delta: 'partial answer'));
+    await _settle();
+
+    await c
+        .read(chatControllerProvider('c').notifier)
+        .setReasoningLevel(ReasoningLevel.off);
+
+    final state = c.read(chatControllerProvider('c')).requireValue;
+    expect(state.reasoningLevel, ReasoningLevel.off);
+    // The level applies to the NEXT prompt; the one in flight keeps streaming.
+    expect(state.running, isTrue);
+    expect(state.pending.last.content, 'partial answer');
+  });
+
+  test('a level only a newer server knows is never echoed back', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    var writes = 0;
+    final dio = stubDio((o) {
+      if (o.method == 'PUT') {
+        writes++;
+      }
+      return jsonResponse({'snapshot': snapshotJson(reasoningLevel: 'max')});
+    });
+    final c = container(events.stream, dio: dio);
+    await c.read(chatControllerProvider('c').future);
+
+    await c
+        .read(chatControllerProvider('c').notifier)
+        .setReasoningLevel(ReasoningLevel.$unknown);
+
+    // `$unknown` has no wire value: sending it would throw, and we do not know what
+    // it means anyway.
+    expect(writes, 0);
+  });
 
   test('a stream error surfaces runError and ends the run', () async {
     final events = StreamController<ChatStreamEvent>();

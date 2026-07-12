@@ -10,6 +10,7 @@ import '../../api/generated/models/conversation_context_usage.dart';
 import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
 import '../../api/generated/models/conversation_snapshot.dart';
+import '../../api/generated/models/reasoning_level.dart';
 import 'chat_repository.dart';
 import 'sse_transport.dart';
 
@@ -53,6 +54,16 @@ class ChatState {
   /// The model **this conversation** runs on. Not `models.selectedModelId`, which is
   /// the global default new chats inherit — reading that would show the wrong model.
   String? get modelId => snapshot.conversation.defaultModelId;
+
+  /// How hard the model thinks on this conversation. Server truth, off the snapshot.
+  ReasoningLevel get reasoningLevel => snapshot.conversation.reasoningLevel;
+
+  /// Whether this conversation's model can think at all — a **tri-state**.
+  ///
+  /// llama.cpp answers `/props` only for a model it has loaded at least once, so
+  /// `null` means "not known yet" and the control must stay editable. Only `false` —
+  /// a chat template that provably has no thinking mode — locks it to `off`.
+  bool? get canReason => snapshot.capabilities.canReason;
 
   bool get loadingModel => modelLoadProgress != null;
   List<ConversationMessage> get rendered => [...messages, ...pending];
@@ -193,12 +204,37 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     if (current == null || current.modelId == modelId) {
       return;
     }
-    final snapshot = await ref
-        .read(chatRepositoryProvider)
-        .setModel(arg, modelId);
-    final next = ChatState.fromSnapshot(snapshot);
+    _applyPreservingRun(
+      await ref.read(chatRepositoryProvider).setModel(arg, modelId),
+      current,
+    );
+  }
+
+  /// Sets this conversation's reasoning level and applies the server's snapshot.
+  ///
+  /// Takes effect on the *next* prompt (Pi is told the level before each one), so a
+  /// run already streaming is left alone rather than restarted.
+  Future<void> setReasoningLevel(ReasoningLevel level) async {
+    final current = state.valueOrNull;
+    if (current == null ||
+        current.reasoningLevel == level ||
+        // A level only a newer server knows. Echoing it back would throw, and we have
+        // no idea what it means anyway.
+        level == ReasoningLevel.$unknown) {
+      return;
+    }
+    _applyPreservingRun(
+      await ref.read(chatRepositoryProvider).setReasoningLevel(arg, level),
+      current,
+    );
+  }
+
+  /// Applies a server snapshot without disturbing the live run: a snapshot describes
+  /// the conversation, and it does not know about the reply currently streaming into
+  /// `pending`.
+  void _applyPreservingRun(ConversationSnapshot snapshot, ChatState current) {
     state = AsyncData(
-      next.copyWith(
+      ChatState.fromSnapshot(snapshot).copyWith(
         pending: current.pending,
         running: current.running,
         modelLoadProgress: current.modelLoadProgress,

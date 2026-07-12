@@ -4,6 +4,7 @@ import 'package:forui/forui.dart';
 
 import '../models/model_selector.dart';
 import 'chat_controller.dart';
+import 'reasoning_selector.dart';
 
 /// The message input. Shows a send button when idle and a stop button while a
 /// run streams.
@@ -73,7 +74,11 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Row(
-              children: [ModelSelector(conversationId: widget.conversationId)],
+              children: [
+                ModelSelector(conversationId: widget.conversationId),
+                const SizedBox(width: 8),
+                ReasoningSelector(conversationId: widget.conversationId),
+              ],
             ),
           ),
           Row(
