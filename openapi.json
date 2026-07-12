@@ -3475,6 +3475,36 @@
         }
       }
     },
+    "/api/attachments/{id}/content": {
+      "get": {
+        "summary": "GET /api/attachments/:id/content",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/NelleError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/pair/code": {
       "post": {
         "summary": "POST /api/pair/code",

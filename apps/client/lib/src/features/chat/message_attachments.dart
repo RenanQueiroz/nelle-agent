@@ -3,14 +3,19 @@ import 'package:forui/forui.dart';
 
 import '../../api/generated/models/attachment_metadata.dart';
 import '../../api/generated/models/attachment_metadata_kind.dart';
+import 'attachment_image.dart';
 
-/// What a sent message carried, rendered as chips.
+/// What a sent message carried.
 ///
-/// **Chips, not thumbnails, and not by accident.** A past message's bytes are not on the
-/// client, and no route on the server serves them — `AttachmentMetadata.storagePath` is a
-/// server-local filesystem path, meaningless to a phone. Showing the picture again needs
-/// a `GET /api/attachments/:id/content` that does not exist yet, and it belongs with the
-/// mobile work, which needs it for the same reason. `apps/web` renders chips too.
+/// An **image** shows the picture, fetched from `GET /api/attachments/:id/content`. A
+/// past message's bytes are not on the client and never were -- the composer can preview
+/// an image only because it just read those bytes off disk -- so until that route existed
+/// a chip was the only honest thing to render. It exists now, and it exists *because* of
+/// the phone: a client that cannot show you the photo you sent yesterday is not much of a
+/// client.
+///
+/// Everything else stays a chip. A PDF has no thumbnail worth 220 pixels and a text file
+/// has none at all, and the chip already says the name, the size, and the kind.
 class MessageAttachments extends StatelessWidget {
   const MessageAttachments({super.key, required this.attachments});
 
@@ -29,10 +34,23 @@ class MessageAttachments extends StatelessWidget {
         alignment: WrapAlignment.end,
         children: [
           for (final attachment in attachments)
-            _Chip(
-              key: ValueKey('k-msg-attachment-${attachment.id}'),
-              attachment: attachment,
-            ),
+            if (attachment.kind == AttachmentMetadataKind.image)
+              AttachmentImage(
+                key: ValueKey('k-msg-attachment-image-${attachment.id}'),
+                attachmentId: attachment.id,
+                // Shown while the bytes are in flight, and if they never arrive: the
+                // file may have been swept, and a broken-image icon would say less than
+                // the name and size already do.
+                fallback: _Chip(
+                  key: ValueKey('k-msg-attachment-${attachment.id}'),
+                  attachment: attachment,
+                ),
+              )
+            else
+              _Chip(
+                key: ValueKey('k-msg-attachment-${attachment.id}'),
+                attachment: attachment,
+              ),
         ],
       ),
     );

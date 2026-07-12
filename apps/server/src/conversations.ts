@@ -1321,6 +1321,25 @@ export class ConversationRepository {
     }));
   }
 
+  /**
+   * One attachment by id, for serving its bytes.
+   *
+   * The id is the only thing the client has: a transcript renders what the snapshot
+   * gave it, and the snapshot carries attachment metadata but not the bytes -- the
+   * bytes are on the server, and on a phone they always will be.
+   */
+  getAttachmentById(id: string): AttachmentMetadata | null {
+    const row = this.database.connection
+      .prepare(
+        `SELECT id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
+                size_bytes, storage_path, text_content, processing_json, created_at
+         FROM message_attachments
+         WHERE id = ?`,
+      )
+      .get(id) as AttachmentRow | undefined;
+    return row ? mapAttachmentRow(row) : null;
+  }
+
   private getAttachments(conversationId: string): AttachmentMetadata[] {
     const rows = this.database.connection
       .prepare(

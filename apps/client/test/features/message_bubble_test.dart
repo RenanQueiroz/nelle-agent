@@ -1,12 +1,17 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
+import 'package:nelle_agent/src/api/api_client.dart';
 import 'package:nelle_agent/src/api/generated/models/attachment_metadata.dart';
 import 'package:nelle_agent/src/api/generated/models/attachment_metadata_kind.dart';
 import 'package:nelle_agent/src/api/generated/models/conversation_message.dart';
 import 'package:nelle_agent/src/api/generated/models/conversation_message_role.dart';
 import 'package:nelle_agent/src/features/chat/message_attachments.dart';
 import 'package:nelle_agent/src/features/chat/message_bubble.dart';
+
+import '../helpers/fake_dio.dart';
 
 ConversationMessage _message({
   required ConversationMessageRole role,
@@ -24,11 +29,26 @@ ConversationMessage _message({
   modelAliasSnapshot: modelAliasSnapshot,
 );
 
-Widget _harness(Widget child) => MaterialApp(
-  theme: FThemes.neutral.light.desktop.toApproximateMaterialTheme(),
-  home: FTheme(
-    data: FThemes.neutral.light.desktop,
-    child: Scaffold(body: SingleChildScrollView(child: child)),
+/// A ProviderScope is required now that an image attachment fetches its own bytes
+/// (`GET /api/attachments/:id/content`). The stub answers 404, so the image falls back
+/// to its chip -- which is what these tests assert on, and is the honest behaviour when
+/// the bytes are gone.
+Widget _harness(Widget child) => ProviderScope(
+  overrides: [
+    dioProvider.overrideWith(
+      (ref) => stubDio(
+        (options) => jsonResponse({
+          'error': {'code': 'not_found'},
+        }, status: 404),
+      ),
+    ),
+  ],
+  child: MaterialApp(
+    theme: FThemes.neutral.light.desktop.toApproximateMaterialTheme(),
+    home: FTheme(
+      data: FThemes.neutral.light.desktop,
+      child: Scaffold(body: SingleChildScrollView(child: child)),
+    ),
   ),
 );
 
@@ -101,10 +121,16 @@ void main() {
     expect(find.textContaining('gemma'), findsOneWidget);
   });
 
-  testWidgets('a sent message shows what it carried, as chips', (tester) async {
-    // Chips, not thumbnails, and not by accident: a past message's bytes are not on the
-    // client and no route serves them. `storagePath` is a server-local path, meaningless
-    // to a phone.
+  testWidgets('a sent message shows an image as a picture and a text file as a chip', (
+    tester,
+  ) async {
+    // M4 rendered *everything* as a chip, deliberately: a past message's bytes are not
+    // on the client and no route served them. `GET /api/attachments/:id/content` exists
+    // now (M5 T7), added for the phone -- a client that cannot show you the photo you
+    // sent yesterday is not much of a client. So an image is a picture again.
+    //
+    // Everything else stays a chip. A PDF has no thumbnail worth 220 pixels and a text
+    // file has none at all, and fetching either to draw a chip is a request for nothing.
     await tester.pumpWidget(
       _harness(
         MessageBubble(
@@ -135,13 +161,18 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('k-msg-attachment-a1')), findsOneWidget);
+    // The image is fetched; until the bytes arrive (and if they never do) it falls back
+    // to the chip, which is what this harness's stub dio produces.
+    expect(
+      find.byKey(const ValueKey('k-msg-attachment-image-a1')),
+      findsOneWidget,
+    );
+    // The text file was never fetched and is a chip, with its name and size.
     expect(find.byKey(const ValueKey('k-msg-attachment-a2')), findsOneWidget);
-    expect(find.text('red.png'), findsOneWidget);
     expect(find.text('secret.txt'), findsOneWidget);
-    expect(find.text('168 B'), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a message with no attachments shows no chip row', (
