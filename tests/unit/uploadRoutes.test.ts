@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import {test} from 'bun:test';
 
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
+import {ConversationRepository} from '../../apps/server/src/conversations.ts';
 import {createTestServer} from './helpers/testServer.ts';
+import {createTempPaths} from './helpers/paths.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
 import {ATTACHMENT_LIMITS} from '../../packages/shared/src/attachments.ts';
 import {imageOnlyPdfBuffer, simplePdfBuffer} from './helpers/pdf.ts';
@@ -372,30 +372,113 @@ function uploadRequest(input: {
   };
 }
 
-async function createTempPaths(): Promise<AppPaths> {
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-test-'));
-  const repoRoot = path.resolve('.');
-  const llamaDir = path.join(dataDir, 'llama');
-  const piDir = path.join(dataDir, 'pi');
+test('an image is gated on the CONVERSATION model, not the global one', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const textOnly = await store.addHuggingFaceModel({
+    repoId: 'repo/text',
+    quant: 'UD-Q4_K_M',
+    name: 'Text Only',
+  });
+  const vision = await store.addHuggingFaceModel({
+    repoId: 'repo/vision',
+    quant: 'UD-Q4_K_M',
+    name: 'Vision',
+  });
+  // The GLOBAL model is the one that cannot see. Before this fix that was the only
+  // model the upload route ever asked about, so an image attached to a chat pinned to a
+  // vision model was refused -- and the mirror case let through an image the answering
+  // model could not see.
+  await store.setActiveModel(textOnly.id);
 
-  return {
-    repoRoot,
-    dataDir,
-    downloadsDir: path.join(dataDir, 'downloads'),
-    attachmentsDir: path.join(dataDir, 'attachments'),
-    uploadsDir: path.join(dataDir, 'uploads'),
-    llamaDir,
-    llamaBinDir: path.join(llamaDir, 'bin'),
-    llamaSrcDir: path.join(llamaDir, 'src'),
-    llamaPresetPath: path.join(llamaDir, 'models.ini'),
-    llamaPidPath: path.join(llamaDir, 'llama-server.pid.json'),
-    llamaLogPath: path.join(dataDir, 'logs', 'llama-server.log'),
-    piDir,
-    piSessionsDir: path.join(piDir, 'sessions'),
-    piAuthPath: path.join(piDir, 'auth.json'),
-    piModelsPath: path.join(piDir, 'models.json'),
-    settingsDbPath: path.join(dataDir, 'settings.sqlite'),
-    statePath: path.join(dataDir, 'state.json'),
-    webDistDir: path.join(repoRoot, 'dist', 'web'),
-  };
-}
+  const database = new AppDatabase(paths);
+  await database.open();
+  const cache = new ModelCacheRepository(database);
+  cache.upsertModelProps(textOnly.id, {
+    modelId: textOnly.id,
+    modalities: {vision: false, audio: false, video: false},
+    canReason: null,
+    raw: {},
+  });
+  cache.upsertModelProps(vision.id, {
+    modelId: vision.id,
+    modalities: {vision: true, audio: false, video: false},
+    canReason: null,
+    raw: {},
+  });
+  const conversations = new ConversationRepository(database);
+  await conversations.init();
+  const seeing = conversations.createConversation({
+    title: 'Pinned to a vision model',
+    defaultModelId: vision.id,
+  });
+  const blind = conversations.createConversation({
+    title: 'Pinned to a text-only model',
+    defaultModelId: textOnly.id,
+  });
+  database.close();
+
+  const app = await createTestServer(paths);
+  try {
+    const accepted = await app.inject(
+      uploadRequest({
+        name: 'shot.png',
+        mimeType: 'image/png',
+        bytes: Buffer.from('png'),
+        conversationId: seeing.id,
+      }),
+    );
+    assert.equal(accepted.statusCode, 201, 'a vision chat must take an image');
+    assert.equal(accepted.json<{kind: string}>().kind, 'image');
+
+    // And the conversation's model still refuses when it is the one proven blind, even
+    // though the model that can see is now globally active.
+    await store.setActiveModel(vision.id);
+    const refused = await app.inject(
+      uploadRequest({
+        name: 'shot.png',
+        mimeType: 'image/png',
+        bytes: Buffer.from('png'),
+        conversationId: blind.id,
+      }),
+    );
+    assert.equal(refused.statusCode, 400);
+    assert.equal(refused.json<{error: {code: string}}>().error.code, 'unsupported_attachment');
+  } finally {
+    await app.close();
+  }
+});
+
+test('an upload with no conversation still falls back to the active model', async () => {
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const textOnly = await store.addHuggingFaceModel({
+    repoId: 'repo/text',
+    quant: 'UD-Q4_K_M',
+    name: 'Text Only',
+  });
+  await store.setActiveModel(textOnly.id);
+
+  const database = new AppDatabase(paths);
+  await database.open();
+  new ModelCacheRepository(database).upsertModelProps(textOnly.id, {
+    modelId: textOnly.id,
+    modalities: {vision: false, audio: false, video: false},
+    canReason: null,
+    raw: {},
+  });
+  database.close();
+
+  const app = await createTestServer(paths);
+  try {
+    // No `conversationId` in the form -- there is no conversation to ask about, so the
+    // global default is the honest thing to gate on.
+    const response = await app.inject(
+      uploadRequest({name: 'shot.png', mimeType: 'image/png', bytes: Buffer.from('png')}),
+    );
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.json<{error: {code: string}}>().error.code, 'unsupported_attachment');
+  } finally {
+    await app.close();
+  }
+});

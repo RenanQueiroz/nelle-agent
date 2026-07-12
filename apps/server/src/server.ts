@@ -37,7 +37,7 @@ import {
 } from './conversations';
 import {resolveConversationModel} from './conversationModel';
 import type {AppPaths} from './paths';
-import type {AppState, ChatAttachmentInput, ChatStreamEvent} from './types';
+import type {ChatAttachmentInput, ChatStreamEvent} from './types';
 import type {NelleError, UploadResponse} from '../../../packages/shared/src/contracts.ts';
 import {
   chatRequestSchema,
@@ -894,7 +894,11 @@ export async function createServer(
           },
           {maxImageMegapixels: attachmentSetting(settings, MAX_IMAGE_MEGAPIXELS_KEY)},
         );
-        assertSupportedAttachments(resolved.attachments, modelCache, await store.getState());
+        // The model that will *answer* -- the same one `resolveChatAttachments` just
+        // gated against. This used to re-check against `state.activeModelId`, the
+        // global default, so a chat pinned to a vision model had its images refused
+        // whenever some other model happened to be globally active.
+        assertSupportedAttachments(resolved.attachments, modelCache, activeModel?.id ?? null);
         for (const reference of body.attachments ?? []) {
           uploads.markBound(reference.uploadId);
         }
@@ -965,10 +969,15 @@ export async function createServer(
     // Refused when the file is chosen, not when the message is sent. `null` means
     // llama.cpp has never reported props, so the model is unproven rather than
     // proven text-only; the client keeps its own conservative UI gate.
-    const state = await store.getState();
-    const visionSupport = state.activeModelId
-      ? modelCache.getVisionSupport(state.activeModelId)
-      : null;
+    //
+    // Gated against the **conversation's** model, which is what will answer -- the form
+    // has carried `conversationId` all along. Reading the global `activeModelId` here
+    // refused an image for a chat pinned to a vision model whenever some other model was
+    // globally active, and accepted one the answering model could not see.
+    const uploadModel = conversationId
+      ? await resolveConversationModel(conversations, store, conversationId)
+      : await store.getActiveModel();
+    const visionSupport = uploadModel ? modelCache.getVisionSupport(uploadModel.id) : null;
     // A PDF with no text layer is a scan: page images are the only way to read it.
     const isScan = ingested.kind === 'pdf' && !ingested.textContent;
     if (visionSupport === false && (ingested.kind === 'image' || isScan)) {
@@ -1554,16 +1563,23 @@ function assertSupportedSlashCommand(message: string): void {
  * reported props, so the model is unproven rather than proven text-only; let it
  * through and let llama.cpp reject it.
  */
-function assertSupportedAttachments(
+/**
+ * Refuses an image the answering model has been *proven* unable to see.
+ *
+ * [modelId] is the **conversation's** model, not the global default: since M2 those are
+ * different things, and the run answers on the conversation's. `null` (no model at all)
+ * and an unproven model both pass -- the tri-state rule is that only `false` refuses.
+ */
+export function assertSupportedAttachments(
   attachments: ChatAttachmentInput[],
   modelCache: ModelCacheRepository,
-  state: AppState,
+  modelId: string | null,
 ): void {
   const hasImage = attachments.some(attachment => attachment.kind === 'image');
-  if (!hasImage || !state.activeModelId) {
+  if (!hasImage || !modelId) {
     return;
   }
-  if (modelCache.getVisionSupport(state.activeModelId) !== false) {
+  if (modelCache.getVisionSupport(modelId) !== false) {
     return;
   }
   const error = new Error(
