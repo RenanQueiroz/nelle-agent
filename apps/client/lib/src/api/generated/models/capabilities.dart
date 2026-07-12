@@ -17,10 +17,9 @@ class Capabilities {
     required this.canAttachImages,
     required this.canReason,
   });
-
-  factory Capabilities.fromJson(Map<String, Object?> json) =>
-      _$CapabilitiesFromJson(json);
-
+  
+  factory Capabilities.fromJson(Map<String, Object?> json) => _$CapabilitiesFromJson(json);
+  
   final bool canSend;
   final bool canAbort;
   final bool canCompact;

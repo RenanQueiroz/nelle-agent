@@ -19,10 +19,9 @@ class ChatPerformance {
     this.tokensPerSecond,
     this.generatedTokens,
   });
-
-  factory ChatPerformance.fromJson(Map<String, Object?> json) =>
-      _$ChatPerformanceFromJson(json);
-
+  
+  factory ChatPerformance.fromJson(Map<String, Object?> json) => _$ChatPerformanceFromJson(json);
+  
   final ChatPerformanceSource source;
   final Prompt? prompt;
   final Generation? generation;

@@ -28,10 +28,9 @@ class ConversationSnapshot {
     required this.capabilities,
     required this.errors,
   });
-
-  factory ConversationSnapshot.fromJson(Map<String, Object?> json) =>
-      _$ConversationSnapshotFromJson(json);
-
+  
+  factory ConversationSnapshot.fromJson(Map<String, Object?> json) => _$ConversationSnapshotFromJson(json);
+  
   final Conversation conversation;
   final List<ConversationEntryProjection> entries;
   final List<ConversationMessage> messages;

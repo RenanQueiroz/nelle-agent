@@ -15,9 +15,9 @@ class Prompt {
     this.totalTokens,
     this.cacheTokens,
   });
-
+  
   factory Prompt.fromJson(Map<String, Object?> json) => _$PromptFromJson(json);
-
+  
   final num tokens;
   final num? tokensPerSecond;
   final num? milliseconds;

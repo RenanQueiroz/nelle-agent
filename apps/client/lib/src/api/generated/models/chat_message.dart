@@ -28,10 +28,9 @@ class ChatMessage {
     this.toolCalls,
     this.reasoning,
   });
-
-  factory ChatMessage.fromJson(Map<String, Object?> json) =>
-      _$ChatMessageFromJson(json);
-
+  
+  factory ChatMessage.fromJson(Map<String, Object?> json) => _$ChatMessageFromJson(json);
+  
   final String id;
   final ChatMessageRole role;
   final String content;

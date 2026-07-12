@@ -20,10 +20,9 @@ class ConversationListItem {
     required this.updatedAt,
     this.defaultModelId,
   });
-
-  factory ConversationListItem.fromJson(Map<String, Object?> json) =>
-      _$ConversationListItemFromJson(json);
-
+  
+  factory ConversationListItem.fromJson(Map<String, Object?> json) => _$ConversationListItemFromJson(json);
+  
   final String id;
   final String title;
   final ConversationListItemTitleSource titleSource;

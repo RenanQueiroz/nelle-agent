@@ -5,12 +5,16 @@ import 'package:dio/dio.dart';
 import 'package:nelle_agent/src/api/chat_stream_event.dart';
 import 'package:nelle_agent/src/features/chat/sse_transport.dart';
 
-/// An [SseTransport] that replays a caller-controlled event stream instead of
-/// making a real streamed request.
+/// An [SseTransport] that replays caller-controlled streams instead of making real
+/// streamed requests: [ChatStreamEvent]s for the chat stream, and raw JSON frames
+/// for llama.cpp's router events.
 class FakeTransport extends SseTransport {
-  FakeTransport(this._events) : super(Dio());
+  // `jsonEvents` is public because Dart forbids a private named parameter, so an
+  // initializing formal is only possible on a public field.
+  FakeTransport(this._events, {this.jsonEvents}) : super(Dio());
 
   final Stream<ChatStreamEvent> _events;
+  final Stream<Map<String, dynamic>>? jsonEvents;
 
   @override
   Stream<ChatStreamEvent> stream(
@@ -18,6 +22,12 @@ class FakeTransport extends SseTransport {
     Object? body,
     CancelToken? cancelToken,
   }) => _events;
+
+  @override
+  Stream<Map<String, dynamic>> streamJson(
+    String path, {
+    CancelToken? cancelToken,
+  }) => jsonEvents ?? const Stream.empty();
 }
 
 /// A dio adapter that returns canned responses, so repository tests never touch

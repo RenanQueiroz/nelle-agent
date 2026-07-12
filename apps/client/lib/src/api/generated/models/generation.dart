@@ -15,10 +15,9 @@ class Generation {
     this.totalTokens,
     this.cacheTokens,
   });
-
-  factory Generation.fromJson(Map<String, Object?> json) =>
-      _$GenerationFromJson(json);
-
+  
+  factory Generation.fromJson(Map<String, Object?> json) => _$GenerationFromJson(json);
+  
   final num tokens;
   final num? tokensPerSecond;
   final num? milliseconds;

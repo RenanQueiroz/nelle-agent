@@ -28,10 +28,9 @@ class ConversationEntryProjection {
     this.displayGroupId,
     this.reasoning,
   });
-
-  factory ConversationEntryProjection.fromJson(Map<String, Object?> json) =>
-      _$ConversationEntryProjectionFromJson(json);
-
+  
+  factory ConversationEntryProjection.fromJson(Map<String, Object?> json) => _$ConversationEntryProjectionFromJson(json);
+  
   final String conversationId;
   final String piEntryId;
   final String? parentPiEntryId;

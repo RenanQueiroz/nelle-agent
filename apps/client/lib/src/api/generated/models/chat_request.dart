@@ -10,11 +10,13 @@ part 'chat_request.g.dart';
 
 @JsonSerializable()
 class ChatRequest {
-  const ChatRequest({required this.message, this.attachments});
-
-  factory ChatRequest.fromJson(Map<String, Object?> json) =>
-      _$ChatRequestFromJson(json);
-
+  const ChatRequest({
+    required this.message,
+    this.attachments,
+  });
+  
+  factory ChatRequest.fromJson(Map<String, Object?> json) => _$ChatRequestFromJson(json);
+  
   final String message;
   final List<Attachments>? attachments;
 

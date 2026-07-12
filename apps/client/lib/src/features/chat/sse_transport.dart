@@ -48,6 +48,43 @@ class SseTransport {
     yield* parseSseByteStream(byteStream);
   }
 
+  /// GETs an SSE endpoint and yields each frame's **raw JSON payload**.
+  ///
+  /// Used for llama.cpp's router events (`/api/llama/models/events`), which the
+  /// server pipes straight through: they are *not* Nelle envelopes, so they must
+  /// never go through [ChatStreamEvent.fromEnvelope]. Only the frame-splitting is
+  /// shared.
+  Stream<Map<String, dynamic>> streamJson(
+    String path, {
+    CancelToken? cancelToken,
+  }) async* {
+    final Response<ResponseBody> res;
+    try {
+      res = await _dio.get<ResponseBody>(
+        path,
+        options: Options(
+          responseType: ResponseType.stream,
+          // The router is quiet between loads; a receive timeout would kill an
+          // idle-but-healthy stream.
+          receiveTimeout: Duration.zero,
+          headers: const {'accept': 'text/event-stream'},
+        ),
+        cancelToken: cancelToken,
+      );
+    } on DioException catch (e) {
+      if (CancelToken.isCancel(e)) return;
+      throw NelleApiException.network(e);
+    }
+
+    final byteStream = res.data!.stream;
+    final code = res.statusCode ?? 0;
+    if (code < 200 || code >= 300) {
+      // llama.cpp is not running: 502. The caller retries; it is not a crash.
+      throw _errorFromBody(await _collect(byteStream), code);
+    }
+    yield* parseSseJsonFrames(byteStream);
+  }
+
   Future<String> _collect(Stream<Uint8List> byteStream) async {
     final buffer = StringBuffer();
     await for (final chunk in byteStream) {

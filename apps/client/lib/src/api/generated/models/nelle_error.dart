@@ -15,10 +15,9 @@ class NelleError {
     this.retryable,
     this.logRef,
   });
-
-  factory NelleError.fromJson(Map<String, Object?> json) =>
-      _$NelleErrorFromJson(json);
-
+  
+  factory NelleError.fromJson(Map<String, Object?> json) => _$NelleErrorFromJson(json);
+  
   final String code;
   final String message;
   final String? detail;

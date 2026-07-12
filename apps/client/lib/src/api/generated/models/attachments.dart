@@ -8,11 +8,12 @@ part 'attachments.g.dart';
 
 @JsonSerializable()
 class Attachments {
-  const Attachments({required this.uploadId});
-
-  factory Attachments.fromJson(Map<String, Object?> json) =>
-      _$AttachmentsFromJson(json);
-
+  const Attachments({
+    required this.uploadId,
+  });
+  
+  factory Attachments.fromJson(Map<String, Object?> json) => _$AttachmentsFromJson(json);
+  
   final String uploadId;
 
   Map<String, Object?> toJson() => _$AttachmentsToJson(this);

@@ -15,9 +15,9 @@ class Models {
     this.selectedModelId,
     this.defaultModelId,
   });
-
+  
   factory Models.fromJson(Map<String, Object?> json) => _$ModelsFromJson(json);
-
+  
   final String? selectedModelId;
   final String? defaultModelId;
   final List<ModelListItem> available;

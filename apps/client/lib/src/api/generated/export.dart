@@ -22,6 +22,8 @@ export 'models/active_run_status.dart';
 export 'models/reasoning_level.dart';
 export 'models/model_list_item.dart';
 export 'models/attachment_metadata.dart';
+export 'models/llama_router_model.dart';
+export 'models/llama_models_response.dart';
 export 'models/prompt.dart';
 export 'models/generation.dart';
 export 'models/attachments.dart';

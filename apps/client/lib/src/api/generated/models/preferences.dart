@@ -17,10 +17,9 @@ class Preferences {
     this.renderThinkingAsMarkdown,
     this.disableAutoScroll,
   });
-
-  factory Preferences.fromJson(Map<String, Object?> json) =>
-      _$PreferencesFromJson(json);
-
+  
+  factory Preferences.fromJson(Map<String, Object?> json) => _$PreferencesFromJson(json);
+  
   final List<String>? favoriteModelIds;
   final bool? showGenerationStats;
   final bool? showThinkingInProgress;
