@@ -252,12 +252,27 @@ Project-specific guidance for AI coding agents.
   `dbus-run-session -- sh -c 'printf "\n" | gnome-keyring-daemon --unlock --components=secrets; flutter run -d linux'`.
   A real Linux user still sees their OS keyring prompt on first pair, once; that is their
   desktop asking, and it is correct.
-- **A phone on the LAN cannot reach this WSL2 machine.** WSL2 is NAT'd by default, so Nelle
-  binds the VM's `172.31.x.x`, while the phone is on the host's `192.168.x.x` — the two do
-  not meet without `networkingMode=mirrored` in `.wslconfig` or a Windows `netsh portproxy`.
-  Pairing, pinning, bearer and refresh are therefore driven **Linux↔LAN**: a second desktop
-  instance pointed at the TLS listener is a real remote client and exercises every one of
-  them. This is an environment fact, like the WSLg clipboard — do not read it as a bug.
+- **A physical phone on the LAN cannot reach this WSL2 machine.** WSL2 is NAT'd by default,
+  so Nelle binds the VM's `172.31.x.x` while the phone is on the host's `192.168.x.x` — the
+  two do not meet without `networkingMode=mirrored` in `.wslconfig` or a Windows `netsh
+  portproxy`. **An Android emulator needs neither**, because it runs *inside* WSL and shares
+  its network namespace: it dials `https://172.31.x.x:8788` directly. That makes the emulator
+  the way to drive the phone, and a second desktop instance pointed at the TLS listener the
+  way to drive a remote client. Neither is a bug to fix — they are the shape of the machine.
+- **Driving the Android emulator here needs two non-obvious flags.** It aborts with `Unable
+  to create /run/user/1000/avd/running` because WSL has no `XDG_RUNTIME_DIR`, and it hangs at
+  0.1% CPU forever waiting on a WSLg window — so give it a writable `XDG_RUNTIME_DIR` and run
+  it **`-no-window`**. Headless costs nothing: Marionette attaches to the Dart VM over adb and
+  screenshots come from Flutter, not from the emulator's window.
+  `emulator -avd <name> -no-window -gpu swiftshader_indirect -no-snapshot`, then
+  `flutter run -d emulator-5554`. KVM needs the user in the `kvm` group; without it the boot
+  silently falls back to something unusable.
+- **A phone is not a narrow desktop, and the difference finds bugs.** Ten minutes on Android
+  found a composer that overflowed by 91px (an unflexed `Row` a 1280px window had always been
+  wide enough to hide) and a conversation list that never reloaded after pairing (the notifier
+  `read` its repository instead of watching it — invisible on a desktop, where loopback works
+  *before* you pair, and the first thing that happens on a phone, where it cannot). Widget
+  tests must pin the phone size (`tester.view.physicalSize`) to see either.
 - The Flutter client is instrumented for **agent-driven UI testing** — the Flutter
   answer to Playwright MCP. `lib/main.dart` initializes `MarionetteBinding` **only
   under `kDebugMode`** (release keeps the plain `WidgetsFlutterBinding`, so the
