@@ -313,11 +313,11 @@ Project-specific guidance for AI coding agents.
   `runtime.modelsMax >= 2`**: at the default `1` the router evicts the first model
   when the second loads, so the test would be exercising eviction and reporting a
   pass — worse than a failure, because it looks green. So before any multi-model run,
-  read `GET /api/runtime` and assert `modelsMax >= 2` rather than assuming it. It
-  lives in `.nelle/state.json` (git-ignored app data), not in code: `store.ts` keeps
-  the default at `1` on purpose, because a fresh install on memory-constrained
-  hardware must not try to hold two models. Raise it per machine with
-  `PATCH /api/runtime/settings`, which needs a llama.cpp restart.
+  read `GET /api/runtime` and assert `modelsMax >= 2` rather than assuming it. It is a
+  **settings group** (`runtime`), so it lives in `.nelle/settings.sqlite` (git-ignored app
+  data), not in code: the registry keeps the default at `1` on purpose, because a fresh
+  install on memory-constrained hardware must not try to hold two models. Raise it per
+  machine with `PATCH /api/settings/runtime`, which needs a llama.cpp restart.
 - The HTTP server is `Bun.serve` over a small native router
   (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
   owns JSON-body parsing, zod→400 mapping, CORS, and a `Bun.file` static + SPA
@@ -373,8 +373,12 @@ Project-specific guidance for AI coding agents.
   re-derive it from the template, and never gate on a `qwen` substring.
 - Generated llama.cpp presets omit `n-gpu-layers` by default. Only write GPU
   offload flags when the user explicitly configures them.
-- Launch llama-server with configurable `modelsMax` and `sleepIdleSeconds`
-  settings. Defaults are `1` and `90`, and changes require a server restart.
+- `modelsMax` and `sleepIdleSeconds` are the `runtime` **settings group**
+  (`GET`/`PATCH /api/settings/runtime`), and `llamacpp.ts` reads them from
+  `SettingsRepository` when it builds `--models-max` / `--sleep-idle-seconds`. Defaults
+  are `1` and `90`, and a change needs a llama.cpp restart -- which the served help text
+  says, because a control that appears to do nothing is a bug report. `state.json` keeps
+  only llama.cpp's *address* (host, port), which is not a user setting.
 - Nelle writes no context size. It writes a *floor* for llama.cpp's auto-fit --
   `fitc` (`--fit-ctx`) = `PI_MINIMUM_CONTEXT_TOKENS` (32,768) in `[*]` -- and
   llama.cpp picks the window. `--fit` is on by default and interpolates an unset

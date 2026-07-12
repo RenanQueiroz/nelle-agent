@@ -8,6 +8,10 @@ import {test} from 'bun:test';
 import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
+import {AppDatabase} from '../../apps/server/src/database.ts';
+import {SettingsRepository} from '../../apps/server/src/settings.ts';
+import {SETTINGS_REGISTRY} from '../../packages/shared/src/settings.ts';
+import {RUNTIME_SETTINGS_SLUG} from '../../packages/shared/src/settingsKeys.ts';
 
 test('new Hugging Face imports use stable canonical section ids', async () => {
   const paths = await createTempPaths();
@@ -174,7 +178,13 @@ test('start launches router mode with zero configured models', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
   const port = await getFreePort();
-  await store.updateRuntimeSettings({port, modelsMax: 3, sleepIdleSeconds: 45});
+  await store.updateRuntimeSettings({port});
+  // The launch limits are a settings group now, not a corner of `state.json`. This is the
+  // test that proves the group actually reaches llama.cpp's command line.
+  const database = new AppDatabase(paths);
+  await database.open();
+  const settings = new SettingsRepository(database, SETTINGS_REGISTRY);
+  settings.updateGroup(RUNTIME_SETTINGS_SLUG, {modelsMax: 3, sleepIdleSeconds: 45});
   const fakeServerPath = path.join(paths.dataDir, 'fake-llama-server.cjs');
   const argsPath = path.join(paths.dataDir, 'fake-llama-args.json');
   await fs.writeFile(fakeServerPath, fakeLlamaServerScript(), {mode: 0o755});
@@ -183,7 +193,7 @@ test('start launches router mode with zero configured models', async () => {
   const previousArgsPath = process.env.NELLE_FAKE_LLAMA_ARGS;
   process.env.LLAMA_SERVER_PATH = fakeServerPath;
   process.env.NELLE_FAKE_LLAMA_ARGS = argsPath;
-  const llama = new LlamaCppManager(paths, store);
+  const llama = new LlamaCppManager(paths, store, settings);
 
   try {
     const status = await llama.start();
@@ -207,6 +217,7 @@ test('start launches router mode with zero configured models', async () => {
     assert.match(preset, /version = 1/);
   } finally {
     await llama.stop().catch(() => undefined);
+    database.close();
     if (previousServerPath == null) {
       delete process.env.LLAMA_SERVER_PATH;
     } else {

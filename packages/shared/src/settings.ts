@@ -30,6 +30,9 @@ import {
   REASONING_BUDGET_LOW_KEY,
   REASONING_BUDGET_MEDIUM_KEY,
   REASONING_SETTINGS_SLUG,
+  MODELS_MAX_KEY,
+  RUNTIME_SETTINGS_SLUG,
+  SLEEP_IDLE_SECONDS_KEY,
   TITLES_SETTINGS_SLUG,
 } from './settingsKeys.ts';
 import {
@@ -154,6 +157,13 @@ export type SettingsValues = Record<string, SettingsValue>;
  * forty thousand characters in the input. `0` disables it.
  */
 export const DEFAULT_PASTE_TO_FILE_CHARACTERS = 2500;
+
+/**
+ * llama.cpp holds one model by default, and that is deliberate: a fresh install on a
+ * memory-constrained machine must not try to hold two. Multi-model use raises it.
+ */
+export const DEFAULT_MODELS_MAX = 1;
+export const DEFAULT_SLEEP_IDLE_SECONDS = 90;
 
 /**
  * `0` is not "unset". It means **no limit** -- the model stops thinking when it is done.
@@ -292,6 +302,41 @@ export const SETTINGS_REGISTRY: readonly SettingsGroup[] = [
     ],
   },
   {
+    slug: RUNTIME_SETTINGS_SLUG,
+    title: 'Runtime',
+    description:
+      'How llama.cpp is launched. Both take effect when it next starts -- changing them while ' +
+      'it is running does nothing until you restart it.',
+    fields: [
+      {
+        key: MODELS_MAX_KEY,
+        label: 'Models kept loaded',
+        help:
+          'How many models llama.cpp may hold in memory at once. The default is 1 on purpose: a ' +
+          'fresh install on a small machine must not try to hold two. Raise it to run two chats ' +
+          'on two models at the same time. Takes effect after a llama.cpp restart.',
+        type: 'number',
+        default: DEFAULT_MODELS_MAX,
+        min: 1,
+        max: 16,
+        integer: true,
+      },
+      {
+        key: SLEEP_IDLE_SECONDS_KEY,
+        label: 'Sleep an idle model after',
+        help:
+          'Seconds of inactivity before llama.cpp puts a model to sleep and frees its memory. It ' +
+          'wakes on the next message, which costs a moment. 0 never sleeps. Takes effect after a ' +
+          'llama.cpp restart.',
+        type: 'number',
+        default: DEFAULT_SLEEP_IDLE_SECONDS,
+        min: 0,
+        max: 86_400,
+        integer: true,
+      },
+    ],
+  },
+  {
     slug: NETWORK_SETTINGS_SLUG,
     title: 'Remote access',
     description:
@@ -423,5 +468,24 @@ export function reasoningBudgetsFromSettings(values: SettingsValues): ReasoningB
     low: read(REASONING_BUDGET_LOW_KEY, DEFAULT_REASONING_BUDGETS.low),
     medium: read(REASONING_BUDGET_MEDIUM_KEY, DEFAULT_REASONING_BUDGETS.medium),
     high: read(REASONING_BUDGET_HIGH_KEY, DEFAULT_REASONING_BUDGETS.high),
+  };
+}
+
+/** How llama.cpp is launched, read out of the `runtime` settings group. */
+export type RuntimeLimits = {
+  modelsMax: number;
+  sleepIdleSeconds: number;
+};
+
+export function runtimeLimitsFromSettings(values: SettingsValues): RuntimeLimits {
+  const read = (key: string, fallback: number, min: number): number => {
+    const value = values[key];
+    return typeof value === 'number' && Number.isFinite(value) && value >= min
+      ? Math.trunc(value)
+      : fallback;
+  };
+  return {
+    modelsMax: read(MODELS_MAX_KEY, DEFAULT_MODELS_MAX, 1),
+    sleepIdleSeconds: read(SLEEP_IDLE_SECONDS_KEY, DEFAULT_SLEEP_IDLE_SECONDS, 0),
   };
 }

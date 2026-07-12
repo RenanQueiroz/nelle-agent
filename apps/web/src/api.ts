@@ -445,15 +445,16 @@ export async function getRuntimeLogs(): Promise<{path: string; text: string}> {
   return apiGet('/api/runtime/logs');
 }
 
+/**
+ * How llama.cpp is launched is a settings group now, not a corner of `state.json` behind
+ * a hand-written route. `GET /api/runtime` still *reports* the limits (it reports what
+ * the router will be launched with), so only the write moved.
+ */
 export async function updateRuntimeSettings(input: {
   modelsMax?: number;
   sleepIdleSeconds?: number;
-}): Promise<AppStateResponse['state']['runtime']> {
-  const response = await apiPatch<{runtime: AppStateResponse['state']['runtime']}>(
-    '/api/runtime/settings',
-    input,
-  );
-  return response.runtime;
+}): Promise<{modelsMax: number; sleepIdleSeconds: number}> {
+  return apiPatch<{modelsMax: number; sleepIdleSeconds: number}>('/api/settings/runtime', input);
 }
 
 export async function getHostToolSettings(): Promise<HostToolSettings> {

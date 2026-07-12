@@ -2125,6 +2125,64 @@
         }
       }
     },
+    "/api/settings/runtime": {
+      "get": {
+        "summary": "GET /api/settings/runtime",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/NelleError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "PATCH /api/settings/runtime",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/NelleError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/settings/network": {
       "get": {
         "summary": "GET /api/settings/network",
@@ -2336,36 +2394,6 @@
     "/api/runtime/logs": {
       "get": {
         "summary": "GET /api/runtime/logs",
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "default": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "$ref": "#/components/schemas/NelleError"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/runtime/settings": {
-      "patch": {
-        "summary": "PATCH /api/runtime/settings",
         "security": [
           {
             "bearerAuth": []

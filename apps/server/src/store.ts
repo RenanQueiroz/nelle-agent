@@ -69,8 +69,6 @@ const DEFAULT_STATE: AppState = {
     // the e2e server does not health-probe (and adopt) a real llama-server that
     // a developer happens to be running on the usual port.
     port: 8080,
-    modelsMax: 1,
-    sleepIdleSeconds: 90,
   },
   chat: [],
 };
@@ -215,6 +213,21 @@ export class AppStore {
     return structuredClone(state.globalModelParams);
   }
 
+  /**
+   * Where llama.cpp listens. Host and port stay in `state.json`: they are the router's
+   * address, not something a user sets in a settings screen -- and the e2e harness moves
+   * the port so a developer's own llama-server is not adopted.
+   *
+   * The *limits* it is launched with (`modelsMax`, `sleepIdleSeconds`) are a settings
+   * group now, and are not here.
+   */
+  async updateRuntimeSettings(input: {host?: string; port?: number}): Promise<AppState['runtime']> {
+    const state = await this.load();
+    state.runtime = normalizeRuntime({...state.runtime, ...input});
+    await this.save();
+    return structuredClone(state.runtime);
+  }
+
   async updateModel(
     id: string,
     input: {
@@ -281,16 +294,6 @@ export class AppStore {
     }
     await this.save();
     return removed;
-  }
-
-  async updateRuntimeSettings(input: {
-    modelsMax?: number;
-    sleepIdleSeconds?: number;
-  }): Promise<AppState['runtime']> {
-    const state = await this.load();
-    state.runtime = normalizeRuntime({...state.runtime, ...input});
-    await this.save();
-    return structuredClone(state.runtime);
   }
 
   async appendChatMessage(message: ChatMessage): Promise<void> {
@@ -491,20 +494,11 @@ function normalizeRuntime(input: Partial<AppState['runtime']> = {}): AppState['r
   return {
     host: input.host || DEFAULT_STATE.runtime.host,
     port: positiveInteger(input.port, defaultLlamaPort()),
-    modelsMax: positiveInteger(input.modelsMax, DEFAULT_STATE.runtime.modelsMax),
-    sleepIdleSeconds: nonNegativeInteger(
-      input.sleepIdleSeconds,
-      DEFAULT_STATE.runtime.sleepIdleSeconds,
-    ),
   };
 }
 
 function positiveInteger(value: unknown, fallback: number): number {
   return Number.isInteger(value) && Number(value) > 0 ? Number(value) : fallback;
-}
-
-function nonNegativeInteger(value: unknown, fallback: number): number {
-  return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : fallback;
 }
 
 /**

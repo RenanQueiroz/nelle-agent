@@ -4,6 +4,12 @@ import path from 'node:path';
 import os from 'node:os';
 
 import type {AppPaths} from './paths';
+import type {SettingsRepository} from './settings';
+import {
+  runtimeLimitsFromSettings,
+  type RuntimeLimits,
+} from '../../../packages/shared/src/settings.ts';
+import {RUNTIME_SETTINGS_SLUG} from '../../../packages/shared/src/settingsKeys.ts';
 import type {
   ConfiguredModel,
   LlamaAbortVerificationResult,
@@ -75,7 +81,19 @@ export class LlamaCppManager {
   constructor(
     private readonly paths: AppPaths,
     private readonly store: AppStore,
+    /**
+     * How llama.cpp is launched (`--models-max`, `--sleep-idle-seconds`) is a settings
+     * group now, not a corner of `state.json`. Optional so the preset tests can build a
+     * manager without one; absent means the registry defaults, which is what a fresh
+     * install would have anyway.
+     */
+    private readonly settings?: SettingsRepository,
   ) {}
+
+  /** The launch limits, from the settings group. */
+  #limits(): RuntimeLimits {
+    return runtimeLimitsFromSettings(this.settings?.tryGetGroup(RUNTIME_SETTINGS_SLUG) ?? {});
+  }
 
   async getStatus(checkLatest = false): Promise<RuntimeStatus> {
     const state = await this.store.getState();
@@ -109,8 +127,7 @@ export class LlamaCppManager {
       pid: managedPid,
       host: state.runtime.host,
       port: state.runtime.port,
-      modelsMax: state.runtime.modelsMax,
-      sleepIdleSeconds: state.runtime.sleepIdleSeconds,
+      ...this.#limits(),
       activeModelId: state.activeModelId,
       lastError: this.#lastError,
     };
@@ -449,6 +466,7 @@ export class LlamaCppManager {
         }
       }
     };
+    const limits = this.#limits();
     const args = [
       '--host',
       state.runtime.host,
@@ -457,9 +475,9 @@ export class LlamaCppManager {
       '--models-preset',
       this.paths.llamaPresetPath,
       '--models-max',
-      String(state.runtime.modelsMax),
+      String(limits.modelsMax),
       '--sleep-idle-seconds',
-      String(state.runtime.sleepIdleSeconds),
+      String(limits.sleepIdleSeconds),
     ];
 
     let child: Bun.Subprocess;

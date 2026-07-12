@@ -155,8 +155,6 @@ export type AppState = {
   runtime: {
     host: string;
     port: number;
-    modelsMax: number;
-    sleepIdleSeconds: number;
   };
   chat: ChatMessage[];
 };

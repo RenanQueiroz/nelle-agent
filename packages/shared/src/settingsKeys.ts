@@ -14,6 +14,7 @@ export const ATTACHMENTS_SETTINGS_SLUG = 'attachments';
 export const INSTRUCTIONS_SETTINGS_SLUG = 'instructions';
 export const NETWORK_SETTINGS_SLUG = 'network';
 export const REASONING_SETTINGS_SLUG = 'reasoning';
+export const RUNTIME_SETTINGS_SLUG = 'runtime';
 
 /**
  * Whether the server also binds a token-authenticated HTTPS listener for other
@@ -38,6 +39,10 @@ export const MAX_IMAGE_MEGAPIXELS_KEY = 'maxImageMegapixels';
 export const REASONING_BUDGET_LOW_KEY = 'low';
 export const REASONING_BUDGET_MEDIUM_KEY = 'medium';
 export const REASONING_BUDGET_HIGH_KEY = 'high';
+
+/** How llama.cpp is launched. Both take effect only when it is restarted. */
+export const MODELS_MAX_KEY = 'modelsMax';
+export const SLEEP_IDLE_SECONDS_KEY = 'sleepIdleSeconds';
 
 /**
  * Saving one of these rebuilds Pi's cached sessions.

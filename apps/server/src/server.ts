@@ -78,11 +78,6 @@ const useHuggingFaceModelSchema = z.object({
   name: z.string().optional(),
 });
 
-const runtimeSettingsSchema = z.object({
-  modelsMax: z.number().int().min(1).optional(),
-  sleepIdleSeconds: z.number().int().min(0).optional(),
-});
-
 const editableParamsSchema = z.record(z.string(), z.string());
 
 const updateGlobalModelParamsSchema = z.object({
@@ -184,7 +179,7 @@ export async function createServer(
   const tlsPort = Number(process.env.NELLE_TLS_PORT ?? 8788);
   // Generated once and kept stable so a paired device's pinned fingerprint holds.
   const serverCert = lanAccessEnabled ? await ensureServerCert(paths) : null;
-  const llama = new LlamaCppManager(paths, store);
+  const llama = new LlamaCppManager(paths, store, settings);
   const llamaOptions = new LlamaOptionCatalogueCache(() => llama.getServerBinaryPath());
   const hf = new HuggingFaceService(store);
   const pi = new PiHarness(paths, store, conversations, hostTools, llama, modelCache, settings);
@@ -336,11 +331,6 @@ export async function createServer(
       : 80_000;
     return json(await llama.readLogTail(maxBytes));
   });
-  router.patch('/api/runtime/settings', async ctx => {
-    const body = runtimeSettingsSchema.parse(await ctx.body());
-    return json({runtime: await store.updateRuntimeSettings(body)});
-  });
-
   router.get('/api/llama/props', async () => handleLlamaRoute(() => llama.getRouterProps()));
 
   router.get('/api/llama/models', async () =>

@@ -16,7 +16,9 @@ import {
   settingsGroupSchema,
   settingsPatchSchema,
   type SettingsGroup,
+  runtimeLimitsFromSettings,
 } from '../../packages/shared/src/settings.ts';
+import {RUNTIME_SETTINGS_SLUG} from '../../packages/shared/src/settingsKeys.ts';
 
 /**
  * The real registry is empty in this phase: it lands the machinery, and every
@@ -344,3 +346,46 @@ async function createTempPaths(): Promise<AppPaths> {
     webDistDir: path.join(repoRoot, 'dist', 'web'),
   };
 }
+
+test('the runtime limits are a settings group, and llama.cpp is launched from it', () => {
+  // They lived in `state.json` behind `PATCH /api/runtime/settings`. They are two number
+  // fields now, so whatever renders the schema renders them.
+  const group = SETTINGS_REGISTRY.find(entry => entry.slug === RUNTIME_SETTINGS_SLUG);
+  assert.ok(group, 'runtime must be a registry group');
+  assert.deepEqual(
+    group.fields.map(field => field.key),
+    ['modelsMax', 'sleepIdleSeconds'],
+  );
+
+  // The default is 1 **on purpose**: a fresh install on a memory-constrained machine must
+  // not try to hold two models. Multi-model use raises it; nothing else should.
+  const modelsMax = group.fields[0]!;
+  assert.equal(modelsMax.type === 'number' && modelsMax.default, 1);
+  assert.equal(modelsMax.type === 'number' && modelsMax.min, 1);
+
+  // Both take effect only when llama.cpp restarts, and the help text has to say so -- a
+  // control that appears to do nothing is a bug report.
+  for (const field of group.fields) {
+    assert.match(field.help, /restart/i, `${field.key} must say it needs a restart`);
+  }
+});
+
+test('the launch limits are read from the settings group, field by field', () => {
+  assert.deepEqual(runtimeLimitsFromSettings({modelsMax: 4, sleepIdleSeconds: 30}), {
+    modelsMax: 4,
+    sleepIdleSeconds: 30,
+  });
+
+  // An empty group is a fresh install: llama.cpp holds one model and sleeps it after 90s.
+  assert.deepEqual(runtimeLimitsFromSettings({}), {modelsMax: 1, sleepIdleSeconds: 90});
+
+  // `0` sleep means never sleep, and must survive the read; `0` models does not exist.
+  assert.equal(runtimeLimitsFromSettings({sleepIdleSeconds: 0}).sleepIdleSeconds, 0);
+  assert.equal(runtimeLimitsFromSettings({modelsMax: 0}).modelsMax, 1);
+
+  // One unreadable value falls back to its own default and takes no sibling with it.
+  assert.deepEqual(runtimeLimitsFromSettings({modelsMax: 'two' as never, sleepIdleSeconds: 5}), {
+    modelsMax: 1,
+    sleepIdleSeconds: 5,
+  });
+});
