@@ -14,6 +14,14 @@ import '../helpers/fake_dio.dart';
 Future<void> _settle() => Future.delayed(const Duration(milliseconds: 20));
 
 void main() {
+  /// Closes [events] after the test, dropping the future `close()` returns.
+  ///
+  /// A single-subscription controller nothing ever listened to never completes its
+  /// `close()`, and `addTearDown` awaits what it is handed — so a test that never
+  /// sends (and so never subscribes to the stream) would hang instead of finishing.
+  void closeAfterTest(StreamController<ChatStreamEvent> events) =>
+      addTearDown(() => unawaited(events.close()));
+
   ProviderContainer container(Stream<ChatStreamEvent> events, {Dio? dio}) {
     final c = ProviderContainer(
       overrides: [
@@ -29,7 +37,7 @@ void main() {
 
   test('send appends an optimistic user + streaming assistant turn', () async {
     final events = StreamController<ChatStreamEvent>();
-    addTearDown(events.close);
+    closeAfterTest(events);
     final c = container(events.stream);
 
     await c.read(chatControllerProvider('c').future);
@@ -42,7 +50,7 @@ void main() {
 
   test('folds content and reasoning deltas into the assistant turn', () async {
     final events = StreamController<ChatStreamEvent>();
-    addTearDown(events.close);
+    closeAfterTest(events);
     final c = container(events.stream);
 
     await c.read(chatControllerProvider('c').future);
@@ -64,7 +72,7 @@ void main() {
 
   test('model.loading sets progress and the first delta clears it', () async {
     final events = StreamController<ChatStreamEvent>();
-    addTearDown(events.close);
+    closeAfterTest(events);
     final c = container(events.stream);
 
     await c.read(chatControllerProvider('c').future);
@@ -186,6 +194,84 @@ void main() {
       isNull,
     );
   });
+
+  test(
+    'setModel pins the conversation and applies the returned snapshot',
+    () async {
+      final events = StreamController<ChatStreamEvent>();
+      closeAfterTest(events);
+      String? patchedTo;
+      final dio = stubDio((o) {
+        if (o.method == 'PATCH') {
+          patchedTo = (o.data as Map)['defaultModelId'] as String?;
+          return jsonResponse({
+            'conversation': {'id': 'c'},
+            'snapshot': snapshotJson(defaultModelId: 'E2B'),
+          });
+        }
+        return jsonResponse({'snapshot': snapshotJson(defaultModelId: 'E4B')});
+      });
+      final c = container(events.stream, dio: dio);
+
+      await c.read(chatControllerProvider('c').future);
+      expect(c.read(chatControllerProvider('c')).requireValue.modelId, 'E4B');
+
+      await c.read(chatControllerProvider('c').notifier).setModel('E2B');
+
+      // It patches the CONVERSATION, not a global active model.
+      expect(patchedTo, 'E2B');
+      expect(c.read(chatControllerProvider('c')).requireValue.modelId, 'E2B');
+    },
+  );
+
+  test('changing the model mid-run does not wipe the streaming reply', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final dio = stubDio((o) {
+      if (o.method == 'PATCH') {
+        return jsonResponse({
+          'conversation': {'id': 'c'},
+          'snapshot': snapshotJson(defaultModelId: 'E2B'),
+        });
+      }
+      return jsonResponse({'snapshot': snapshotJson(defaultModelId: 'E4B')});
+    });
+    final c = container(events.stream, dio: dio);
+    await c.read(chatControllerProvider('c').future);
+
+    await c.read(chatControllerProvider('c').notifier).send('hi');
+    events.add(const AssistantDeltaEvent(id: 'm', delta: 'partial answer'));
+    await _settle();
+
+    await c.read(chatControllerProvider('c').notifier).setModel('E2B');
+
+    final state = c.read(chatControllerProvider('c')).requireValue;
+    expect(state.modelId, 'E2B');
+    // The in-flight turn survives: switching models must not eat a streaming reply.
+    expect(state.running, isTrue);
+    expect(state.pending.last.content, 'partial answer');
+  });
+
+  test(
+    'setModel is a no-op when the model is already the conversation\'s',
+    () async {
+      final events = StreamController<ChatStreamEvent>();
+      closeAfterTest(events);
+      var patches = 0;
+      final dio = stubDio((o) {
+        if (o.method == 'PATCH') {
+          patches++;
+        }
+        return jsonResponse({'snapshot': snapshotJson(defaultModelId: 'E4B')});
+      });
+      final c = container(events.stream, dio: dio);
+      await c.read(chatControllerProvider('c').future);
+
+      await c.read(chatControllerProvider('c').notifier).setModel('E4B');
+
+      expect(patches, 0);
+    },
+  );
 
   test('a stream error surfaces runError and ends the run', () async {
     final events = StreamController<ChatStreamEvent>();

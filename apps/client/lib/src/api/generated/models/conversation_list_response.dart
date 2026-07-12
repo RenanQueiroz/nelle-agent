@@ -15,9 +15,10 @@ class ConversationListResponse {
     required this.total,
     this.nextCursor,
   });
-  
-  factory ConversationListResponse.fromJson(Map<String, Object?> json) => _$ConversationListResponseFromJson(json);
-  
+
+  factory ConversationListResponse.fromJson(Map<String, Object?> json) =>
+      _$ConversationListResponseFromJson(json);
+
   final List<ConversationListItem> conversations;
   final String? nextCursor;
   final int total;

@@ -15,12 +15,23 @@ import 'llama_repository.dart';
 /// every heartbeat — which is why the contract deliberately drops llama.cpp's `raw`
 /// blob and why this compares `status` and `progress` before writing state.
 class RouterModelsNotifier extends AsyncNotifier<List<LlamaRouterModel>> {
+  /// How long to wait before reattaching a dropped stream, and its ceiling. llama.cpp
+  /// being down is an ordinary state, not an error, so this retries forever — at one
+  /// request per [_maxRetry] once it has backed off.
+  static const _minRetry = Duration(seconds: 2);
+  static const _maxRetry = Duration(seconds: 15);
+
   StreamSubscription<Map<String, dynamic>>? _sub;
   CancelToken? _cancel;
+  Timer? _retry;
+  Duration _backoff = _minRetry;
+  bool _disposed = false;
 
   @override
   Future<List<LlamaRouterModel>> build() async {
     ref.onDispose(() {
+      _disposed = true;
+      _retry?.cancel();
       _sub?.cancel();
       _cancel?.cancel();
     });
@@ -30,19 +41,57 @@ class RouterModelsNotifier extends AsyncNotifier<List<LlamaRouterModel>> {
   }
 
   /// Subscribes to the router's raw llama.cpp event stream. A failure just means
-  /// llama.cpp is not running: the list stays as-is rather than blowing up the UI.
+  /// llama.cpp is not running: the list stays as-is rather than blowing up the UI, and
+  /// the stream is reattached so a llama.cpp that comes back is picked up on its own.
   void _listen() {
     _cancel = CancelToken();
     _sub = ref
         .read(sseTransportProvider)
         .streamJson('/api/llama/models/events', cancelToken: _cancel)
         .listen(
-          _apply,
-          onError: (Object _) {
-            // llama.cpp stopped or the stream dropped. Not fatal; a refresh reattaches.
+          (event) {
+            _backoff = _minRetry;
+            _apply(event);
           },
+          // Both paths matter: llama.cpp stopping *ends* the stream rather than
+          // failing it, and without a reattach the status shown here would freeze at
+          // whatever it last saw — for the rest of the session.
+          onError: (Object _) => _reattachLater(),
+          onDone: _reattachLater,
           cancelOnError: false,
         );
+  }
+
+  void _reattachLater() {
+    if (_disposed || _retry != null) {
+      return;
+    }
+    _sub?.cancel();
+    _sub = null;
+    _cancel?.cancel();
+    _cancel = null;
+
+    _retry = Timer(_backoff, () async {
+      _retry = null;
+      if (_disposed) {
+        return;
+      }
+      _backoff = _backoff * 2 > _maxRetry ? _maxRetry : _backoff * 2;
+      try {
+        // llama.cpp may have restarted with a different set of models, so re-list
+        // rather than reattaching the stream to a stale one.
+        final models = await ref.read(llamaRepositoryProvider).list();
+        if (_disposed) {
+          return;
+        }
+        _backoff = _minRetry;
+        state = AsyncData(models);
+        _listen();
+      } catch (_) {
+        // Still down. Try again, more slowly.
+        _reattachLater();
+      }
+    });
   }
 
   void _apply(Map<String, dynamic> json) {
@@ -57,7 +106,7 @@ class RouterModelsNotifier extends AsyncNotifier<List<LlamaRouterModel>> {
     }
     final current = models[index];
     final status = event.status ?? current.status;
-    final progress = event.progress ?? current.progress;
+    final progress = _nextProgress(event, current, status);
 
     // The whole point: nothing the UI renders changed, so do not rebuild it.
     if (status == current.status && progress == current.progress) {
@@ -67,6 +116,25 @@ class RouterModelsNotifier extends AsyncNotifier<List<LlamaRouterModel>> {
     final next = [...models];
     next[index] = _withRouterState(current, status: status, progress: progress);
     state = AsyncData(next);
+  }
+
+  /// Progress belongs to a load in flight, so it lives and dies with the `loading`
+  /// status. Carrying it past one would leave a loaded model holding the last
+  /// percentage it reported, ready to resurface as a stale number on its next load.
+  num? _nextProgress(
+    RouterModelEvent event,
+    LlamaRouterModel current,
+    String status,
+  ) {
+    if (status.toLowerCase() != 'loading') {
+      return null;
+    }
+    if (event.progress != null) {
+      return event.progress;
+    }
+    // A frame with no measurement (llama.cpp's bare `{"stage": ...}`) must not reset a
+    // load that is already reporting; but entering `loading` starts from nothing.
+    return current.status.toLowerCase() == 'loading' ? current.progress : null;
   }
 
   /// llama.cpp names the model by its router id, which is Nelle's canonical section

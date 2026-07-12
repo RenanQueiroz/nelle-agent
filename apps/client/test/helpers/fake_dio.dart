@@ -9,12 +9,17 @@ import 'package:nelle_agent/src/features/chat/sse_transport.dart';
 /// streamed requests: [ChatStreamEvent]s for the chat stream, and raw JSON frames
 /// for llama.cpp's router events.
 class FakeTransport extends SseTransport {
-  // `jsonEvents` is public because Dart forbids a private named parameter, so an
+  // These are public because Dart forbids a private named parameter, so an
   // initializing formal is only possible on a public field.
-  FakeTransport(this._events, {this.jsonEvents}) : super(Dio());
+  FakeTransport(this._events, {this.jsonEvents, this.jsonEventsBuilder})
+    : super(Dio());
 
   final Stream<ChatStreamEvent> _events;
   final Stream<Map<String, dynamic>>? jsonEvents;
+
+  /// Supplies a **fresh** stream per call, so a reattach after llama.cpp drops can be
+  /// tested — re-listening to a single-subscription stream would just throw.
+  final Stream<Map<String, dynamic>> Function()? jsonEventsBuilder;
 
   @override
   Stream<ChatStreamEvent> stream(
@@ -27,7 +32,7 @@ class FakeTransport extends SseTransport {
   Stream<Map<String, dynamic>> streamJson(
     String path, {
     CancelToken? cancelToken,
-  }) => jsonEvents ?? const Stream.empty();
+  }) => jsonEventsBuilder?.call() ?? jsonEvents ?? const Stream.empty();
 }
 
 /// A dio adapter that returns canned responses, so repository tests never touch
@@ -68,6 +73,10 @@ Dio stubDio(ResponseBody Function(RequestOptions options) responder) {
 /// A minimal but complete conversation snapshot JSON for tests.
 Map<String, dynamic> snapshotJson({
   List<Map<String, dynamic>> messages = const [],
+  String? defaultModelId,
+  List<Map<String, dynamic>> available = const [],
+  String reasoningLevel = 'max',
+  bool? canReason,
 }) => {
   'conversation': {
     'id': 'c',
@@ -77,14 +86,15 @@ Map<String, dynamic> snapshotJson({
     'status': 'ready',
     'createdAt': 't',
     'updatedAt': 't',
-    'reasoningLevel': 'max',
+    'reasoningLevel': reasoningLevel,
+    'defaultModelId': ?defaultModelId,
   },
   'entries': <Map<String, dynamic>>[],
   'messages': messages,
   'activePathEntryIds': <String>[],
   'attachments': <Map<String, dynamic>>[],
   'context': {'status': 'ok'},
-  'models': {'available': <Map<String, dynamic>>[]},
+  'models': {'available': available, 'defaultModelId': ?defaultModelId},
   'capabilities': {
     'canSend': true,
     'canAbort': true,
@@ -92,7 +102,7 @@ Map<String, dynamic> snapshotJson({
     'canFork': true,
     'canRepair': false,
     'canAttachImages': null,
-    'canReason': null,
+    'canReason': canReason,
   },
   'errors': <Map<String, dynamic>>[],
 };

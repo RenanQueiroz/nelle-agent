@@ -10,12 +10,11 @@ part 'llama_models_response.g.dart';
 
 @JsonSerializable()
 class LlamaModelsResponse {
-  const LlamaModelsResponse({
-    required this.models,
-  });
-  
-  factory LlamaModelsResponse.fromJson(Map<String, Object?> json) => _$LlamaModelsResponseFromJson(json);
-  
+  const LlamaModelsResponse({required this.models});
+
+  factory LlamaModelsResponse.fromJson(Map<String, Object?> json) =>
+      _$LlamaModelsResponseFromJson(json);
+
   final List<LlamaRouterModel> models;
 
   Map<String, Object?> toJson() => _$LlamaModelsResponseToJson(this);

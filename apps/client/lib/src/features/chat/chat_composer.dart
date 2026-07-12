@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
+import '../models/model_selector.dart';
 import 'chat_controller.dart';
 
 /// The message input. Shows a send button when idle and a stop button while a
@@ -64,32 +65,45 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
     );
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: FTextField(
-              key: const ValueKey('k-composer-input'),
-              control: FTextFieldControl.managed(controller: _controller),
-              hint: 'Message…',
-              minLines: 1,
-              maxLines: 6,
-              textInputAction: TextInputAction.send,
-              onSubmit: running ? null : (_) => _send(),
+          // Per-conversation controls: which model answers this chat, and how hard
+          // it thinks.
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [ModelSelector(conversationId: widget.conversationId)],
             ),
           ),
-          const SizedBox(width: 8),
-          running
-              ? FButton.icon(
-                  key: const ValueKey('k-composer-stop'),
-                  onPress: _stop,
-                  child: const Icon(FLucideIcons.square),
-                )
-              : FButton.icon(
-                  key: const ValueKey('k-composer-send'),
-                  onPress: _send,
-                  child: const Icon(FLucideIcons.arrowUp),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: FTextField(
+                  key: const ValueKey('k-composer-input'),
+                  control: FTextFieldControl.managed(controller: _controller),
+                  hint: 'Message…',
+                  minLines: 1,
+                  maxLines: 6,
+                  textInputAction: TextInputAction.send,
+                  onSubmit: running ? null : (_) => _send(),
                 ),
+              ),
+              const SizedBox(width: 8),
+              running
+                  ? FButton.icon(
+                      key: const ValueKey('k-composer-stop'),
+                      onPress: _stop,
+                      child: const Icon(FLucideIcons.square),
+                    )
+                  : FButton.icon(
+                      key: const ValueKey('k-composer-send'),
+                      onPress: _send,
+                      child: const Icon(FLucideIcons.arrowUp),
+                    ),
+            ],
+          ),
         ],
       ),
     );

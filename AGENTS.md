@@ -542,8 +542,25 @@ Project-specific guidance for AI coding agents.
   selector. Loading weights takes tens of seconds; render the submitted prompt
   immediately and a `Loading weights NN%` placeholder beneath it, as llama.cpp's
   own web UI does. Router load progress arrives on `/models/sse` as
-  `{"model":"<id>","data":{"status":"loading","progress":{"value":0.67}}}`; the
-  model id is a top-level string, not a field inside `data`.
+  `{"model":"<id>","event":"status_change","data":{"status":"loading","progress":
+{"stages":["text_model","mmproj_model"],"current":"text_model","value":0.77}}}`;
+  the model id is a top-level string, not a field inside `data`.
+- A load runs **one stage per sub-model** -- a vision model loads `text_model`
+  and then `mmproj_model` -- and `value` restarts at 0 for each, so `value` alone
+  is not the load's progress: it fills the bar, snaps back to zero and fills it
+  again. Progress is `(stageIndex + value) / stages.length`, which is monotonic.
+  llama.cpp also emits a bare `{"stage":"mmproj_model"}` between stages --
+  singular `stage`, no `value` -- which announces a stage rather than measuring
+  one, so it must leave progress alone rather than reset it. Progress belongs to
+  the `loading` status and must be dropped when the load ends, or a loaded model
+  keeps the last percentage it reported and shows it again on its next load.
+- A client's router SSE subscription must **reattach on its own**. Stopping
+  llama.cpp *ends* the stream rather than failing it, so a client that only
+  handles `onError` never learns it went deaf: every model status it shows
+  freezes at whatever it last saw, for the rest of the session, while llama.cpp
+  restarts behind it. Reattach on both `onError` and `onDone`, backing off, and
+  re-list on reconnect -- a restarted llama.cpp may hold a different set of
+  models.
 - Pi persists a failed turn as a contentless assistant entry (for example when
   llama.cpp answers 500 while a model loads) and then retries. Do not render
   contentless assistant entries that ran no tools; they show up as a ghost

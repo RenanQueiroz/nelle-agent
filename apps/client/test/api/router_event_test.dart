@@ -20,6 +20,63 @@ void main() {
         expect(event.progress, 0.67);
       });
 
+      test('staged progress is a fraction of the WHOLE load, not of a stage', () {
+        // Captured verbatim off llama.cpp's wire: a vision model loads in two stages
+        // and `value` restarts at 0 for each. Reading `value` alone fills the bar,
+        // snaps it back to zero, and fills it again.
+        RouterModelEvent? at(String stage, double value) =>
+            RouterModelEvent.fromJson(<String, dynamic>{
+              'model': 'm',
+              'event': 'status_change',
+              'data': {
+                'status': 'loading',
+                'progress': {
+                  'stages': ['text_model', 'mmproj_model'],
+                  'current': stage,
+                  'value': value,
+                },
+              },
+            });
+
+        expect(at('text_model', 0.0)!.progress, 0.0);
+        expect(at('text_model', 0.5)!.progress, 0.25);
+        expect(at('text_model', 1.0)!.progress, 0.5);
+        // The second stage restarts at value 0 — and must NOT rewind the bar.
+        expect(at('mmproj_model', 0.0)!.progress, 0.5);
+        expect(at('mmproj_model', 1.0)!.progress, 1.0);
+      });
+
+      test('a bare stage announcement carries no measurement', () {
+        // llama.cpp emits `{"stage": "mmproj_model"}` (singular, no value) between
+        // stages. It says nothing about progress, so it must not reset it to 0.
+        final event = RouterModelEvent.fromJson(<String, dynamic>{
+          'model': 'm',
+          'data': {
+            'status': 'loading',
+            'progress': {'stage': 'mmproj_model'},
+          },
+        });
+
+        expect(event!.status, 'loading');
+        expect(event.progress, isNull);
+      });
+
+      test('an unknown stage name falls back to the raw value', () {
+        final event = RouterModelEvent.fromJson(<String, dynamic>{
+          'model': 'm',
+          'data': {
+            'status': 'loading',
+            'progress': {
+              'stages': ['text_model'],
+              'current': 'a_stage_we_do_not_know',
+              'value': 0.4,
+            },
+          },
+        });
+
+        expect(event!.progress, 0.4);
+      });
+
       test('tolerates a bare numeric progress', () {
         final event = RouterModelEvent.fromJson(<String, dynamic>{
           'model': 'm',

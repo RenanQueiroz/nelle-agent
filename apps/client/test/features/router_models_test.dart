@@ -129,6 +129,128 @@ void main() {
     );
   });
 
+  test('progress does not outlive the load it belonged to', () async {
+    final events = StreamController<Map<String, dynamic>>();
+    addTearDown(events.close);
+    final c = container(events.stream);
+    await c.read(routerModelsProvider.future);
+
+    events.add({
+      'model': 'E4B',
+      'data': {
+        'status': 'loading',
+        'progress': {'value': 0.9},
+      },
+    });
+    await _settle();
+    events.add({
+      'model': 'E4B',
+      'data': {'status': 'loaded'},
+    });
+    await _settle();
+
+    final loaded = c
+        .read(routerModelsProvider)
+        .requireValue
+        .firstWhere((m) => m.sectionId == 'E4B');
+    expect(loaded.status, 'loaded');
+    // Keeping 0.9 here would put a stale percentage on screen the next time it loads.
+    expect(loaded.progress, isNull);
+  });
+
+  test('a measurement-less frame does not reset a load in flight', () async {
+    final events = StreamController<Map<String, dynamic>>();
+    addTearDown(events.close);
+    final c = container(events.stream);
+    await c.read(routerModelsProvider.future);
+
+    events.add({
+      'model': 'E4B',
+      'data': {
+        'status': 'loading',
+        'progress': {
+          'stages': ['text_model', 'mmproj_model'],
+          'current': 'text_model',
+          'value': 1.0,
+        },
+      },
+    });
+    await _settle();
+    // llama.cpp's bare stage announcement, sent between stages.
+    events.add({
+      'model': 'E4B',
+      'data': {
+        'status': 'loading',
+        'progress': {'stage': 'mmproj_model'},
+      },
+    });
+    await _settle();
+
+    final model = c
+        .read(routerModelsProvider)
+        .requireValue
+        .firstWhere((m) => m.sectionId == 'E4B');
+    // Still half way through the whole load — not back to zero, not unknown.
+    expect(model.progress, 0.5);
+  });
+
+  test(
+    'the stream reattaches after llama.cpp drops it, and re-lists',
+    () async {
+      // llama.cpp stopping ENDS the stream rather than failing it. Without a reattach
+      // the selector's status would freeze at whatever it last saw, forever.
+      var lists = 0;
+      final streams = <StreamController<Map<String, dynamic>>>[];
+      final c = ProviderContainer(
+        overrides: [
+          dioProvider.overrideWithValue(
+            stubDio((o) {
+              lists++;
+              return jsonResponse({
+                // The second listing is what a restarted llama.cpp reports.
+                'models': [
+                  _model('E4B', status: lists == 1 ? 'unloaded' : 'loaded'),
+                ],
+              });
+            }),
+          ),
+          sseTransportProvider.overrideWithValue(
+            FakeTransport(
+              const Stream<ChatStreamEvent>.empty(),
+              jsonEventsBuilder: () {
+                final controller = StreamController<Map<String, dynamic>>();
+                streams.add(controller);
+                return controller.stream;
+              },
+            ),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+
+      await c.read(routerModelsProvider.future);
+      expect(lists, 1);
+      expect(streams, hasLength(1));
+
+      // llama.cpp goes away: the stream simply ends.
+      await streams.first.close();
+      // Wait out the reattach backoff (2s).
+      await Future<void>.delayed(const Duration(milliseconds: 2600));
+
+      expect(lists, 2, reason: 'did not re-list after the stream dropped');
+      expect(streams, hasLength(2), reason: 'did not reattach the event stream');
+      expect(
+        c.read(routerModelsProvider).requireValue.single.status,
+        'loaded',
+        reason: 'did not pick up the restarted router\'s state',
+      );
+      for (final s in streams) {
+        unawaited(s.close());
+      }
+    },
+    timeout: const Timeout(Duration(seconds: 20)),
+  );
+
   test(
     'isRunnableRouterStatus: loaded and sleeping are runnable, unloaded is not',
     () {

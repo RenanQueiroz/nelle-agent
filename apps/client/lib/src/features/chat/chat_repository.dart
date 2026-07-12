@@ -31,6 +31,33 @@ class ChatRepository {
     }
     return ConversationSnapshot.fromJson(snapshot.cast<String, Object?>());
   }
+
+  /// Pins the conversation to [modelId]. The run reads the *conversation's* model,
+  /// so this — not activating a global model — is what makes this chat answer on it.
+  /// Returns the server's snapshot; never guess the new state.
+  Future<ConversationSnapshot> setModel(
+    String conversationId,
+    String modelId,
+  ) async {
+    final Response<Map<String, dynamic>> res;
+    try {
+      res = await _dio.patch<Map<String, dynamic>>(
+        '/api/conversations/${Uri.encodeComponent(conversationId)}',
+        data: {'defaultModelId': modelId},
+      );
+    } on DioException catch (e) {
+      throw NelleApiException.network(e);
+    }
+    final code = res.statusCode ?? 0;
+    if (code < 200 || code >= 300) {
+      throw NelleApiException.fromResponse(res);
+    }
+    final snapshot = (res.data ?? const {})['snapshot'];
+    if (snapshot is! Map) {
+      throw NelleApiException('Malformed snapshot response', statusCode: code);
+    }
+    return ConversationSnapshot.fromJson(snapshot.cast<String, Object?>());
+  }
 }
 
 final chatRepositoryProvider = Provider<ChatRepository>(

@@ -8,14 +8,11 @@ part 'model_list_item.g.dart';
 
 @JsonSerializable()
 class ModelListItem {
-  const ModelListItem({
-    required this.id,
-    required this.alias,
-    this.status,
-  });
-  
-  factory ModelListItem.fromJson(Map<String, Object?> json) => _$ModelListItemFromJson(json);
-  
+  const ModelListItem({required this.id, required this.alias, this.status});
+
+  factory ModelListItem.fromJson(Map<String, Object?> json) =>
+      _$ModelListItemFromJson(json);
+
   final String id;
   final String alias;
   final String? status;

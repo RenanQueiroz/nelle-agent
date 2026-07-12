@@ -18,9 +18,10 @@ class CurrentRun {
     required this.status,
     this.modelId,
   });
-  
-  factory CurrentRun.fromJson(Map<String, Object?> json) => _$CurrentRunFromJson(json);
-  
+
+  factory CurrentRun.fromJson(Map<String, Object?> json) =>
+      _$CurrentRunFromJson(json);
+
   final String runId;
   final Kind kind;
   final String? modelId;

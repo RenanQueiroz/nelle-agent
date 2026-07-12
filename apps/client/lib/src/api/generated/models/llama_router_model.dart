@@ -23,9 +23,10 @@ class LlamaRouterModel {
     this.contextTrain,
     this.parameterCount,
   });
-  
-  factory LlamaRouterModel.fromJson(Map<String, Object?> json) => _$LlamaRouterModelFromJson(json);
-  
+
+  factory LlamaRouterModel.fromJson(Map<String, Object?> json) =>
+      _$LlamaRouterModelFromJson(json);
+
   final String sectionId;
   final String? routerModelId;
   final String alias;

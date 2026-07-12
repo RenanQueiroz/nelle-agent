@@ -49,6 +49,11 @@ class ChatState {
   final String? refusedMessage;
 
   String get title => snapshot.conversation.title;
+
+  /// The model **this conversation** runs on. Not `models.selectedModelId`, which is
+  /// the global default new chats inherit — reading that would show the wrong model.
+  String? get modelId => snapshot.conversation.defaultModelId;
+
   bool get loadingModel => modelLoadProgress != null;
   List<ConversationMessage> get rendered => [...messages, ...pending];
 
@@ -175,6 +180,32 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
   Future<void> reload() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() => build(arg));
+  }
+
+  /// Pins this conversation to [modelId] and applies the server's snapshot.
+  ///
+  /// Does **not** wait for the model to load and does not block sending: the
+  /// server's `ensureModelReadyForRun()` loads the conversation's model when a run
+  /// starts, and the run waits. Anything in flight is preserved — changing the model
+  /// must not wipe a streaming reply.
+  Future<void> setModel(String modelId) async {
+    final current = state.valueOrNull;
+    if (current == null || current.modelId == modelId) {
+      return;
+    }
+    final snapshot = await ref
+        .read(chatRepositoryProvider)
+        .setModel(arg, modelId);
+    final next = ChatState.fromSnapshot(snapshot);
+    state = AsyncData(
+      next.copyWith(
+        pending: current.pending,
+        running: current.running,
+        modelLoadProgress: current.modelLoadProgress,
+        runError: current.runError,
+        refusedMessage: current.refusedMessage,
+      ),
+    );
   }
 
   void _onEvent(ChatStreamEvent event) {
