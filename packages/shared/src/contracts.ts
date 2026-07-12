@@ -252,6 +252,12 @@ export type RefreshRequest = z.infer<typeof refreshRequestSchema>;
  * present the same now-rotated refresh token and tear down their own session.
  */
 export const issuedTokensSchema = z.object({
+  /**
+   * The device's own id. Told to the device because it cannot learn it any other way:
+   * `GET /api/devices` is loopback-only, so a paired phone would otherwise never know
+   * which row it is.
+   */
+  deviceId: z.string(),
   accessToken: z.string(),
   accessExpiresAt: z.string(),
   refreshToken: z.string(),

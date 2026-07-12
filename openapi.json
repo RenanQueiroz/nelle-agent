@@ -1354,6 +1354,9 @@
       "IssuedTokens": {
         "type": "object",
         "properties": {
+          "deviceId": {
+            "type": "string"
+          },
           "accessToken": {
             "type": "string"
           },
@@ -1364,7 +1367,7 @@
             "type": "string"
           }
         },
-        "required": ["accessToken", "accessExpiresAt", "refreshToken"],
+        "required": ["deviceId", "accessToken", "accessExpiresAt", "refreshToken"],
         "additionalProperties": false
       },
       "DeviceView": {

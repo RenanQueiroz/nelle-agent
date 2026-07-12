@@ -91,3 +91,27 @@ test('list shows devices and revoke cascades tokens away', async () => {
     await fs.rm(dir, {recursive: true, force: true});
   }
 });
+
+test('a paired device is told its own id', async () => {
+  // It has no other way to learn it: `GET /api/devices` is loopback-only, so a paired
+  // phone could never know which row it is -- which it needs to say "this device", or
+  // to remove itself. Pairing returned tokens and nothing else, and the client had
+  // nothing to store.
+  const {database, dir, repo} = await makeRepo();
+  try {
+    const {code} = repo.mintPairingCode();
+    const tokens = repo.pair({code, name: 'phone', platform: 'android'});
+    assert.ok(tokens);
+
+    const listed = repo.list();
+    assert.equal(listed.length, 1);
+    assert.equal(tokens.deviceId, listed[0]!.id, 'the id it was given is the row it owns');
+
+    // ...and it survives a refresh, because the device is the same device.
+    const renewed = repo.refresh(tokens.refreshToken);
+    assert.equal(renewed?.deviceId, tokens.deviceId);
+  } finally {
+    database.close();
+    await fs.rm(dir, {recursive: true, force: true});
+  }
+});

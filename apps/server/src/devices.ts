@@ -17,6 +17,13 @@ export type DeviceView = {
 };
 
 export type IssuedTokens = {
+  /**
+   * The device's own id. It is told to the device because it has no other way to
+   * learn it: `GET /api/devices` is loopback-only, so a paired phone could otherwise
+   * never know which row it is -- which it needs in order to say "this device" or to
+   * remove itself.
+   */
+  deviceId: string;
   accessToken: string;
   accessExpiresAt: string;
   refreshToken: string;
@@ -132,7 +139,7 @@ export class DeviceRepository {
            access_expires_at = excluded.access_expires_at`,
       )
       .run(deviceId, hash(refreshToken), hash(accessToken), accessExpiresAt);
-    return {accessToken, accessExpiresAt, refreshToken};
+    return {deviceId, accessToken, accessExpiresAt, refreshToken};
   }
 
   #consumePairingCode(code: string): boolean {
