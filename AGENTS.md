@@ -328,6 +328,21 @@ Project-specific guidance for AI coding agents.
     of it, and stubbing llama.cpp would test nothing: the whole question is whether Nelle, Pi,
     llama.cpp and the client agree about a stream of tokens.
 
+  **The same fast tier runs on the phone** — `bun run test:device -- -d emulator-5554`, against
+  a headless emulator (see the emulator flags below). It needs no pairing, no TLS and no pin:
+  `adb reverse tcp:8797 tcp:8797` maps the emulator's own loopback to the host's port, so the
+  fixture's *trusted* listener answers and the whole pairing stack stays out of the way. (Which
+  is deliberate — pairing is covered by `devices.test.ts` and three client test files, and making
+  every device test carry a TLS handshake and a Keystore write would be testing the harness.)
+
+  Run it on both, because **the phone finds what the desktop hides**. It immediately caught a
+  test asserting the forked-from conversation was "still in the sidebar" — a *desktop* assertion
+  wearing a general one's clothes: below the 760px breakpoint the chat **replaces** the list
+  (`workbench_screen.dart`), so there is no sidebar on screen to look in, and the check failed on
+  a layout behaving perfectly. The lesson generalizes: **assert the claim, not a proxy for it that
+  happens to be visible on a 1280px window.** "The original is unchanged" is a fact about the
+  server, so ask the server.
+
   The traps, each of which cost a debugging session:
   - **`pumpAndSettle` does not wait for network I/O.** It settles *frames*, and an HTTP
     response schedules none until it lands — so it returns happily mid-request and the next

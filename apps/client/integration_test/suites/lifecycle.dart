@@ -86,6 +86,9 @@ void lifecycleSuite() {
   ) async {
     await launchApp(tester);
 
+    final originalId = await idOf(tester, Fixture.withHistory);
+    final before = await serverMessageCount(originalId);
+
     await tester.tap(find.text(Fixture.withHistory));
     await tester.pumpAndSettle();
 
@@ -97,13 +100,24 @@ void lifecycleSuite() {
     expect(fork, findsOneWidget, reason: 'exactly one user turn in the fixture');
 
     await tester.tap(fork);
-    await tester.pumpAndSettle(const Duration(seconds: 3));
 
     // The new conversation is opened, and it says where it came from.
-    expect(find.byKey(const ValueKey('k-chat-branched')), findsOneWidget);
+    await pumpUntil(tester, find.byKey(const ValueKey('k-chat-branched')));
     expect(find.textContaining('original is unchanged'), findsOneWidget);
-    // ...and the original is still in the sidebar.
-    expect(find.text(Fixture.withHistory), findsOneWidget);
+
+    // **...and the original really is unchanged, which is a claim about the SERVER.**
+    //
+    // This used to assert the original was still *in the sidebar* — which is a desktop assertion
+    // wearing a general one's clothes. Below the 760px breakpoint the chat **replaces** the list
+    // (`workbench_screen.dart`), so on a phone there is no sidebar on screen to look in, and the
+    // check failed on a layout that was behaving perfectly. The banner already says the original is
+    // unchanged; this is what makes that sentence *true* rather than merely present.
+    expect(await serverHasConversation(Fixture.withHistory), isTrue);
+    expect(
+      await serverMessageCount(originalId),
+      before,
+      reason: 'a fork branches into a NEW session; it must not touch the one it came from',
+    );
   });
 
   testWidgets('a deleted chat can be taken back, and never reaches the server', (

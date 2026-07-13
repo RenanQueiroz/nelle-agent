@@ -402,8 +402,9 @@ bun run lint:fix
 ### The Flutter client's device tests
 
 ```bash
-bun run test:device       # the fast tier, with llama.cpp stopped
-bun run test:device:slow  # a real gemma-4-E2B, really generating
+bun run test:device                      # the fast tier, with llama.cpp stopped
+bun run test:device:slow                 # a real gemma-4-E2B, really generating
+bun run test:device -- -d emulator-5554  # the same fast tier, on a phone
 ```
 
 These run the **real** client — `main()`, real providers, real dio, real HTTP — against a
@@ -415,6 +416,16 @@ most error paths live. The slow tier loads a small model and asks it real questi
 a chat app whose chatting is never tested end to end has a hole in the middle of it. It is
 separate because it costs minutes, and a suite nobody runs because it is slow is worse than
 one that is honestly optional.
+
+Run the fast tier on the emulator too — the phone finds what the desktop hides. Boot it
+headless first (`-no-window` and a writable `XDG_RUNTIME_DIR` are both required under WSL):
+
+```bash
+emulator -avd nelle_phone -no-window -gpu swiftshader_indirect -no-snapshot
+```
+
+The harness runs `adb reverse` itself, so the emulator reaches the fixture over plain loopback
+and the test needs no pairing, TLS or certificate pin.
 
 ### Playwright
 

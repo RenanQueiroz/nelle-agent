@@ -101,6 +101,19 @@ Future<bool> serverHasConversation(String title) async {
   return conversations.any((c) => c['title'] == title);
 }
 
+/// How many messages the server holds for a conversation.
+///
+/// "The original is unchanged" is a claim about the **server**, and it has to be asserted there.
+/// The obvious proxy — "the original is still in the sidebar" — is a *desktop* assertion wearing a
+/// general one's clothes: below the 760px breakpoint the chat **replaces** the list, so on a phone
+/// there is no sidebar on screen to look in, and the check fails on a layout that is behaving
+/// perfectly. (It did. That is what running this suite on Android is for.)
+Future<int> serverMessageCount(String conversationId) async {
+  final body = await serverGet('/api/conversations/$conversationId');
+  final snapshot = body['snapshot'] as Map<String, dynamic>;
+  return (snapshot['messages'] as List).length;
+}
+
 /// The id of the conversation with this title, from the **server**.
 ///
 /// Row keys are `k-conv-menu-<id>`, and a test cannot know an id the fixture generated. Reading it
