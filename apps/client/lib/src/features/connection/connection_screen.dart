@@ -9,10 +9,15 @@ import 'join_section.dart';
 import 'remote_access_section.dart';
 import 'server_connection.dart';
 
-/// Settings: edit the server URL and see whether it is reachable.
+/// Settings > This device > **Server**: which Nelle this app talks to, and pairing.
 ///
-/// Reached from the conversation list's gear, which **pushes** it — `go()` replaces
-/// the stack, and with nothing to pop and no back action this screen was a dead end.
+/// A section of the settings screen rather than a schema-rendered group, because a
+/// pairing is a *flow* -- mint a code, scan or paste it, probe the addresses, pin a
+/// certificate -- and none of that is a field. That is what "custom" is the escape hatch
+/// for; everything that *is* a field goes through the generic renderer.
+///
+/// It is device-local for the plainest of reasons: it *is* this device's relationship to
+/// a server, and it carries a pinned certificate and a token.
 class ConnectionScreen extends ConsumerStatefulWidget {
   const ConnectionScreen({super.key});
 
@@ -59,14 +64,18 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
 
     return FScaffold(
       header: FHeader.nested(
-        title: const Text('Settings'),
+        title: const Text('Server'),
         prefixes: [
           FHeaderAction.back(
             key: const ValueKey('k-connection-back'),
-            // Pop when this was pushed; fall back to the workbench when it was not —
-            // a deep link, or a restart landing straight here — so the screen is never
-            // a dead end.
-            onPress: () => context.canPop() ? context.pop() : context.go('/'),
+            // `Navigator`, not go_router: this is pushed imperatively from the settings
+            // screen, so it is a route on the navigator rather than a location in the
+            // router. Falls back to the workbench when it was *not* pushed -- a deep
+            // link, or a restart landing straight here -- so the screen is never a dead
+            // end, which it was before M2.
+            onPress: () => Navigator.of(context).canPop()
+                ? Navigator.of(context).pop()
+                : context.go('/'),
           ),
         ],
       ),
@@ -80,7 +89,7 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'Server connection',
+                  'Connection',
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 12),
@@ -107,10 +116,6 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
                   const SizedBox(height: 20),
                 ],
                 _HealthStatus(health: health),
-                // Minting a code and managing devices are loopback-only on the server
-                // (they answer 404 to a paired device), because enrolling a device is
-                // an act of consent and consent is given at the machine. On a phone
-                // these would be buttons that cannot work.
                 const SizedBox(height: 28),
                 const Divider(),
                 const SizedBox(height: 16),
