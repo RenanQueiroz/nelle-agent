@@ -524,11 +524,34 @@ export async function createServer(
    * disk. `null` when nothing has been downloaded, or when the user pointed llama.cpp at a
    * cache of their own -- Nelle will neither measure nor delete a directory it does not own.
    */
-  const decorateModel = async (model: ConfiguredModel): Promise<ConfiguredModel> => ({
-    ...model,
-    diskBytes:
-      ownsModelCache() && model.repoId ? await repoDiskBytes(paths.modelsDir, model.repoId) : null,
-  });
+  const decorateModel = async (model: ConfiguredModel): Promise<ConfiguredModel> => {
+    // What llama.cpp last said about this model, from `model_cache`. **This is the whole point
+    // of the cache**: a stopped llama-server leaves the rows alone, so a model that has loaded
+    // once still knows its architecture and its windows. Without it a client reading only the
+    // live router forgets everything the moment llama.cpp stops -- and then tells the user these
+    // facts are "unknown until this model has loaded once", which by then is a lie.
+    //
+    // The router still wins when it is up: a client overlays the live status on this, exactly
+    // as it already does for `status`.
+    const cached = modelCache.getModel(model.id);
+    // `architecture` and the parameter count come from the GGUF header, cached by the blob's
+    // oid -- which `model_cache` records on a successful load. Both tables outlive a stopped
+    // llama.cpp, which is the entire reason they exist.
+    const gguf = cached?.modelOid ? ggufMetadata.get(cached.modelOid) : null;
+    return {
+      ...model,
+      diskBytes:
+        ownsModelCache() && model.repoId
+          ? await repoDiskBytes(paths.modelsDir, model.repoId)
+          : null,
+      architecture: gguf?.architecture,
+      parameterCount: gguf?.parameterCount,
+      contextWindow: cached?.contextWindow,
+      // The trained window: llama.cpp's `n_ctx_train` if it has loaded the model, else the GGUF
+      // header's own answer, which is the same number from the same file.
+      contextTrain: cached?.contextTrain ?? gguf?.contextTrain,
+    };
+  };
 
   const modelCatalog = async (): Promise<ModelCatalogContract> => {
     const state = await store.getState();

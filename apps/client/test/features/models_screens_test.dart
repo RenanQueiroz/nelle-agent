@@ -223,6 +223,42 @@ void main() {
       expect(find.byKey(const ValueKey('k-model-load-failed')), findsNothing);
     });
 
+    testWidgets('what a model IS survives llama.cpp being stopped', (
+      tester,
+    ) async {
+      // The router is gone (no routerModels at all), but a model that has loaded once still
+      // knows what it is: the server caches this in `model_cache` and `gguf_metadata` for
+      // exactly this reason. Reading only the live router blanked every fact the moment
+      // llama.cpp stopped, and then said they were "unknown until this model has loaded once"
+      // -- which by then was a lie, and is what the drive caught.
+      await tester.pumpWidget(
+        _host(
+          const ModelDetailScreen(modelId: 'org/repo:Q4_K_XL'),
+          models: [
+            {
+              ..._model(),
+              'architecture': 'gemma4',
+              'parameterCount': 7463013674,
+              'contextTrain': 131072,
+              'contextWindow': 32768,
+            },
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('k-model-facts')), findsOneWidget);
+      expect(find.textContaining('gemma4'), findsOneWidget);
+      expect(find.textContaining('7.5B params'), findsOneWidget);
+      expect(find.textContaining('Full window: 131,072'), findsOneWidget);
+      expect(find.textContaining('running at 32,768'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('k-model-facts-unknown')),
+        findsNothing,
+        reason: 'it has loaded once; saying otherwise is a lie',
+      );
+    });
+
     testWidgets('facts absent before a load are SAID to be absent, not guessed', (
       tester,
     ) async {

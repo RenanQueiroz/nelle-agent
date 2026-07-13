@@ -1982,6 +1982,18 @@
               }
             ]
           },
+          "architecture": {
+            "type": "string"
+          },
+          "contextTrain": {
+            "type": "number"
+          },
+          "contextWindow": {
+            "type": "number"
+          },
+          "parameterCount": {
+            "type": "number"
+          },
           "params": {
             "$ref": "#/components/schemas/ModelParams"
           },

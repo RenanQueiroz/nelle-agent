@@ -93,6 +93,24 @@ export const configuredModelSchema = z.object({
    * share the same bytes. See `DeleteModelResponse.sharedWithModelIds`.
    */
   diskBytes: z.number().nullable(),
+  /**
+   * What llama.cpp last reported about this model, and what its GGUF header says.
+   *
+   * **These survive a stopped llama.cpp**, which is the entire reason `model_cache` and
+   * `gguf_metadata` exist: the router is gone, but a model that has loaded once still knows what
+   * it is. A client reading only the live router forgets all of it the moment llama.cpp stops,
+   * and then tells the user these are "unknown until this model has loaded once" — which, by
+   * then, is a lie. The live router still wins when it is up; this is the floor, not the answer.
+   *
+   * All absent for a model that has never loaded. That is a real state, and saying so is better
+   * than guessing.
+   */
+  architecture: z.string().optional(),
+  /** `n_ctx_train`: the window the model was trained for. */
+  contextTrain: z.number().optional(),
+  /** llama.cpp's `/props` answer: the window a conversation on it actually gets. */
+  contextWindow: z.number().optional(),
+  parameterCount: z.number().optional(),
   params: modelParamsSchema,
   createdAt: z.string(),
 });

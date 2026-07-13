@@ -287,16 +287,25 @@ class _Facts extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    // Every one of these is absent until the model has been loaded once, because llama.cpp is
-    // the one that reports them. Saying so is better than guessing.
+    // The live router wins, and the catalog is the floor.
+    //
+    // **These must survive a stopped llama.cpp.** They are cached server-side (`model_cache` and
+    // `gguf_metadata`) for exactly that reason: the router is gone, but a model that has loaded
+    // once still knows what it is. Reading only `router` blanked all of it the moment llama.cpp
+    // stopped — and then told the user they were "unknown until this model has loaded once",
+    // which by then was a lie. Absent from *both* means the model has genuinely never loaded,
+    // and saying so is right.
+    final architecture = router?.architecture ?? model.architecture;
+    final parameterCount = router?.parameterCount ?? model.parameterCount;
+    final contextTrain = router?.contextTrain ?? model.contextTrain;
+    final contextWindow = router?.contextWindow ?? model.contextWindow;
+
     final facts = <String>[
-      if (router?.architecture != null) router!.architecture!,
-      if (router?.parameterCount != null)
-        '${(router!.parameterCount! / 1e9).toStringAsFixed(1)}B params',
-      if (router?.contextTrain != null)
-        'Full window: ${_thousands(router!.contextTrain!)}',
-      if (router?.contextWindow != null)
-        'running at ${_thousands(router!.contextWindow!)}',
+      ?architecture,
+      if (parameterCount != null)
+        '${(parameterCount / 1e9).toStringAsFixed(1)}B params',
+      if (contextTrain != null) 'Full window: ${_thousands(contextTrain)}',
+      if (contextWindow != null) 'running at ${_thousands(contextWindow)}',
     ];
 
     return Column(

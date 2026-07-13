@@ -19,6 +19,10 @@ ConfiguredModel _$ConfiguredModelFromJson(Map<String, dynamic> json) =>
       repoId: json['repoId'] as String?,
       quant: json['quant'] as String?,
       hfRef: json['hfRef'] as String?,
+      architecture: json['architecture'] as String?,
+      contextTrain: json['contextTrain'] as num?,
+      contextWindow: json['contextWindow'] as num?,
+      parameterCount: json['parameterCount'] as num?,
     );
 
 Map<String, dynamic> _$ConfiguredModelToJson(ConfiguredModel instance) =>
@@ -32,6 +36,10 @@ Map<String, dynamic> _$ConfiguredModelToJson(ConfiguredModel instance) =>
       'hfRef': instance.hfRef,
       'pinned': instance.pinned,
       'diskBytes': instance.diskBytes,
+      'architecture': instance.architecture,
+      'contextTrain': instance.contextTrain,
+      'contextWindow': instance.contextWindow,
+      'parameterCount': instance.parameterCount,
       'params': instance.params,
       'createdAt': instance.createdAt,
     };

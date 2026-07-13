@@ -22,6 +22,10 @@ class ConfiguredModel {
     this.repoId,
     this.quant,
     this.hfRef,
+    this.architecture,
+    this.contextTrain,
+    this.contextWindow,
+    this.parameterCount,
   });
 
   factory ConfiguredModel.fromJson(Map<String, Object?> json) =>
@@ -36,6 +40,10 @@ class ConfiguredModel {
   final String? hfRef;
   final bool pinned;
   final num? diskBytes;
+  final String? architecture;
+  final num? contextTrain;
+  final num? contextWindow;
+  final num? parameterCount;
   final ModelParams params;
   final String createdAt;
 
