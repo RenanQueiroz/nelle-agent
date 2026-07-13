@@ -78,6 +78,13 @@ export const NELLE_ERROR_CODES = {
   modelNotFound: 'model_not_found',
   modelLoadFailed: 'model_load_failed',
   contextOverflow: 'context_overflow',
+  runtimeInstallFailed: 'runtime_install_failed',
+  /**
+   * A second install was asked for while one was already running. A llama.cpp source build
+   * takes minutes with no visible progress on the *button*, so this is not an exotic race:
+   * it is what a second click does.
+   */
+  runtimeInstallInProgress: 'runtime_install_in_progress',
 
   // Request validation.
   invalidRequest: 'invalid_request',

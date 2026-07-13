@@ -589,6 +589,32 @@ Project-specific guidance for AI coding agents.
 - Nelle persists managed llama-server ownership in
   `.nelle/llama/llama-server.pid.json` so restarted servers can adopt and stop
   the prior router process.
+- **Installing llama.cpp is a *build*, not a request, so it is streamed.**
+  `POST /api/runtime/install/stream` (and `/update/stream`, the same handler) answers
+  SSE with `RuntimeInstallEvent`: `runtime.install.started` (carrying `installMode`),
+  `runtime.install.output` (**the build's own stdout/stderr, line by line**),
+  and a terminal `runtime.install.completed` (a `RuntimeStatus`) or
+  `runtime.install.failed` (a `NelleError`). On Linux an install is a `git clone` plus a
+  full cmake compile -- **measured at ~3 min with a warm ccache and CUDA, and much longer
+  cold** -- so the non-streaming `POST /api/runtime/install` (kept only for the retiring
+  `apps/web`) fails three ways at once: the user watches a silent spinner, the build's
+  output is buffered and discarded, and any client with a receive timeout reports failure
+  while the build carries happily on server-side.
+  - `runCommandStreaming` (`process.ts`) is the streaming twin of `runCommand`, and it
+    **throws with the exit code only**: the output has already been delivered, and
+    `runCommand`'s habit of packing the whole stderr into one `Error` message would put a
+    megabyte of cmake diagnostics inside a JSON error field.
+  - **`stderr` is not failure.** cmake and git narrate progress there. A client must not
+    paint it red -- the same trap as llama-server's log, where a *successful* offline load
+    of a pinned model writes an `E` line. (A real build: 820 stdout lines, 2 stderr, and it
+    succeeded.)
+  - **Order is guaranteed *within* a stream and never *between* them.** The two pipes are
+    drained concurrently, and even in a terminal stdout is block-buffered to a pipe while
+    stderr is unbuffered, so faithful interleaving does not exist anywhere. Render two
+    ordered streams; never claim a global order.
+  - A second install while one is running is refused with `runtime_install_in_progress`.
+    That is not an exotic race: the button shows nothing for minutes, so clicking it twice
+    is the obvious thing to do, and two builds would `rm -rf` each other's `build/`.
 - Browser/server UI code should use Nelle's `/api/llama/*` router facade for
   llama.cpp props, models, load/unload, reload, model props, and router events.
   Do not call llama.cpp directly from the web app.

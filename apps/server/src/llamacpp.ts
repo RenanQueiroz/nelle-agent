@@ -21,7 +21,7 @@ import type {
 } from './types';
 import {AppStore, modelSourceValues} from './store';
 import {llamaRuntimeModelId} from './modelCompat';
-import {commandExists, runCommand} from './process';
+import {commandExists, runCommand, runCommandStreaming, type CommandOutputLine} from './process';
 import {NELLE_ERROR_CODES} from '../../../packages/shared/src/contracts.ts';
 import type {RuntimeLogTail} from '../../../packages/shared/src/runtime.ts';
 import {templateSupportsThinking} from '../../../packages/shared/src/reasoning.ts';
@@ -78,6 +78,12 @@ export class LlamaCppManager {
   #managedPid: number | null = null;
   #startPromise: Promise<RuntimeStatus> | null = null;
   #lastError: string | null = null;
+  /**
+   * A source build takes minutes and the button shows nothing, so a second click is not an
+   * exotic race -- it is the obvious thing to do. Two concurrent builds would fight over
+   * the same `build/` directory, which `buildLinuxFromMaster` starts by `rm -rf`-ing.
+   */
+  #installing = false;
 
   constructor(
     private readonly paths: AppPaths,
@@ -134,21 +140,34 @@ export class LlamaCppManager {
     };
   }
 
-  async installOrUpdate(): Promise<RuntimeStatus> {
+  /**
+   * `onOutput` receives the build's own output as it happens. Absent, the install is silent
+   * -- which is what the non-streaming route still does, and why it needed replacing.
+   */
+  async installOrUpdate(
+    options: {onOutput?: (output: CommandOutputLine) => void} = {},
+  ): Promise<RuntimeStatus> {
+    if (this.#installing) {
+      throw installInProgressError();
+    }
+    this.#installing = true;
     this.#lastError = null;
     try {
       if (process.env.LLAMA_SERVER_PATH) {
-        return this.getStatus(true);
+        // `external`: the binary is the user's, so there is nothing to build.
+        return await this.getStatus(true);
       }
       if (process.platform === 'linux') {
-        await this.buildLinuxFromMaster();
+        await this.buildLinuxFromMaster(options.onOutput);
       } else {
-        await this.installFromGithubRelease();
+        await this.installFromGithubRelease(options.onOutput);
       }
-      return this.getStatus(true);
+      return await this.getStatus(true);
     } catch (error) {
       this.#lastError = error instanceof Error ? error.message : String(error);
       throw error;
+    } finally {
+      this.#installing = false;
     }
   }
 
@@ -775,10 +794,19 @@ export class LlamaCppManager {
     }
   }
 
-  private async buildLinuxFromMaster(): Promise<void> {
+  private async buildLinuxFromMaster(
+    onOutput?: (output: CommandOutputLine) => void,
+  ): Promise<void> {
     if (process.platform !== 'linux') {
       throw new Error('Linux source builds can only run on Linux hosts.');
     }
+
+    // Echo the command before running it. Ten minutes of raw cmake output with no idea
+    // which step you are on is barely better than no output at all.
+    const run = (command: string, args: string[], options: {cwd?: string} = {}) => {
+      onOutput?.({stream: 'stdout', line: `$ ${command} ${args.join(' ')}`});
+      return runCommandStreaming(command, args, {...options, onLine: onOutput});
+    };
 
     for (const command of ['git', 'cmake', 'make', 'gcc', 'g++']) {
       if (!(await commandExists(command))) {
@@ -788,12 +816,12 @@ export class LlamaCppManager {
 
     await fs.mkdir(this.paths.llamaDir, {recursive: true});
     if (!fsSync.existsSync(path.join(this.paths.llamaSrcDir, '.git'))) {
-      await runCommand('git', ['clone', '--depth', '1', LLAMA_REPO_URL, this.paths.llamaSrcDir]);
+      await run('git', ['clone', '--depth', '1', LLAMA_REPO_URL, this.paths.llamaSrcDir]);
     } else {
-      await runCommand('git', ['fetch', '--depth', '1', 'origin', 'HEAD'], {
+      await run('git', ['fetch', '--depth', '1', 'origin', 'HEAD'], {
         cwd: this.paths.llamaSrcDir,
       });
-      await runCommand('git', ['reset', '--hard', 'FETCH_HEAD'], {
+      await run('git', ['reset', '--hard', 'FETCH_HEAD'], {
         cwd: this.paths.llamaSrcDir,
       });
     }
@@ -815,8 +843,8 @@ export class LlamaCppManager {
       cmakeArgs.push('-DGGML_CUDA=ON', '-DCMAKE_CUDA_ARCHITECTURES=native');
     }
 
-    await runCommand('cmake', cmakeArgs);
-    await runCommand('cmake', [
+    await run('cmake', cmakeArgs);
+    await run('cmake', [
       '--build',
       buildDir,
       '--config',
@@ -840,7 +868,11 @@ export class LlamaCppManager {
     await fs.writeFile(path.join(this.paths.llamaBinDir, '.built-commit'), `${commit}\n`);
   }
 
-  private async installFromGithubRelease(): Promise<void> {
+  private async installFromGithubRelease(
+    onOutput?: (output: CommandOutputLine) => void,
+  ): Promise<void> {
+    const say = (line: string) => onOutput?.({stream: 'stdout', line});
+
     const release = await this.getLatestRelease();
     const asset = pickReleaseAsset(release, process.platform, process.arch);
     if (!asset) {
@@ -849,12 +881,14 @@ export class LlamaCppManager {
 
     await fs.mkdir(this.paths.downloadsDir, {recursive: true});
     const archivePath = path.join(this.paths.downloadsDir, asset.name);
+    say(`Downloading ${asset.name} (${release.tag_name})`);
     const response = await fetch(asset.browser_download_url);
     if (!response.ok || !response.body) {
       throw new Error(`Could not download ${asset.name}: ${response.status}`);
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
     await fs.writeFile(archivePath, bytes);
+    say(`Downloaded ${(bytes.byteLength / 1_000_000).toFixed(1)} MB`);
 
     const extractDir = path.join(this.paths.downloadsDir, `extract-${Date.now()}`);
     await fs.mkdir(extractDir, {recursive: true});
@@ -884,6 +918,7 @@ export class LlamaCppManager {
       await fs.cp(libDir, this.paths.llamaBinDir, {recursive: true});
     }
     await fs.writeFile(path.join(this.paths.llamaBinDir, '.release-tag'), `${release.tag_name}\n`);
+    say(`Installed ${release.tag_name} to ${this.paths.llamaBinDir}`);
   }
 
   /** Where `llama-server` lives, whether or not anything is installed there. */
@@ -1254,6 +1289,12 @@ function normalizeRouterModel(raw: unknown): LlamaRouterModel {
 function modelLoadError(message: string, extra: {logRef?: string} = {}): Error {
   const error = new Error(message);
   Object.assign(error, {code: NELLE_ERROR_CODES.modelLoadFailed, retryable: true, ...extra});
+  return error;
+}
+
+function installInProgressError(): Error {
+  const error = new Error('llama.cpp is already being installed. Watch the running install.');
+  Object.assign(error, {code: NELLE_ERROR_CODES.runtimeInstallInProgress, retryable: false});
   return error;
 }
 

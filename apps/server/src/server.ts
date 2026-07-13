@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import {z} from 'zod';
 
 import type {ModelCatalogContract} from '../../../packages/shared/src/modelCatalog.ts';
+import type {RuntimeInstallEvent} from '../../../packages/shared/src/runtime.ts';
 import {reasoningLevelSchema} from '../../../packages/shared/src/reasoning.ts';
 import {HuggingFaceService} from './huggingface';
 import {LlamaCppManager} from './llamacpp';
@@ -341,8 +342,43 @@ export async function createServer(
     return json(await llama.getStatus(checkLatest));
   });
 
+  // The non-streaming pair stays for `apps/web`, which is being retired. It is exactly what
+  // the streaming route replaces: it awaits the whole build -- ten-plus minutes on Linux --
+  // and answers once, having shown the user nothing.
   router.post('/api/runtime/install', async () => json(await llama.installOrUpdate()));
   router.post('/api/runtime/update', async () => json(await llama.installOrUpdate()));
+
+  /**
+   * Installing is a *build*, not a request, so it is narrated.
+   *
+   * The events carry the build's own output as it happens: without them a client either
+   * shows a ten-minute silent spinner or, worse, times out and reports failure while the
+   * build carries happily on server-side.
+   */
+  const streamRuntimeInstall = () =>
+    sseResponse(async sink => {
+      const write = (event: RuntimeInstallEvent) => {
+        sink.write(serializeSseEnvelope(createEventEnvelope({type: event.type, data: event})));
+      };
+      try {
+        write({type: 'runtime.install.started', mode: (await llama.getStatus()).installMode});
+        const runtime = await llama.installOrUpdate({
+          onOutput: output => write({type: 'runtime.install.output', ...output}),
+        });
+        write({type: 'runtime.install.completed', runtime});
+      } catch (error) {
+        write({
+          type: 'runtime.install.failed',
+          error: normalizeNelleError(error, {
+            fallbackCode: NELLE_ERROR_CODES.runtimeInstallFailed,
+            retryable: true,
+          }),
+        });
+      }
+    });
+
+  router.post('/api/runtime/install/stream', streamRuntimeInstall);
+  router.post('/api/runtime/update/stream', streamRuntimeInstall);
   router.post('/api/runtime/start', async () => json(await llama.start()));
   router.post('/api/runtime/stop', async () => json(await llama.stop()));
   router.get('/api/runtime/logs', async ctx => {

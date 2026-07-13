@@ -56,6 +56,7 @@ import {
   llamaOptionSchema,
   llamaRouterPropsSchema,
   llamaTokenizeResultSchema,
+  runtimeInstallEventSchema,
   runtimeLogTailSchema,
   runtimeStatusSchema,
 } from '../../../packages/shared/src/runtime.ts';
@@ -129,6 +130,10 @@ const CONTRACT_SCHEMAS: ReadonlyArray<readonly [string, z.ZodType]> = [
   ['RuntimeStatus', runtimeStatusSchema],
   ['LlamaRouterProps', llamaRouterPropsSchema],
   ['RuntimeLogTail', runtimeLogTailSchema],
+  // Installing llama.cpp is a *build*, so it is narrated rather than awaited. A client that
+  // could not codegen these would have to parse the one stream that matters most when it
+  // goes wrong.
+  ['RuntimeInstallEvent', runtimeInstallEventSchema],
   ['LlamaTokenizeResult', llamaTokenizeResultSchema],
   // What a `models.ini` key is validated against -- which is llama-server's own `--help`,
   // never a list Nelle carries. A client renders it for completion; it must not validate.

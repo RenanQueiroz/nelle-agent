@@ -1,5 +1,6 @@
 import {z} from 'zod';
 
+import {nelleErrorSchema} from './contracts';
 import type {LlamaOptionCatalogue} from './modelParams';
 
 /**
@@ -69,6 +70,52 @@ export const llamaRouterPropsSchema = z.object({
 });
 
 export type LlamaRouterPropsContract = z.infer<typeof llamaRouterPropsSchema>;
+
+/**
+ * `POST /api/runtime/install/stream` (and `/update/stream`) -- installing llama.cpp,
+ * narrated.
+ *
+ * Installing is not a request, it is a **build**. On Linux it is a `git clone` plus a full
+ * cmake compile: minutes, sometimes tens of them. The non-streaming route simply `await`s
+ * all of that and answers at the end, which fails in three ways at once -- the user watches
+ * a spinner with no idea whether it is working, the build's own output is buffered and then
+ * discarded, and any HTTP client with a receive timeout gives up long before the build does
+ * while it carries on server-side.
+ *
+ * So it streams, and it streams **the build's own output**. The events are dotted and the
+ * envelope `type` mirrors the inner `type`, exactly as `ChatStreamEvent` does.
+ */
+export const runtimeInstallEventSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('runtime.install.started'),
+    /** `external` means `LLAMA_SERVER_PATH` is set: nothing is built, the status is reported. */
+    mode: runtimeInstallModeSchema,
+  }),
+  z.object({
+    type: z.literal('runtime.install.output'),
+    stream: z.enum(['stdout', 'stderr']),
+    /**
+     * One line of the build. **`stderr` is not failure**: cmake and git narrate their
+     * progress there, so a client must not paint it as an error -- see the same trap in
+     * llama-server's own log, where a successful offline load writes an `E` line.
+     */
+    line: z.string(),
+  }),
+  z.object({
+    type: z.literal('runtime.install.completed'),
+    runtime: runtimeStatusSchema,
+  }),
+  z.object({
+    type: z.literal('runtime.install.failed'),
+    /**
+     * Why it stopped. The build's output is **not** repeated here -- it has already been
+     * streamed, line by line, and a client that kept it has the whole story.
+     */
+    error: nelleErrorSchema,
+  }),
+]);
+
+export type RuntimeInstallEvent = z.infer<typeof runtimeInstallEventSchema>;
 
 /**
  * `GET /api/runtime/logs` -- a tail of llama-server's log, as one string.
