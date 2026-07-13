@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import {test} from 'bun:test';
 
 import {SessionManager} from '@earendil-works/pi-coding-agent';
@@ -316,6 +317,68 @@ test('forking from an ASSISTANT message is refused, not crashed', async () => {
     const error = response.json<{error: {code: string; message: string}}>().error;
     assert.equal(error.code, 'conversation_not_branchable');
     assert.match(error.message, /your own messages/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a valid archive with no history is NOT "corrupt": the two refusals are distinguishable', async () => {
+  // Exporting an `unavailable` conversation is allowed on purpose -- you must be able to salvage
+  // your data from a broken chat -- and the archive records that its Pi session was already lost.
+  // Importing it is then refused, because the alternative is silently creating an empty
+  // conversation, which looks exactly like success.
+  //
+  // But it is refused for a *specific* reason: the zip is perfectly valid, it simply carries no
+  // history. The route hard-coded `invalid_archive` for every failure, so it told the user their
+  // file was corrupt -- and left `archive_session_missing` in `NELLE_ERROR_CODES` as a code
+  // nothing ever emitted, which is a promise the contract makes and does not keep.
+  const paths = await createTempPaths();
+  const database = new AppDatabase(paths);
+  await database.open();
+  const repository = new ConversationRepository(database);
+  await repository.init();
+  const conversation = repository.createConversation({title: 'Salvage me'});
+  repository.attachPiSession(conversation.id, {
+    piSessionPath: path.join(paths.piSessionsDir, 'gone.jsonl'),
+    piSessionId: 'gone-session',
+  });
+  await repository.markUnavailableIfPiSessionInvalid(conversation.id);
+  database.close();
+
+  const app = await createTestServer(paths);
+  try {
+    const exported = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${encodeURIComponent(conversation.id)}/export`,
+    });
+    assert.equal(exported.statusCode, 200, 'a broken conversation still exports');
+
+    const manifest = conversationArchiveManifestSchema.parse(
+      JSON.parse(strFromU8(unzipSync(new Uint8Array(exported.rawPayload))['manifest.json']!)),
+    );
+    assert.equal(manifest.piSessionMissing, true, 'and the archive says so');
+
+    // The specific code, not the generic one.
+    const imported = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/import',
+      payload: Buffer.from(exported.rawPayload),
+      headers: {'content-type': 'application/zip'},
+    });
+    assert.equal(imported.statusCode, 400);
+    const error = imported.json<{error: {code: string; message: string}}>().error;
+    assert.equal(error.code, 'archive_session_missing');
+    assert.match(error.message, /no message history/);
+
+    // ...and a genuinely corrupt zip still gets the generic one, or the distinction is worthless.
+    const corrupt = await app.inject({
+      method: 'POST',
+      url: '/api/conversations/import',
+      payload: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x01, 0x02]),
+      headers: {'content-type': 'application/zip'},
+    });
+    assert.equal(corrupt.statusCode, 400);
+    assert.equal(corrupt.json<{error: {code: string}}>().error.code, 'invalid_archive');
   } finally {
     await app.close();
   }

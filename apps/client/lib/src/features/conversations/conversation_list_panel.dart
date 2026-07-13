@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../api/api_exception.dart';
 import '../../api/generated/models/conversation_list_item.dart';
 import '../../api/generated/models/conversation_status.dart';
+import 'archive_service.dart';
 import 'conversations_notifier.dart';
 import 'conversations_repository.dart';
 
@@ -32,6 +33,13 @@ class ConversationListPanel extends ConsumerWidget {
               key: const ValueKey('k-conv-new'),
               icon: const Icon(FLucideIcons.squarePen),
               onPress: () => _newChat(context, ref),
+            ),
+            FHeaderAction(
+              key: const ValueKey('k-conv-import'),
+              icon: const Icon(FLucideIcons.upload),
+              // A *header* action, not a row one: an import does not act on a conversation, it
+              // creates one.
+              onPress: () => _import(context, ref),
             ),
             FHeaderAction(
               key: const ValueKey('k-conv-settings'),
@@ -59,6 +67,38 @@ class ConversationListPanel extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  /// Imports a `.nelle-chat.zip` and opens it.
+  ///
+  /// **Always a new conversation** -- an import is never a merge, so the same archive imported
+  /// twice gives you two chats. That is the server's rule and it is the right one: merging two
+  /// histories of the same conversation has no correct answer.
+  ///
+  /// An archive exported from a chat whose Pi session was already lost is refused
+  /// (`archive_session_missing`), because the alternative is silently creating an empty
+  /// conversation -- which looks exactly like success.
+  Future<void> _import(BuildContext context, WidgetRef ref) async {
+    try {
+      final bytes = await ref.read(archiveServiceProvider).pick();
+      if (bytes == null || !context.mounted) return; // Backed out of the picker.
+      final created = await ref
+          .read(conversationsRepositoryProvider)
+          .import(bytes);
+      ref
+          .read(conversationsProvider.notifier)
+          .addConversation(created.conversation);
+      ref.read(selectedConversationIdProvider.notifier).state =
+          created.conversation.id;
+    } catch (error) {
+      if (context.mounted) {
+        _toastError(
+          context,
+          'Import failed: '
+          '${error is NelleApiException ? error.message : error}',
+        );
+      }
+    }
   }
 
   Future<void> _newChat(BuildContext context, WidgetRef ref) async {
@@ -264,6 +304,15 @@ class _RowMenuState extends ConsumerState<_RowMenu>
               },
             ),
             FItem(
+              key: ValueKey('k-conv-export-${c.id}'),
+              title: const Text('Export'),
+              prefix: const Icon(FLucideIcons.download),
+              onPress: () {
+                _popover.hide();
+                _export(context, ref, c);
+              },
+            ),
+            FItem(
               key: ValueKey('k-conv-pin-${c.id}'),
               title: Text(c.pinned ? 'Unpin' : 'Pin'),
               prefix: Icon(c.pinned ? FLucideIcons.pinOff : FLucideIcons.pin),
@@ -350,6 +399,41 @@ class _RowMenuState extends ConsumerState<_RowMenu>
         _toastError(
           context,
           'Could not duplicate: '
+          '${error is NelleApiException ? error.message : error}',
+        );
+      }
+    }
+  }
+
+  /// Exports the conversation as a `.nelle-chat.zip`.
+  ///
+  /// **An `unavailable` conversation still exports** -- you should be able to get your data out of
+  /// a broken chat, and refusing would leave the user with nothing. The archive records that its
+  /// Pi session was already lost, and importing *that* archive is then refused. Both halves are
+  /// the server's; the client's only job is to hide neither.
+  Future<void> _export(
+    BuildContext context,
+    WidgetRef ref,
+    ConversationListItem c,
+  ) async {
+    try {
+      final archive = await ref
+          .read(conversationsRepositoryProvider)
+          .export(c.id);
+      final where = await ref
+          .read(archiveServiceProvider)
+          .save(archive.bytes, archive.filename);
+      if (where == null || !context.mounted) return; // Backed out of the dialog.
+      showFToast(
+        context: context,
+        icon: const Icon(FLucideIcons.check),
+        title: Text('Exported to $where'),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        _toastError(
+          context,
+          'Export failed: '
           '${error is NelleApiException ? error.message : error}',
         );
       }

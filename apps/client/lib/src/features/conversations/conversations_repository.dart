@@ -117,12 +117,21 @@ class ConversationsRepository {
   /// a broken chat — and the archive records that its Pi session was already lost
   /// (`manifest.piSessionMissing`). Importing *that* archive is then refused. Both halves are the
   /// server's; the client only has to not hide either.
-  Future<Uint8List> export(String id) => sendBytes(
-    () => _dio.post<List<int>>(
-      '/api/conversations/${Uri.encodeComponent(id)}/export',
-      options: zipDownload(),
-    ),
-  );
+  Future<ConversationArchive> export(String id) async {
+    final res = await sendBytes(
+      () => _dio.post<List<int>>(
+        '/api/conversations/${Uri.encodeComponent(id)}/export',
+        options: zipDownload(),
+      ),
+    );
+    return ConversationArchive(
+      bytes: Uint8List.fromList(res.data ?? const []),
+      // The server's name, from `content-disposition`. It is what the user will see in Files or
+      // Drive, and it is already slugged -- re-deriving it here would be a second client
+      // inventing a second name for the same archive.
+      filename: filenameFrom(res.headers) ?? 'conversation.nelle-chat.zip',
+    );
+  }
 
   /// Imports a `.nelle-chat.zip`. **Always creates a new conversation** — it is never a merge, so
   /// importing the same archive twice gives you two chats.
@@ -177,3 +186,11 @@ class ConversationsRepository {
 final conversationsRepositoryProvider = Provider<ConversationsRepository>(
   (ref) => ConversationsRepository(ref.watch(dioProvider)),
 );
+
+/// An exported archive: the bytes, and the name the **server** gave them.
+class ConversationArchive {
+  const ConversationArchive({required this.bytes, required this.filename});
+
+  final Uint8List bytes;
+  final String filename;
+}

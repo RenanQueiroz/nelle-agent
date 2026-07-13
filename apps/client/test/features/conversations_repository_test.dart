@@ -113,13 +113,28 @@ void main() {
   /// `NelleApiException.fromResponse` cannot read, so the user would get "Request failed" for
   /// something the server explained in a sentence.
   group('export', () {
-    test('answers the archive bytes, intact', () async {
+    test('answers the archive bytes and the SERVER filename, intact', () async {
+      // The name comes off `content-disposition`, not from the title. The server already slugged
+      // it, and it is what the user will see in Files or Drive -- a second client re-deriving it
+      // would invent a second name for the same archive.
       final zip = Uint8List.fromList([0x50, 0x4b, 0x03, 0x04, 1, 2, 3]);
       final repo = ConversationsRepository(
         stubDio((o) => bytesResponse(zip, filename: 'a-chat.nelle-chat.zip')),
       );
 
-      expect(await repo.export('c1'), zip);
+      final archive = await repo.export('c1');
+      expect(archive.bytes, zip);
+      expect(archive.filename, 'a-chat.nelle-chat.zip');
+    });
+
+    test('a server that names nothing still yields a usable filename', () async {
+      // Never an empty name: the user has to be able to find the file afterwards.
+      final repo = ConversationsRepository(
+        stubDio((o) => bytesResponse(const [1, 2, 3])),
+      );
+
+      final archive = await repo.export('c1');
+      expect(archive.filename, endsWith('.nelle-chat.zip'));
     });
 
     test('asks for BYTES, not a parsed body', () async {

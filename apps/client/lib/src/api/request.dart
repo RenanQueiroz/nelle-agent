@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
@@ -53,7 +52,7 @@ Options longCall() => Options(receiveTimeout: kLongCallTimeout);
 /// `ResponseType.bytes` up front, and on a *failure* the server answers **JSON**, so the error
 /// body arrives as raw bytes that `NelleApiException.fromResponse` cannot read. It is decoded
 /// here, or the user gets "Request failed" for a refusal the server explained in words.
-Future<Uint8List> sendBytes(
+Future<Response<List<int>>> sendBytes(
   Future<Response<List<int>>> Function() run,
 ) async {
   final Response<List<int>> res;
@@ -74,7 +73,19 @@ Future<Uint8List> sendBytes(
       ),
     );
   }
-  return Uint8List.fromList(res.data ?? const []);
+  return res;
+}
+
+/// The filename the **server** chose, from `content-disposition`.
+///
+/// Not derived client-side from the title: the server already slugged it, and this is the name
+/// the user will see in Files, or Drive, or the mail they send it in. Two clients inventing two
+/// names for the same archive is exactly the kind of drift a contract exists to stop.
+String? filenameFrom(Headers headers) {
+  final disposition = headers.value('content-disposition');
+  if (disposition == null) return null;
+  final match = RegExp('filename="([^"]+)"').firstMatch(disposition);
+  return match?.group(1);
 }
 
 /// [Options] for a request that sends **raw bytes as the body**.

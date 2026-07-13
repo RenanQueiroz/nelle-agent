@@ -762,13 +762,14 @@ export async function createServer(
     try {
       imported = await importConversationArchive({paths, store, conversations, bytes});
     } catch (error) {
+      // **Keep the code the archive threw.** `archive_session_missing` is a real, distinct
+      // refusal -- the zip is perfectly valid, it simply carries no history, because it was
+      // exported from a conversation whose Pi session file had already been lost. Flattening it
+      // to `invalid_archive` told the user their file was corrupt, which it is not, and left a
+      // code in `NELLE_ERROR_CODES` that nothing ever emitted: a promise the contract made and
+      // never kept.
       return json(
-        {
-          error: {
-            code: 'invalid_archive',
-            message: error instanceof Error ? error.message : 'Archive import failed.',
-          },
-        },
+        {error: normalizeNelleError(error, {fallbackCode: NELLE_ERROR_CODES.invalidArchive})},
         400,
       );
     }
