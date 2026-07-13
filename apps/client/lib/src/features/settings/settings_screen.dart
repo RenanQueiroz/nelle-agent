@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../api/settings_schema.dart';
 import '../connection/connection_screen.dart';
+import '../runtime/runtime_screen.dart';
 import 'device_settings.dart';
 import 'host_tools.dart';
 import 'settings_controller.dart';
@@ -70,9 +71,41 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               },
 
-              // Custom, not schema-rendered: host tools are an acknowledgement *gate* on
-              // an unsandboxed shell, and the registry can express a boolean but not
-              // "this one may only be turned on after you have read something".
+              const SizedBox(height: 20),
+              const _GroupHeading(
+                title: 'This server',
+                subtitle:
+                    'The machine Nelle runs on. Shared by every paired device.',
+              ),
+              // Administration, not preference: llama.cpp itself, and the models it can load.
+              // A paired phone may do all of this -- only pairing and device management are
+              // loopback-only -- which is the point, because the server is elsewhere.
+              // Named for the thing, not the abstraction. The served `runtime` settings group
+              // is *also* called Runtime -- it is llama.cpp's launch limits -- and two rows
+              // called Runtime two hundred pixels apart, meaning different things, is a bug you
+              // only see by looking at the screen. Its title comes from the server, and
+              // special-casing it here would throw the schema away, so this one gets the more
+              // specific name.
+              //
+              // The key is `-llamacpp`, not `-runtime`: the schema tiles are keyed
+              // `k-settings-section-${slug}`, and the served `runtime` group produces exactly
+              // `k-settings-section-runtime`. Two widgets with one ValueKey in one ListView --
+              // and tapping this row opened the *settings group*, silently. Invisible to every
+              // test; obvious the moment you tap it.
+              _SectionTile(
+                key: const ValueKey('k-settings-section-llamacpp'),
+                title: 'llama.cpp',
+                subtitle: 'Install, start and stop it. See its log.',
+                onPress: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (context) => const RuntimeScreen(),
+                  ),
+                ),
+              ),
+              // Host tools live here, not under Settings: they are a gate on *the server's*
+              // unsandboxed shell, not a preference of the user's. Custom rather than
+              // schema-rendered because the registry can express a boolean but not "this one
+              // may only be turned on after you have read something".
               _SectionTile(
                 key: const ValueKey('k-settings-section-host-tools'),
                 title: 'Host tools',
@@ -101,9 +134,13 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               // A pairing is a flow, not a field, so the server connection is a screen of
               // its own rather than a schema-rendered section.
+              //
+              // Named "Connection", not "Server": it is *this device's relationship to* a
+              // server, and there is now a "This server" heading above that administers one.
+              // Two rows called Server on one screen reads as a typo.
               _SectionTile(
                 key: const ValueKey('k-settings-section-connection'),
-                title: 'Server',
+                title: 'Connection',
                 subtitle: 'Which Nelle this app talks to, and pairing.',
                 onPress: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(

@@ -857,7 +857,7 @@ export class LlamaCppManager {
     await fs.mkdir(this.paths.llamaBinDir, {recursive: true});
     for (const bin of HELPER_BINS) {
       const src = path.join(buildDir, 'bin', bin);
-      await fs.copyFile(src, path.join(this.paths.llamaBinDir, bin));
+      await replaceRunningFile(src, path.join(this.paths.llamaBinDir, bin));
       await fs.chmod(path.join(this.paths.llamaBinDir, bin), 0o755);
     }
 
@@ -1102,9 +1102,9 @@ export class LlamaCppManager {
     const names = await collectFiles(buildDir, file => /\.(so|dylib)(\..*)?$/.test(file));
     await Promise.all(
       names.map(file =>
-        fs
-          .copyFile(file, path.join(this.paths.llamaBinDir, path.basename(file)))
-          .catch(() => undefined),
+        replaceRunningFile(file, path.join(this.paths.llamaBinDir, path.basename(file))).catch(
+          () => undefined,
+        ),
       ),
     );
   }
@@ -1290,6 +1290,27 @@ function modelLoadError(message: string, extra: {logRef?: string} = {}): Error {
   const error = new Error(message);
   Object.assign(error, {code: NELLE_ERROR_CODES.modelLoadFailed, retryable: true, ...extra});
   return error;
+}
+
+/**
+ * Copies a file into place **even when the running llama-server is using it**.
+ *
+ * You cannot overwrite a running executable on Linux: the kernel refuses with `ETXTBSY`
+ * ("text file is busy"), and the same goes for a shared library a live process has mapped.
+ * So updating llama.cpp while it was running failed *at the very last step* -- after a full
+ * ten-minute build -- with a raw errno string. It had presumably always been broken, and it
+ * was invisible: the old non-streaming route buffered the output and threw it away, and the
+ * browser never showed the error.
+ *
+ * **Unlinking** a running binary is allowed, though: the process keeps its inode and carries
+ * on happily with the old code until it is next restarted. So remove the directory entry
+ * first and copy into the empty slot. That is also exactly the semantics we want -- the
+ * running llama-server stays on the old build until the user restarts it, which they must do
+ * anyway for a new binary to take effect.
+ */
+async function replaceRunningFile(source: string, destination: string): Promise<void> {
+  await fs.rm(destination, {force: true});
+  await fs.copyFile(source, destination);
 }
 
 function installInProgressError(): Error {

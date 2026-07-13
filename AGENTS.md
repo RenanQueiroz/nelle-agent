@@ -615,6 +615,16 @@ Project-specific guidance for AI coding agents.
   - A second install while one is running is refused with `runtime_install_in_progress`.
     That is not an exotic race: the button shows nothing for minutes, so clicking it twice
     is the obvious thing to do, and two builds would `rm -rf` each other's `build/`.
+  - **You cannot overwrite a running executable on Linux**, and *updating* llama.cpp means
+    doing exactly that. The kernel refuses with **`ETXTBSY`** ("text file is busy"), and the
+    same goes for a shared library a live process has mapped -- so an update with
+    llama-server running compiled to 100% and then died on the very last step, after a full
+    build. It had always been broken and was **invisible**: the old route buffered the output
+    and discarded it, and `apps/web` never rendered the error. Found by driving the real app.
+    `replaceRunningFile` **unlinks before copying** -- unlinking a running binary *is* allowed
+    (the process keeps its inode and carries on with the old code until it is restarted, which
+    is also exactly the semantics wanted). `copySharedLibraries` had the same bug and
+    **swallowed the error**, which is worse: a new binary beside stale `.so` files.
 - Browser/server UI code should use Nelle's `/api/llama/*` router facade for
   llama.cpp props, models, load/unload, reload, model props, and router events.
   Do not call llama.cpp directly from the web app.

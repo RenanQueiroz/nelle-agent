@@ -158,6 +158,55 @@ test.skipIf(process.platform !== 'linux')(
   },
 );
 
+test.skipIf(process.platform !== 'linux')(
+  'a new binary replaces one that is RUNNING (ETXTBSY)',
+  async () => {
+    // Found by driving the real app: a build compiled to 100%, then died on the very last
+    // step with `ETXTBSY: text file is busy` copying llama-server into place. You cannot
+    // overwrite a running executable on Linux -- so *updating* llama.cpp while it was running
+    // had always failed, after a full ten-minute build, and nobody could see it: the old route
+    // buffered the output and threw it away.
+    //
+    // Unlinking a running binary IS allowed (the process keeps its inode), so the fix is to
+    // remove the directory entry first. This test runs a real executable and overwrites it.
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-etxtbsy-'));
+    const target = path.join(directory, 'running-binary');
+    // A real ELF binary, not a `#!/bin/sh` script: exec'ing a script makes the *interpreter*
+    // the busy text file and merely reads the script, so a script reproduces nothing. Only the
+    // executable image the kernel maps is locked -- which llama-server is.
+    await fs.copyFile('/bin/sleep', target);
+    await fs.chmod(target, 0o755);
+
+    const child = Bun.spawn([target, '30'], {stdout: 'ignore', stderr: 'ignore'});
+    // Give the kernel a moment to actually map the image.
+    await Bun.sleep(100);
+    try {
+      // The kernel now refuses a plain overwrite of this file.
+      const replacement = path.join(directory, 'new-binary');
+      await fs.copyFile('/bin/true', replacement);
+      await assert.rejects(
+        () => fs.copyFile(replacement, target),
+        (error: NodeJS.ErrnoException) => {
+          assert.equal(error.code, 'ETXTBSY', 'the bug this test exists for');
+          return true;
+        },
+      );
+
+      // ...and unlink-then-copy, which is what the installer does, succeeds anyway.
+      await fs.rm(target, {force: true});
+      await fs.copyFile(replacement, target);
+      assert.deepEqual(
+        await fs.readFile(target),
+        await fs.readFile('/bin/true'),
+        'the new binary is in place, and the running one carried on with its own inode',
+      );
+    } finally {
+      child.kill();
+      await child.exited;
+    }
+  },
+);
+
 test('a second install is refused while one is running', async () => {
   // A source build takes minutes and the button shows nothing, so a second click is not an
   // exotic race -- it is the obvious thing to do. Two builds would `rm -rf` each other's
