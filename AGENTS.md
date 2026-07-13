@@ -648,15 +648,18 @@ Project-specific guidance for AI coding agents.
   `stripLeadingThinkingEndTag`: when a budget forces the block closed,
   llama.cpp hands the model its own end tag and then passes everything through
   as content, and the model usually echoes that tag as its first answer token.
-- Reasoning budgets are global (`state.reasoning.budgets`, defaulting to
-  llama.cpp's own 512/2048/8192) and reach llama.cpp as the top-level
-  `thinking_budget_tokens` field, injected through Pi's `agent.onPayload` hook.
+- Reasoning budgets are global and are the **`reasoning` settings group**
+  (`GET`/`PATCH /api/settings/reasoning`, three number fields defaulting to llama.cpp's
+  own 512/2048/8192). `piHarness` reads them from `SettingsRepository` and they reach
+  llama.cpp as the top-level `thinking_budget_tokens` field, injected through Pi's
+  `agent.onPayload` hook. They lived in `state.json` until M6; they render themselves from
+  the served schema now, like every other group.
   Pi's own `thinkingBudgets` setting never reaches an OpenAI-completions
   provider, and neither `reasoning_budget` nor
   `chat_template_kwargs.thinking_budget` has any per-request effect. The `max`
   level and a budget of `0` both mean "send no budget".
-- Runtime/model/reasoning/global/chats controls live in the modal Astryx
-  Settings dialog. Settings writes free-form string params into `models.ini`
+- (`apps/web` only, and being retired.) Runtime/model/reasoning/global/chats controls live
+  in the modal Astryx Settings dialog. Settings writes free-form string params into `models.ini`
   through server APIs,
   reloads router models when llama-server is running, and keeps the persisted
   stable section id as the llama.cpp/OpenAI model id.
@@ -686,10 +689,13 @@ Project-specific guidance for AI coding agents.
 - Use Zustand for cross-cutting browser UI state, with narrow selectors so
   unrelated UI does not rerender when a slice changes.
 - Preferences that should follow the user live in the `settings` table under the
-  `preferences` key and are served by `GET`/`PATCH /api/settings/preferences`.
-  Favorite model ids and the six display toggles
-  (`packages/shared/src/displayPreferences.ts`) are what live there; do not put
-  them back in `localStorage`. A favorite for a model missing from `models.ini`
+  `preferences` key and are served by `GET`/`PATCH /api/settings/preferences`. Since M6
+  that is **favourite model ids and nothing else**: a favourite is a *set*, and the
+  settings registry has no field type for one, which is exactly why it stays hand-written.
+  The six display toggles moved *out* of here and into the `display` settings group, where
+  they render themselves (`packages/shared/src/displayPreferences.ts` still owns their
+  keys, labels and help, and the group is generated from it). Do not put either back in
+  `localStorage`. A favorite for a model missing from `models.ini`
   is filtered from the response, never deleted from storage. `updatePreferences`
   merges over the *raw* stored row, so a key this build does not know -- one a
   newer client wrote -- survives; reads narrow field by field, so one malformed
