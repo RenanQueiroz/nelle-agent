@@ -1,5 +1,21 @@
+import type {z} from 'zod';
+
 import type {ChatAttachmentInput, NelleError} from '../../../packages/shared/src/contracts.ts';
+import type {
+  huggingFaceFileSchema,
+  huggingFaceQuantSchema,
+  HuggingFaceModelResultContract,
+} from '../../../packages/shared/src/huggingfaceSearch.ts';
 import type {LlamaRouterModelContract} from '../../../packages/shared/src/llamaModels.ts';
+import type {
+  ConfiguredModelContract,
+  ModelParamsContract,
+} from '../../../packages/shared/src/modelCatalog.ts';
+import type {
+  LlamaRouterPropsContract,
+  LlamaTokenizeResultContract,
+  RuntimeStatusContract,
+} from '../../../packages/shared/src/runtime.ts';
 import type {
   ChatMessage,
   ChatPerformance,
@@ -13,34 +29,14 @@ export type {ChatAttachmentInput};
 
 export type RuntimeInstallMode = 'source-master' | 'github-release' | 'external';
 
-export type RuntimeStatus = {
-  platform: NodeJS.Platform;
-  arch: string;
-  dataDir: string;
-  binaryPath: string | null;
-  logPath: string;
-  installMode: RuntimeInstallMode;
-  installed: boolean;
-  installedVersion: string | null;
-  latestVersion: string | null;
-  updateAvailable: boolean;
-  running: boolean;
-  pid: number | null;
-  host: string;
-  port: number;
-  modelsMax: number;
-  sleepIdleSeconds: number;
-  activeModelId: string | null;
-  lastError: string | null;
-};
+/**
+ * Derived from the published contract, so the wire payload cannot drift from what the
+ * OpenAPI promises without a compile error -- the same move as `LlamaRouterModel`.
+ */
+export type RuntimeStatus = RuntimeStatusContract;
 
-export type LlamaRouterProps = {
-  role: string | null;
-  maxInstances: number | null;
-  modelsAutoload: boolean | null;
-  runtime: RuntimeStatus;
-  raw: unknown;
-};
+/** The contract plus `raw`, llama.cpp's opaque blob, which the contract does not promise. */
+export type LlamaRouterProps = LlamaRouterPropsContract & {raw?: unknown};
 
 /**
  * The published contract (`llamaRouterModelSchema`, which the served OpenAPI carries
@@ -69,10 +65,8 @@ export type LlamaModelProps = {
   raw: unknown;
 };
 
-export type LlamaTokenizeResult = {
-  tokens: number;
-  raw: unknown;
-};
+/** The contract plus `raw`, llama.cpp's blob, which the contract does not promise. */
+export type LlamaTokenizeResult = LlamaTokenizeResultContract & {raw?: unknown};
 
 export type LlamaAbortVerificationResult = {
   checked: boolean;
@@ -85,58 +79,20 @@ export type AbortConversationResult = {
   warning?: NelleError;
 };
 
-export type ModelParams = {
-  /**
-   * The context cap the user configured, through `c` in this model's section or
-   * in `[*]`. Absent means "no cap": llama.cpp uses the model's trained window.
-   *
-   * It is a *prediction* of what llama.cpp will do. Once the model has loaded,
-   * `/props` is the truth -- see `effectiveContextWindow`.
-   */
-  contextSize?: number;
-  gpuLayers?: number;
-  threads?: number;
-  batchSize?: number;
-  extra?: Record<string, string>;
-};
+/**
+ * `gpuLayers`, `threads` and `batchSize` used to live here and were **dead**: nothing ever
+ * populated them (the read path builds params from `extra` alone) and nothing read them,
+ * so they were always absent -- a promise the contract made and never kept. They are gone.
+ * A GPU-offload or thread setting is just a key in `extra`, like every other llama.cpp
+ * lever, because Nelle does not police how a model is loaded.
+ */
+export type ModelParams = ModelParamsContract;
 
-export type ConfiguredModel = {
-  id: string;
-  name: string;
-  presetName: string;
-  source: 'huggingface';
-  repoId?: string;
-  quant?: string;
-  hfRef?: string;
-  params: ModelParams;
-  createdAt: string;
-};
+export type ConfiguredModel = ConfiguredModelContract;
 
-export type HuggingFaceFile = {
-  filename: string;
-  size: number | null;
-};
-
-export type HuggingFaceQuant = {
-  quant: string;
-  size: number | null;
-  files: HuggingFaceFile[];
-};
-
-export type HuggingFaceModelResult = {
-  id: string;
-  author?: string;
-  downloads?: number;
-  likes?: number;
-  tags: string[];
-  /** From Hugging Face's own parsed GGUF header, on the request Nelle already sends. */
-  architecture?: string;
-  parameterCount?: number;
-  /** `gguf.context_length`: the trained window, known before the first load. */
-  contextTrain?: number;
-  files: HuggingFaceFile[];
-  quants: HuggingFaceQuant[];
-};
+export type HuggingFaceFile = z.infer<typeof huggingFaceFileSchema>;
+export type HuggingFaceQuant = z.infer<typeof huggingFaceQuantSchema>;
+export type HuggingFaceModelResult = HuggingFaceModelResultContract;
 
 export type {
   ChatMessage,

@@ -517,9 +517,6 @@ function normalizeModelParams(
   const contextSize = own === undefined ? globalContextSize : own;
   return {
     ...(contextSize != null ? {contextSize} : {}),
-    ...(input?.gpuLayers != null ? {gpuLayers: input.gpuLayers} : {}),
-    ...(input?.threads != null ? {threads: input.threads} : {}),
-    ...(input?.batchSize != null ? {batchSize: input.batchSize} : {}),
     extra,
   };
 }

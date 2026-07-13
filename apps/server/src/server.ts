@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 
 import {z} from 'zod';
 
+import type {ModelCatalogContract} from '../../../packages/shared/src/modelCatalog.ts';
 import {reasoningLevelSchema} from '../../../packages/shared/src/reasoning.ts';
 import {HuggingFaceService} from './huggingface';
 import {LlamaCppManager} from './llamacpp';
@@ -438,19 +439,28 @@ export async function createServer(
     handleLlamaRoute(() => llama.unloadRouterModel(ctx.params.id)),
   );
 
-  router.get('/api/models', async () => {
+  /**
+   * The `models.ini` catalog. Every mutation below answers with this same shape, because
+   * every one of them can move more than the row it touched: a duplicate becomes the
+   * active model, deleting the active one promotes a neighbour, and editing `[*]` changes
+   * the derived `contextSize` of every model at once. So a client *applies* the catalog
+   * rather than patching one row and guessing at the rest.
+   */
+  const modelCatalog = async (): Promise<ModelCatalogContract> => {
     const state = await store.getState();
-    return json({
+    return {
       models: state.models,
       activeModelId: state.activeModelId,
       globalModelParams: state.globalModelParams,
-    });
-  });
+    };
+  };
+
+  router.get('/api/models', async () => json(await modelCatalog()));
 
   router.post('/api/models/:id/activate', async ctx => {
     const model = await store.setActiveModel(ctx.params.id);
     await llama.writePreset(model);
-    return json({model});
+    return json({model, catalog: await modelCatalog()});
   });
 
   // Served so a settings UI can offer completion, and so no client carries a copy
@@ -467,7 +477,10 @@ export async function createServer(
     }
     const globalModelParams = await store.updateGlobalModelParams(body.params);
     await writePresetAndReloadRouter(llama, store, modelCache);
-    return json({globalModelParams});
+    // `globalModelParams` stays for the browser, which reads it directly. The catalog is
+    // what a client should apply: `[*]` cascades, so this edit may have changed the
+    // predicted `contextSize` of every model in the list.
+    return json({globalModelParams, catalog: await modelCatalog()});
   });
 
   router.patch('/api/models/:id', async ctx => {
@@ -497,7 +510,7 @@ export async function createServer(
       );
     }
     await writePresetAndReloadRouter(llama, store, modelCache);
-    return json({model, state: await store.getState()});
+    return json({model, catalog: await modelCatalog()});
   });
 
   router.post('/api/models/:id/duplicate', async ctx => {
@@ -517,7 +530,7 @@ export async function createServer(
       );
     }
     await writePresetAndReloadRouter(llama, store, modelCache);
-    return json({model, state: await store.getState()});
+    return json({model, catalog: await modelCatalog()});
   });
 
   router.delete('/api/models/:id', async ctx => {
@@ -528,7 +541,7 @@ export async function createServer(
     }
     await llama.removeModelSection(id);
     await writePresetAndReloadRouter(llama, store, modelCache);
-    return json({ok: true, removedModelId: id, state: await store.getState()});
+    return json({ok: true, removedModelId: id, catalog: await modelCatalog()});
   });
 
   router.get('/api/huggingface/search', async ctx =>

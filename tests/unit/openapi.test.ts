@@ -161,6 +161,60 @@ test('the served OpenAPI document is valid, covers the contract, and matches the
       'text, textarea, number, boolean, select -- one member each, so a Dart switch is exhaustive',
     );
 
+    // Runtime and model administration: twenty-six routes ran without a single one of
+    // their shapes in the contract, so the browser hand-declared every one and a second
+    // client had nothing to codegen.
+    for (const id of [
+      'RuntimeStatus',
+      'LlamaRouterProps',
+      'RuntimeLogTail',
+      'LlamaTokenizeResult',
+      'LlamaOption',
+      'LlamaOptionCatalogue',
+      'ModelParams',
+      'ConfiguredModel',
+      'ModelCatalog',
+      'InvalidModelParam',
+      'InvalidModelParamsResponse',
+      'HuggingFaceFile',
+      'HuggingFaceQuant',
+      'HuggingFaceModelResult',
+      'HuggingFaceSearchResponse',
+    ]) {
+      assert.ok(doc.components.schemas[id], `missing component schema ${id}`);
+    }
+
+    // `RuntimeStatus` is the anchor: `GET /api/runtime` serves it and `/api/llama/props`
+    // embeds it. A $ref, not an inlined copy, or a client codegens the same fields twice
+    // under two names.
+    assert.deepEqual(doc.components.schemas.LlamaRouterProps?.properties?.runtime, {
+      $ref: '#/components/schemas/RuntimeStatus',
+    });
+
+    // `gpuLayers`, `threads` and `batchSize` were declared here and **never populated** --
+    // the read path builds params from `extra` alone. A field a contract promises and the
+    // server never sends is worse than a missing one: a client renders a control for it.
+    assert.deepEqual(
+      Object.keys(doc.components.schemas.ModelParams?.properties ?? {}).sort(),
+      ['contextSize', 'extra'],
+      'ModelParams must carry only the two fields the server actually sends',
+    );
+
+    // The catalog mutations used to echo the whole `AppState` -- the legacy 100-message
+    // `chat[]` and llama.cpp's host/port included -- which no client ever read. If it
+    // comes back, it comes back on the wire, so name it here.
+    assert.equal(
+      doc.components.schemas.AppState,
+      undefined,
+      'the server-internal AppState must not be served to clients',
+    );
+
+    // A refused params save names *every* offending key, so a client can mark the rows.
+    assert.deepEqual(
+      doc.components.schemas.InvalidModelParamsResponse?.properties?.invalidParams?.items,
+      {$ref: '#/components/schemas/InvalidModelParam'},
+    );
+
     // A paired device cannot enrol another device or enumerate its siblings. That is
     // a 404 it would otherwise have to discover by being surprised.
     for (const routePath of ['/api/pair/code', '/api/devices', '/api/devices/{id}']) {

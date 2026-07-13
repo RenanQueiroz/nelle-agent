@@ -23,6 +23,7 @@ import {AppStore} from './store';
 import {llamaRuntimeModelId} from './modelCompat';
 import {commandExists, runCommand} from './process';
 import {NELLE_ERROR_CODES} from '../../../packages/shared/src/contracts.ts';
+import type {RuntimeLogTail} from '../../../packages/shared/src/runtime.ts';
 import {templateSupportsThinking} from '../../../packages/shared/src/reasoning.ts';
 import {routerLoadProgress} from '../../../packages/shared/src/routerProgress.ts';
 import {
@@ -151,7 +152,7 @@ export class LlamaCppManager {
     }
   }
 
-  async readLogTail(maxBytes = 80_000): Promise<{path: string; text: string}> {
+  async readLogTail(maxBytes = 80_000): Promise<RuntimeLogTail> {
     try {
       const stat = await fs.stat(this.paths.llamaLogPath);
       const start = Math.max(0, stat.size - maxBytes);

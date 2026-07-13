@@ -771,7 +771,34 @@ Project-specific guidance for AI coding agents.
   number of rows paged in.
 - Model param update payloads are full replacements for editable params in a
   section. Preserve a free-form key by including it in the submitted key/value
-  draft; omit it to delete it.
+  draft; omit it to delete it -- **except `stop-timeout`, which cannot be
+  deleted**: Nelle writes it into every section on every preset write, so omitting
+  it does not remove the row, it resets it to `10`. It can be *changed* (an `extra`
+  value wins over the default), never removed. A param editor that reads its
+  reappearance as a failed save, or that keeps re-deleting it, fights the server
+  forever.
+- **`ModelParams` reads and writes in two different shapes, and it is not
+  guessable.** `GET /api/models` answers
+  `params: {contextSize?, extra: Record<string,string>}` -- where `contextSize` is a
+  *read-only prediction* derived from the `[*]`-plus-section cascade, and **absent is
+  the normal case** (it means no cap, so llama.cpp auto-fits). `PATCH /api/models/:id`
+  takes `params` as a **flat `Record<string,string>`** that *replaces* `extra`
+  wholesale. So a client that round-trips the GET object straight back into the PATCH
+  is refused with a 400. Edit `params.extra`; send it flat. (`gpuLayers`, `threads`
+  and `batchSize` used to sit in this type and were **never populated by anything** --
+  a promise the contract made and never kept, which is worse than a missing field
+  because a client renders a control for it. They are gone; a GPU-offload or thread
+  setting is just a key in `extra`, like every other llama.cpp lever.)
+- **Every `models.ini` catalog mutation answers with the whole catalog**
+  (`ModelCatalog`: `{models, activeModelId, globalModelParams}`, the same shape
+  `GET /api/models` serves), and a client **applies it** rather than patching the row
+  it touched. It has to: activate, duplicate and delete all move `activeModelId` --
+  a duplicate *becomes* the active model and deleting the active one promotes a
+  neighbour -- and editing `[*]` rewrites the derived `contextSize` of **every** model
+  at once. This replaced an echo of the server's entire `AppState`, which dragged the
+  legacy 100-message `chat[]` and llama.cpp's host/port along on every response and
+  which no client ever read. `AppState` is server-internal and
+  `tests/unit/openapi.test.ts` fails if it reaches the contract again.
 - The composer model selector is compact but router-aware: it is searchable,
   groups browser-local favorites first, shows selected/row router
   status/progress from router SSE updates, and loads unloaded router models

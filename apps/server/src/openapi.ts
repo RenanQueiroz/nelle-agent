@@ -35,9 +35,30 @@ import {
   modelListItemSchema,
 } from '../../../packages/shared/src/conversations.ts';
 import {
+  huggingFaceFileSchema,
+  huggingFaceModelResultSchema,
+  huggingFaceQuantSchema,
+  huggingFaceSearchResponseSchema,
+} from '../../../packages/shared/src/huggingfaceSearch.ts';
+import {
   llamaModelsResponseSchema,
   llamaRouterModelSchema,
 } from '../../../packages/shared/src/llamaModels.ts';
+import {
+  configuredModelSchema,
+  invalidModelParamSchema,
+  invalidModelParamsResponseSchema,
+  modelCatalogSchema,
+  modelParamsSchema,
+} from '../../../packages/shared/src/modelCatalog.ts';
+import {
+  llamaOptionCatalogueSchema,
+  llamaOptionSchema,
+  llamaRouterPropsSchema,
+  llamaTokenizeResultSchema,
+  runtimeLogTailSchema,
+  runtimeStatusSchema,
+} from '../../../packages/shared/src/runtime.ts';
 import {conversationMessageSchema} from '../../../packages/shared/src/messages.ts';
 import {reasoningLevelSchema} from '../../../packages/shared/src/reasoning.ts';
 import {
@@ -101,6 +122,29 @@ const CONTRACT_SCHEMAS: ReadonlyArray<readonly [string, z.ZodType]> = [
   ['SettingsField', settingsFieldSchema],
   ['SettingsSection', settingsSectionSchema],
   ['SettingsSchema', settingsSchemaResponseSchema],
+  // Runtime + model administration. Twenty-six routes ran without a single one of their
+  // shapes in the contract, so the only client that had them was the browser, which
+  // hand-declared every one. `RuntimeStatus` is the anchor: `GET /api/runtime` serves it
+  // and `GET /api/llama/props` embeds it.
+  ['RuntimeStatus', runtimeStatusSchema],
+  ['LlamaRouterProps', llamaRouterPropsSchema],
+  ['RuntimeLogTail', runtimeLogTailSchema],
+  ['LlamaTokenizeResult', llamaTokenizeResultSchema],
+  // What a `models.ini` key is validated against -- which is llama-server's own `--help`,
+  // never a list Nelle carries. A client renders it for completion; it must not validate.
+  ['LlamaOption', llamaOptionSchema],
+  ['LlamaOptionCatalogue', llamaOptionCatalogueSchema],
+  ['ModelParams', modelParamsSchema],
+  ['ConfiguredModel', configuredModelSchema],
+  ['ModelCatalog', modelCatalogSchema],
+  // The 400 that a bad params save answers with. It names *every* offending key, so a
+  // client can mark the rows rather than print one line of red text under a form of ten.
+  ['InvalidModelParam', invalidModelParamSchema],
+  ['InvalidModelParamsResponse', invalidModelParamsResponseSchema],
+  ['HuggingFaceFile', huggingFaceFileSchema],
+  ['HuggingFaceQuant', huggingFaceQuantSchema],
+  ['HuggingFaceModelResult', huggingFaceModelResultSchema],
+  ['HuggingFaceSearchResponse', huggingFaceSearchResponseSchema],
 ];
 
 export function buildOpenApiDocument(

@@ -1627,6 +1627,462 @@
         },
         "required": ["sections"],
         "additionalProperties": false
+      },
+      "RuntimeStatus": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "arch": {
+            "type": "string"
+          },
+          "dataDir": {
+            "type": "string"
+          },
+          "binaryPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "logPath": {
+            "type": "string"
+          },
+          "installMode": {
+            "type": "string",
+            "enum": ["source-master", "github-release", "external"]
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "installedVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latestVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updateAvailable": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "pid": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "number"
+          },
+          "modelsMax": {
+            "type": "number"
+          },
+          "sleepIdleSeconds": {
+            "type": "number"
+          },
+          "activeModelId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastError": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "platform",
+          "arch",
+          "dataDir",
+          "binaryPath",
+          "logPath",
+          "installMode",
+          "installed",
+          "installedVersion",
+          "latestVersion",
+          "updateAvailable",
+          "running",
+          "pid",
+          "host",
+          "port",
+          "modelsMax",
+          "sleepIdleSeconds",
+          "activeModelId",
+          "lastError"
+        ],
+        "additionalProperties": false
+      },
+      "LlamaRouterProps": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxInstances": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "modelsAutoload": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/RuntimeStatus"
+          }
+        },
+        "required": ["role", "maxInstances", "modelsAutoload", "runtime"],
+        "additionalProperties": false
+      },
+      "RuntimeLogTail": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": ["path", "text"],
+        "additionalProperties": false
+      },
+      "LlamaTokenizeResult": {
+        "type": "object",
+        "properties": {
+          "tokens": {
+            "type": "number"
+          }
+        },
+        "required": ["tokens"],
+        "additionalProperties": false
+      },
+      "LlamaOption": {
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "env": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "valueHint": {
+            "type": "string"
+          },
+          "help": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          }
+        },
+        "required": ["keys", "env", "help", "section"],
+        "additionalProperties": false
+      },
+      "LlamaOptionCatalogue": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlamaOption"
+            }
+          }
+        },
+        "required": ["available", "options"],
+        "additionalProperties": false
+      },
+      "ModelParams": {
+        "type": "object",
+        "properties": {
+          "contextSize": {
+            "type": "number"
+          },
+          "extra": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["extra"],
+        "additionalProperties": false
+      },
+      "ConfiguredModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "presetName": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "repoId": {
+            "type": "string"
+          },
+          "quant": {
+            "type": "string"
+          },
+          "hfRef": {
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/ModelParams"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "presetName", "source", "params", "createdAt"],
+        "additionalProperties": false
+      },
+      "ModelCatalog": {
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfiguredModel"
+            }
+          },
+          "activeModelId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "globalModelParams": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["models", "activeModelId", "globalModelParams"],
+        "additionalProperties": false
+      },
+      "InvalidModelParam": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["unknown", "reserved", "duplicate", "syntax"]
+          },
+          "message": {
+            "type": "string"
+          },
+          "suggestion": {
+            "type": "string"
+          }
+        },
+        "required": ["key", "reason", "message"],
+        "additionalProperties": false
+      },
+      "InvalidModelParamsResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/NelleError"
+          },
+          "invalidParams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvalidModelParam"
+            }
+          }
+        },
+        "required": ["error", "invalidParams"],
+        "additionalProperties": false
+      },
+      "HuggingFaceFile": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["filename", "size"],
+        "additionalProperties": false
+      },
+      "HuggingFaceQuant": {
+        "type": "object",
+        "properties": {
+          "quant": {
+            "type": "string"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HuggingFaceFile"
+            }
+          }
+        },
+        "required": ["quant", "size", "files"],
+        "additionalProperties": false
+      },
+      "HuggingFaceModelResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "downloads": {
+            "type": "number"
+          },
+          "likes": {
+            "type": "number"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "architecture": {
+            "type": "string"
+          },
+          "parameterCount": {
+            "type": "number"
+          },
+          "contextTrain": {
+            "type": "number"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HuggingFaceFile"
+            }
+          },
+          "quants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HuggingFaceQuant"
+            }
+          }
+        },
+        "required": ["id", "tags", "files", "quants"],
+        "additionalProperties": false
+      },
+      "HuggingFaceSearchResponse": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HuggingFaceModelResult"
+            }
+          }
+        },
+        "required": ["results"],
+        "additionalProperties": false
       }
     },
     "securitySchemes": {
