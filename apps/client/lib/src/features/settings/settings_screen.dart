@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../api/settings_schema.dart';
 import '../connection/connection_screen.dart';
+import 'device_settings.dart';
 import 'settings_controller.dart';
 import 'settings_section_screen.dart';
 
@@ -73,6 +74,16 @@ class SettingsScreen extends ConsumerWidget {
                 title: 'This device',
                 subtitle: 'Stays here. Not shared with your other devices.',
               ),
+              // Device sections are described with the *same types* as the server's and
+              // rendered by the *same widget*. If a device setting ever needs its own UI
+              // here, the renderer is wrong.
+              for (final section in deviceSettingsSections)
+                _SectionTile(
+                  key: ValueKey('k-settings-section-${section.slug}'),
+                  title: section.title,
+                  subtitle: section.description,
+                  onPress: () => _open(context, section, isDevice: true),
+                ),
               // A pairing is a flow, not a field, so the server connection is a screen of
               // its own rather than a schema-rendered section.
               _SectionTile(

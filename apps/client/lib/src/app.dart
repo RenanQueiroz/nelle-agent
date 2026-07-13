@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
+import 'features/settings/device_settings.dart';
 import 'routing/router.dart';
 
 /// Root app widget. forui themes the app via `MaterialApp.builder` -> `FTheme`,
@@ -22,6 +23,10 @@ class NelleApp extends ConsumerWidget {
     FThemeData variant(FPlatformThemeData base) =>
         isMobile ? base.touch : base.desktop;
 
+    // Device-local, and the reason Appearance is: `system` resolves against *this* OS.
+    final themeMode =
+        ref.watch(themeModeProvider).valueOrNull ?? ThemeMode.system;
+
     return MaterialApp.router(
       title: 'Nelle Agent',
       debugShowCheckedModeBanner: false,
@@ -30,12 +35,23 @@ class NelleApp extends ConsumerWidget {
       supportedLocales: FLocalizations.supportedLocales,
       theme: variant(FThemes.neutral.light).toApproximateMaterialTheme(),
       darkTheme: variant(FThemes.neutral.dark).toApproximateMaterialTheme(),
+      themeMode: themeMode,
       builder: (context, child) {
-        final brightness = MediaQuery.platformBrightnessOf(context);
+        // **The forui theme must follow the resolved mode, not the platform.**
+        //
+        // This read `MediaQuery.platformBrightnessOf(context)` -- the OS's brightness,
+        // directly -- which was harmless only while there was no override. With one,
+        // `MaterialApp` switches to the light Material theme while every forui widget
+        // stays dark, and the app renders half in each. `flutter analyze` is perfectly
+        // happy; you just look at it.
+        final dark = switch (themeMode) {
+          ThemeMode.light => false,
+          ThemeMode.dark => true,
+          ThemeMode.system =>
+            MediaQuery.platformBrightnessOf(context) == Brightness.dark,
+        };
         final theme = variant(
-          brightness == Brightness.dark
-              ? FThemes.neutral.dark
-              : FThemes.neutral.light,
+          dark ? FThemes.neutral.dark : FThemes.neutral.light,
         );
         return FTheme(
           data: theme,
