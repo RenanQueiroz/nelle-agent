@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "activeModelId": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL",
+  "models": [
+    {
+      "id": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL",
+      "name": "Qwen alias",
+      "presetName": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Q4_K_XL",
+      "source": "huggingface",
+      "repoId": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+      "quant": "UD-Q4_K_XL",
+      "hfRef": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q4_K_XL",
+      "pinned": false,
+      "diskBytes": null,
+      "params": {
+        "contextSize": 32768,
+        "extra": {
+          "ctx-size": "32768"
+        }
+      },
+      "createdAt": "2026-07-13T20:33:24.580Z"
+    }
+  ],
+  "globalModelParams": {
+    "fitc": "32768",
+    "c": "12288"
+  },
+  "runtime": {
+    "host": "127.0.0.1",
+    "port": 18080
+  },
+  "chat": []
+}

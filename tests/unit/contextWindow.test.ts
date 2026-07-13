@@ -126,11 +126,13 @@ test('an empty params object clears every global param; an absent one does not',
     const patch = async (payload: unknown) =>
       app.inject({method: 'PATCH', url: '/api/models/global-params', payload});
 
+    // Read it back off `GET /api/models`, the catalog route -- not the retired `/api/state`,
+    // which echoed the server's whole internal `AppState` and went with `apps/web`.
     await patch({params: {c: '16384', temp: '0.7'}});
     assert.deepEqual(
-      (await app.inject({method: 'GET', url: '/api/state'})).json<{
-        state: {globalModelParams: Record<string, string>};
-      }>().state.globalModelParams,
+      (await app.inject({method: 'GET', url: '/api/models'})).json<{
+        globalModelParams: Record<string, string>;
+      }>().globalModelParams,
       {c: '16384', temp: '0.7'},
     );
 
@@ -230,6 +232,5 @@ async function createTempPaths(): Promise<AppPaths> {
     piModelsPath: path.join(piDir, 'models.json'),
     settingsDbPath: path.join(dataDir, 'settings.sqlite'),
     statePath: path.join(dataDir, 'state.json'),
-    webDistDir: path.join(repoRoot, 'dist', 'web'),
   };
 }

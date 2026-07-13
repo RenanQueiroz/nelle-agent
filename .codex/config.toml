@@ -11,11 +11,6 @@
 #
 # Restart the Codex session after changing this file.
 
-# Browser automation for the (retiring) React web app at apps/web.
-[mcp_servers.playwright]
-command = "bash"
-args = ["-lc", "source ~/.nvm/nvm.sh && npx -y @playwright/mcp@latest --browser chromium --headless --isolated --allowed-hosts 127.0.0.1,localhost"]
-
 # Agent-driven UI testing for the Flutter client (apps/client): widget inspection,
 # tap / enter_text / swipe / scroll_to, take_screenshots, get_logs, hot_reload.
 # Requires the app running in debug (MarionetteBinding is initialized under kDebugMode).

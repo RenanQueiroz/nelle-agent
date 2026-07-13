@@ -1,5 +1,3 @@
-import path from 'node:path';
-
 import {ZodError} from 'zod';
 
 import {NELLE_ERROR_CODES} from '../../../packages/shared/src/contracts.ts';
@@ -175,30 +173,4 @@ export function applyCors(req: Request, response: Response): Response {
 
 export function preflightResponse(req: Request): Response {
   return new Response(null, {status: 204, headers: corsHeaders(req)});
-}
-
-/**
- * Serves the built web app from `webDistDir`, falling back to `index.html` so a
- * client-side route reloads (the SPA fallback `@fastify/static` +
- * `setNotFoundHandler` gave us). Returns `null` when there is nothing to serve.
- */
-export function createStaticHandler(
-  webDistDir: string,
-): (pathname: string) => Promise<Response | null> {
-  const root = path.resolve(webDistDir);
-  return async (pathname: string) => {
-    const relative = decodeURIComponent(pathname).replace(/^\/+/, '');
-    const candidate = path.resolve(root, relative);
-    if (relative && (candidate === root || candidate.startsWith(`${root}${path.sep}`))) {
-      const file = Bun.file(candidate);
-      if (await file.exists()) {
-        return new Response(file);
-      }
-    }
-    const index = Bun.file(path.join(root, 'index.html'));
-    if (await index.exists()) {
-      return new Response(index);
-    }
-    return null;
-  };
 }

@@ -15,7 +15,6 @@ import {
   UNLIMITED_REASONING_BUDGET,
 } from '../../packages/shared/src/reasoning.ts';
 import {templateSupportsThinking} from '../../packages/shared/src/reasoning.ts';
-import {parseReasoningBudgets} from '../../apps/web/src/utils/reasoning.ts';
 import {
   reasoningBudgetsFromSettings,
   SETTINGS_REGISTRY,
@@ -61,19 +60,6 @@ test('only the max level maps onto a Pi thinking level Nelle does not name', () 
   assert.equal(piThinkingLevel('medium'), 'medium');
   assert.equal(piThinkingLevel('high'), 'high');
   assert.equal(piThinkingLevel('max'), 'xhigh');
-});
-
-test('the settings drafts only accept whole token counts llama.cpp would take', () => {
-  assert.deepEqual(parseReasoningBudgets({low: '512', medium: ' 2048 ', high: '0'}), {
-    low: 512,
-    medium: 2048,
-    high: 0,
-  });
-  assert.equal(parseReasoningBudgets({low: 'abc', medium: '2048', high: '8192'}), null);
-  assert.equal(parseReasoningBudgets({low: '-1', medium: '2048', high: '8192'}), null);
-  assert.equal(parseReasoningBudgets({low: '1.5', medium: '2048', high: '8192'}), null);
-  assert.equal(parseReasoningBudgets({low: '', medium: '2048', high: '8192'}), null);
-  assert.equal(parseReasoningBudgets({low: '512', medium: '2048', high: '65537'}), null);
 });
 
 test('reasoning budgets clamp per level and reject junk', () => {

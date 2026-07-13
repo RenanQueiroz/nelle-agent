@@ -4,7 +4,6 @@
   "bracketSpacing": false,
   "ignorePatterns": [
     ".nelle/**",
-    ".nelle-e2e/**",
     ".claude/CLAUDE.md",
     ".codex/**",
     ".mcp.json",
@@ -14,9 +13,7 @@
     "build/**",
     "coverage/**",
     "dist/**",
-    "node_modules/**",
-    "playwright-report/**",
-    "test-results/**"
+    "node_modules/**"
   ],
   "printWidth": 100,
   "semi": true,

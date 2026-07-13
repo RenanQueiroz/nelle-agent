@@ -3238,7 +3238,9 @@ test('host tool settings require acknowledgement before enabling tools', async (
   const paths = await createTempPaths();
   const app = await createTestServer(paths);
   try {
-    const stateResponse = await app.inject({method: 'GET', url: '/api/state'});
+    // `GET /api/settings/host-tools`, not the retired `/api/state`: the latter echoed the whole
+    // server-internal `AppState` at every client, and went with `apps/web`.
+    const stateResponse = await app.inject({method: 'GET', url: '/api/settings/host-tools'});
     assert.equal(stateResponse.statusCode, 200);
     const initialSettings = stateResponse.json<{
       hostTools: {enabled: boolean; acknowledged: boolean};
@@ -3743,7 +3745,6 @@ async function createTempPaths(): Promise<AppPaths> {
     piModelsPath: path.join(piDir, 'models.json'),
     settingsDbPath: path.join(dataDir, 'settings.sqlite'),
     statePath: path.join(dataDir, 'state.json'),
-    webDistDir: path.join(repoRoot, 'dist', 'web'),
   };
 }
 

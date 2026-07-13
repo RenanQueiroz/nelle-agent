@@ -1,12 +1,9 @@
-import open from 'open';
-
 import {createAppPaths} from './paths';
 import {createServer} from './server';
 
 const paths = createAppPaths();
 const port = Number(process.env.NELLE_PORT ?? 8787);
 const tlsPort = Number(process.env.NELLE_TLS_PORT ?? 8788);
-const shouldOpen = process.argv.includes('--open');
 
 const app = await createServer(paths);
 
@@ -35,10 +32,6 @@ if (app.lanAccessEnabled && app.serverCert) {
     fetch: req => app.handle(req, {trusted: false}),
   });
   console.log(`Nelle Agent LAN listener on https://0.0.0.0:${lan.port} (paired devices only)`);
-}
-
-if (shouldOpen) {
-  await open(url);
 }
 
 const shutdown = async (): Promise<void> => {

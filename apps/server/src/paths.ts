@@ -25,7 +25,6 @@ export type AppPaths = {
   piModelsPath: string;
   settingsDbPath: string;
   statePath: string;
-  webDistDir: string;
 };
 
 export function createAppPaths(): AppPaths {
@@ -53,6 +52,5 @@ export function createAppPaths(): AppPaths {
     piModelsPath: path.join(piDir, 'models.json'),
     settingsDbPath: path.join(dataDir, 'settings.sqlite'),
     statePath: path.join(dataDir, 'state.json'),
-    webDistDir: path.join(repoRoot, 'dist', 'web'),
   };
 }

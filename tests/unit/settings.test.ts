@@ -250,16 +250,19 @@ test('the real server serves the real registry, and a route for each of its grou
     }
 
     // A group route exists only if its group does. An unknown `/api/*` path is a
-    // 404 JSON with a coded error -- never the SPA's `index.html`, which would
-    // hide the mistake from a non-browser client.
+    // 404 JSON with a coded error.
     const absent = await app.inject({method: 'PATCH', url: '/api/settings/demo'});
     assert.equal(absent.statusCode, 404);
     assert.equal(absent.json<{error: {code: string}}>().error.code, 'not_found');
     assert.match(absent.headers['content-type'] as string, /application\/json/);
 
-    // A non-`/api` path still falls through to the SPA when the web build exists.
+    // **Nelle serves no web app, so there is no SPA to fall through to.** This used to assert
+    // that a non-`/api` path answered `index.html`; now every unmatched path is the same coded
+    // JSON 404, whatever its shape. Nelle is an API server, and every client is a native one.
     const appRoute = await app.inject({method: 'GET', url: '/some/app/route'});
-    assert.match(appRoute.headers['content-type'] as string, /text\/html/);
+    assert.equal(appRoute.statusCode, 404);
+    assert.match(appRoute.headers['content-type'] as string, /application\/json/);
+    assert.equal(appRoute.json<{error: {code: string}}>().error.code, 'not_found');
   } finally {
     await app.close();
   }
@@ -344,7 +347,6 @@ async function createTempPaths(): Promise<AppPaths> {
     piModelsPath: path.join(piDir, 'models.json'),
     settingsDbPath: path.join(dataDir, 'settings.sqlite'),
     statePath: path.join(dataDir, 'state.json'),
-    webDistDir: path.join(repoRoot, 'dist', 'web'),
   };
 }
 

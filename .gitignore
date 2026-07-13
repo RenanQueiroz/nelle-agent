@@ -16,7 +16,6 @@ plans/
 # `models/` doesn't also swallow nested dirs -- e.g. the Flutter client's
 # generated `apps/client/lib/src/api/generated/models/`.
 .nelle/
-.nelle-e2e/
 /data/
 /logs/
 /llamacpp/

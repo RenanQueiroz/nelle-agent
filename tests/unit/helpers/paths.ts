@@ -27,7 +27,6 @@ export function tempPaths(dataDir: string): AppPaths {
     piModelsPath: path.join(piDir, 'models.json'),
     settingsDbPath: path.join(dataDir, 'settings.sqlite'),
     statePath: path.join(dataDir, 'state.json'),
-    webDistDir: path.join(path.resolve('.'), 'dist', 'web'),
   };
 }
 

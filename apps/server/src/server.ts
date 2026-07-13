@@ -16,7 +16,7 @@ import {registerLlamaProxy} from './llamaProxy';
 import {PiHarness, isConversationNotFoundError} from './piHarness';
 import {streamDirectLlama} from './directLlama';
 import {createErrorEvent, normalizeNelleError} from './errors';
-import {Router, applyCors, createStaticHandler, json, preflightResponse, type Ctx} from './http';
+import {Router, applyCors, json, preflightResponse, type Ctx} from './http';
 import {AppStore} from './store';
 import {removeRepoWeights, repoDiskBytes} from './modelWeights';
 import {AppDatabase} from './database';
@@ -251,14 +251,6 @@ export async function createServer(
     }),
   );
 
-  router.get('/api/state', async () =>
-    json({
-      state: await store.getState(),
-      runtime: await llama.getStatus(),
-      hostTools: hostTools.getSettings(),
-    }),
-  );
-
   router.get('/api/settings/host-tools', async () =>
     json({
       hostTools: hostTools.getSettings(),
@@ -341,12 +333,6 @@ export async function createServer(
     const checkLatest = ctx.query.latest === '1';
     return json(await llama.getStatus(checkLatest));
   });
-
-  // The non-streaming pair stays for `apps/web`, which is being retired. It is exactly what
-  // the streaming route replaces: it awaits the whole build -- ten-plus minutes on Linux --
-  // and answers once, having shown the user nothing.
-  router.post('/api/runtime/install', async () => json(await llama.installOrUpdate()));
-  router.post('/api/runtime/update', async () => json(await llama.installOrUpdate()));
 
   /**
    * Installing is a *build*, not a request, so it is narrated.
@@ -1424,10 +1410,6 @@ export async function createServer(
   // route list, for client codegen. See plans/nelle-pre-flutter-prep.md.
   router.get('/api/openapi.json', async () => json(buildOpenApiDocument(router.routes())));
 
-  const staticHandler = (await hasBuiltWeb(paths.webDistDir))
-    ? createStaticHandler(paths.webDistDir)
-    : null;
-
   const handle = async (req: Request, opts: {trusted: boolean}): Promise<Response> => {
     if (req.method === 'OPTIONS') {
       return preflightResponse(req);
@@ -1475,14 +1457,9 @@ export async function createServer(
         ),
       );
     }
-    // Any other unmatched path falls to the SPA (a file if one exists, else
-    // `index.html`), for every method -- the `setNotFoundHandler` fallback.
-    if (staticHandler) {
-      const served = await staticHandler(url.pathname);
-      if (served) {
-        return applyCors(req, served);
-      }
-    }
+    // **Nelle serves no web app.** It is an API server: every client is a native one that
+    // speaks the served REST + SSE contract (`GET /api/openapi.json`). An unmatched path is
+    // a 404, not an `index.html` -- there is no SPA to fall back to.
     return applyCors(
       req,
       json(
@@ -1902,15 +1879,6 @@ function llamaError(error: unknown, code = 'llama_router_request_failed'): Respo
     },
     502,
   );
-}
-
-async function hasBuiltWeb(webDistDir: string): Promise<boolean> {
-  try {
-    await fs.access(path.join(webDistDir, 'index.html'));
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 type FileCleanupResult = {
