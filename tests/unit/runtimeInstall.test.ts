@@ -253,7 +253,7 @@ test('a second install is refused while one is running', async () => {
 /**
  * **`GET /api/runtime` and `GET /api/runtime/logs`, which nothing on the server tested.**
  *
- * Both routes were covered only by the Playwright suite, through `apps/web` — which is being
+ * Both routes were covered only by the Playwright suite, through `apps/web` — which has since been
  * deleted. The M9 audit walked all 46 e2e tests to prove the deletion cost no server coverage,
  * and these two are the entire bill: 39 of the 46 mock the API outright, and every other
  * real-server behaviour had a named unit test already. `/api/runtime/logs` had **no test

@@ -31,8 +31,8 @@ import {AppStore} from '../apps/server/src/store';
  *    harness rather than the app — and pairing is already covered by `devices.test.ts` and three
  *    client test files.
  *
- * It deliberately does **not** build `apps/web` (which `serve-e2e.ts` does, and which M9 T6
- * deletes).
+ * It builds nothing. Nelle serves no web app -- an unmatched path is a coded JSON 404 -- so the
+ * fixture is the API server and nothing else.
  */
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));

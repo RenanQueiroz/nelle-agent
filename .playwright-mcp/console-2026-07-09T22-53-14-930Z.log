@@ -1,0 +1,18 @@
+[     106ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:14335
+[  195652ms] ReferenceError: isRunnableRouterStatus is not defined
+    at http://127.0.0.1:5173/src/App.tsx?t=1783637790275:391:29
+    at Array.filter (<anonymous>)
+    at http://127.0.0.1:5173/src/App.tsx?t=1783637790275:391:7
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12902:13)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at commitHookEffectListMount (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6617:153)
+    at commitHookPassiveMountEffects (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6652:55)
+    at commitPassiveMountOnFiber (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7618:22)
+    at recursivelyTraversePassiveMountEffects (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7606:5)
+    at commitPassiveMountOnFiber (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7672:14)
+[  195652ms] [WARNING] %s
+
+%s
+ An error occurred in the <App> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[  238734ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://127.0.0.1:5173/api/llama/models/events:0

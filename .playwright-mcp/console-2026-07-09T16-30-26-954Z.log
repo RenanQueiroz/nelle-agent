@@ -1,0 +1,437 @@
+[      79ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:14335
+[15603331ms] ReferenceError: conversations is not defined
+    at App (http://127.0.0.1:5173/src/App.tsx?t=1783630230061:1487:4)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15603331ms] [WARNING] %s
+
+%s
+ An error occurred in the <App> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15607018ms] ReferenceError: conversations is not defined
+    at App (http://127.0.0.1:5173/src/App.tsx?t=1783630233789:1483:4)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15607018ms] [WARNING] %s
+
+%s
+ An error occurred in the <App> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15612344ms] ReferenceError: conversations is not defined
+    at App (http://127.0.0.1:5173/src/App.tsx?t=1783630239099:1486:4)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15612341ms] [WARNING] %s
+
+%s
+ An error occurred in the <App> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15620872ms] ReferenceError: conversations is not defined
+    at App (http://127.0.0.1:5173/src/App.tsx?t=1783630247795:1486:4)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15620870ms] [WARNING] %s
+
+%s
+ An error occurred in the <App> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15624537ms] ReferenceError: conversations is not defined
+    at App (http://127.0.0.1:5173/src/App.tsx?t=1783630251462:1486:4)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15624535ms] [WARNING] %s
+
+%s
+ An error occurred in the <App> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15629296ms] ReferenceError: conversations is not defined
+    at App (http://127.0.0.1:5173/src/App.tsx?t=1783630256071:1482:4)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15629296ms] [WARNING] %s
+
+%s
+ An error occurred in the <App> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15642143ms] TypeError: Cannot read properties of undefined (reading 'filter')
+    at buildConversationRows (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:1130:26)
+    at http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:29
+    at mountMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4931:20)
+    at Object.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:13022:13)
+    at exports.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/react.js?v=48ec87f8:736:31)
+    at ConversationVirtualList (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:15)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+[15642143ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationVirtualList> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15646373ms] TypeError: Cannot read properties of undefined (reading 'filter')
+    at buildConversationRows (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:1130:26)
+    at http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:29
+    at mountMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4931:20)
+    at Object.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:13022:13)
+    at exports.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/react.js?v=48ec87f8:736:31)
+    at ConversationVirtualList (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:15)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+[15646373ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationVirtualList> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15659316ms] TypeError: Cannot read properties of undefined (reading 'filter')
+    at buildConversationRows (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:1130:26)
+    at http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:29
+    at mountMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4931:20)
+    at Object.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:13022:13)
+    at exports.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/react.js?v=48ec87f8:736:31)
+    at ConversationVirtualList (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:15)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+[15659316ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationVirtualList> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15664354ms] TypeError: Cannot read properties of undefined (reading 'filter')
+    at buildConversationRows (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:1130:26)
+    at http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:29
+    at mountMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4931:20)
+    at Object.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:13022:13)
+    at exports.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/react.js?v=48ec87f8:736:31)
+    at ConversationVirtualList (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:15)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+[15664354ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationVirtualList> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15673866ms] TypeError: Cannot read properties of undefined (reading 'filter')
+    at buildConversationRows (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:1130:26)
+    at http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:29
+    at mountMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4931:20)
+    at Object.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:13022:13)
+    at exports.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/react.js?v=48ec87f8:736:31)
+    at ConversationVirtualList (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:15)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+[15673866ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationVirtualList> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15679972ms] TypeError: Cannot read properties of undefined (reading 'filter')
+    at buildConversationRows (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:1130:26)
+    at http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:29
+    at mountMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4931:20)
+    at Object.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:13022:13)
+    at exports.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/react.js?v=48ec87f8:736:31)
+    at ConversationVirtualList (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:15)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+[15679972ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationVirtualList> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15691386ms] TypeError: Cannot read properties of undefined (reading 'filter')
+    at buildConversationRows (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:1130:26)
+    at http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:29
+    at mountMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4931:20)
+    at Object.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:13022:13)
+    at exports.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/react.js?v=48ec87f8:736:31)
+    at ConversationVirtualList (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:15)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+[15691387ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationVirtualList> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15697044ms] TypeError: Cannot read properties of undefined (reading 'filter')
+    at buildConversationRows (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:1130:26)
+    at http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:29
+    at mountMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4931:20)
+    at Object.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:13022:13)
+    at exports.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/react.js?v=48ec87f8:736:31)
+    at ConversationVirtualList (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783566736619:461:15)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+[15697044ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationVirtualList> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15709005ms] ReferenceError: conversations is not defined
+    at NelleSideNav (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630335882:362:4)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15709005ms] [WARNING] %s
+
+%s
+ An error occurred in the <NelleSideNav> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15719963ms] TypeError: Cannot read properties of undefined (reading 'filter')
+    at buildConversationRows (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630346834:1125:26)
+    at http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630346834:456:29
+    at mountMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4931:20)
+    at Object.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:13022:13)
+    at exports.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/react.js?v=48ec87f8:736:31)
+    at ConversationVirtualList (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630346834:456:15)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+[15719963ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationVirtualList> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15729611ms] ReferenceError: useConversationsStore is not defined
+    at ConversationSearchInput (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630356474:422:24)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15729611ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationSearchInput> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15757295ms] ReferenceError: useConversationsStore is not defined
+    at ConversationSearchInput (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630356474:422:24)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15757295ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationSearchInput> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15766837ms] ReferenceError: useConversationsStore is not defined
+    at ConversationSearchInput (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630393706:422:24)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15766837ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationSearchInput> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15781523ms] ReferenceError: useConversationsStore is not defined
+    at ConversationSearchInput (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630408390:422:24)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15781523ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationSearchInput> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15789549ms] ReferenceError: useConversationsStore is not defined
+    at ConversationSearchInput (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630416417:422:24)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15789549ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationSearchInput> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15806060ms] ReferenceError: useConversationsStore is not defined
+    at ConversationSearchInput (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630432927:422:24)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15806060ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationSearchInput> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15811949ms] ReferenceError: useConversationsStore is not defined
+    at ConversationSearchInput (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630438817:422:24)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15811949ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationSearchInput> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15819273ms] ReferenceError: useConversationsStore is not defined
+    at ConversationSearchInput (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630446139:422:24)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15819273ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationSearchInput> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15826314ms] ReferenceError: useConversationsStore is not defined
+    at ConversationSearchInput (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630453178:422:24)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15826314ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationSearchInput> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[15830126ms] ReferenceError: useConversationsStore is not defined
+    at ConversationSearchInput (http://127.0.0.1:5173/src/components/sidebar/NelleSideNav.tsx?t=1783630456995:425:24)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[15830126ms] [WARNING] %s
+
+%s
+ An error occurred in the <ConversationSearchInput> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[16390343ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://127.0.0.1:5173/api/llama/models/events:0
+[16851349ms] ReferenceError: isConversationUnavailable is not defined
+    at http://127.0.0.1:5173/src/components/chat/ChatComposerPanel.tsx?t=1783631478215:97:3
+    at updateMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4948:16)
+    at Object.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:13274:13)
+    at exports.useMemo (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/react.js?v=48ec87f8:736:31)
+    at ChatComposerPanel (http://127.0.0.1:5173/src/components/chat/ChatComposerPanel.tsx?t=1783631478215:83:26)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+[16851349ms] [WARNING] %s
+
+%s
+ An error occurred in the <ChatComposerPanel> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257
+[16858640ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/api/conversations/2a5dd582-8677-43de-b78d-1f982687e7e6:0
+[16903681ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/api/conversations/2a5dd582-8677-43de-b78d-1f982687e7e6:0
+[17014384ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://127.0.0.1:5173/api/llama/models/events:0

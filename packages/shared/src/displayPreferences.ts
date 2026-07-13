@@ -44,9 +44,9 @@ export const DISPLAY_PREFERENCE_KEYS = Object.keys(DEFAULT_DISPLAY_PREFERENCES) 
  * Labels for the toggles, beside the values they describe.
  *
  * These are not `SETTINGS_REGISTRY` fields: they live under the `preferences`
- * key, which also holds `favoriteModelIds` -- not a rendered control. Keeping the
- * copy here rather than in `apps/web` means the next client imports it instead of
- * retyping six sentences.
+ * key, which also holds `favoriteModelIds` -- not a rendered control. They live
+ * here, in shared, rather than inside a client, so the next client imports them
+ * instead of retyping six sentences.
  */
 export const DISPLAY_PREFERENCE_FIELDS: ReadonlyArray<{
   key: keyof DisplayPreferences;

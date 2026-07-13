@@ -1,0 +1,97 @@
+- generic [ref=f2e4]:
+    - link "Skip to content" [ref=f2e5] [cursor=pointer]:
+        - /url: '#astryx-app-shell-main'
+    - generic [ref=f2e8]:
+        - generic [ref=f2e10]:
+            - navigation "Side navigation" [ref=f2e11]:
+                - generic [ref=f2e12]:
+                    - heading "Nelle Agent" [level=2]
+                    - generic [ref=f2e13]:
+                        - img [ref=f2e16]
+                        - generic [ref=f2e18]:
+                            - generic [ref=f2e20]: Nelle Agent
+                            - generic [ref=f2e21]: Local Pi + llama.cpp
+                        - button "Settings" [ref=f2e24] [cursor=pointer]:
+                            - img [ref=f2e27]
+                            - status
+                    - generic [ref=f2e31]:
+                        - generic [ref=f2e32]:
+                            - button "New chat" [ref=f2e34] [cursor=pointer]:
+                                - generic [ref=f2e35]:
+                                    - img [ref=f2e37]
+                                    - generic [ref=f2e39]: New chat
+                                - status
+                            - button "Import chat" [ref=f2e41] [cursor=pointer]:
+                                - img [ref=f2e44]
+                                - status
+                        - generic [ref=f2e46]:
+                            - generic: Search conversations
+                            - generic [ref=f2e48]:
+                                - img [ref=f2e49]
+                                - textbox "Search conversations" [ref=f2e51]:
+                                    - /placeholder: Search chats
+                - status [ref=f2e54]:
+                    - img [ref=f2e56]
+                    - generic [ref=f2e58]:
+                        - heading "No chats yet" [level=3] [ref=f2e59]
+                        - generic [ref=f2e60]: Start one with New chat above.
+                - button "Collapse sidebar" [ref=f2e63] [cursor=pointer]:
+                    - img [ref=f2e67]
+                    - status
+            - separator "Resize sidebar" [ref=f2e69]
+        - main [ref=f2e72]:
+            - generic [ref=f2e80]:
+                - log [ref=f2e82]:
+                    - status [ref=f2e85]:
+                        - generic [ref=f2e86]: Install llama.cpp from Settings > Runtime to get started.
+                - generic:
+                    - generic:
+                        - generic:
+                            - button "Scroll to bottom":
+                                - generic:
+                                    - generic:
+                                        - generic:
+                                            - img
+                                    - generic: Scroll to bottom
+                                - status
+                    - generic [ref=f2e88]:
+                        - generic:
+                            - alert:
+                                - generic:
+                                    - img
+                                - text: Start llama.cpp before chatting.
+                            - generic:
+                                - generic:
+                                    - generic:
+                                        - generic:
+                                            - generic:
+                                                - button "Attach files":
+                                                    - generic:
+                                                        - generic:
+                                                            - img
+                                                    - status
+                                - generic:
+                                    - generic:
+                                        - generic: Select a GGUF model before chatting
+                                        - combobox "Message input"
+                                - generic:
+                                    - generic:
+                                        - generic:
+                                            - generic:
+                                                - generic: Model
+                                                - generic:
+                                                    - generic:
+                                                        - button "Model":
+                                                            - generic: Select model
+                                                        - generic:
+                                                            - generic:
+                                                                - img
+                                            - generic:
+                                                - generic:
+                                                    - generic: /compact
+                                    - generic:
+                                        - button "Send" [disabled]:
+                                            - generic:
+                                                - generic:
+                                                    - img
+                                            - status

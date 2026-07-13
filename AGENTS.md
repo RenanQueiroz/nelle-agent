@@ -14,9 +14,17 @@ Project-specific guidance for AI coding agents.
 - The server, tests, and toolchain run on **Bun** (`engines.bun`, ≥1.3); there
   is no npm/Node runtime dependency. Use `bun install`, `bun run <script>`, and
   `bun test`.
+- **Nelle is an API server, and `apps/client` is its client.** The React web app
+  (`apps/web`) is gone, and with it Vite, Astryx, Zustand, the Playwright suite, the
+  `dist/web` static handler and `GET /api/state`. The server serves **no files**: an
+  unmatched path is a coded JSON 404 (`not_found`), never an `index.html`, because
+  every client is a native one that speaks the served REST + SSE contract
+  (`GET /api/openapi.json`) and a typo'd endpoint answering a web page hides the
+  mistake. `apps/server` is the server, `packages/shared` is the TypeScript it shares
+  with itself, `apps/client` is the UI. Nothing else.
 - `apps/client` is the Dart/Flutter client (package `nelle_agent`, bundle id
-  `com.renanqueiroz.nelle_agent`) — the desktop + mobile UI that will replace
-  `apps/web`. It is *not* part of the Bun toolchain: Oxfmt, Oxlint, and `tsc`
+  `com.renanqueiroz.nelle_agent`) — the desktop + mobile UI, and the only client
+  there is. It is *not* part of the Bun toolchain: Oxfmt, Oxlint, and `tsc`
   each ignore `apps/client` (via their own ignore lists), and Flutter's `build/`
   and `.dart_tool/` are git-ignored, so `bun run test` never touches Dart —
   removing that insulation makes `format:check` fail on Flutter's generated
@@ -24,9 +32,9 @@ Project-specific guidance for AI coding agents.
   `flutter` is a macOS-only cask, so it cannot install on Linux); developed
   against Flutter 3.44 / Dart 3.12, verified with `flutter doctor`. The client
   speaks only the served REST + SSE contract (`GET /api/openapi.json`) and never
-  imports server or `packages/shared` TypeScript — the same server-vs-client
-  boundary the web app follows. Run it with `flutter run -d <chrome|linux>`;
-  build Android with `flutter build apk`.
+  imports server or `packages/shared` TypeScript — that boundary is what lets the
+  server change its internals without breaking a shipped app. Run it with
+  `flutter run -d <chrome|linux>`; build Android with `flutter build apk`.
 - `apps/client` architecture (Milestone 1: loopback chat MVP): Riverpod for state,
   `dio` for HTTP plus a hand-written SSE transport, `go_router` for routing, forui
   over `MaterialApp`. **API models are contract-first codegen**, not hand-written:
@@ -283,10 +291,11 @@ Project-specific guidance for AI coding agents.
   `read` its repository instead of watching it — invisible on a desktop, where loopback works
   *before* you pair, and the first thing that happens on a phone, where it cannot). Widget
   tests must pin the phone size (`tester.view.physicalSize`) to see either.
-- The Flutter client is instrumented for **agent-driven UI testing** — the Flutter
-  answer to Playwright MCP. `lib/main.dart` initializes `MarionetteBinding` **only
-  under `kDebugMode`** (release keeps the plain `WidgetsFlutterBinding`, so the
-  instrumentation never reaches a shipped app), and the repo registers two stdio
+- The Flutter client is instrumented for **agent-driven UI testing**: an agent drives
+  the running app the way a browser MCP drives a page. `lib/main.dart` initializes
+  `MarionetteBinding` **only under `kDebugMode`** (release keeps the plain
+  `WidgetsFlutterBinding`, so the instrumentation never reaches a shipped app),
+  and the repo registers two stdio
   servers (in `.mcp.json` for Claude Code and `.codex/config.toml` for Codex):
   `marionette_mcp` (widget inspection plus `tap`, `enter_text`,
   `swipe`, `scroll_to`, `take_screenshots`, `get_logs`, `hot_reload`) and the
@@ -378,7 +387,7 @@ Project-specific guidance for AI coding agents.
     before initializing `MarionetteBinding` — otherwise it collides with
     `IntegrationTestWidgetsFlutterBinding`.
 - **Test against the small models, not the real ones.** For any model-backed test
-  (agent-driven UI drives, e2e, a real generation), use
+  (agent-driven UI drives, the slow device tier, a real generation), use
   `unsloth/gemma-4-E4B-it-qat-GGUF:Q4_K_XL` (4.22 GB) — and add
   `unsloth/gemma-4-E2B-it-qat-GGUF:Q4_K_XL` (2.62 GB) as the *second* model whenever a
   test needs two. `gemma-4-26B` and `Qwen3.6-35B` are the real workloads; loading one
@@ -396,8 +405,9 @@ Project-specific guidance for AI coding agents.
   machine with `PATCH /api/settings/runtime`, which needs a llama.cpp restart.
 - The HTTP server is `Bun.serve` over a small native router
   (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
-  owns JSON-body parsing, zod→400 mapping, CORS, and a `Bun.file` static + SPA
-  fallback. SQLite is `bun:sqlite` (`Database`, used directly, no wrapper).
+  owns JSON-body parsing, zod→400 mapping, and CORS. It serves no static files:
+  an unmatched path is a coded JSON 404, whether or not it starts with `/api/`.
+  SQLite is `bun:sqlite` (`Database`, used directly, no wrapper).
   Subprocesses use `Bun.spawn`: short commands (`process.ts`) and the
   long-running detached llama-server (`llamacpp.ts`). `Bun.spawn` does **not**
   inherit the parent env by default (`node:child_process` does), so the
@@ -407,12 +417,14 @@ Project-specific guidance for AI coding agents.
   pid-file adoption; verified end-to-end on Linux, macOS/Windows still to
   confirm. `index.ts` runs `Bun.serve`.
 - Primary checks are `bun run format:check`, `bun run lint`, `bun run check`,
-  `bun run test:unit`, `bun run build:web`, `bun run test:e2e`, and
-  `bun run test`.
+  `bun run test:unit`, and `bun run test` (the composite: format check, lint,
+  `tsc`, unit tests). There is no web build and no browser suite to run; the
+  client's own checks are `flutter analyze`, `flutter test`, and the device tiers
+  (`bun run test:device`, `bun run test:device:slow`).
 - Formatting and linting use Oxfmt and Oxlint. Run `bun run format` for
   formatter writes and `bun run lint:fix` for safe lint fixes.
 - **Stopping the dev server: two traps, and together they look exactly like a
-  shutdown hang.** `bun run dev` runs `dev:server` = **`bun --watch`**, which is a
+  shutdown hang.** `bun run dev` is **`bun --watch apps/server/src/index.ts`**, which is a
   *supervisor plus a child* -- **two processes with the identical `ps` cmdline**
   (`bun apps/server/src/index.ts`), sharing one port between them. Kill them and the
   supervisor may restart its child, so the port is re-bound a moment later and the
@@ -428,19 +440,17 @@ Project-specific guidance for AI coding agents.
 - Unit tests run on `bun:test` with `node:assert/strict`; a `createTestServer`
   helper (`tests/unit/helpers/testServer.ts`) drives the `Bun.serve` `fetch`
   handler through an `inject`/`close` surface, so route tests did not churn.
-- Run Playwright e2e tests for UI behavior changes when possible. The e2e
-  server uses `.nelle-e2e/` and starts on `127.0.0.1:8799`.
 - MCP servers are configured **per project, in the repo**, not globally: Claude Code
   reads `.mcp.json` and Codex reads `.codex/config.toml` (Codex does not read
-  `.mcp.json`). Keep the two in sync — both register `playwright` (for the retiring
-  `apps/web`), `marionette` and `dart` (see the Flutter client bullets below).
+  `.mcp.json`). Keep the two in sync — both register `marionette` and `dart`, and
+  nothing else (see the Flutter client bullets above).
   Restart the agent session after changing either file; MCP servers load at session
   start. Each command exports `PATH` explicitly, because `~/.bashrc` returns early
   for non-interactive shells, so a bare `bash -lc` misses `~/.pub-cache/bin` and
   resolves `dart` to the stale **Windows** Flutter on `/mnt/c`.
 - Nelle stores app data under `.nelle/` by default. Do not commit
-  generated app data, e2e app data, downloaded models, llama.cpp builds, test
-  reports, or logs.
+  generated app data, test-harness app data (`.nelle-device/`), downloaded models,
+  llama.cpp builds, test reports, or logs.
 - **Model weights live in `.nelle/models/`, not in the user's global
   `~/.cache/huggingface/hub`.** Nelle hands llama-server `LLAMA_CACHE=<dataDir>/models`,
   which `common/hf-cache.cpp` uses **verbatim as the Hugging Face hub root** (the layout is
@@ -451,7 +461,7 @@ Project-specific guidance for AI coding agents.
   `common_download_remove()` means deleting a model could reclaim it, which is not safe in
   a shared cache); "what llama.cpp has cached" becomes "what Nelle downloaded"; and a
   throwaway `NELLE_DATA_DIR` no longer reaches into the developer's real 50 GB -- the same
-  class of surprise as an e2e run adopting a developer's llama-server.
+  class of surprise as a test run adopting a developer's llama-server.
   **An explicit choice wins**: if the user has set any of `LLAMA_CACHE`, `HF_HUB_CACHE`,
   `HUGGINGFACE_HUB_CACHE` or `HF_HOME`, Nelle sets nothing. `LLAMA_CACHE` outranks all of
   them in llama.cpp's own resolution order, so setting it would silently overrule someone
@@ -584,7 +594,7 @@ Project-specific guidance for AI coding agents.
   test whose subject is a llama-server that *died* will therefore watch its fake binary exit,
   poll 8080, find the live router, and report the doomed start a success — passing alone and
   failing in the suite, or worse, passing in both while testing nothing. This is the same trap
-  that made the e2e harness pin `18080`.
+  that makes the device fixture pin `18081`.
 - **A model whose child died at startup is `unloaded`, never `failed`, and the exit code is the
   only evidence.** `POST /models/load` answers `{success: true}` — the router accepted the
   *request* — and if the child then exits before loading a byte (a bad `ctk` value, a preset it
@@ -700,8 +710,8 @@ Project-specific guidance for AI coding agents.
   `@huggingface/gguf` is a detail view, never a search result: it parses the
   local blob in ~1.5 s (`computeParametersCount` costs nothing extra, and is the
   only way to know gemma-4-26B's 25.2B parameters, which its header does not
-  declare). It is server-only and `tests/unit/webBundle.test.ts` guards the
-  bundle against it, the way it guards `pdfjs-dist`.
+  declare). It is **server-only**, like `pdfjs-dist`: a client never parses a GGUF
+  header, it reads the answer off `GET /api/models`.
 - **Which GGUF files in a repo are *models* is llama.cpp's decision, not Nelle's.**
   `isModelGguf` (`huggingface.ts`) is a deliberate port of `gguf_filename_is_model`
   (`common/download.cpp`): three substrings -- `mmproj`, `imatrix`, `mtp-` -- tested
@@ -750,14 +760,12 @@ Project-specific guidance for AI coding agents.
   `cache_n` prefix -- because context usage reads it. `prompt.tokens` stays the
   processed count the Reading widget shows. Dropping the cache made a
   9,715-token prompt read as 382 in the context bar.
-- The e2e harness sets `NELLE_LLAMA_PORT=18080`. The runtime status probe treats
-  any healthy server on the configured port as a running llama.cpp, so leaving
-  e2e on 8080 makes the suite adopt a developer's real llama-server.
+- Any harness that boots a server must pin `NELLE_LLAMA_PORT` away from 8080
+  (`scripts/serve-fixture.ts` uses `18081`). The runtime status probe treats any
+  healthy server on the configured port as a running llama.cpp, so a suite left on
+  the default adopts a developer's real llama-server.
 - Do not reintroduce local GGUF path registration or Nelle-owned model downloads
   in the active product; model imports are Hugging Face `hf-repo` entries.
-- The web app uses React Compiler through `@vitejs/plugin-react`'s
-  `reactCompilerPreset()` and `@rolldown/plugin-babel` in
-  `apps/web/vite.config.ts`.
 - Nelle persists managed llama-server ownership in
   `.nelle/llama/llama-server.pid.json` so restarted servers can adopt and stop
   the prior router process.
@@ -768,10 +776,11 @@ Project-specific guidance for AI coding agents.
   and a terminal `runtime.install.completed` (a `RuntimeStatus`) or
   `runtime.install.failed` (a `NelleError`). On Linux an install is a `git clone` plus a
   full cmake compile -- **measured at ~3 min with a warm ccache and CUDA, and much longer
-  cold** -- so the non-streaming `POST /api/runtime/install` (kept only for the retiring
-  `apps/web`) fails three ways at once: the user watches a silent spinner, the build's
-  output is buffered and discarded, and any client with a receive timeout reports failure
-  while the build carries happily on server-side.
+  cold** -- so the streaming route is the *only* one: the non-streaming
+  `POST /api/runtime/install` / `/update` pair is **gone**, and must not come back. It
+  failed three ways at once: the user watched a silent spinner, the build's output was
+  buffered and discarded, and any client with a receive timeout reported failure while the
+  build carried happily on server-side.
   - `runCommandStreaming` (`process.ts`) is the streaming twin of `runCommand`, and it
     **throws with the exit code only**: the output has already been delivered, and
     `runCommand`'s habit of packing the whole stderr into one `Error` message would put a
@@ -791,15 +800,17 @@ Project-specific guidance for AI coding agents.
     doing exactly that. The kernel refuses with **`ETXTBSY`** ("text file is busy"), and the
     same goes for a shared library a live process has mapped -- so an update with
     llama-server running compiled to 100% and then died on the very last step, after a full
-    build. It had always been broken and was **invisible**: the old route buffered the output
-    and discarded it, and `apps/web` never rendered the error. Found by driving the real app.
+    build. It had always been broken and was **invisible**: the old non-streaming route
+    buffered the output and discarded it, and no client rendered the error. Found by driving
+    the real app.
     `replaceRunningFile` **unlinks before copying** -- unlinking a running binary *is* allowed
     (the process keeps its inode and carries on with the old code until it is restarted, which
     is also exactly the semantics wanted). `copySharedLibraries` had the same bug and
     **swallowed the error**, which is worse: a new binary beside stale `.so` files.
-- Browser/server UI code should use Nelle's `/api/llama/*` router facade for
-  llama.cpp props, models, load/unload, reload, model props, and router events.
-  Do not call llama.cpp directly from the web app.
+- A client uses Nelle's `/api/llama/*` router facade for llama.cpp props, models,
+  load/unload, reload, model props, and router events. Nothing talks to llama.cpp
+  directly: it is Nelle's child process, on a port Nelle chose, and only Nelle knows
+  whether it is up and which of its models it configured.
 - Runtime settings should show router-reported loaded/maximum model capacity
   from `/api/llama/props`; let llama.cpp enforce model scheduling.
 - `/api/llama/tokenize` proxies llama.cpp `/tokenize` for text-only estimates.
@@ -860,8 +871,8 @@ Project-specific guidance for AI coding agents.
   up or a model is selected is the client's half of the check. `canAttachImages`
   is a tri-state from `model_cache` (`null` = never loaded, so unknown).
   `canAbort`/`canCompact` are point-in-time; a client tracking live run state
-  should prefer its own. The browser reads `canRepair`, which stays true until a
-  repair or rebuild succeeds.
+  should prefer its own. `canRepair` stays true until a repair or rebuild
+  succeeds.
 - `unavailable` conversations recover through three explicit endpoints, never
   implicitly. `POST /api/conversations/:id/repair` re-checks the file and only
   succeeds if the user restored it. `POST /api/conversations/:id/rebuild`
@@ -874,7 +885,7 @@ Project-specific guidance for AI coding agents.
 - Exporting an `unavailable` conversation is allowed and sets
   `manifest.piSessionMissing`; importing such an archive is rejected with
   `archive_session_missing` rather than producing an empty conversation.
-- Chat UI streaming uses `/api/conversations/:id/chat/stream`. The legacy
+- Chat streaming uses `/api/conversations/:id/chat/stream`. The legacy
   `/api/chat/stream` and `/api/chat/messages` endpoints have been removed, and
   `syncLegacyDefaultConversationFromState` runs only at startup and from the
   direct-llama fallback -- never from a read path. Pi no longer mirrors messages
@@ -884,8 +895,8 @@ Project-specific guidance for AI coding agents.
   `SessionManager.createBranchedSession()`, creating a new Nelle conversation
   for the new Pi session file, copying retained Nelle sidecar metadata, and
   leaving the source conversation unchanged.
-- Browser v1 uses REST for commands/snapshots and SSE streams with typed Nelle
-  event envelopes. UI stop/abort calls Pi `AgentSession.abort()`; Nelle's
+- A client reads commands and snapshots over REST and takes runs as SSE streams of
+  typed Nelle event envelopes. Stop/abort calls Pi `AgentSession.abort()`; Nelle's
   llama.cpp proxy forwards request/response close events to the upstream fetch
   `AbortSignal`.
 - Chat/regenerate streams are serialized as Nelle SSE envelopes, and the envelope
@@ -897,10 +908,10 @@ Project-specific guidance for AI coding agents.
   `conversation.updated`, `context.updated`, `compact.*`, `error`. The legacy
   `done` alias is gone. Preserve the envelope reader's backward compatibility
   with raw (unwrapped) payloads: that fallback is about envelope shape, not
-  names, and the e2e mocks rely on it.
+  names, and the Flutter client's `ChatStreamEvent.fromEnvelope` accepts both.
 - `run.warning` carries `{code, message, detail?}`, not bare prose. The codes live
-  in `NELLE_WARNING_CODES`. A browser can render a sentence; no other client can
-  branch on one, localize it, or suppress a warning it already knows about.
+  in `NELLE_WARNING_CODES`. A UI can render a sentence, but nothing can branch on
+  one, localize it, or suppress a warning it already knows about.
 - `conversation.forked` is specified by the router plan but deliberately not in
   the union: fork and clone are plain JSON routes and Nelle has no
   conversation-level SSE channel, only per-run streams. Add it with that channel,
@@ -911,7 +922,7 @@ Project-specific guidance for AI coding agents.
   (`packages/shared/src/contracts.ts`); add new ones there so a second client can
   know what it may see.
 - The chat route enforces the same three guards as the composer, because
-  enforcing them only in the browser leaves every other client able to bypass
+  enforcing them only in a client leaves every other client able to bypass
   them: `unsupported_slash_command` (only `/compact`, and it has its own
   endpoint), `llama_server_stopped`, and `unsupported_attachment` (an image sent
   to a model `model_cache` has *proven* cannot see; `null` means unproven, so it
@@ -968,17 +979,6 @@ Project-specific guidance for AI coding agents.
   provider, and neither `reasoning_budget` nor
   `chat_template_kwargs.thinking_budget` has any per-request effect. The `max`
   level and a budget of `0` both mean "send no budget".
-- (`apps/web` only, and being retired.) Runtime/model/reasoning/global/chats controls live
-  in the modal Astryx Settings dialog. Settings writes free-form string params into `models.ini`
-  through server APIs,
-  reloads router models when llama-server is running, and keeps the persisted
-  stable section id as the llama.cpp/OpenAI model id.
-- The settings dialog is a fixed size (`min(92vw, 1040px)` by
-  `min(85vh, 760px)`): responsive to the viewport, but never resized by the
-  section the user is on. Astryx `Dialog` is `height: fit-content`, so the height
-  is pinned through an inline style, and each section scrolls inside
-  `LayoutContent`. Separate items inside a section with `Divider`, not `Card`;
-  cards inside a modal section read as boxes within boxes.
 - Conversation snapshots carry `messages` as well as `entries`. `messages` is
   what a client renders, built by `buildConversationMessages`
   (`packages/shared/src/messages.ts`): it hides user turns a regenerate replayed,
@@ -986,26 +986,20 @@ Project-specific guidance for AI coding agents.
   reasoning, groups regenerate variants by
   `displayGroupId ?? regeneratesPiEntryId ?? id` and labels them `variant N/M`,
   and joins attachments by `piEntryId`. `entries` stays for a future branch
-  explorer; nothing in a normal client should read it. The e2e mock builds its
-  `messages` with the same function so it cannot drift.
-- `packages/shared/src/attachments.ts` (the limits) must stay zod-free: the web
-  app imports it directly and the bundle carries no zod. `attachmentMetadata.ts`
-  exists so `conversations.ts` and `messages.ts` can both import the metadata
-  schema at runtime without becoming circular.
-- Keep `apps/web/src/App.tsx` focused on app orchestration. Put extracted UI
-  surfaces under `apps/web/src/components/`, shared client state under
-  `apps/web/src/stores/`, shared types in `apps/web/src/types.ts`, and shared
-  presentation helpers under `apps/web/src/utils/`.
-- Use Zustand for cross-cutting browser UI state, with narrow selectors so
-  unrelated UI does not rerender when a slice changes.
+  explorer; nothing in a normal client should read it. It is a *shared* helper and
+  not a client's, precisely so no client re-derives any of that.
+- `packages/shared/src/attachments.ts` holds the limits and is deliberately
+  zod-free; `attachmentMetadata.ts` exists so `conversations.ts` and `messages.ts`
+  can both import the metadata schema at runtime without becoming circular.
 - Preferences that should follow the user live in the `settings` table under the
   `preferences` key and are served by `GET`/`PATCH /api/settings/preferences`. Since M6
   that is **favourite model ids and nothing else**: a favourite is a *set*, and the
   settings registry has no field type for one, which is exactly why it stays hand-written.
   The six display toggles moved *out* of here and into the `display` settings group, where
   they render themselves (`packages/shared/src/displayPreferences.ts` still owns their
-  keys, labels and help, and the group is generated from it). Do not put either back in
-  `localStorage`. A favorite for a model missing from `models.ini`
+  keys, labels and help, and the group is generated from it). Do not put either back into
+  device-local storage: they follow the *user*, and a favourite that lives on one machine
+  is not a favourite. A favorite for a model missing from `models.ini`
   is filtered from the response, never deleted from storage. `updatePreferences`
   merges over the *raw* stored row, so a key this build does not know -- one a
   newer client wrote -- survives; reads narrow field by field, so one malformed
@@ -1015,22 +1009,13 @@ Project-specific guidance for AI coding agents.
   boundary rule below). Toggling is optimistic and has no Save button, and
   reverts if the server
   refuses. Genuinely client-local state -- sidebar collapse, open settings
-  section, search text, drafts -- stays in the browser stores.
-- Settings dialog draft state, search results, runtime input fields, and log
-  visibility/output live in `apps/web/src/stores/settingsStore.ts`. Do not move
-  modal draft fields back into `App.tsx`.
+  section, search text, drafts -- stays in the client.
 - A settings draft is what the user is typing, so only the save that made it
-  stale may overwrite it. `refreshState()` runs after every save and after model
-  activation, so it must not re-seed drafts: it only calls
-  `reconcileModelDrafts`, which adds and drops whole models. Seeding happens once
-  on load; each save calls the matching `reset*` with the values the server
-  returned.
-- Composer draft text, attachments, PDF-as-image mode, and composer
-  error/warning/slash status live in `apps/web/src/stores/composerStore.ts`, and
-  the composer surface is `apps/web/src/components/chat/ChatComposerPanel.tsx`.
-  The conversation search box lives in `uiStore`; the list it searches lives in
-  `apps/web/src/stores/conversationsStore.ts`. Keep them out of `App.tsx` so
-  typing and stream status updates do not rerender the chat transcript.
+  stale may overwrite it. A catalog or snapshot refresh must never re-seed drafts:
+  it may add and drop whole models, but it may not rewrite a field the user has a
+  cursor in (the Flutter param editor's `Map.hashCode` trap above is this bug in
+  another shape). Seed once on load; each save resets from the values the server
+  answered with.
 - `GET /api/conversations` is keyset-paginated and returns
   `{conversations, nextCursor?, total}`. The cursor walks `(updated_at, id)`
   descending; the `id` is not decoration, because two conversations touched in
@@ -1041,8 +1026,8 @@ Project-specific guidance for AI coding agents.
 - Conversation search is a server query, never a filter over the loaded page.
   The sidebar holds a window onto the list, so filtering it client-side reports
   "no matching chats" for every conversation the user has not scrolled to.
-  Section headers and the Settings chat count must render `total`, not the
-  number of rows paged in.
+  Section headers and any chat count must render `total`, not the number of rows
+  paged in.
 - Model param update payloads are full replacements for editable params in a
   section. Preserve a free-form key by including it in the submitted key/value
   draft; omit it to delete it.
@@ -1076,10 +1061,11 @@ Project-specific guidance for AI coding agents.
   neighbour -- and editing `[*]` rewrites the derived `contextSize` of **every** model
   at once. This replaced an echo of the server's entire `AppState`, which dragged the
   legacy 100-message `chat[]` and llama.cpp's host/port along on every response and
-  which no client ever read. `AppState` is server-internal and
-  `tests/unit/openapi.test.ts` fails if it reaches the contract again.
+  which no client ever read. **`AppState` is server-internal**: `GET /api/state` is
+  gone with the browser that used it, and `tests/unit/openapi.test.ts` fails if the
+  type reaches the contract again.
 - The composer model selector is compact but router-aware: it is searchable,
-  groups browser-local favorites first, shows selected/row router
+  groups the user's favourites first, shows selected/row router
   status/progress from router SSE updates, and loads unloaded router models
   before activating them.
 - The **server** loads the model. `POST /api/conversations/:id/chat/stream` and
@@ -1122,12 +1108,13 @@ Project-specific guidance for AI coding agents.
   terminal path, which every ending goes through. Renaming, activating and duplicating stay
   available: they are `models.ini` bookkeeping and never reach the running model. A disabled
   button with no explanation is a bug report, so the screen says why.
-- Browser chat run state is conversation-scoped. Use per-conversation run-kind
+- Chat run state is conversation-scoped. Use per-conversation run-kind
   state and abort controllers, keep inactive stream deltas out of the visible
   transcript, and allow a ready conversation to send while another conversation
   is still running.
-- Ongoing conversations in the sidebar use an Astryx `Spinner` plus status text,
-  not only a status dot, so users can spot running agents after switching chats.
+- A conversation with a run in flight shows a spinner *and* status text in the
+  sidebar, not only a status dot, so a user can spot a running agent after
+  switching chats.
 - `model_cache` is Nelle's server-side record of what the router last said about
   each `models.ini` section. `GET /api/llama/models` writes status/alias/hf-repo;
   `GET /api/llama/models/:id/props` writes modalities and context window on
@@ -1206,7 +1193,7 @@ Project-specific guidance for AI coding agents.
 - Nelle exposes regeneration at
   `/api/conversations/:id/messages/:messageId/regenerate`, branches the Pi
   session before the original user entry, replays that user text, and stores
-  `regenerates_pi_entry_id` / `display_group_id` sidecar metadata. The web UI
+  `regenerates_pi_entry_id` / `display_group_id` sidecar metadata. The transcript
   preserves existing answer variants, hides replayed duplicate user turns, and
   labels visible assistant variants in the footer.
 - A regenerated-away answer survives **only** in
@@ -1217,21 +1204,6 @@ Project-specific guidance for AI coding agents.
   happens to show. It dropped `reasoning`, and so a regenerate silently destroyed
   the thinking of the answer it branched from, then wrote that loss back over the
   only copy of it. Adding a field to the projection means adding it there too.
-- The web UI conversation pane is collapsible and uses `@tanstack/react-virtual`
-  for pinned/recent conversation sections. Keep row actions and e2e tests aligned
-  when changing the sidebar.
-- The sidebar collapse toggle is Astryx's `SideNavCollapseButton` in
-  `footerIcons`, per their example, with `collapsible={{hasButton: false}}`. Pass
-  it directly: SideNav stacks the footer row vertically when collapsed, and
-  wrapping it in an `HStack` forces a row into the 48px rail and pushes the
-  expand button off-screen. The toggle cannot live in the heading row, because
-  `SideNavHeading` `headerEndContent` is hidden when collapsed. The collapsed
-  rail carries new-chat and settings icons in `topContent`.
-- Conversation rows are Astryx `SideNavItem`s with a hover/focus-revealed
-  `MoreMenu` rendered as a sibling, not as `endContent`: Astryx puts `endContent`
-  inside the row's own `<button>`, so a nested menu button would break semantics
-  and select the chat on every menu click. Keep the menu mounted (fade it with
-  opacity) so keyboard users and e2e tests can reach it.
 - The slash-command allowlist lives in `packages/shared/src/commands.ts` and is
   served by `GET /api/commands`; it currently exposes only `/compact`. The chat
   route's `assertSupportedSlashCommand` and the composer render the same refusal
@@ -1242,7 +1214,7 @@ Project-specific guidance for AI coding agents.
   as prompts.
 - Assistant performance metadata should render as a toggleable Reading
   (prompt processing) / Generation (token output) stats widget with icon
-  controls and Astryx tooltips, not as a plain text throughput string.
+  controls, not as a plain text throughput string.
 - Tool calls must be correlated by stable `id` / Pi `toolCallId`; stream updates
   should upsert existing calls and preserve expandable input/output detail.
 - Host tools fail closed at runtime, not only at Pi-session construction.
@@ -1255,24 +1227,10 @@ Project-specific guidance for AI coding agents.
   acknowledges the warning in Settings. Keep the global enable/disable switch,
   reset cached Pi sessions after changes, and persist tool audit events until
   sandboxing/per-tool permissions are designed.
-- Keep the workbench viewport-bounded. Do not reintroduce document-level
-  scrolling; side panels and the chat history should scroll internally while
-  the composer stays docked.
-- Astryx's `ChatLayout` scrolls to the bottom once on mount, inside a single
-  `requestAnimationFrame`. Nelle keeps one `ChatLayout` mounted across
-  conversation switches, so `useScrollChatToBottomOnOpen` re-pins the
-  transcript whenever a conversation is opened, re-measuring until the height
-  settles and releasing on the first wheel/touch/pointer input.
-- Never leave a `backdrop-filter` covering the viewport. Astryx's `Dialog`
-  frosts its `::backdrop`, and every repaint inside the dialog re-blurs the
-  whole screen: measured 13fps at 3840x2160 versus 63fps without it. The
-  overlay colour alone reads as a modal. Overriding StyleX needs `!important`
-  (it inflates specificity with a `:not(#\#)` chain), and only the unprefixed
-  `backdrop-filter` should be declared, because the CSS minifier drops it when
-  `-webkit-backdrop-filter` is also written out.
-- Sidebar conversation history virtualization uses `@tanstack/react-virtual`
-  with an Astryx-styled `SideNav`/`List` row surface. Keep row keys stable and
-  model pinned/search/group headers as one flattened virtual list.
+- Keep the workbench viewport-bounded: the sidebar and the chat history scroll
+  internally while the composer stays docked. Opening a conversation pins the
+  transcript to its newest message, re-measuring until the height settles and
+  releasing on the user's first scroll input.
 - Composer attachments are text files, PDFs, and images only. Gate images on
   selected-model `modalities.vision`; do not expose audio/video attachments while
   Pi's structured input path is text plus image.
@@ -1309,22 +1267,23 @@ Project-specific guidance for AI coding agents.
   `@napi-rs/canvas` at send time, which is why the per-message limits are checked
   after the expansion. Sent payloads still land content-addressed under
   `.nelle/attachments/`, with metadata bound to the Pi user entry.
-- `pdfjs-dist` must not enter the web bundle again: it needs a DOM canvas, which
-  React Native has not got. `tests/unit/webBundle.test.ts` fails if any file
-  under `apps/web/src` imports it, or if a `pdf-*` chunk reappears in
-  `dist/web/assets`.
+- **Reading a PDF and parsing a GGUF header are the server's work, and stay there.**
+  `pdfjs-dist` (with `@napi-rs/canvas` supplying the canvas its page renderer needs) and
+  `@huggingface/gguf` are `apps/server` dependencies: they parse bytes with Bun/Node APIs
+  no client has, which is exactly why `POST /api/uploads` takes the file and answers with
+  a classification rather than asking a client to do any of it. Keep them out of
+  `packages/shared`. (`tests/unit/webBundle.test.ts` used to pin this by failing if either
+  reached the browser bundle; the bundle is gone, the boundary is not.)
 - Draft uploads live under `.nelle/uploads/<uploadId>/` and in the `uploads`
   table, apart from the content-addressed `.nelle/attachments/` tree. An unbound
   upload older than 24h is swept at startup and hourly; a bound one belongs to a
   message and goes only with its conversation. Removing a chip in the composer
   deletes its upload rather than waiting for the sweep.
 - Deleting a conversation has no confirmation dialog; it hides the row at once
-  and holds the request for a 5s undo window (`utils/pendingDeletes.ts`). The
-  window must be committed on `pagehide` with a `keepalive` fetch -- `sendBeacon`
-  only issues POSTs -- or a reload silently cancels the deletion and the
-  conversation returns from the dead. The store hides pending-deleted ids so a
-  list refresh cannot resurrect them. Once the request lands it is irreversible,
-  which the toast copy says.
+  and holds the request for a 5s undo window, and the client must hide
+  pending-deleted ids so a list refresh cannot resurrect them. Once the request
+  lands it is irreversible, which the undo copy says. (See the M8 client bullet
+  for the rest of the reasoning.)
 - Conversation hard delete removes the deleted conversation's Pi session file
   and only unreferenced attachment files. Server startup also sweeps orphan
   files under `.nelle/attachments/` that are absent from SQLite attachment
@@ -1395,9 +1354,9 @@ Project-specific guidance for AI coding agents.
   after being disposed." `flutter analyze` is clean and every widget test passes -- a test only
   sees it if it `pumpAndSettle`s past the exit animation. Put the controller in a `State`, whose
   `dispose()` runs when the element is actually unmounted.
-- Show context-window usage through the Astryx `ChatComposer` header
-  `ProgressBar` with tooltip token counts. Use composer top status for
-  send-blocking errors and bottom status for non-blocking warnings.
+- Show context-window usage in the composer header, as a progress bar with the
+  used/total token counts behind it. Send-blocking errors belong above the
+  composer, non-blocking warnings below it.
 - The context thresholds live in `packages/shared/src/context.ts`
   (`CONTEXT_WARNING_RATIO = 0.8`, `CONTEXT_OVERFLOW_RATIO = 1`). The server
   stamps `ConversationContextUsage.status` on every payload it emits, so a client
@@ -1414,39 +1373,33 @@ Project-specific guidance for AI coding agents.
   returns `Promise<void>`. `ManagedSession.session` is typed `any`, so treating
   the result as a promise compiles and then throws at runtime. Await it through
   `abortSessionRetry()`.
-- The composer stays disabled until `activeConversationId` is non-empty. It is
+- The composer stays disabled until there is an active conversation. The id is
   empty until the conversation list resolves, and a message sent then had nowhere
-  to go: `handleChatSubmit` returned early and the typed text was lost. Astryx
-  renders the composer as a `contenteditable` div and sets it to `"false"` when
-  disabled, which Playwright's `toBeEditable` reports as *editable* while `fill`
-  throws on it; e2e tests must wait on the attribute, which is what
-  `fillComposer` does.
-- Do not set `ChatComposer` `isDisabled` while a run streams or compacts. Astryx
-  dims the composer to 0.6 opacity and sets `pointer-events: none` on the whole
-  subtree, which makes the stop button unclickable and lets the transcript show
-  through. Keep the composer enabled during runs and reject sends with a
-  composer warning instead.
-- The docked composer paints an opaque backdrop over Astryx's `ChatLayout` blur
-  layer, and the composer scopes the alpha-based `--color-error-muted` /
-  `--color-warning-muted` tokens to opaque mixes. Chat content must never be
-  legible through the composer or its status bars.
+  to go: the submit handler returned early and the typed text was lost.
+- **Never disable the composer while a run streams or compacts** -- the stop button
+  lives inside it, so disabling the composer disables the only way to stop the run.
+  Keep it enabled during runs and reject a send with a composer warning instead.
+- The docked composer must be opaque: chat content must never be legible through
+  it or through its status bars.
 - Do not pass arbitrary Pi slash commands through chat input. Nelle supports
   only its allowlist, initially `/compact [instructions]`; session, model, auth,
   settings, export, and copy flows belong to Nelle UI controls.
 - `/compact [instructions]` is implemented with Pi `AgentSession.compact()`;
   compaction stop uses `AgentSession.abortCompaction()`. Do not send
   `/compact` through normal prompt submission.
-- Let Astryx `ChatComposer` render its default `ChatSendButton` unless you are
-  deliberately replacing it through `sendButton`; `sendActions` is only for
-  auxiliary controls and must not create a second send affordance.
-- **Server vs. client boundary.** A rule the browser owns is a rule every client
-  reimplements, and Nelle is growing a Flutter client (desktop + mobile) beside
-  the web app. Before adding logic to `apps/web/src`, ask: does it need server
-  data or CPU, or does it change the shape of what gets rendered? Then it belongs
-  on the server. Is it a pure helper only TypeScript clients will call? Then
-  `packages/shared`. Rendering, drafts, optimistic UI, scroll, and live run state
-  stay in the client, as does `canAbort`/`canCompact`, which the client tracks
-  more freshly than any payload can carry.
+- The composer has exactly **one** send affordance. Auxiliary controls (attach,
+  model, reasoning) never grow into a second one.
+- **Server vs. client boundary.** A rule the client owns is a rule the *next* client
+  reimplements. There is one client today (`apps/client`) and the contract is public
+  (`GET /api/openapi.json`), so that is a statement about the future, not about
+  today's convenience -- the last client to hold these rules took them to the grave
+  with it. Before adding logic to `apps/client`, ask: does it need server data or
+  CPU, or does it change the shape of what gets rendered? Then it belongs on the
+  server, where every client gets it for free. Rendering, drafts, optimistic UI,
+  scroll, and live run state stay in the client, as does `canAbort`/`canCompact`,
+  which the client tracks more freshly than any payload can carry.
+  `packages/shared` is TypeScript the server shares with *itself* (contracts, zod
+  schemas, pure helpers); no client imports it.
 - **Settings scope is settled**, so do not reopen it by accident: Pi owns the
   agent loop and the context, `max_tokens` must never be advertised to Pi, and
   PDF-as-image was removed on purpose. The settings schema is served from
@@ -1506,34 +1459,17 @@ Project-specific guidance for AI coding agents.
   untouched rather than eating a setting the user would lose on the way back up.
   Reads coerce field by field, so one unreadable value falls back to its default
   alone and takes no sibling with it.
-- `apps/web`'s Settings dialog has hand-built surfaces for reasoning, runtime and the
-  display toggles (its own tabs, its own save-on-flip switches), so its **General** section
-  now *skips* those three groups -- without that they appear twice, once from the schema and
-  once from the hand-built block. It is being retired and keeps the UI it has; the Flutter
-  client is the one that renders all seven generically.
-- The Settings dialog's **General** section renders the served schema and nothing
-  else. `GeneralSettingsSection.tsx` knows what a `select` is; it must never know
-  what a title is. Labels, help text, bounds, options and defaults all arrive
-  from `GET /api/settings/schema`, so a new field appears in the dialog with no
-  client change -- which is the whole reason the schema is served. Its draft
-  state lives in `settingsStore`, seeded once and reset only by the save that
-  made it stale; a refused save keeps the draft and shows the server's own
-  sentence, because that sentence names the field.
 - A paste longer than `attachments.pasteToFileCharacters` (default 2,500; `0`
   disables) becomes a `.txt` upload instead of forty thousand characters in the
   input. The client owns the event because only it has one; the threshold and the
   ingestion are the server's, and until `GET /api/settings/attachments` answers,
   the client has no threshold and every paste stays in the message -- it must not
-  carry a copy of the default. Astryx's `ChatComposer` exposes no DOM handlers, so
-  the listener is a capture-phase `document` listener scoped to
-  `.nelle-chat-composer`, and it calls **both** `preventDefault` (the browser's
-  own insertion) and `stopPropagation` (Astryx's paste handler, which inserts the
-  text itself and never checks `defaultPrevented`).
-- Settings a client *acts* on come from `settingsValues` in `settingsStore`, never
-  from `settingsDrafts`: a half-typed threshold is not in force until it is saved.
+  carry a copy of the default.
+- Settings a client *acts* on are the **saved values**, never the drafts: a
+  half-typed threshold is not in force until it is saved.
 - `packages/shared/src/settingsKeys.ts` holds the group slugs and the field keys
-  clients branch on. It is zod-free so the web bundle can import it; `settings.ts`
-  imports it too, so the names exist once. It holds names, never defaults.
+  that are branched on. It is zod-free, and `settings.ts` imports it too, so the
+  names exist once. It holds names, never defaults.
 - Conversation titles are a setting (`GET`/`PATCH /api/settings/titles`), and the
   pure helpers live in `packages/shared/src/titles.ts`.
   `streamConversationTitleIfNeeded` is the only path that runs; it fires once per
@@ -1584,33 +1520,3 @@ false`, which *skips* the unknown-key check: refusing to save a parameter
   twice is a real quality loss for no gain -- and a downscale says so in a
   warning. Rendered PDF pages take the smaller of the cap and
   `MAX_RENDERED_EDGE_PX`.
-
-<!-- ASTRYX:START -->
-Astryx v0.1.3 · 149 components
-CLI: run every command as `npx astryx <cmd>` (shown below as `astryx ...`).
-
-SETUP (once, in your app entry e.g. main.tsx) — without these, components render unstyled:
-  import "@astryxdesign/core/reset.css";
-  import "@astryxdesign/core/astryx.css";
-
-WORKFLOW — discover, don't guess. Before writing UI:
-1. `astryx build "<idea>"` — START HERE: returns a kit (closest [page] + [block]s + [component]s). No args = full playbook.
-2. `astryx template <name> [--skeleton]` — scaffold the [page]/[block]s it named, or study their layout. Templates are reference code.
-3. `astryx component <Name>` — props + examples for every component you use.
-
-RULES:
-- No <div> — components do all layout/spacing. Full page → AppShell; sidebar nav → SideNav.
-- Frame first: pick the shell (AppShell / Layout+LayoutPanel) and budget regions in px BEFORE writing content (`astryx docs layout`).
-- Dense data = rows (Table, List/Item) edge-to-edge — never Card-wrapped list items. Card = dashboard widgets, galleries, settings groups only.
-- Status → StatusDot/Token; Badge only for counts and enumerated states, never decoration.
-- Custom styling: component props first; else style/className with tokens — var(--color-*|--spacing-*|--radius-*). No raw hex/px. (No StyleX/Tailwind compiler here — don't use xstyle/utility classes.)
-- Tokens for every value (`astryx docs tokens`). Brand/accent via `astryx theme` — never override --color-* in :root.
-
-MORE CLI:
-  search "<query>"   find any component / hook / doc / template / block
-  component --list   149 components by category
-  template --list    page + block recipes
-  docs <topic>       color, elevation, icons, illustrations, layout, migration, motion, principles, shape, spacing, styling, theme, tokens, typography
-  swizzle <Name>     eject component source for deep customization
-  upgrade --apply    run after any @astryxdesign/core bump
-<!-- ASTRYX:END -->

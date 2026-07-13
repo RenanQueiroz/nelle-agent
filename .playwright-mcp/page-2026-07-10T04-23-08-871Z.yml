@@ -1,0 +1,495 @@
+- generic [ref=f34e4]:
+    - link "Skip to content" [ref=f34e5] [cursor=pointer]:
+        - /url: '#astryx-app-shell-main'
+    - generic [ref=f34e8]:
+        - generic [ref=f34e10]:
+            - navigation "Side navigation" [ref=f34e11]:
+                - generic [ref=f34e12]:
+                    - heading "Nelle Agent" [level=2]
+                    - generic [ref=f34e13]:
+                        - img [ref=f34e16]
+                        - generic [ref=f34e18]:
+                            - generic [ref=f34e20]: Nelle Agent
+                            - generic [ref=f34e21]: Local Pi + llama.cpp
+                        - button "Settings" [ref=f34e24] [cursor=pointer]:
+                            - img [ref=f34e27]
+                            - status
+                    - generic [ref=f34e31]:
+                        - generic [ref=f34e32]:
+                            - button "New chat" [ref=f34e34] [cursor=pointer]:
+                                - generic [ref=f34e35]:
+                                    - img [ref=f34e37]
+                                    - generic [ref=f34e39]: New chat
+                                - status
+                            - button "Import chat" [ref=f34e41] [cursor=pointer]:
+                                - img [ref=f34e44]
+                                - status
+                        - generic [ref=f34e46]:
+                            - generic: Search conversations
+                            - generic [ref=f34e48]:
+                                - img [ref=f34e49]
+                                - textbox "Search conversations" [ref=f34e51]:
+                                    - /placeholder: Search chats
+                - generic [ref=f34e89]:
+                    - generic [ref=f34e91]:
+                        - generic [ref=f34e92]: Recent
+                        - generic [ref=f34e93]: '16'
+                    - generic [ref=f34e95]:
+                        - button "Multiplication of 23 and 47" [ref=f34e97] [cursor=pointer]:
+                            - generic [ref=f34e98]: Multiplication of 23 and 47
+                        - button "Actions for Multiplication of 23 and 47" [ref=f34e101] [cursor=pointer]:
+                            - img [ref=f34e104]
+                            - status
+                    - generic [ref=f34e109]:
+                        - button "Multiplication Calculation 41 by 19" [ref=f34e111] [cursor=pointer]:
+                            - generic [ref=f34e112]: Multiplication Calculation 41 by 19
+                        - button "Actions for Multiplication Calculation 41 by 19" [ref=f34e115] [cursor=pointer]:
+                            - img [ref=f34e118]
+                            - status
+                    - generic [ref=f34e123]:
+                        - button "Default check" [ref=f34e125] [cursor=pointer]:
+                            - generic [ref=f34e126]: Default check
+                        - button "Actions for Default check" [ref=f34e129] [cursor=pointer]:
+                            - img [ref=f34e132]
+                            - status
+                    - generic [ref=f34e137]:
+                        - button "23 times 47 calculation" [ref=f34e139] [cursor=pointer]:
+                            - generic [ref=f34e140]: 23 times 47 calculation
+                        - button "Actions for 23 times 47 calculation" [ref=f34e143] [cursor=pointer]:
+                            - img [ref=f34e146]
+                            - status
+                    - generic [ref=f34e151]:
+                        - button "Multiplying 31 by 47" [ref=f34e153] [cursor=pointer]:
+                            - generic [ref=f34e154]: Multiplying 31 by 47
+                        - button "Actions for Multiplying 31 by 47" [ref=f34e157] [cursor=pointer]:
+                            - img [ref=f34e160]
+                            - status
+                    - generic [ref=f34e165]:
+                        - button "Step by step calculation of 23 times 47" [ref=f34e167] [cursor=pointer]:
+                            - generic [ref=f34e168]: Step by step calculation of 23 times 47
+                        - button "Actions for Step by step calculation of 23 times 47" [ref=f34e171] [cursor=pointer]:
+                            - img [ref=f34e174]
+                            - status
+                    - generic [ref=f34e179]:
+                        - button "Farmer Sheep Math Problem Solution" [ref=f34e181] [cursor=pointer]:
+                            - generic [ref=f34e182]: Farmer Sheep Math Problem Solution
+                        - button "Actions for Farmer Sheep Math Problem Solution" [ref=f34e185] [cursor=pointer]:
+                            - img [ref=f34e188]
+                            - status
+                    - generic [ref=f34e193]:
+                        - button "Step by step multiplication of 23 and 47" [ref=f34e195] [cursor=pointer]:
+                            - generic [ref=f34e196]: Step by step multiplication of 23 and 47
+                        - button "Actions for Step by step multiplication of 23 and 47" [ref=f34e199] [cursor=pointer]:
+                            - img [ref=f34e202]
+                            - status
+                    - generic [ref=f34e207]:
+                        - button "Multiplication Calculation" [ref=f34e209] [cursor=pointer]:
+                            - generic [ref=f34e210]: Multiplication Calculation
+                        - button "Actions for Multiplication Calculation" [ref=f34e213] [cursor=pointer]:
+                            - img [ref=f34e216]
+                            - status
+                    - generic [ref=f34e221]:
+                        - button "Multiplication Calculation 17 Times 23" [ref=f34e223] [cursor=pointer]:
+                            - generic [ref=f34e224]: Multiplication Calculation 17 Times 23
+                        - button "Actions for Multiplication Calculation 17 Times 23" [ref=f34e227] [cursor=pointer]:
+                            - img [ref=f34e230]
+                            - status
+                    - generic [ref=f34e235]:
+                        - button "17 times 23 is 391" [ref=f34e237] [cursor=pointer]:
+                            - generic [ref=f34e238]: 17 times 23 is 391
+                        - button "Actions for 17 times 23 is 391" [ref=f34e241] [cursor=pointer]:
+                            - img [ref=f34e244]
+                            - status
+                    - generic [ref=f34e249]:
+                        - button "Casual Greeting Exchange" [ref=f34e251] [cursor=pointer]:
+                            - generic [ref=f34e252]: Casual Greeting Exchange
+                        - button "Actions for Casual Greeting Exchange" [ref=f34e255] [cursor=pointer]:
+                            - img [ref=f34e258]
+                            - status
+                    - generic [ref=f34e263]:
+                        - button "Cache and Database Breakup Joke" [ref=f34e265] [cursor=pointer]:
+                            - generic [ref=f34e266]: Cache and Database Breakup Joke
+                        - button "Actions for Cache and Database Breakup Joke" [ref=f34e269] [cursor=pointer]:
+                            - img [ref=f34e272]
+                            - status
+                    - generic [ref=f34e277]:
+                        - button "New chat" [ref=f34e279] [cursor=pointer]:
+                            - generic [ref=f34e280]: New chat
+                        - button "Actions for New chat" [ref=f34e283] [cursor=pointer]:
+                            - img [ref=f34e286]
+                            - status
+                    - generic [ref=f34e291]:
+                        - button "Greeting Exchange" [ref=f34e293] [cursor=pointer]:
+                            - generic [ref=f34e294]: Greeting Exchange
+                        - button "Actions for Greeting Exchange" [ref=f34e297] [cursor=pointer]:
+                            - img [ref=f34e300]
+                            - status
+                    - generic [ref=f34e305]:
+                        - button "New chat" [ref=f34e307] [cursor=pointer]:
+                            - generic [ref=f34e308]: New chat
+                        - button "Actions for New chat" [ref=f34e311] [cursor=pointer]:
+                            - img [ref=f34e314]
+                            - status
+                - button "Collapse sidebar" [ref=f34e63] [cursor=pointer]:
+                    - img [ref=f34e67]
+                    - status
+            - separator "Resize sidebar" [ref=f34e69]
+        - main [ref=f34e72]:
+            - generic [ref=f34e77]:
+                - generic [ref=f34e80]:
+                    - log [ref=f34e82]:
+                        - generic [ref=f34e83]:
+                            - article "Message from user" [ref=f34e318]:
+                                - generic [ref=f34e320]:
+                                    - generic [ref=f34e321]: Carefully compute 23 times 47, double-checking your arithmetic.
+                                    - generic [ref=f34e323]:
+                                        - time [ref=f34e326]: 3:06 AM
+                                        - generic [ref=f34e327]: ·
+                                        - button "Fork from here" [ref=f34e330] [cursor=pointer]:
+                                            - img [ref=f34e333]
+                                            - status
+                            - article "Message from assistant" [ref=f34e335]:
+                                - img "Nelle" [ref=f34e337]:
+                                    - generic [ref=f34e339]: 'N'
+                                - generic [ref=f34e341]:
+                                    - document [ref=f34e343]:
+                                        - paragraph [ref=f34e344]: 'To compute $23 times 47$ carefully, I will use the distributive property to break the calculation into manageable parts:'
+                                        - list [ref=f34e346]:
+                                            - listitem [ref=f34e347]:
+                                                - generic [ref=f34e350]:
+                                                    - strong [ref=f34e351]: 'Break down 47:'
+                                                    - text: $47 = 40 + 7$
+                                            - listitem [ref=f34e352]:
+                                                - generic [ref=f34e355]:
+                                                    - paragraph [ref=f34e356]:
+                                                        - strong [ref=f34e357]: 'Multiply 23 by each part:'
+                                                    - list [ref=f34e359]:
+                                                        - listitem [ref=f34e360]:
+                                                            - generic [ref=f34e364]: $23 times 40 = 920$
+                                                        - listitem [ref=f34e365]:
+                                                            - generic [ref=f34e369]: $23 times 7 = 161$
+                                            - listitem [ref=f34e370]:
+                                                - generic [ref=f34e373]:
+                                                    - strong [ref=f34e374]: 'Add the results together:'
+                                                    - text: $920 + 161 = 1,081$
+                                        - paragraph [ref=f34e375]:
+                                            - strong [ref=f34e376]: 'Double-check using an alternative method ($25 times 47 - 2 times 47$):'
+                                        - list [ref=f34e378]:
+                                            - listitem [ref=f34e379]:
+                                                - generic [ref=f34e383]: $25 times 47 = 1,175$
+                                            - listitem [ref=f34e384]:
+                                                - generic [ref=f34e388]: $2 times 47 = 94$
+                                            - listitem [ref=f34e389]:
+                                                - generic [ref=f34e393]: $1,175 - 94 = 1,081$
+                                        - paragraph [ref=f34e394]:
+                                            - text: The final result is
+                                            - strong [ref=f34e395]: 1,081
+                                            - text: .
+                                    - generic [ref=f34e398]:
+                                        - generic [ref=f34e399]:
+                                            - time [ref=f34e401]: 3:07 AM
+                                            - 'button "Regenerate model: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL" [ref=f34e402] [cursor=pointer]':
+                                                - generic [ref=f34e403]:
+                                                    - generic [ref=f34e404]: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL
+                                                    - img [ref=f34e407]
+                                                - status
+                                            - generic [ref=f34e409]:
+                                                - generic [ref=f34e410]:
+                                                    - button "Reading (prompt processing)" [ref=f34e412] [cursor=pointer]:
+                                                        - img [ref=f34e415]
+                                                        - status
+                                                    - button "Generation (token output)" [ref=f34e418] [cursor=pointer]:
+                                                        - img [ref=f34e421]
+                                                        - status
+                                                - generic [ref=f34e423]:
+                                                    - generic [ref=f34e425]:
+                                                        - img [ref=f34e426]
+                                                        - generic [ref=f34e428]: 224 tokens
+                                                    - generic [ref=f34e430]:
+                                                        - img [ref=f34e431]
+                                                        - generic [ref=f34e433]: 6.07s
+                                                    - generic [ref=f34e435]:
+                                                        - img [ref=f34e436]
+                                                        - generic [ref=f34e438]: 36.92 t/s
+                                        - generic [ref=f34e439]:
+                                            - button "Regenerate response" [ref=f34e441] [cursor=pointer]:
+                                                - img [ref=f34e444]
+                                                - status
+                                            - button "Copy response" [ref=f34e447] [cursor=pointer]:
+                                                - img [ref=f34e450]
+                                                - status
+                            - article "Message from user" [ref=f34e452]:
+                                - generic [ref=f34e454]:
+                                    - generic [ref=f34e455]: Carefully compute 23 times 47, double-checking your arithmetic.
+                                    - generic [ref=f34e457]:
+                                        - time [ref=f34e460]: 3:07 AM
+                                        - generic [ref=f34e461]: ·
+                                        - button "Fork from here" [ref=f34e464] [cursor=pointer]:
+                                            - img [ref=f34e467]
+                                            - status
+                            - article "Message from assistant" [ref=f34e469]:
+                                - img "Nelle" [ref=f34e471]:
+                                    - generic [ref=f34e473]: 'N'
+                                - generic [ref=f34e475]:
+                                    - button "Reasoning" [ref=f34e477] [cursor=pointer]:
+                                        - generic [ref=f34e479]:
+                                            - img [ref=f34e480]
+                                            - generic [ref=f34e482]: Reasoning
+                                        - img [ref=f34e484]
+                                    - document [ref=f34e487]:
+                                        - paragraph [ref=f34e488]: "To compute $23 times 47$ carefully, I'll use the distributive property:"
+                                        - list [ref=f34e490]:
+                                            - listitem [ref=f34e491]:
+                                                - generic [ref=f34e494]:
+                                                    - strong [ref=f34e495]: 'Break down 47 into $40 + 7$:'
+                                                    - text: $23 times (40 + 7)$
+                                            - listitem [ref=f34e496]:
+                                                - generic [ref=f34e499]:
+                                                    - paragraph [ref=f34e500]:
+                                                        - strong [ref=f34e501]: 'Multiply 23 by each component:'
+                                                    - list [ref=f34e503]:
+                                                        - listitem [ref=f34e504]:
+                                                            - generic [ref=f34e508]: $23 times 40 = 920$
+                                                        - listitem [ref=f34e509]:
+                                                            - generic [ref=f34e513]: $23 times 7 = 161$
+                                            - listitem [ref=f34e514]:
+                                                - generic [ref=f34e517]:
+                                                    - strong [ref=f34e518]: 'Sum the results:'
+                                                    - text: $920 + 161 = 1,081$
+                                        - paragraph [ref=f34e519]:
+                                            - strong [ref=f34e520]: 'Double-check using the "reverse" distributive property ($20 + 3$):'
+                                        - list [ref=f34e522]:
+                                            - listitem [ref=f34e523]:
+                                                - generic [ref=f34e527]: $20 times 47 = 940$
+                                            - listitem [ref=f34e528]:
+                                                - generic [ref=f34e532]: $3 times 47 = 141$
+                                            - listitem [ref=f34e533]:
+                                                - generic [ref=f34e537]: $940 + 141 = 1,081$
+                                        - paragraph [ref=f34e538]:
+                                            - text: The result is
+                                            - strong [ref=f34e539]: 1,081
+                                            - text: .
+                                    - generic [ref=f34e542]:
+                                        - generic [ref=f34e543]:
+                                            - time [ref=f34e545]: 3:07 AM
+                                            - 'button "Regenerate model: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL" [ref=f34e546] [cursor=pointer]':
+                                                - generic [ref=f34e547]:
+                                                    - generic [ref=f34e548]: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL
+                                                    - img [ref=f34e551]
+                                                - status
+                                            - generic [ref=f34e553]:
+                                                - generic [ref=f34e554]:
+                                                    - button "Reading (prompt processing)" [ref=f34e556] [cursor=pointer]:
+                                                        - img [ref=f34e559]
+                                                        - status
+                                                    - button "Generation (token output)" [ref=f34e562] [cursor=pointer]:
+                                                        - img [ref=f34e565]
+                                                        - status
+                                                - generic [ref=f34e567]:
+                                                    - generic [ref=f34e569]:
+                                                        - img [ref=f34e570]
+                                                        - generic [ref=f34e572]: 413 tokens
+                                                    - generic [ref=f34e574]:
+                                                        - img [ref=f34e575]
+                                                        - generic [ref=f34e577]: 11.36s
+                                                    - generic [ref=f34e579]:
+                                                        - img [ref=f34e580]
+                                                        - generic [ref=f34e582]: 36.36 t/s
+                                        - generic [ref=f34e583]:
+                                            - button "Regenerate response" [ref=f34e585] [cursor=pointer]:
+                                                - img [ref=f34e588]
+                                                - status
+                                            - button "Copy response" [ref=f34e591] [cursor=pointer]:
+                                                - img [ref=f34e594]
+                                                - status
+                            - article "Message from user" [ref=f34e596]:
+                                - generic [ref=f34e598]:
+                                    - generic [ref=f34e599]: Carefully compute 23 times 47, double-checking your arithmetic.
+                                    - generic [ref=f34e601]:
+                                        - time [ref=f34e604]: 3:07 AM
+                                        - generic [ref=f34e605]: ·
+                                        - button "Fork from here" [ref=f34e608] [cursor=pointer]:
+                                            - img [ref=f34e611]
+                                            - status
+                            - article "Message from assistant" [ref=f34e613]:
+                                - img "Nelle" [ref=f34e615]:
+                                    - generic [ref=f34e617]: 'N'
+                                - generic [ref=f34e619]:
+                                    - button "Reasoning" [ref=f34e621] [cursor=pointer]:
+                                        - generic [ref=f34e623]:
+                                            - img [ref=f34e624]
+                                            - generic [ref=f34e626]: Reasoning
+                                        - img [ref=f34e628]
+                                    - document [ref=f34e631]:
+                                        - paragraph [ref=f34e632]: 'To compute $23 times 47$ carefully, I will use the distributive property:'
+                                        - list [ref=f34e634]:
+                                            - listitem [ref=f34e635]:
+                                                - generic [ref=f34e638]:
+                                                    - strong [ref=f34e639]: 'Break down 47 into $40 + 7$:'
+                                                    - text: $23 times (40 + 7)$
+                                            - listitem [ref=f34e640]:
+                                                - generic [ref=f34e643]:
+                                                    - paragraph [ref=f34e644]:
+                                                        - strong [ref=f34e645]: 'Multiply 23 by each part:'
+                                                    - list [ref=f34e647]:
+                                                        - listitem [ref=f34e648]:
+                                                            - generic [ref=f34e652]: $23 times 40 = 920$
+                                                        - listitem [ref=f34e653]:
+                                                            - generic [ref=f34e657]: $23 times 7 = 161$
+                                            - listitem [ref=f34e658]:
+                                                - generic [ref=f34e661]:
+                                                    - strong [ref=f34e662]: 'Add the results together:'
+                                                    - text: $920 + 161 = 1,081$
+                                        - paragraph [ref=f34e663]:
+                                            - strong [ref=f34e664]: 'Double-check using the distributive property with 23 ($20 + 3$):'
+                                        - list [ref=f34e666]:
+                                            - listitem [ref=f34e667]:
+                                                - generic [ref=f34e671]: $20 times 47 = 940$
+                                            - listitem [ref=f34e672]:
+                                                - generic [ref=f34e676]: $3 times 47 = 141$
+                                            - listitem [ref=f34e677]:
+                                                - generic [ref=f34e681]: $940 + 141 = 1,081$
+                                        - paragraph [ref=f34e682]:
+                                            - text: The result is
+                                            - strong [ref=f34e683]: 1,081
+                                            - text: .
+                                    - generic [ref=f34e686]:
+                                        - generic [ref=f34e687]:
+                                            - time [ref=f34e689]: 3:07 AM
+                                            - 'button "Regenerate model: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL" [ref=f34e690] [cursor=pointer]':
+                                                - generic [ref=f34e691]:
+                                                    - generic [ref=f34e692]: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL
+                                                    - img [ref=f34e695]
+                                                - status
+                                            - generic [ref=f34e697]:
+                                                - generic [ref=f34e698]:
+                                                    - button "Reading (prompt processing)" [ref=f34e700] [cursor=pointer]:
+                                                        - img [ref=f34e703]
+                                                        - status
+                                                    - button "Generation (token output)" [ref=f34e706] [cursor=pointer]:
+                                                        - img [ref=f34e709]
+                                                        - status
+                                                - generic [ref=f34e711]:
+                                                    - generic [ref=f34e713]:
+                                                        - img [ref=f34e714]
+                                                        - generic [ref=f34e716]: 530 tokens
+                                                    - generic [ref=f34e718]:
+                                                        - img [ref=f34e719]
+                                                        - generic [ref=f34e721]: 14.45s
+                                                    - generic [ref=f34e723]:
+                                                        - img [ref=f34e724]
+                                                        - generic [ref=f34e726]: 36.67 t/s
+                                        - generic [ref=f34e727]:
+                                            - button "Regenerate response" [ref=f34e729] [cursor=pointer]:
+                                                - img [ref=f34e732]
+                                                - status
+                                            - button "Copy response" [ref=f34e735] [cursor=pointer]:
+                                                - img [ref=f34e738]
+                                                - status
+                    - generic:
+                        - generic:
+                            - generic:
+                                - button "Scroll to bottom":
+                                    - generic:
+                                        - generic:
+                                            - generic:
+                                                - img
+                                        - generic: Scroll to bottom
+                                    - status
+                        - generic [ref=f34e741]:
+                            - generic [ref=f34e742]:
+                                - button "Attach files" [ref=f34e746] [cursor=pointer]:
+                                    - img [ref=f34e749]
+                                    - status
+                                - generic [ref=f34e754]:
+                                    - generic: Context window usage
+                                    - progressbar "Context window usage" [ref=f34e755]
+                            - generic [ref=f34e758]:
+                                - generic: Ask Nelle to inspect files, run shell commands, or reason about the project
+                                - combobox "Message input" [ref=f34e759]
+                            - generic [ref=f34e760]:
+                                - generic [ref=f34e762]:
+                                    - generic [ref=f34e763]:
+                                        - generic: Model
+                                        - generic [ref=f34e765] [cursor=pointer]:
+                                            - button "Model" [ref=f34e766]:
+                                                - generic [ref=f34e767]: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL
+                                            - img [ref=f34e770]
+                                    - generic [ref=f34e772]:
+                                        - generic: Reasoning
+                                        - generic [ref=f34e774] [cursor=pointer]:
+                                            - combobox "Reasoning" [ref=f34e775]:
+                                                - generic [ref=f34e776]: 'Reasoning: max (unlimited)'
+                                            - img [ref=f34e779]
+                                    - button "Favorite model" [ref=f34e782] [cursor=pointer]:
+                                        - img [ref=f34e785]
+                                        - status
+                                    - generic [ref=f34e789]: sleeping
+                                    - generic [ref=f34e792]: /compact
+                                - button "Send" [disabled] [ref=f34e794]:
+                                    - img [ref=f34e797]
+                                    - status
+                - dialog [ref=f34e799]:
+                    - generic [ref=f34e802]:
+                        - generic [ref=f34e805]:
+                            - heading "Settings" [level=2] [ref=f34e807]
+                            - button "Close" [ref=f34e810] [cursor=pointer]:
+                                - img [ref=f34e814]
+                                - status
+                        - generic [ref=f34e817]:
+                            - generic "Settings sections" [ref=f34e818]:
+                                - list [ref=f34e819]:
+                                    - listitem [ref=f34e820] [cursor=pointer]:
+                                        - img [ref=f34e822]
+                                        - button "General" [active] [ref=f34e824]:
+                                            - generic [ref=f34e825]: General
+                                    - listitem [ref=f34e826] [cursor=pointer]:
+                                        - img [ref=f34e828]
+                                        - button "Runtime" [ref=f34e830]:
+                                            - generic [ref=f34e831]: Runtime
+                                    - listitem [ref=f34e832] [cursor=pointer]:
+                                        - img [ref=f34e834]
+                                        - button "Models" [ref=f34e836]:
+                                            - generic [ref=f34e837]: Models
+                                    - listitem [ref=f34e838] [cursor=pointer]:
+                                        - img [ref=f34e840]
+                                        - button "Reasoning" [ref=f34e842]:
+                                            - generic [ref=f34e843]: Reasoning
+                                    - listitem [ref=f34e844] [cursor=pointer]:
+                                        - img [ref=f34e846]
+                                        - button "Global Params" [ref=f34e849]:
+                                            - generic [ref=f34e850]: Global Params
+                                    - listitem [ref=f34e851] [cursor=pointer]:
+                                        - img [ref=f34e853]
+                                        - button "Tools" [ref=f34e855]:
+                                            - generic [ref=f34e856]: Tools
+                                    - listitem [ref=f34e857] [cursor=pointer]:
+                                        - img [ref=f34e859]
+                                        - button "Chats" [ref=f34e861]:
+                                            - generic [ref=f34e862]: Chats
+                            - generic [ref=f34e929]:
+                                - generic [ref=f34e930]:
+                                    - heading "Conversation titles" [level=3] [ref=f34e931]
+                                    - generic [ref=f34e932]: How a new conversation earns its name after the first exchange.
+                                - generic [ref=f34e933]:
+                                    - generic [ref=f34e934] [cursor=pointer]: Title source
+                                    - generic [ref=f34e935]: Ask the model for a title, take the first line of your message, or keep "New chat".
+                                    - generic [ref=f34e937] [cursor=pointer]:
+                                        - combobox "Title source" [ref=f34e938]:
+                                            - generic [ref=f34e939]: Generated by the model
+                                        - img [ref=f34e942]
+                                - generic [ref=f34e944]:
+                                    - generic [ref=f34e945] [cursor=pointer]: Title prompt
+                                    - generic [ref=f34e946]: '{{USER}}, {{ASSISTANT}} and {{MAX_WORDS}} are substituted. Used only when the model writes the title.'
+                                    - generic [ref=f34e947]:
+                                        - textbox "Title prompt" [ref=f34e949]: 'Create a concise title for this conversation. Limit it to {{MAX_WORDS}} words. User: {{USER}} Assistant: {{ASSISTANT}}'
+                                        - generic [ref=f34e950]: 119/4000
+                                - generic [ref=f34e951]:
+                                    - generic [ref=f34e952] [cursor=pointer]: Maximum words
+                                    - generic [ref=f34e953]: Titles are cut to this many words, and to 200 characters, whatever the model returns.
+                                    - generic [ref=f34e955]:
+                                        - spinbutton "Maximum words" [ref=f34e956]: '6'
+                                        - alert
+                                - button "Save" [ref=f34e958] [cursor=pointer]:
+                                    - generic [ref=f34e960]: Save
+                                    - status

@@ -1,0 +1,12 @@
+[      83ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:14335
+[  483806ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://127.0.0.1:5173/api/llama/models/events:0
+[ 2249703ms] [ERROR] [vite] SyntaxError: The requested module '/src/api.ts?t=1783640816937' does not provide an export named 'deleteUpload' @ http://127.0.0.1:5173/@vite/client:928
+[ 2249706ms] [ERROR] [vite] Failed to reload /src/components/chat/ChatComposerPanel.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://127.0.0.1:5173/@vite/client:928
+[ 2249706ms] [ERROR] [vite] SyntaxError: The requested module '/src/api.ts?t=1783640816937' does not provide an export named 'deleteUpload' @ http://127.0.0.1:5173/@vite/client:928
+[ 2249706ms] [ERROR] [vite] Failed to reload /src/App.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://127.0.0.1:5173/@vite/client:928
+[ 2309078ms] [ERROR] [vite] SyntaxError: The requested module '/src/components/chat/ChatComposerPanel.tsx?t=1783643437867' does not provide an export named 'ChatComposerPanel' @ http://127.0.0.1:5173/@vite/client:928
+[ 2309078ms] [ERROR] [vite] Failed to reload /src/App.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://127.0.0.1:5173/@vite/client:928
+[ 2333970ms] [ERROR] [vite] SyntaxError: The requested module '/src/components/chat/ChatComposerPanel.tsx?t=1783643437867' does not provide an export named 'ChatComposerPanel' @ http://127.0.0.1:5173/@vite/client:928
+[ 2333971ms] [ERROR] [vite] Failed to reload /src/App.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://127.0.0.1:5173/@vite/client:928
+[ 2343555ms] [ERROR] [vite] SyntaxError: The requested module '/src/components/chat/ChatComposerPanel.tsx?t=1783643437867' does not provide an export named 'ChatComposerPanel' @ http://127.0.0.1:5173/@vite/client:928
+[ 2343555ms] [ERROR] [vite] Failed to reload /src/App.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://127.0.0.1:5173/@vite/client:928

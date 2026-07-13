@@ -1,0 +1,52 @@
+[      90ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:14335
+[  309268ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://127.0.0.1:5173/api/llama/models/events:0
+[ 2213581ms] [ERROR] React does not recognize the `%s` prop on a DOM element. If you intentionally want it to appear in the DOM as a custom attribute, spell it as lowercase `%s` instead. If you accidentally passed it from a parent component, remove it from the DOM element. startContent startcontent @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:1893
+[ 2317465ms] ReferenceError: ThinkingBlock is not defined
+    at RenderedMessage (http://127.0.0.1:5173/src/App.tsx?t=1783579359405:2041:93)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:7994:27)
+[ 2317423ms] [WARNING] %s
+
+%s
+ An error occurred in the <RenderedMessage> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:5257
+[ 2330140ms] ReferenceError: activeModelCanReason is not defined
+    at App (http://127.0.0.1:5173/src/App.tsx?t=1783579372373:1482:20)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:7994:27)
+[ 2330139ms] [WARNING] %s
+
+%s
+ An error occurred in the <App> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=d8152dca:5257
+[ 2353497ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:14335
+[ 2401094ms] ReferenceError: AssistantMessageBody is not defined
+    at RenderedMessage (http://127.0.0.1:5173/src/App.tsx?t=1783579443259:2158:64)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:12866:12)
+    at renderWithHooks (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:4213:19)
+    at updateFunctionComponent (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5569:16)
+    at beginWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:6140:20)
+    at runWithFiberInDEV (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:851:66)
+    at performUnitOfWork (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8429:92)
+    at workLoopSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8325:37)
+    at renderRootSync (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:8309:6)
+    at performWorkOnRoot (http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:7994:27)
+[ 2401093ms] [WARNING] %s
+
+%s
+ An error occurred in the <RenderedMessage> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:5257

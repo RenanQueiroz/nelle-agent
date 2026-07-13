@@ -1,0 +1,190 @@
+- generic [ref=f25e4]:
+    - link "Skip to content" [ref=f25e5] [cursor=pointer]:
+        - /url: '#astryx-app-shell-main'
+    - generic [ref=f25e8]:
+        - generic [ref=f25e10]:
+            - navigation "Side navigation" [ref=f25e11]:
+                - generic [ref=f25e12]:
+                    - heading "Nelle Agent" [level=2]
+                    - generic [ref=f25e13]:
+                        - img [ref=f25e16]
+                        - generic [ref=f25e18]:
+                            - generic [ref=f25e20]: Nelle Agent
+                            - generic [ref=f25e21]: Local Pi + llama.cpp
+                        - button "Settings" [ref=f25e24] [cursor=pointer]:
+                            - img [ref=f25e27]
+                            - status
+                    - generic [ref=f25e31]:
+                        - generic [ref=f25e32]:
+                            - button "New chat" [ref=f25e34] [cursor=pointer]:
+                                - generic [ref=f25e35]:
+                                    - img [ref=f25e37]
+                                    - generic [ref=f25e39]: New chat
+                                - status
+                            - button "Import chat" [ref=f25e41] [cursor=pointer]:
+                                - img [ref=f25e44]
+                                - status
+                        - generic [ref=f25e46]:
+                            - generic: Search conversations
+                            - generic [ref=f25e48]:
+                                - img [ref=f25e49]
+                                - textbox "Search conversations" [ref=f25e51]:
+                                    - /placeholder: Search chats
+                - generic [ref=f25e54]:
+                    - generic [ref=f25e56]:
+                        - generic [ref=f25e57]: Recent
+                        - generic [ref=f25e58]: '17'
+                    - generic [ref=f25e60]:
+                        - button "abort probe 3" [ref=f25e62] [cursor=pointer]:
+                            - generic [ref=f25e63]: abort probe 3
+                        - button "Actions for abort probe 3" [ref=f25e66] [cursor=pointer]:
+                            - img [ref=f25e69]
+                            - status
+                    - generic [ref=f25e74]:
+                        - button "Multiplication Calculation 41 by 19" [ref=f25e76] [cursor=pointer]:
+                            - generic [ref=f25e77]: Multiplication Calculation 41 by 19
+                        - button "Actions for Multiplication Calculation 41 by 19" [ref=f25e80] [cursor=pointer]:
+                            - img [ref=f25e83]
+                            - status
+                    - generic [ref=f25e88]:
+                        - button "Multiplication of 23 and 47" [ref=f25e90] [cursor=pointer]:
+                            - generic [ref=f25e91]: Multiplication of 23 and 47
+                        - button "Actions for Multiplication of 23 and 47" [ref=f25e94] [cursor=pointer]:
+                            - img [ref=f25e97]
+                            - status
+                    - generic [ref=f25e102]:
+                        - button "Default check" [ref=f25e104] [cursor=pointer]:
+                            - generic [ref=f25e105]: Default check
+                        - button "Actions for Default check" [ref=f25e108] [cursor=pointer]:
+                            - img [ref=f25e111]
+                            - status
+                    - generic [ref=f25e116]:
+                        - button "23 times 47 calculation" [ref=f25e118] [cursor=pointer]:
+                            - generic [ref=f25e119]: 23 times 47 calculation
+                        - button "Actions for 23 times 47 calculation" [ref=f25e122] [cursor=pointer]:
+                            - img [ref=f25e125]
+                            - status
+                    - generic [ref=f25e130]:
+                        - button "Multiplying 31 by 47" [ref=f25e132] [cursor=pointer]:
+                            - generic [ref=f25e133]: Multiplying 31 by 47
+                        - button "Actions for Multiplying 31 by 47" [ref=f25e136] [cursor=pointer]:
+                            - img [ref=f25e139]
+                            - status
+                    - generic [ref=f25e144]:
+                        - button "Step by step calculation of 23 times 47" [ref=f25e146] [cursor=pointer]:
+                            - generic [ref=f25e147]: Step by step calculation of 23 times 47
+                        - button "Actions for Step by step calculation of 23 times 47" [ref=f25e150] [cursor=pointer]:
+                            - img [ref=f25e153]
+                            - status
+                    - generic [ref=f25e158]:
+                        - button "Farmer Sheep Math Problem Solution" [ref=f25e160] [cursor=pointer]:
+                            - generic [ref=f25e161]: Farmer Sheep Math Problem Solution
+                        - button "Actions for Farmer Sheep Math Problem Solution" [ref=f25e164] [cursor=pointer]:
+                            - img [ref=f25e167]
+                            - status
+                    - generic [ref=f25e172]:
+                        - button "Step by step multiplication of 23 and 47" [ref=f25e174] [cursor=pointer]:
+                            - generic [ref=f25e175]: Step by step multiplication of 23 and 47
+                        - button "Actions for Step by step multiplication of 23 and 47" [ref=f25e178] [cursor=pointer]:
+                            - img [ref=f25e181]
+                            - status
+                    - generic [ref=f25e186]:
+                        - button "Multiplication Calculation" [ref=f25e188] [cursor=pointer]:
+                            - generic [ref=f25e189]: Multiplication Calculation
+                        - button "Actions for Multiplication Calculation" [ref=f25e192] [cursor=pointer]:
+                            - img [ref=f25e195]
+                            - status
+                    - generic [ref=f25e200]:
+                        - button "Multiplication Calculation 17 Times 23" [ref=f25e202] [cursor=pointer]:
+                            - generic [ref=f25e203]: Multiplication Calculation 17 Times 23
+                        - button "Actions for Multiplication Calculation 17 Times 23" [ref=f25e206] [cursor=pointer]:
+                            - img [ref=f25e209]
+                            - status
+                    - generic [ref=f25e214]:
+                        - button "17 times 23 is 391" [ref=f25e216] [cursor=pointer]:
+                            - generic [ref=f25e217]: 17 times 23 is 391
+                        - button "Actions for 17 times 23 is 391" [ref=f25e220] [cursor=pointer]:
+                            - img [ref=f25e223]
+                            - status
+                    - generic [ref=f25e228]:
+                        - button "Casual Greeting Exchange" [ref=f25e230] [cursor=pointer]:
+                            - generic [ref=f25e231]: Casual Greeting Exchange
+                        - button "Actions for Casual Greeting Exchange" [ref=f25e234] [cursor=pointer]:
+                            - img [ref=f25e237]
+                            - status
+                    - generic [ref=f25e242]:
+                        - button "Cache and Database Breakup Joke" [ref=f25e244] [cursor=pointer]:
+                            - generic [ref=f25e245]: Cache and Database Breakup Joke
+                        - button "Actions for Cache and Database Breakup Joke" [ref=f25e248] [cursor=pointer]:
+                            - img [ref=f25e251]
+                            - status
+                    - generic [ref=f25e256]:
+                        - button "New chat" [ref=f25e258] [cursor=pointer]:
+                            - generic [ref=f25e259]: New chat
+                        - button "Actions for New chat" [ref=f25e262] [cursor=pointer]:
+                            - img [ref=f25e265]
+                            - status
+                    - generic [ref=f25e270]:
+                        - button "Greeting Exchange" [ref=f25e272] [cursor=pointer]:
+                            - generic [ref=f25e273]: Greeting Exchange
+                        - button "Actions for Greeting Exchange" [ref=f25e276] [cursor=pointer]:
+                            - img [ref=f25e279]
+                            - status
+                    - generic [ref=f25e284]:
+                        - button "New chat" [ref=f25e286] [cursor=pointer]:
+                            - generic [ref=f25e287]: New chat
+                        - button "Actions for New chat" [ref=f25e290] [cursor=pointer]:
+                            - img [ref=f25e293]
+                            - status
+                - button "Collapse sidebar" [ref=f25e299] [cursor=pointer]:
+                    - img [ref=f25e303]
+                    - status
+            - separator "Resize sidebar" [ref=f25e305]
+        - main [ref=f25e308]:
+            - generic [ref=f25e316]:
+                - log [ref=f25e318]:
+                    - status [ref=f25e321]:
+                        - generic [ref=f25e322]: Ask Nelle to inspect files, run shell commands, or reason about this project.
+                - generic:
+                    - generic:
+                        - generic:
+                            - button "Scroll to bottom":
+                                - generic:
+                                    - generic:
+                                        - generic:
+                                            - img
+                                    - generic: Scroll to bottom
+                                - status
+                    - generic [ref=f25e326]:
+                        - generic [ref=f25e327]:
+                            - button "Attach files" [ref=f25e331] [cursor=pointer]:
+                                - img [ref=f25e334]
+                                - status
+                            - generic [ref=f25e339]:
+                                - generic: Context window usage
+                                - progressbar "Context window usage" [ref=f25e340]
+                        - generic [ref=f25e342]:
+                            - generic: Ask Nelle to inspect files, run shell commands, or reason about the project
+                            - combobox "Message input" [ref=f25e343]
+                        - generic [ref=f25e344]:
+                            - generic [ref=f25e346]:
+                                - generic [ref=f25e347]:
+                                    - generic: Model
+                                    - generic [ref=f25e349] [cursor=pointer]:
+                                        - button "Model" [ref=f25e350]:
+                                            - generic [ref=f25e351]: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL
+                                        - img [ref=f25e354]
+                                - generic [ref=f25e356]:
+                                    - generic: Reasoning
+                                    - generic [ref=f25e358] [cursor=pointer]:
+                                        - combobox "Reasoning" [ref=f25e359]:
+                                            - generic [ref=f25e360]: No reasoning
+                                        - img [ref=f25e363]
+                                - button "Unfavorite model" [ref=f25e366] [cursor=pointer]:
+                                    - img [ref=f25e369]
+                                    - status
+                                - generic [ref=f25e373]: unlisted
+                                - generic [ref=f25e376]: /compact
+                            - button "Send" [disabled] [ref=f25e378]:
+                                - img [ref=f25e381]
+                                - status

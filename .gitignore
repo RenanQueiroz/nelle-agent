@@ -5,9 +5,6 @@ node_modules/
 dist/
 build/
 coverage/
-playwright-report/
-test-results/
-.playwright-mcp/
 
 # Local planning / scratch docs (not shared; AGENTS.md is the committed source of truth)
 plans/

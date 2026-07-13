@@ -1,0 +1,410 @@
+- generic [ref=f40e4]:
+    - link "Skip to content" [ref=f40e5] [cursor=pointer]:
+        - /url: '#astryx-app-shell-main'
+    - generic [ref=f40e8]:
+        - generic [ref=f40e10]:
+            - navigation "Side navigation" [ref=f40e11]:
+                - generic [ref=f40e12]:
+                    - heading "Nelle Agent" [level=2]
+                    - generic [ref=f40e13]:
+                        - img [ref=f40e16]
+                        - generic [ref=f40e18]:
+                            - generic [ref=f40e20]: Nelle Agent
+                            - generic [ref=f40e21]: Local Pi + llama.cpp
+                        - button "Settings" [ref=f40e24] [cursor=pointer]:
+                            - img [ref=f40e27]
+                            - status
+                    - generic [ref=f40e31]:
+                        - generic [ref=f40e32]:
+                            - button "New chat" [ref=f40e34] [cursor=pointer]:
+                                - generic [ref=f40e35]:
+                                    - img [ref=f40e37]
+                                    - generic [ref=f40e39]: New chat
+                                - status
+                            - button "Import chat" [ref=f40e41] [cursor=pointer]:
+                                - img [ref=f40e44]
+                                - status
+                        - generic [ref=f40e46]:
+                            - generic: Search conversations
+                            - generic [ref=f40e48]:
+                                - img [ref=f40e49]
+                                - textbox "Search conversations" [ref=f40e51]:
+                                    - /placeholder: Search chats
+                - generic [ref=f40e89]:
+                    - generic [ref=f40e91]:
+                        - generic [ref=f40e92]: Recent
+                        - generic [ref=f40e93]: '16'
+                    - generic [ref=f40e95]:
+                        - button "Multiplication Calculation 41 by 19" [ref=f40e97] [cursor=pointer]:
+                            - generic [ref=f40e98]: Multiplication Calculation 41 by 19
+                        - button "Actions for Multiplication Calculation 41 by 19" [ref=f40e101] [cursor=pointer]:
+                            - img [ref=f40e104]
+                            - status
+                    - generic [ref=f40e109]:
+                        - button "17 times 23 is 391" [ref=f40e111] [cursor=pointer]:
+                            - generic [ref=f40e112]: 17 times 23 is 391
+                        - button "Actions for 17 times 23 is 391" [ref=f40e115] [cursor=pointer]:
+                            - img [ref=f40e118]
+                            - status
+                    - generic [ref=f40e123]:
+                        - button "Step by step multiplication of 23 and 47" [ref=f40e125] [cursor=pointer]:
+                            - generic [ref=f40e126]: Step by step multiplication of 23 and 47
+                        - button "Actions for Step by step multiplication of 23 and 47" [ref=f40e129] [cursor=pointer]:
+                            - img [ref=f40e132]
+                            - status
+                    - generic [ref=f40e137]:
+                        - button "Multiplication Calculation 17 Times 23" [active] [ref=f40e139] [cursor=pointer]:
+                            - generic [ref=f40e140]: Multiplication Calculation 17 Times 23
+                        - button "Actions for Multiplication Calculation 17 Times 23" [ref=f40e143] [cursor=pointer]:
+                            - img [ref=f40e146]
+                            - status
+                    - generic [ref=f40e151]:
+                        - button "Multiplication Calculation" [ref=f40e153] [cursor=pointer]:
+                            - generic [ref=f40e154]: Multiplication Calculation
+                        - button "Actions for Multiplication Calculation" [ref=f40e157] [cursor=pointer]:
+                            - img [ref=f40e160]
+                            - status
+                    - generic [ref=f40e165]:
+                        - button "23 times 47 calculation" [ref=f40e167] [cursor=pointer]:
+                            - generic [ref=f40e168]: 23 times 47 calculation
+                        - button "Actions for 23 times 47 calculation" [ref=f40e171] [cursor=pointer]:
+                            - img [ref=f40e174]
+                            - status
+                    - generic [ref=f40e179]:
+                        - button "Default check" [ref=f40e181] [cursor=pointer]:
+                            - generic [ref=f40e182]: Default check
+                        - button "Actions for Default check" [ref=f40e185] [cursor=pointer]:
+                            - img [ref=f40e188]
+                            - status
+                    - generic [ref=f40e193]:
+                        - button "Multiplication of 23 and 47" [ref=f40e195] [cursor=pointer]:
+                            - generic [ref=f40e196]: Multiplication of 23 and 47
+                        - button "Actions for Multiplication of 23 and 47" [ref=f40e199] [cursor=pointer]:
+                            - img [ref=f40e202]
+                            - status
+                    - generic [ref=f40e207]:
+                        - button "Multiplying 31 by 47" [ref=f40e209] [cursor=pointer]:
+                            - generic [ref=f40e210]: Multiplying 31 by 47
+                        - button "Actions for Multiplying 31 by 47" [ref=f40e213] [cursor=pointer]:
+                            - img [ref=f40e216]
+                            - status
+                    - generic [ref=f40e221]:
+                        - button "Step by step calculation of 23 times 47" [ref=f40e223] [cursor=pointer]:
+                            - generic [ref=f40e224]: Step by step calculation of 23 times 47
+                        - button "Actions for Step by step calculation of 23 times 47" [ref=f40e227] [cursor=pointer]:
+                            - img [ref=f40e230]
+                            - status
+                    - generic [ref=f40e235]:
+                        - button "Farmer Sheep Math Problem Solution" [ref=f40e237] [cursor=pointer]:
+                            - generic [ref=f40e238]: Farmer Sheep Math Problem Solution
+                        - button "Actions for Farmer Sheep Math Problem Solution" [ref=f40e241] [cursor=pointer]:
+                            - img [ref=f40e244]
+                            - status
+                    - generic [ref=f40e249]:
+                        - button "Casual Greeting Exchange" [ref=f40e251] [cursor=pointer]:
+                            - generic [ref=f40e252]: Casual Greeting Exchange
+                        - button "Actions for Casual Greeting Exchange" [ref=f40e255] [cursor=pointer]:
+                            - img [ref=f40e258]
+                            - status
+                    - generic [ref=f40e263]:
+                        - button "Cache and Database Breakup Joke" [ref=f40e265] [cursor=pointer]:
+                            - generic [ref=f40e266]: Cache and Database Breakup Joke
+                        - button "Actions for Cache and Database Breakup Joke" [ref=f40e269] [cursor=pointer]:
+                            - img [ref=f40e272]
+                            - status
+                    - generic [ref=f40e277]:
+                        - button "New chat" [ref=f40e279] [cursor=pointer]:
+                            - generic [ref=f40e280]: New chat
+                        - button "Actions for New chat" [ref=f40e283] [cursor=pointer]:
+                            - img [ref=f40e286]
+                            - status
+                    - generic [ref=f40e291]:
+                        - button "Greeting Exchange" [ref=f40e293] [cursor=pointer]:
+                            - generic [ref=f40e294]: Greeting Exchange
+                        - button "Actions for Greeting Exchange" [ref=f40e297] [cursor=pointer]:
+                            - img [ref=f40e300]
+                            - status
+                    - generic [ref=f40e305]:
+                        - button "New chat" [ref=f40e307] [cursor=pointer]:
+                            - generic [ref=f40e308]: New chat
+                        - button "Actions for New chat" [ref=f40e311] [cursor=pointer]:
+                            - img [ref=f40e314]
+                            - status
+                - button "Collapse sidebar" [ref=f40e63] [cursor=pointer]:
+                    - img [ref=f40e67]
+                    - status
+            - separator "Resize sidebar" [ref=f40e69]
+        - main [ref=f40e72]:
+            - generic [ref=f40e80]:
+                - log [ref=f40e82]:
+                    - generic [ref=f40e83]:
+                        - article "Message from user" [ref=f40e473]:
+                            - generic [ref=f40e475]:
+                                - generic [ref=f40e476]: What is 17 times 23? Think it through.
+                                - generic [ref=f40e478]:
+                                    - time [ref=f40e481]: 2:28 AM
+                                    - generic [ref=f40e482]: ·
+                                    - button "Fork from here" [ref=f40e485] [cursor=pointer]:
+                                        - img [ref=f40e488]
+                                        - status
+                        - article "Message from assistant" [ref=f40e490]:
+                            - img "Nelle" [ref=f40e492]:
+                                - generic [ref=f40e494]: 'N'
+                            - generic [ref=f40e496]:
+                                - document [ref=f40e498]:
+                                    - paragraph [ref=f40e499]: 'To calculate 17 times 23, we can break it down into simpler parts:'
+                                    - list [ref=f40e501]:
+                                        - listitem [ref=f40e502]:
+                                            - generic [ref=f40e505]:
+                                                - strong [ref=f40e506]: 'Break down 17:'
+                                                - text: $17 = 10 + 7$
+                                        - listitem [ref=f40e507]:
+                                            - generic [ref=f40e510]:
+                                                - paragraph [ref=f40e511]:
+                                                    - strong [ref=f40e512]: 'Multiply by 23:'
+                                                - list [ref=f40e514]:
+                                                    - listitem [ref=f40e515]:
+                                                        - generic [ref=f40e519]: $10 times 23 = 230$
+                                                    - listitem [ref=f40e520]:
+                                                        - generic [ref=f40e524]: $7 times 23 = (7 times 20) + (7 times 3) = 140 + 21 = 161$
+                                        - listitem [ref=f40e525]:
+                                            - generic [ref=f40e528]:
+                                                - paragraph [ref=f40e529]:
+                                                    - strong [ref=f40e530]: 'Add the results together:'
+                                                - list [ref=f40e532]:
+                                                    - listitem [ref=f40e533]:
+                                                        - generic [ref=f40e537]: $230 + 161 = 391$
+                                    - paragraph [ref=f40e538]:
+                                        - strong [ref=f40e539]: 'Answer:'
+                                        - text: 17 times 23 is
+                                        - strong [ref=f40e540]: '391'
+                                        - text: .
+                                - generic [ref=f40e543]:
+                                    - generic [ref=f40e544]:
+                                        - time [ref=f40e546]: 2:28 AM
+                                        - 'button "Regenerate model: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL" [ref=f40e547] [cursor=pointer]':
+                                            - generic [ref=f40e548]:
+                                                - generic [ref=f40e549]: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL
+                                                - img [ref=f40e552]
+                                            - status
+                                        - generic [ref=f40e554]:
+                                            - generic [ref=f40e555]:
+                                                - button "Reading (prompt processing)" [ref=f40e557] [cursor=pointer]:
+                                                    - img [ref=f40e560]
+                                                    - status
+                                                - button "Generation (token output)" [ref=f40e563] [cursor=pointer]:
+                                                    - img [ref=f40e566]
+                                                    - status
+                                            - generic [ref=f40e568]:
+                                                - generic [ref=f40e570]:
+                                                    - img [ref=f40e571]
+                                                    - generic [ref=f40e573]: 160 tokens
+                                                - generic [ref=f40e575]:
+                                                    - img [ref=f40e576]
+                                                    - generic [ref=f40e578]: 4.16s
+                                                - generic [ref=f40e580]:
+                                                    - img [ref=f40e581]
+                                                    - generic [ref=f40e583]: 38.48 t/s
+                                    - generic [ref=f40e584]:
+                                        - button "Regenerate response" [ref=f40e586] [cursor=pointer]:
+                                            - img [ref=f40e589]
+                                            - status
+                                        - button "Copy response" [ref=f40e592] [cursor=pointer]:
+                                            - img [ref=f40e595]
+                                            - status
+                        - article "Message from user" [ref=f40e597]:
+                            - generic [ref=f40e599]:
+                                - generic [ref=f40e600]: What is 31 times 47? Think it through.
+                                - generic [ref=f40e602]:
+                                    - time [ref=f40e605]: 2:28 AM
+                                    - generic [ref=f40e606]: ·
+                                    - button "Fork from here" [ref=f40e609] [cursor=pointer]:
+                                        - img [ref=f40e612]
+                                        - status
+                        - article "Message from assistant" [ref=f40e614]:
+                            - img "Nelle" [ref=f40e616]:
+                                - generic [ref=f40e618]: 'N'
+                            - generic [ref=f40e620]:
+                                - document [ref=f40e622]:
+                                    - paragraph [ref=f40e623]: 'To calculate 31 times 47, we can break it down into simpler parts:'
+                                    - list [ref=f40e625]:
+                                        - listitem [ref=f40e626]:
+                                            - generic [ref=f40e629]:
+                                                - strong [ref=f40e630]: 'Break down 31:'
+                                                - text: $31 = 30 + 1$
+                                        - listitem [ref=f40e631]:
+                                            - generic [ref=f40e634]:
+                                                - paragraph [ref=f40e635]:
+                                                    - strong [ref=f40e636]: 'Multiply by 47:'
+                                                - list [ref=f40e638]:
+                                                    - listitem [ref=f40e639]:
+                                                        - generic [ref=f40e643]: $30 times 47 = 1,410$ (since $3 times 47 = 141$)
+                                                    - listitem [ref=f40e644]:
+                                                        - generic [ref=f40e648]: $1 times 47 = 47$
+                                        - listitem [ref=f40e649]:
+                                            - generic [ref=f40e652]:
+                                                - paragraph [ref=f40e653]:
+                                                    - strong [ref=f40e654]: 'Add the results together:'
+                                                - list [ref=f40e656]:
+                                                    - listitem [ref=f40e657]:
+                                                        - generic [ref=f40e661]: $1,410 + 47 = 1,457$
+                                    - paragraph [ref=f40e662]:
+                                        - strong [ref=f40e663]: 'Answer:'
+                                        - text: 31 times 47 is
+                                        - strong [ref=f40e664]: 1,457
+                                        - text: .
+                                - generic [ref=f40e667]:
+                                    - generic [ref=f40e668]:
+                                        - time [ref=f40e670]: 2:28 AM
+                                        - 'button "Regenerate model: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL" [ref=f40e671] [cursor=pointer]':
+                                            - generic [ref=f40e672]:
+                                                - generic [ref=f40e673]: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL
+                                                - img [ref=f40e676]
+                                            - status
+                                        - generic [ref=f40e678]:
+                                            - generic [ref=f40e679]:
+                                                - button "Reading (prompt processing)" [ref=f40e681] [cursor=pointer]:
+                                                    - img [ref=f40e684]
+                                                    - status
+                                                - button "Generation (token output)" [ref=f40e687] [cursor=pointer]:
+                                                    - img [ref=f40e690]
+                                                    - status
+                                            - generic [ref=f40e692]:
+                                                - generic [ref=f40e694]:
+                                                    - img [ref=f40e695]
+                                                    - generic [ref=f40e697]: 160 tokens
+                                                - generic [ref=f40e699]:
+                                                    - img [ref=f40e700]
+                                                    - generic [ref=f40e702]: 4.02s
+                                                - generic [ref=f40e704]:
+                                                    - img [ref=f40e705]
+                                                    - generic [ref=f40e707]: 39.77 t/s
+                                    - generic [ref=f40e708]:
+                                        - button "Regenerate response" [ref=f40e710] [cursor=pointer]:
+                                            - img [ref=f40e713]
+                                            - status
+                                        - button "Copy response" [ref=f40e716] [cursor=pointer]:
+                                            - img [ref=f40e719]
+                                            - status
+                        - article "Message from user" [ref=f40e721]:
+                            - generic [ref=f40e723]:
+                                - generic [ref=f40e724]: What is 12 times 19? Think it through.
+                                - generic [ref=f40e726]:
+                                    - time [ref=f40e729]: 2:29 AM
+                                    - generic [ref=f40e730]: ·
+                                    - button "Fork from here" [ref=f40e733] [cursor=pointer]:
+                                        - img [ref=f40e736]
+                                        - status
+                        - article "Message from assistant" [ref=f40e738]:
+                            - img "Nelle" [ref=f40e740]:
+                                - generic [ref=f40e742]: 'N'
+                            - generic [ref=f40e744]:
+                                - button "Reasoning" [ref=f40e746] [cursor=pointer]:
+                                    - generic [ref=f40e748]:
+                                        - img [ref=f40e749]
+                                        - generic [ref=f40e751]: Reasoning
+                                    - img [ref=f40e753]
+                                - document [ref=f40e756]:
+                                    - paragraph [ref=f40e757]: 'To calculate 12 times 19, we can break it down into simpler parts:'
+                                    - list [ref=f40e759]:
+                                        - listitem [ref=f40e760]:
+                                            - generic [ref=f40e763]:
+                                                - strong [ref=f40e764]: 'Break down 12:'
+                                                - text: $12 = 10 + 2$
+                                        - listitem [ref=f40e765]:
+                                            - generic [ref=f40e768]:
+                                                - paragraph [ref=f40e769]:
+                                                    - strong [ref=f40e770]: 'Multiply by 19:'
+                                                - list [ref=f40e772]:
+                                                    - listitem [ref=f40e773]:
+                                                        - generic [ref=f40e777]: $10 times 19 = 190$
+                                                    - listitem [ref=f40e778]:
+                                                        - generic [ref=f40e782]: $2 times 19 = 38$
+                                        - listitem [ref=f40e783]:
+                                            - generic [ref=f40e786]:
+                                                - paragraph [ref=f40e787]:
+                                                    - strong [ref=f40e788]: 'Add the results together:'
+                                                - list [ref=f40e790]:
+                                                    - listitem [ref=f40e791]:
+                                                        - generic [ref=f40e795]: $190 + 38 = 228$
+                                    - paragraph [ref=f40e796]:
+                                        - strong [ref=f40e797]: 'Answer:'
+                                        - text: 12 times 19 is
+                                        - strong [ref=f40e798]: '228'
+                                        - text: .
+                                - generic [ref=f40e801]:
+                                    - generic [ref=f40e802]:
+                                        - time [ref=f40e804]: 2:29 AM
+                                        - 'button "Regenerate model: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL" [ref=f40e805] [cursor=pointer]':
+                                            - generic [ref=f40e806]:
+                                                - generic [ref=f40e807]: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL
+                                                - img [ref=f40e810]
+                                            - status
+                                        - generic [ref=f40e812]:
+                                            - generic [ref=f40e813]:
+                                                - button "Reading (prompt processing)" [ref=f40e815] [cursor=pointer]:
+                                                    - img [ref=f40e818]
+                                                    - status
+                                                - button "Generation (token output)" [ref=f40e821] [cursor=pointer]:
+                                                    - img [ref=f40e824]
+                                                    - status
+                                            - generic [ref=f40e826]:
+                                                - generic [ref=f40e828]:
+                                                    - img [ref=f40e829]
+                                                    - generic [ref=f40e831]: 608 tokens
+                                                - generic [ref=f40e833]:
+                                                    - img [ref=f40e834]
+                                                    - generic [ref=f40e836]: 14.95s
+                                                - generic [ref=f40e838]:
+                                                    - img [ref=f40e839]
+                                                    - generic [ref=f40e841]: 40.68 t/s
+                                    - generic [ref=f40e842]:
+                                        - button "Regenerate response" [ref=f40e844] [cursor=pointer]:
+                                            - img [ref=f40e847]
+                                            - status
+                                        - button "Copy response" [ref=f40e850] [cursor=pointer]:
+                                            - img [ref=f40e853]
+                                            - status
+                - generic:
+                    - generic:
+                        - generic:
+                            - button "Scroll to bottom":
+                                - generic:
+                                    - generic:
+                                        - generic:
+                                            - img
+                                    - generic: Scroll to bottom
+                                - status
+                    - generic [ref=f40e415]:
+                        - generic [ref=f40e416]:
+                            - button "Attach files" [ref=f40e420] [cursor=pointer]:
+                                - img [ref=f40e423]
+                                - status
+                            - generic [ref=f40e428]:
+                                - generic: Context window usage
+                                - progressbar "Context window usage" [ref=f40e429]
+                        - generic [ref=f40e432]:
+                            - generic: Ask Nelle to inspect files, run shell commands, or reason about the project
+                            - combobox "Message input" [ref=f40e433]
+                        - generic [ref=f40e434]:
+                            - generic [ref=f40e436]:
+                                - generic [ref=f40e437]:
+                                    - generic: Model
+                                    - generic [ref=f40e439] [cursor=pointer]:
+                                        - button "Model" [ref=f40e440]:
+                                            - generic [ref=f40e441]: unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL
+                                        - img [ref=f40e444]
+                                - generic [ref=f40e446]:
+                                    - generic: Reasoning
+                                    - generic [ref=f40e448] [cursor=pointer]:
+                                        - combobox "Reasoning" [ref=f40e449]:
+                                            - generic [ref=f40e450]: 'Reasoning: medium (2,048 tokens)'
+                                        - img [ref=f40e453]
+                                - button "Favorite model" [ref=f40e456] [cursor=pointer]:
+                                    - img [ref=f40e459]
+                                    - status
+                                - generic [ref=f40e463]: loaded
+                                - generic [ref=f40e466]: /compact
+                            - button "Send" [disabled] [ref=f40e468]:
+                                - img [ref=f40e471]
+                                - status
