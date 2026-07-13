@@ -365,6 +365,34 @@ Project-specific guidance for AI coding agents.
 - Nelle stores app data under `.nelle/` by default. Do not commit
   generated app data, e2e app data, downloaded models, llama.cpp builds, test
   reports, or logs.
+- **Model weights live in `.nelle/models/`, not in the user's global
+  `~/.cache/huggingface/hub`.** Nelle hands llama-server `LLAMA_CACHE=<dataDir>/models`,
+  which `common/hf-cache.cpp` uses **verbatim as the Hugging Face hub root** (the layout is
+  HF's own: `models--org--repo/{blobs,snapshots,refs}`, with *relative* symlinks, so a repo
+  directory is self-contained and moves with a plain `mv`). Weights are the largest thing
+  Nelle owns by two orders of magnitude and were the last of its data living somewhere it
+  did not control. Three things follow: it can account for the disk (and
+  `common_download_remove()` means deleting a model could reclaim it, which is not safe in
+  a shared cache); "what llama.cpp has cached" becomes "what Nelle downloaded"; and a
+  throwaway `NELLE_DATA_DIR` no longer reaches into the developer's real 50 GB -- the same
+  class of surprise as an e2e run adopting a developer's llama-server.
+  **An explicit choice wins**: if the user has set any of `LLAMA_CACHE`, `HF_HUB_CACHE`,
+  `HUGGINGFACE_HUB_CACHE` or `HF_HOME`, Nelle sets nothing. `LLAMA_CACHE` outranks all of
+  them in llama.cpp's own resolution order, so setting it would silently overrule someone
+  who had deliberately chosen to share a cache or to keep 50 GB on another disk.
+- **`models.ini` is the catalog, and llama.cpp's router is not.**
+  `server_models::load_models()` calls `load_from_cache()` **unconditionally** -- there is
+  no flag to disable it -- so the router advertises every GGUF in the download cache as a
+  loadable model, plus a synthetic `default`. Measured live against a four-section preset:
+  **six** models, including an `unsloth/gemma-4-12B-it-qat-GGUF` nobody had configured
+  (`source: "cache"`, `can_remove: true`). Those are not Nelle's: they have no params, no
+  `/api/models` row, no Pi entry, and nothing can manage them. `mergeRouterModels` therefore
+  **drops any router model that matches no configured section** (`findConfiguredSectionId`
+  already matches on section id, runtime id, alias and `hf-repo`, so an unmatched one is
+  genuinely unknown). A configured model the router has *not* listed still appears, seeded
+  as `unloaded` -- the filter only removes models Nelle never configured, never hides one it
+  did. A Nelle-owned cache narrows the problem but does not remove it: delete a model from
+  `models.ini` and its blobs remain, so it would return as a cached stranger.
 - Nelle has no users yet. Do not write code to migrate old installs: when a
   change makes existing app data wrong, edit this repository's `.nelle/` by hand
   and move on. SQLite `schema_migrations` stays, because it is also how a fresh

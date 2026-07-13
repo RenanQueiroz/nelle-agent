@@ -206,6 +206,59 @@ test('the facade keys every configured model by its section id', async () => {
   }
 });
 
+test('models.ini is the catalog: the router may not add to it', async () => {
+  // llama.cpp's `server_models::load_models()` calls `load_from_cache()` unconditionally --
+  // there is no flag to turn it off -- so the router advertises every GGUF sitting in the
+  // download cache as loadable, plus a synthetic `default`. Observed live against a
+  // four-section models.ini: six models, including a `gemma-4-12B` nobody had configured
+  // (`source: "cache"`, `can_remove: true`) and llama.cpp's `default`.
+  //
+  // Those are not Nelle's models: they have no params, no `/api/models` row, no Pi entry,
+  // and nothing can manage them. `models.ini` is the catalog.
+  const router = await createMockRouter({
+    models: [
+      {id: 'default', aliases: [], status: {value: 'unloaded'}},
+      {
+        id: 'someone/else-GGUF:Q8_0',
+        aliases: [],
+        source: 'cache',
+        can_remove: true,
+        status: {value: 'unloaded'},
+      },
+      {
+        id: 'repo/model:UD-Q4_K_M',
+        aliases: [],
+        source: 'repo/model:UD-Q4_K_M',
+        status: {value: 'loaded'},
+      },
+    ],
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({repoId: 'repo/model', quant: 'UD-Q4_K_M'});
+  await new LlamaCppManager(paths, store).writePreset(model);
+  const app = await createTestServer(paths);
+
+  try {
+    const models = (await app.inject({method: 'GET', url: '/api/llama/models'})).json<{
+      models: Array<{sectionId: string; status: string}>;
+    }>().models;
+
+    assert.deepEqual(
+      models.map(item => item.sectionId),
+      [model.id],
+      'only the configured model -- not the cached stranger, and not llama.cpp default',
+    );
+    // ...and it still carries the live status the router reported for it, so filtering
+    // costs nothing.
+    assert.equal(models[0]?.status, 'loaded');
+  } finally {
+    await app.close();
+    await router.close();
+  }
+});
+
 test('a run loads the model and caches its props with no client asking', async () => {
   // The props route is the only writer of model_cache's modality columns today,
   // and it fires because a client asked. A thin client never asks.
@@ -671,6 +724,7 @@ async function createTempPaths(): Promise<AppPaths> {
     repoRoot,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
+    modelsDir: path.join(dataDir, 'models'),
     attachmentsDir: path.join(dataDir, 'attachments'),
     uploadsDir: path.join(dataDir, 'uploads'),
     llamaDir,

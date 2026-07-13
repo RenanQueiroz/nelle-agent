@@ -5,6 +5,12 @@ export type AppPaths = {
   repoRoot: string;
   dataDir: string;
   downloadsDir: string;
+  /**
+   * Where llama.cpp downloads model weights -- the single biggest thing Nelle owns, and
+   * the last one that lived outside the data directory. It is a **Hugging Face hub cache**
+   * (`models--org--repo/{blobs,snapshots,refs}`), handed to llama-server as `LLAMA_CACHE`.
+   */
+  modelsDir: string;
   attachmentsDir: string;
   uploadsDir: string;
   llamaDir: string;
@@ -32,6 +38,7 @@ export function createAppPaths(): AppPaths {
     repoRoot,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
+    modelsDir: path.join(dataDir, 'models'),
     attachmentsDir: path.join(dataDir, 'attachments'),
     uploadsDir: path.join(dataDir, 'uploads'),
     llamaDir,

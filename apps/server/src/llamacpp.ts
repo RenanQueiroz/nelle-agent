@@ -481,13 +481,15 @@ export class LlamaCppManager {
       String(limits.sleepIdleSeconds),
     ];
 
+    await fs.mkdir(this.paths.modelsDir, {recursive: true});
+
     let child: Bun.Subprocess;
     try {
       child = Bun.spawn([binaryPath, ...args], {
         // `Bun.spawn` does not inherit the parent env by default the way
         // `node:child_process` does, and llama-server needs it (PATH for shared
         // libs, `LLAMA_ARG_OFFLINE`, CUDA_VISIBLE_DEVICES, ...).
-        env: process.env,
+        env: {...process.env, ...modelCacheEnv(this.paths.modelsDir)},
         // POSIX: `setsid()`, so the child leads a new process group Nelle can kill
         // with `process.kill(-pid)`. Windows: `UV_PROCESS_DETACHED`. Both let the
         // llama-server outlive a nelle-server restart, so a new one can adopt it.
@@ -612,7 +614,20 @@ export class LlamaCppManager {
 
     for (const routerModel of routerModels) {
       const normalized = normalizeRouterModel(routerModel);
-      const sectionId = findConfiguredSectionId(normalized, configured) ?? normalized.sectionId;
+      const sectionId = findConfiguredSectionId(normalized, configured);
+      // **`models.ini` is the catalog, and llama.cpp's router is not.** Its
+      // `server_models::load_models()` calls `load_from_cache()` unconditionally -- there
+      // is no flag to turn it off -- so it advertises every GGUF sitting in the download
+      // cache as a loadable model, plus a synthetic `default`. Observed live: six models
+      // against a four-section preset. Those extras are not Nelle's: they have no params,
+      // no `/api/models` row, no Pi entry, and nothing can manage them. Drop them.
+      //
+      // A configured model the router has *not* listed still appears -- it was seeded
+      // above as `unloaded` -- so this only removes models Nelle never configured, never
+      // hides one it did.
+      if (!sectionId) {
+        continue;
+      }
       const previous = bySection.get(sectionId);
       bySection.set(sectionId, {
         ...previous,
@@ -1248,6 +1263,38 @@ function routerExitCode(raw: unknown): number | null {
 
 function delayMs(milliseconds: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+/**
+ * The four variables llama.cpp resolves its Hugging Face hub cache from, in the order
+ * `common/hf-cache.cpp` reads them. `LLAMA_CACHE` wins outright and is used as the hub
+ * root verbatim; the rest append their own suffix.
+ */
+const MODEL_CACHE_ENV_VARS = ['LLAMA_CACHE', 'HF_HUB_CACHE', 'HUGGINGFACE_HUB_CACHE', 'HF_HOME'];
+
+/**
+ * Nelle keeps model weights **inside its data directory**, not in the user's global
+ * `~/.cache/huggingface/hub`.
+ *
+ * The weights are the largest thing Nelle owns by two orders of magnitude, and they were
+ * the last of its data living somewhere it did not control. Owning them means it can
+ * account for the disk, and it means "what llama.cpp has cached" is "what Nelle
+ * downloaded" -- which matters because the router advertises **every** cached GGUF as a
+ * loadable model (`load_from_cache()`, and there is no flag to stop it), so a shared cache
+ * hands it whatever any other tool ever pulled. It also isolates a throwaway
+ * `NELLE_DATA_DIR`, which until now still reached into the developer's real weights: the
+ * same class of surprise as an e2e run adopting a developer's llama-server.
+ *
+ * **An explicit choice wins.** A user who has set any of these -- to share a cache with
+ * llama.cpp on the command line, or to put 50 GB on another disk -- has said what they
+ * want, and `LLAMA_CACHE` outranks all of them, so setting it would silently overrule
+ * them.
+ */
+export function modelCacheEnv(modelsDir: string): Record<string, string> {
+  if (MODEL_CACHE_ENV_VARS.some(name => process.env[name])) {
+    return {};
+  }
+  return {LLAMA_CACHE: modelsDir};
 }
 
 function findConfiguredSectionId(

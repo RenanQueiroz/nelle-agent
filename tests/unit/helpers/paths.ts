@@ -12,6 +12,7 @@ export function tempPaths(dataDir: string): AppPaths {
     repoRoot: path.resolve('.'),
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
+    modelsDir: path.join(dataDir, 'models'),
     attachmentsDir: path.join(dataDir, 'attachments'),
     uploadsDir: path.join(dataDir, 'uploads'),
     llamaDir,

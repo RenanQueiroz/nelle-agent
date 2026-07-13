@@ -134,6 +134,7 @@ async function createTempPaths(): Promise<AppPaths> {
     repoRoot,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
+    modelsDir: path.join(dataDir, 'models'),
     attachmentsDir: path.join(dataDir, 'attachments'),
     uploadsDir: path.join(dataDir, 'uploads'),
     llamaDir,
