@@ -171,6 +171,39 @@ export class LlamaCppManager {
     }
   }
 
+  /**
+   * Why llama-server died, in its own words.
+   *
+   * `llama-server exited with code 1` is true and useless. The reason is already written down —
+   * a single mistyped key in `models.ini` produces
+   * `option 'not-a-real-key' not recognized in preset '<section>'`, which names the key *and*
+   * the section — and Nelle is holding the log. Making the user go and find it is a choice, and
+   * the wrong one.
+   *
+   * The last `E` line only counts **because the process exited non-zero**. An `E` on its own is
+   * not a failure: a *successful* offline load of a pinned model logs
+   * `E get_repo_commit: error: GET failed (404)` every single time, which is the cache fallback
+   * working as designed. The exit code is what makes this line the reason.
+   */
+  private async describeExit(exitCode: number): Promise<string> {
+    const fallback = `llama-server exited with code ${exitCode}`;
+    try {
+      const {text} = await this.readLogTail(16_000);
+      const lastError = text
+        .split('\n')
+        .filter(line => / E [a-z]/i.test(line) || /\bE\s+srv\b/.test(line))
+        .at(-1);
+      if (!lastError) {
+        return fallback;
+      }
+      // Strip llama.cpp's timestamp/level prefix; keep the sentence.
+      const message = lastError.replace(/^[\d.]+\s+E\s+\S+\s*/, '').trim();
+      return message ? `${fallback}: ${message}` : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
   async readLogTail(maxBytes = 80_000): Promise<RuntimeLogTail> {
     try {
       const stat = await fs.stat(this.paths.llamaLogPath);
@@ -576,7 +609,7 @@ export class LlamaCppManager {
     }
     void (async () => {
       const exitCode = await child.exited;
-      this.#lastError = exitCode === 0 ? null : `llama-server exited with code ${exitCode}`;
+      this.#lastError = exitCode === 0 ? null : await this.describeExit(exitCode);
       this.#process = null;
       if (this.#managedPid === childPid) {
         this.#managedPid = null;
@@ -1109,12 +1142,24 @@ export class LlamaCppManager {
     );
   }
 
+  /**
+   * Waits for the router, and **gives up the moment the child dies**.
+   *
+   * A llama-server that refuses its preset is gone in ~200 ms, and polling a port nothing will
+   * ever answer on for the remaining 30 s does not make it come back — it just makes the user
+   * watch a spinner for half a minute before being told what the process had already said. The
+   * exit handler sets `#lastError` *before* it nulls `#process`, so a null `#process` here means
+   * the reason is already known: report it rather than the timeout, which would blame the port.
+   */
   private async waitForHealth(host: string, port: number): Promise<void> {
     const deadline = Date.now() + 30_000;
     const url = `http://${host}:${port}/v1/models`;
     while (Date.now() < deadline) {
       if (await this.isServerHealthy(host, port, 750)) {
         return;
+      }
+      if (this.#process === null) {
+        throw new Error(this.#lastError ?? 'llama-server exited before it became healthy');
       }
       await new Promise(resolve => setTimeout(resolve, 750));
     }

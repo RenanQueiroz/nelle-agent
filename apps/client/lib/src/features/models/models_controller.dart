@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../api/generated/models/configured_model.dart';
 import '../../api/generated/models/delete_model_response.dart';
 import '../../api/generated/models/model_catalog.dart';
+import '../../api/generated/models/model_param_warning.dart';
 import 'models_repository.dart';
 
 /// The `models.ini` catalog.
@@ -31,16 +32,34 @@ class ModelCatalogNotifier extends AsyncNotifier<ModelCatalog> {
   Future<void> duplicate(String id) => _apply((repo) => repo.duplicate(id));
 
   Future<void> rename(String id, String name) =>
-      _apply((repo) => repo.update(id, name: name));
+      _update(id, (repo) => repo.update(id, name: name));
 
   /// `pinned: false` lets the next load re-check Hugging Face, so an upstream fix can land. It
   /// re-pins itself once that load succeeds — an update is a deliberate act, not a standing
   /// exposure.
   Future<void> setPinned(String id, bool pinned) =>
-      _apply((repo) => repo.update(id, pinned: pinned));
+      _update(id, (repo) => repo.update(id, pinned: pinned));
 
-  Future<void> saveParams(String id, Map<String, String> params) =>
-      _apply((repo) => repo.update(id, params: params));
+  /// Returns the warnings the save produced — a context past the model's trained window is
+  /// legitimate (RoPE/YaRN) so it *saves*, and the caller must say what just happened.
+  Future<List<ModelParamWarning>> saveParams(
+    String id,
+    Map<String, String> params,
+  ) async {
+    final update = await ref
+        .read(modelsRepositoryProvider)
+        .update(id, params: params);
+    state = AsyncValue.data(update.catalog);
+    return update.warnings;
+  }
+
+  Future<void> _update(
+    String id,
+    Future<ModelUpdate> Function(ModelsRepository) run,
+  ) async {
+    final update = await run(ref.read(modelsRepositoryProvider));
+    state = AsyncValue.data(update.catalog);
+  }
 
   Future<void> saveGlobalParams(Map<String, String> params) =>
       _apply((repo) => repo.updateGlobalParams(params));

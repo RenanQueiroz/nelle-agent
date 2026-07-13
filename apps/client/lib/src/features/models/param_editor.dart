@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
 import '../../api/generated/models/invalid_model_param.dart';
+import '../../api/generated/models/invalid_model_param_reason.dart';
+import '../../api/generated/models/model_param_warning.dart';
 
 /// One row of the free-form `models.ini` param table.
 ///
@@ -39,6 +41,7 @@ class ParamEditor extends ConsumerStatefulWidget {
     super.key,
     required this.initial,
     required this.invalidParams,
+    this.warnings = const [],
     required this.onChanged,
   });
 
@@ -47,6 +50,11 @@ class ParamEditor extends ConsumerStatefulWidget {
   /// From the server's 400. It names **every** offending key, so a form with three typos lights
   /// up three rows on one save rather than on three.
   final List<InvalidModelParam> invalidParams;
+
+  /// From a save that **succeeded**. A context past the model's trained window is legitimate —
+  /// that is what RoPE/YaRN extension is, and llama.cpp itself only warns — so the value lands
+  /// and the row says what was asked for. Amber, never red: nothing here failed.
+  final List<ModelParamWarning> warnings;
 
   final void Function(Map<String, String>) onChanged;
 
@@ -154,6 +162,9 @@ class ParamEditorState extends ConsumerState<ParamEditor> {
     final errorsByKey = {
       for (final invalid in widget.invalidParams) invalid.key: invalid,
     };
+    final warningsByKey = {
+      for (final warning in widget.warnings) warning.key: warning,
+    };
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -163,6 +174,7 @@ class ParamEditorState extends ConsumerState<ParamEditor> {
             key: ValueKey('k-param-row-${row.id}'),
             row: row,
             error: errorsByKey[row.key.trim()],
+            warning: warningsByKey[row.key.trim()],
             keyController: _controller(
               _keyControllers,
               row.id,
@@ -183,9 +195,21 @@ class ParamEditorState extends ConsumerState<ParamEditor> {
               },
             ),
             onRemove: () => _removeRow(row.id),
+            // **A suggestion does not always mean the key.** For an `unknown` key it is the
+            // nearest real option (`ctx-siz` -> `ctx-size`), so it replaces the key. For an
+            // `out_of_range` context size it is the largest value that *would* work
+            // (`4194304`), so it replaces the value. Applying both to the key field — the
+            // obvious single implementation — renames `c` to `4194304` and produces a second,
+            // stranger error.
             onAcceptSuggestion: (suggestion) {
-              setState(() => row.key = suggestion);
-              _keyControllers[row.id]?.text = suggestion;
+              final error = errorsByKey[row.key.trim()];
+              if (error?.reason == InvalidModelParamReason.outOfRange) {
+                setState(() => row.value = suggestion);
+                _valueControllers[row.id]?.text = suggestion;
+              } else {
+                setState(() => row.key = suggestion);
+                _keyControllers[row.id]?.text = suggestion;
+              }
               _emit();
             },
           ),
@@ -222,6 +246,7 @@ class _Row extends StatelessWidget {
     super.key,
     required this.row,
     required this.error,
+    required this.warning,
     required this.keyController,
     required this.valueController,
     required this.onRemove,
@@ -230,6 +255,7 @@ class _Row extends StatelessWidget {
 
   final ParamRow row;
   final InvalidModelParam? error;
+  final ModelParamWarning? warning;
   final TextEditingController keyController;
   final TextEditingController valueController;
   final VoidCallback onRemove;
@@ -304,8 +330,12 @@ class _Row extends StatelessWidget {
                   key: ValueKey('k-param-suggest-${row.id}'),
                   onTap: () => onAcceptSuggestion(error!.suggestion!),
                   child: Text(
-                    // The fix is one tap. The server already knows what they meant.
-                    'Did you mean ${error!.suggestion}?',
+                    // The fix is one tap. The server already knows what they meant — but it
+                    // means two different things: a nearer *key* for a typo, and a workable
+                    // *value* for a context size past the ceiling. Say which.
+                    error!.reason == InvalidModelParamReason.outOfRange
+                        ? 'Use ${error!.suggestion}'
+                        : 'Did you mean ${error!.suggestion}?',
                     style: TextStyle(
                       fontSize: 11,
                       decoration: TextDecoration.underline,
@@ -315,6 +345,21 @@ class _Row extends StatelessWidget {
                 ),
               ),
           ],
+          // Amber, and only when the row did not also fail: a row cannot be both refused and
+          // merely warned about, and stacking the two would say the save both did and did not
+          // happen.
+          if (error == null && warning != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 4, top: 2),
+              child: Text(
+                warning!.message,
+                key: ValueKey('k-param-warning-${row.id}'),
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Color(0xFFB45309), // amber-700: legible on light and dark.
+                ),
+              ),
+            ),
         ],
       ),
     );

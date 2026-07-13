@@ -49,6 +49,8 @@ import {
   deleteModelResponseSchema,
   invalidModelParamSchema,
   invalidModelParamsResponseSchema,
+  modelParamWarningSchema,
+  updateModelResponseSchema,
   modelCatalogSchema,
   modelParamsSchema,
 } from '../../../packages/shared/src/modelCatalog.ts';
@@ -150,6 +152,11 @@ const CONTRACT_SCHEMAS: ReadonlyArray<readonly [string, z.ZodType]> = [
   // client can mark the rows rather than print one line of red text under a form of ten.
   ['InvalidModelParam', invalidModelParamSchema],
   ['InvalidModelParamsResponse', invalidModelParamsResponseSchema],
+  // A save that *landed* but is probably a typo: a context window past what the model was
+  // trained on. Legitimate with RoPE/YaRN, so it is a warning and not a refusal -- but a
+  // client that cannot see it cannot show it, and the user finds out by crashing.
+  ['ModelParamWarning', modelParamWarningSchema],
+  ['UpdateModelResponse', updateModelResponseSchema],
   ['HuggingFaceFile', huggingFaceFileSchema],
   ['HuggingFaceQuant', huggingFaceQuantSchema],
   ['HuggingFaceModelResult', huggingFaceModelResultSchema],

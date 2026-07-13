@@ -33,7 +33,12 @@ export type LlamaOptionCatalogue = {
   options: LlamaOption[];
 };
 
-export type InvalidModelParamReason = 'unknown' | 'reserved' | 'duplicate' | 'syntax';
+export type InvalidModelParamReason =
+  | 'unknown'
+  | 'reserved'
+  | 'duplicate'
+  | 'syntax'
+  | 'out_of_range';
 
 export type InvalidModelParam = {
   key: string;
@@ -42,6 +47,106 @@ export type InvalidModelParam = {
   /** The nearest real key, when one is close enough to be worth offering. */
   suggestion?: string;
 };
+
+/** A param Nelle will save, but which the user probably did not mean. */
+export type ModelParamWarning = {
+  key: string;
+  message: string;
+};
+
+/**
+ * Every spelling of `--ctx-size`, because they are one option and a guard that knows only
+ * one of them is a guard you step around by accident. llama.cpp's own accept-set is the
+ * union of each argument spelling with its leading dashes stripped, plus the env var name
+ * (`common/preset.cpp`, `get_map_key_opt`), so all three of these reach the same field.
+ *
+ * **Case-sensitive**, like the catalogue: `-c` is `--ctx-size` and `-C` is `--cpu-mask`.
+ */
+export const CONTEXT_SIZE_KEYS: ReadonlySet<string> = new Set([
+  'c',
+  'ctx-size',
+  'LLAMA_ARG_CTX_SIZE',
+]);
+
+/**
+ * How far past its trained window a model may be stretched before Nelle calls it a typo.
+ *
+ * Running above `n_ctx_train` is **legitimate and sometimes recommended**: RoPE/YaRN
+ * rescaling extends a model's context, llama.cpp ships the flags for it
+ * (`--rope-scaling {none,linear,yarn}`, `--yarn-orig-ctx`), and Qwen's own model cards tell
+ * you to do exactly that. llama.cpp permits it with nothing but a warning
+ * (`llama-context.cpp`: `n_ctx_seq (%u) > n_ctx_train (%u) -- possible training context
+ * overflow`), and Nelle mirrors that: **any** overshoot warns, and none is refused.
+ *
+ * But the real band is 2x-8x. Nobody has ever had a reason to ask for 6,866x, which is what
+ * an extra few zeros gets you -- and `c` is the one lever that *bypasses* `--fit` (which
+ * only adjusts arguments the user left unset), so llama.cpp allocates a KV cache for
+ * whatever number it is handed, without ever consulting how much memory exists. A fat
+ * finger here does not fail the load: it takes the machine down. (Measured, on this
+ * repository, with `c = 900000000`: llama-server logged `loading model` and the host died
+ * mid-allocation -- no error, no exit code, nothing to report afterwards.)
+ *
+ * 32x therefore sits an order of magnitude above any real extension and three below the
+ * typo. It refuses nothing anyone has ever wanted.
+ */
+export const MAX_CONTEXT_EXTENSION_FACTOR = 32;
+
+/**
+ * The context size a params draft asks for, or `null` when it does not ask for one.
+ *
+ * `0` is not a size and is deliberately excluded: `common/arg.cpp` reads it as "the user
+ * explicitly wants the full trained window" and disables fit reduction, so it can never
+ * overshoot. A value that is not a positive integer is llama.cpp's to reject, not Nelle's
+ * to guess at.
+ */
+function requestedContextSize(params: Record<string, string>): {key: string; size: number} | null {
+  for (const [rawKey, rawValue] of Object.entries(params)) {
+    const key = rawKey.trim();
+    if (!CONTEXT_SIZE_KEYS.has(key)) {
+      continue;
+    }
+    const size = Number(rawValue.trim());
+    if (!Number.isInteger(size) || size <= 0) {
+      return null;
+    }
+    return {key, size};
+  }
+  return null;
+}
+
+const count = (value: number): string => value.toLocaleString('en-US');
+
+/**
+ * A context size Nelle will save but which is past the model's trained window.
+ *
+ * Separate from `validateModelParams` because it is not an error: the save lands, and the
+ * user is told what they just asked for. `trainedWindow` is `null` for a model llama.cpp has
+ * never loaded -- Nelle has no window to compare against, so it says nothing.
+ */
+export function modelParamWarnings(
+  params: Record<string, string>,
+  trainedWindow: number | null | undefined,
+): ModelParamWarning[] {
+  const requested = requestedContextSize(params);
+  if (!requested || !trainedWindow || requested.size <= trainedWindow) {
+    return [];
+  }
+  if (requested.size > trainedWindow * MAX_CONTEXT_EXTENSION_FACTOR) {
+    // Refused outright by `validateModelParams`; warning about it too would be noise.
+    return [];
+  }
+  const factor = requested.size / trainedWindow;
+  return [
+    {
+      key: requested.key,
+      message:
+        `${count(requested.size)} is ${factor.toFixed(factor < 10 ? 1 : 0)}x this model's ` +
+        `trained window (${count(trainedWindow)}). That works only with RoPE or YaRN ` +
+        'scaling — set `rope-scaling` and `yarn-orig-ctx` too, or the model will produce ' +
+        'nonsense past the window it was trained on.',
+    },
+  ];
+}
 
 /** The sampling keys people actually reach for, for the Models section's hint. */
 export const COMMON_SAMPLING_KEYS = [
@@ -289,11 +394,40 @@ export function suggestModelParamKey(key: string, accepted: Iterable<string>): s
  */
 export function validateModelParams(
   params: Record<string, string>,
-  options: {reservedKeys?: Set<string>; acceptedKeys?: Set<string>} = {},
+  options: {
+    reservedKeys?: Set<string>;
+    acceptedKeys?: Set<string>;
+    /**
+     * The model's trained context window, from `model_cache.context_train` -- which llama.cpp
+     * reports once it has loaded the model. `null`/absent for one it never has, and the
+     * ceiling is then not enforced: Nelle has nothing to measure the request against, and
+     * inventing a bound would refuse a legitimate long-context model on its first load.
+     */
+    trainedContextWindow?: number | null;
+  } = {},
 ): InvalidModelParam[] {
   const reserved = options.reservedKeys ?? new Set<string>();
   const invalid: InvalidModelParam[] = [];
   const seen = new Set<string>();
+
+  // The one *value* Nelle checks, and it is not a memory estimate -- it is one integer against
+  // a number llama.cpp itself reported. See `MAX_CONTEXT_EXTENSION_FACTOR` for why this is the
+  // exception to "Nelle does not police how a model is loaded".
+  const requested = requestedContextSize(params);
+  const trainedWindow = options.trainedContextWindow;
+  if (requested && trainedWindow && requested.size > trainedWindow * MAX_CONTEXT_EXTENSION_FACTOR) {
+    const ceiling = trainedWindow * MAX_CONTEXT_EXTENSION_FACTOR;
+    invalid.push({
+      key: requested.key,
+      reason: 'out_of_range',
+      message:
+        `${count(requested.size)} is ${Math.round(requested.size / trainedWindow).toLocaleString('en-US')}x ` +
+        `this model's trained window (${count(trainedWindow)}). llama.cpp would try to ` +
+        `allocate a KV cache for it and take the machine down. The largest supported ` +
+        `extension is ${MAX_CONTEXT_EXTENSION_FACTOR}x (${count(ceiling)}).`,
+      suggestion: String(ceiling),
+    });
+  }
 
   for (const [rawKey, rawValue] of Object.entries(params)) {
     const key = rawKey.trim();

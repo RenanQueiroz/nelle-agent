@@ -1,7 +1,7 @@
 import {z} from 'zod';
 
 import {nelleErrorSchema} from './contracts';
-import type {InvalidModelParam} from './modelParams';
+import type {InvalidModelParam, ModelParamWarning} from './modelParams';
 
 /**
  * The `models.ini` catalog: the models Nelle has configured, and the free-form llama.cpp
@@ -158,7 +158,7 @@ export type DeleteModelResponse = z.infer<typeof deleteModelResponseSchema>;
  */
 export const invalidModelParamSchema = z.object({
   key: z.string(),
-  reason: z.enum(['unknown', 'reserved', 'duplicate', 'syntax']),
+  reason: z.enum(['unknown', 'reserved', 'duplicate', 'syntax', 'out_of_range']),
   message: z.string(),
   /** The nearest real key, when one is close enough to be worth offering as a one-tap fix. */
   suggestion: z.string().optional(),
@@ -175,3 +175,28 @@ export const invalidModelParamsResponseSchema = z.object({
 });
 
 export type InvalidModelParamsResponse = z.infer<typeof invalidModelParamsResponseSchema>;
+
+/**
+ * A param that **saved**, and which the user probably did not mean.
+ *
+ * Not an error, and deliberately not one: a context past the model's trained window is what
+ * RoPE/YaRN extension *is*, llama.cpp permits it with a warning of its own, and refusing it
+ * would break a documented workflow. So the value lands and the client says what was asked
+ * for. Joined to a row by `key`, exactly like `InvalidModelParam`.
+ */
+export const modelParamWarningSchema = z.object({
+  key: z.string(),
+  message: z.string(),
+}) satisfies z.ZodType<ModelParamWarning>;
+
+/**
+ * `PATCH /api/models/:id`. `warnings` is absent when there is nothing to say -- a client must
+ * not render an empty amber row for every save.
+ */
+export const updateModelResponseSchema = z.object({
+  model: configuredModelSchema,
+  catalog: modelCatalogSchema,
+  warnings: z.array(modelParamWarningSchema).optional(),
+});
+
+export type UpdateModelResponse = z.infer<typeof updateModelResponseSchema>;

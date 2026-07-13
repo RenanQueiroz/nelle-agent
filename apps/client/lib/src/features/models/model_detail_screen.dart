@@ -4,6 +4,7 @@ import 'package:forui/forui.dart';
 
 import '../../api/generated/models/configured_model.dart';
 import '../../api/generated/models/invalid_model_param.dart';
+import '../../api/generated/models/model_param_warning.dart';
 import '../../api/generated/models/llama_router_model.dart';
 import 'llama_repository.dart';
 import 'models_controller.dart';
@@ -25,6 +26,7 @@ class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
   late final TextEditingController _name;
   Map<String, String> _params = const {};
   List<InvalidModelParam> _invalid = const [];
+  List<ModelParamWarning> _warnings = const [];
   String? _busy;
   String? _notice;
 
@@ -51,6 +53,9 @@ class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
     setState(() {
       _busy = key;
       _notice = null;
+      // Both belong to the *previous* save. A warning left standing through a refused save
+      // would describe a value that is no longer in force.
+      _warnings = const [];
     });
     try {
       await action();
@@ -156,6 +161,7 @@ class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
                 key: const ValueKey('k-model-params'),
                 initial: model.params.extra,
                 invalidParams: _invalid,
+                warnings: _warnings,
                 onChanged: (params) => _params = params,
               ),
               const SizedBox(height: 12),
@@ -163,17 +169,17 @@ class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
                 key: const ValueKey('k-model-save'),
                 onPress: _busy != null
                     ? null
-                    : () => _run(
-                        'save',
-                        () => ref
+                    : () => _run('save', () async {
+                        // The save *lands* and may still have something to say — a context
+                        // past the model's trained window works only with RoPE/YaRN. Keep it.
+                        final warnings = await ref
                             .read(modelCatalogProvider.notifier)
-                            .saveParams(model.id, _params)
-                            .then(
-                              (_) => ref
-                                  .read(modelCatalogProvider.notifier)
-                                  .rename(model.id, _name.text.trim()),
-                            ),
-                      ),
+                            .saveParams(model.id, _params);
+                        await ref
+                            .read(modelCatalogProvider.notifier)
+                            .rename(model.id, _name.text.trim());
+                        if (mounted) setState(() => _warnings = warnings);
+                      }),
                 child: Text(_busy == 'save' ? 'Saving…' : 'Save'),
               ),
 

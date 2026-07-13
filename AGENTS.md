@@ -470,6 +470,55 @@ Project-specific guidance for AI coding agents.
   user asked for, let llama.cpp load it or fail, and surface the failure: the
   router reports `status.exit_code`, and the child's stderr is already in
   `.nelle/logs/llama-server.log` behind its pid.
+- **`c` is the one exception, and it is a bound, not an estimate.** Everything above
+  assumes a bad value *fails the load*. `c` does not: it is the only lever that
+  **bypasses `--fit`** (which by design only adjusts arguments the user left *unset*), so
+  llama.cpp allocates a KV cache for whatever integer it is handed without ever asking how
+  much memory exists. `c = 900000000` does not fail — it takes the machine down, logging
+  `loading model` and then nothing at all, because nothing survives to write an error. (Not
+  hypothetical: it killed this WSL2 VM mid-drive. Under WSL2 the VM balloons its memory from
+  the Windows host, so the blast radius is the whole VM rather than the one process an OOM
+  killer would have shot.) So `validateModelParams` refuses `c` above
+  **`MAX_CONTEXT_EXTENSION_FACTOR` (32) × the model's trained window**, and *warns* on any
+  overshoot at all.
+  - **Running past `n_ctx_train` is legitimate**, which is why the ceiling is generous and the
+    overshoot only warns. RoPE/YaRN rescaling extends a model's context, llama.cpp ships the
+    flags (`--rope-scaling {none,linear,yarn}`, `--yarn-orig-ctx`), Qwen's own model cards tell
+    you to do it, and llama.cpp permits it with nothing but a warning of its own
+    (`llama-context.cpp`: `n_ctx_seq (%u) > n_ctx_train (%u) -- possible training context
+    overflow`). Nelle mirrors that. But the real band is 2x–8x, and the typo is 6,866x: 32x sits
+    an order of magnitude above anything anyone wants and three below the fat finger, so it
+    refuses nothing real.
+  - It is **not** a memory estimate — it is one integer against a number llama.cpp itself
+    reported (`model_cache.context_train`). For a model that has **never loaded** there is no
+    window, so neither the ceiling nor the warning fires: inventing a bound would refuse a
+    legitimate long-context model on its very first load.
+  - Guard **every spelling** (`CONTEXT_SIZE_KEYS`: `c`, `ctx-size`, `LLAMA_ARG_CTX_SIZE`) —
+    `get_map_key_opt` treats them as one option, so a guard that knows only `c` is stepped
+    around by a user who typed `ctx-size`, and llama.cpp allocates all the same. Case-sensitive:
+    `-C` is `--cpu-mask`. `c = 0` is never refused (it means "the full trained window").
+    `fitc` is *not* guarded: it runs through `common_fit_params`, which is memory-aware.
+  - **A `suggestion` means two different things**, and one implementation for both is a bug: for
+    an `unknown` key it is the nearest real option and replaces the **key**; for `out_of_range`
+    it is the largest workable size and replaces the **value**. Applying both to the key field —
+    the obvious single implementation — renames `c` to `4194304`.
+- **A runtime that will not start must say why, and `waitForHealth` must not wait for a corpse.**
+  `llama-server exited with code 1` is true and worth nothing; llama.cpp had already written the
+  reason, naming the offending key *and* its section (`option 'x' not recognized in preset
+  '<section>'` — which a user *can* hit, because `models.ini` is hand-editable and only the API
+  validates it). `describeExit` takes the last `E` line from the log and appends it to the exit
+  code. The exit code is what makes that line *the reason*: an `E` on its own is not a failure —
+  a **successful** offline load of a pinned model logs `E get_repo_commit: GET failed (404)`
+  every single time. And `waitForHealth` now gives up the moment `#process` goes null rather
+  than polling a dead port for its full 30s deadline, so a doomed start fails in ~200ms with the
+  reason instead of after half a minute with a timeout that blames the port.
+- **A `LlamaCppManager` test must pin `NELLE_LLAMA_PORT`, or it adopts the developer's
+  llama-server.** `waitForHealth` polls `host:port` and cannot tell a llama-server it started
+  from any other one; the default is **8080**, which is exactly where a real one is running. A
+  test whose subject is a llama-server that *died* will therefore watch its fake binary exit,
+  poll 8080, find the live router, and report the doomed start a success — passing alone and
+  failing in the suite, or worse, passing in both while testing nothing. This is the same trap
+  that made the e2e harness pin `18080`.
 - Cache GGUF metadata by the file's blob oid, never by repo, commit, path or
   mtime. `recordModelProps` is the single place a successful `/props` is
   recorded: it takes `raw.model_path`, `realpath`s it, keeps the basename when it

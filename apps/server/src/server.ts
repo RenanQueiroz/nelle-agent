@@ -73,6 +73,8 @@ import {
   invalidModelParamsCode,
   invalidModelParamsMessage,
   validateModelParams,
+  modelParamWarnings,
+  type ModelParamWarning,
   type InvalidModelParam,
 } from '../../../packages/shared/src/modelParams.ts';
 import {LlamaOptionCatalogueCache} from './llamaParams';
@@ -540,6 +542,11 @@ export async function createServer(
   router.patch('/api/models/:id', async ctx => {
     const id = ctx.params.id;
     const body = updateModelSchema.parse(await ctx.body());
+    // llama.cpp reports `n_ctx_train` once it has loaded the model, and it is cached here.
+    // `null` for a model it never has, which leaves the context ceiling unenforced -- see
+    // `MAX_CONTEXT_EXTENSION_FACTOR`.
+    const trainedContextWindow = modelCache.getModel(id)?.contextTrain ?? null;
+    let warnings: ModelParamWarning[] = [];
     if (body.params) {
       const invalid = validateModelParams(body.params, {
         // `offline` is the `pinned` field, and Nelle writes it after a successful load -- a
@@ -547,10 +554,12 @@ export async function createServer(
         // watch it come back. It has a switch, not a text box.
         reservedKeys: new Set(['hf-repo', 'alias', 'offline']),
         acceptedKeys: await llamaOptions.acceptedKeys(),
+        trainedContextWindow,
       });
       if (invalid.length > 0) {
         return json(invalidModelParamsResponse(invalid), 400);
       }
+      warnings = modelParamWarnings(body.params, trainedContextWindow);
     }
     let model;
     try {
@@ -567,7 +576,14 @@ export async function createServer(
       );
     }
     await writePresetAndReloadRouter(llama, store, modelCache);
-    return json({model: await decorateModel(model), catalog: await modelCatalog()});
+    // `warnings` is what the save *did*, not why it failed: a context past the trained window
+    // is legitimate (RoPE/YaRN) and llama.cpp itself only warns, so the value lands and the
+    // user is told what they asked for. Absent when there is nothing to say.
+    return json({
+      model: await decorateModel(model),
+      catalog: await modelCatalog(),
+      ...(warnings.length > 0 ? {warnings} : {}),
+    });
   });
 
   router.post('/api/models/:id/duplicate', async ctx => {

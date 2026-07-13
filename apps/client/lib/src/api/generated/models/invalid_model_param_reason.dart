@@ -14,6 +14,8 @@ enum InvalidModelParamReason {
   duplicate('duplicate'),
   @JsonValue('syntax')
   syntax('syntax'),
+  @JsonValue('out_of_range')
+  outOfRange('out_of_range'),
 
   /// Default value for all unparsed values, allows backward compatibility when adding new values on the backend.
   $unknown(null);

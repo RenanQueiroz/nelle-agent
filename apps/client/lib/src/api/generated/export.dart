@@ -45,6 +45,8 @@ export 'models/model_catalog.dart';
 export 'models/delete_model_response.dart';
 export 'models/invalid_model_param.dart';
 export 'models/invalid_model_params_response.dart';
+export 'models/model_param_warning.dart';
+export 'models/update_model_response.dart';
 export 'models/hugging_face_file.dart';
 export 'models/hugging_face_quant.dart';
 export 'models/hugging_face_model_result.dart';

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
 import 'package:nelle_agent/src/api/api_client.dart';
 import 'package:nelle_agent/src/api/generated/models/invalid_model_param.dart';
+import 'package:nelle_agent/src/api/generated/models/model_param_warning.dart';
 import 'package:nelle_agent/src/api/generated/models/invalid_model_param_reason.dart';
 import 'package:nelle_agent/src/features/models/model_detail_screen.dart';
 import 'package:nelle_agent/src/features/models/models_controller.dart';
@@ -236,6 +237,7 @@ void main() {
     Widget editor({
       Map<String, String> initial = const {},
       List<InvalidModelParam> invalid = const [],
+      List<ModelParamWarning> warnings = const [],
       void Function(Map<String, String>)? onChanged,
     }) => ProviderScope(
       child: MaterialApp(
@@ -246,6 +248,7 @@ void main() {
             child: ParamEditor(
               initial: initial,
               invalidParams: invalid,
+              warnings: warnings,
               onChanged: onChanged ?? (_) {},
             ),
           ),
@@ -320,6 +323,84 @@ void main() {
 
       // The server already knew what they meant.
       expect(emitted, {'temperature': '0.7'});
+    });
+
+    testWidgets('an out-of-range suggestion replaces the VALUE, not the key', (
+      tester,
+    ) async {
+      // A suggestion means two different things, and one implementation for both is a bug.
+      // For an `unknown` key it is the nearest real option, so it replaces the key. For an
+      // `out_of_range` context size it is the largest value that would work -- so applying it
+      // to the key field, which is what the existing one-tap fix did, renames `c` to
+      // `4194304` and produces a second, stranger error.
+      Map<String, String>? emitted;
+      await tester.pumpWidget(
+        editor(
+          initial: const {'c': '900000000'},
+          invalid: [
+            InvalidModelParam(
+              key: 'c',
+              reason: InvalidModelParamReason.outOfRange,
+              message: '900,000,000 is 6,866x this model’s trained window.',
+              suggestion: '4194304',
+            ),
+          ],
+          onChanged: (params) => emitted = params,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Use 4194304'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('k-param-suggest-0')));
+      await tester.pumpAndSettle();
+
+      expect(emitted, {'c': '4194304'}, reason: 'the key must survive');
+    });
+
+    testWidgets('a warning shows on its row, and is not an error', (
+      tester,
+    ) async {
+      // A context past the trained window is legitimate -- that is what RoPE/YaRN extension is,
+      // and llama.cpp itself only warns -- so the value SAVED. The row must say what was asked
+      // for without claiming the save failed.
+      await tester.pumpWidget(
+        editor(
+          initial: const {'c': '524288'},
+          warnings: const [
+            ModelParamWarning(
+              key: 'c',
+              message: '524,288 is 4.0x this model’s trained window (131,072).',
+            ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('k-param-warning-0')), findsOneWidget);
+      expect(find.byKey(const ValueKey('k-param-error-0')), findsNothing);
+    });
+
+    testWidgets('a refused row shows the error, never also a warning', (
+      tester,
+    ) async {
+      // Stacking both would say the save did and did not happen.
+      await tester.pumpWidget(
+        editor(
+          initial: const {'c': '900000000'},
+          invalid: [
+            InvalidModelParam(
+              key: 'c',
+              reason: InvalidModelParamReason.outOfRange,
+              message: 'too big',
+            ),
+          ],
+          warnings: const [ModelParamWarning(key: 'c', message: 'stale')],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('k-param-error-0')), findsOneWidget);
+      expect(find.byKey(const ValueKey('k-param-warning-0')), findsNothing);
     });
 
     testWidgets('a row with an empty key is dropped, not sent as ""', (

@@ -2073,7 +2073,7 @@
           },
           "reason": {
             "type": "string",
-            "enum": ["unknown", "reserved", "duplicate", "syntax"]
+            "enum": ["unknown", "reserved", "duplicate", "syntax", "out_of_range"]
           },
           "message": {
             "type": "string"
@@ -2099,6 +2099,38 @@
           }
         },
         "required": ["error", "invalidParams"],
+        "additionalProperties": false
+      },
+      "ModelParamWarning": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["key", "message"],
+        "additionalProperties": false
+      },
+      "UpdateModelResponse": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/ConfiguredModel"
+          },
+          "catalog": {
+            "$ref": "#/components/schemas/ModelCatalog"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelParamWarning"
+            }
+          }
+        },
+        "required": ["model", "catalog"],
         "additionalProperties": false
       },
       "HuggingFaceFile": {

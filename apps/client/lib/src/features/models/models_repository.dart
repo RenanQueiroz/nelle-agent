@@ -7,6 +7,7 @@ import '../../api/generated/models/configured_model.dart';
 import '../../api/generated/models/invalid_model_param.dart';
 import '../../api/generated/models/delete_model_response.dart';
 import '../../api/generated/models/model_catalog.dart';
+import '../../api/generated/models/model_param_warning.dart';
 import '../../api/request.dart';
 
 /// A refused params save, with **every** offending key — not just the first.
@@ -53,19 +54,37 @@ class ModelsRepository {
   ///
   /// [pinned] `false` lets the next load re-check Hugging Face, so an upstream fix can land.
   /// It re-pins itself once that load succeeds — an update is a deliberate act.
-  Future<ModelCatalog> update(
+  ///
+  /// Answers the catalog **and any warnings**. A warning is not an error: a context past the
+  /// model's trained window is what RoPE/YaRN extension *is*, so the value saves and the user
+  /// is told what they just asked for. Dropping warnings on the floor means the user finds out
+  /// by crashing the machine — which is precisely how this warning came to exist.
+  Future<ModelUpdate> update(
     String id, {
     String? name,
     bool? pinned,
     Map<String, String>? params,
-  }) {
-    return _mutate(
+  }) async {
+    final res = await _mutateRaw(
       () => _dio.patch<Map<String, dynamic>>(
         '/api/models/${Uri.encodeComponent(id)}',
         // Only what the caller touched: a save must not rewrite a field they never looked at.
         data: {'name': ?name, 'pinned': ?pinned, 'params': ?params},
         options: longCall(),
       ),
+    );
+    final warnings = res.data?['warnings'];
+    return ModelUpdate(
+      catalog: _catalogOf(res),
+      warnings: warnings is List
+          ? warnings
+                .map(
+                  (e) => ModelParamWarning.fromJson(
+                    (e as Map).cast<String, Object?>(),
+                  ),
+                )
+                .toList()
+          : const [],
     );
   }
 
@@ -128,6 +147,17 @@ class ModelsRepository {
   /// Every mutation returns `{..., catalog}` and a 400 carries `invalidParams`.
   Future<ModelCatalog> _mutate(
     Future<Response<Map<String, dynamic>>> Function() run,
+  ) async => _catalogOf(await _mutateRaw(run));
+
+  ModelCatalog _catalogOf(Response<Map<String, dynamic>> res) =>
+      ModelCatalog.fromJson(
+        (res.data?['catalog'] as Map?)?.cast<String, Object?>() ?? const {},
+      );
+
+  /// The shared 400 handling. Kept separate from [_mutate] so `update` can read the
+  /// `warnings` the body may also carry without re-implementing any of this.
+  Future<Response<Map<String, dynamic>>> _mutateRaw(
+    Future<Response<Map<String, dynamic>>> Function() run,
   ) async {
     final Response<Map<String, dynamic>> res;
     try {
@@ -160,10 +190,17 @@ class ModelsRepository {
       }
       throw NelleApiException.fromResponse(res);
     }
-    return ModelCatalog.fromJson(
-      (res.data?['catalog'] as Map?)?.cast<String, Object?>() ?? const {},
-    );
+    return res;
   }
+}
+
+/// What a model save answered with. The warnings are things the save **did**, not reasons it
+/// failed — a refusal throws.
+class ModelUpdate {
+  const ModelUpdate({required this.catalog, required this.warnings});
+
+  final ModelCatalog catalog;
+  final List<ModelParamWarning> warnings;
 }
 
 /// Convenience: the model a catalog says is the global default, or `null`.
