@@ -335,6 +335,20 @@ Project-specific guidance for AI coding agents.
   `bun run test`.
 - Formatting and linting use Oxfmt and Oxlint. Run `bun run format` for
   formatter writes and `bun run lint:fix` for safe lint fixes.
+- **Stopping the dev server: two traps, and together they look exactly like a
+  shutdown hang.** `bun run dev` runs `dev:server` = **`bun --watch`**, which is a
+  *supervisor plus a child* -- **two processes with the identical `ps` cmdline**
+  (`bun apps/server/src/index.ts`), sharing one port between them. Kill them and the
+  supervisor may restart its child, so the port is re-bound a moment later and the
+  next start dies with `EADDRINUSE` while `ps` still shows two survivors: it reads as
+  a server that will not die. It is not. Shutdown is sound and **measured** -- SIGTERM
+  exits in ~260 ms when idle, with an SSE stream held open, mid-run, *and* while
+  holding a managed llama-server child (which survives on purpose: it is detached, for
+  pid-file adoption). Use **`bun run serve`** (a single process) when you need to stop
+  it deterministically, and kill by the pid you captured, not by pattern. Second trap,
+  and it is worse: **`pkill -f "bun.*apps/server"` matches the agent's own shell**,
+  which contains that string in its command line -- so it kills the tool call and
+  returns **exit code 144** rather than doing anything useful. Kill by pid.
 - Unit tests run on `bun:test` with `node:assert/strict`; a `createTestServer`
   helper (`tests/unit/helpers/testServer.ts`) drives the `Bun.serve` `fetch`
   handler through an `inject`/`close` surface, so route tests did not churn.
