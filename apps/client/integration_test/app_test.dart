@@ -1,4 +1,5 @@
 import 'helpers/device_harness.dart';
+import 'suites/attachments.dart';
 import 'suites/errors.dart';
 import 'suites/http_probe.dart';
 import 'suites/lifecycle.dart';
@@ -25,4 +26,5 @@ void main() {
   smokeSuite();
   lifecycleSuite();
   errorsSuite();
+  attachmentsSuite();
 }

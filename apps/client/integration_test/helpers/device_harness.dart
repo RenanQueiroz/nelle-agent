@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:nelle_agent/main.dart' as app;
@@ -151,19 +152,53 @@ Future<Map<String, dynamic>> serverPost(String path, [Object? body]) async {
   }
 }
 
-/// Creates a conversation the calling test **owns**, and answers its title.
+/// DELETEs a path and answers the **status code**, not the body.
+///
+/// Used to ask the server whether something is really gone: a second delete of an upload the
+/// composer already removed must be a 404. The UI cannot answer that — it cannot tell "the chip is
+/// hidden" from "the bytes are deleted", and those are exactly the two things `remove()` and
+/// `clear()` deliberately do differently.
+Future<int> serverDeleteStatus(String path) async {
+  final client = HttpClient();
+  try {
+    final request = await client.deleteUrl(
+      Uri.parse('http://127.0.0.1:$fixturePort$path'),
+    );
+    final response = await request.close();
+    await response.drain<void>();
+    return response.statusCode;
+  } finally {
+    client.close();
+  }
+}
+
+/// A conversation the calling test **owns**: its id, and the title it was created with.
+typedef OwnedConversation = ({String id, String title});
+
+/// Creates a conversation the calling test **owns**.
 ///
 /// **The seeded fixtures are read-only.** Every test in the suite drives the same server, in one
 /// process, in order — so a test that renames a seeded conversation breaks the next test that looks
 /// for it by name, which is exactly what happened the first time this suite ran. A test that mutates
 /// therefore brings its own conversation, with a title nothing else uses.
 ///
+/// **It answers the id, and a slow test must use it rather than [idOf].** The server *generates a
+/// title* from the first exchange of any chat still on a fallback title — so the moment a real model
+/// answers, the conversation is no longer called what the test called it, and looking it up by name
+/// throws. It is a race, too: title generation is fire-and-forget, so a test that finishes quickly
+/// enough finds the old title and passes, and the same test on a slower day does not. Ask for the id
+/// once, at creation, and the whole problem disappears.
+///
 /// Call it **before** [launchApp]: the sidebar is loaded once at startup, and a conversation created
 /// afterwards is not in it.
-Future<String> createOwnConversation(String label) async {
+Future<OwnedConversation> createOwnConversation(String label) async {
   final title = 'Owned by: $label';
-  await serverPost('/api/conversations', {'title': title});
-  return title;
+  final created = await serverPost('/api/conversations', {'title': title});
+  final id = (created['conversation'] as Map<String, dynamic>?)?['id'] as String?;
+  if (id == null) {
+    throw StateError('POST /api/conversations did not answer an id: $created');
+  }
+  return (id: id, title: title);
 }
 
 
@@ -200,6 +235,36 @@ Future<void> pumpUntil(
   );
 }
 
+
+/// Types [text] into a field, and **fails loudly if the text did not land**.
+///
+/// **`tester.enterText` is a silent no-op on a field that is not focused**, and that is the single
+/// most expensive trap in this suite. It does not throw, it does not warn: the text simply is not
+/// there, and the test sails on to assert against a screen where nothing was typed. The failure then
+/// appears wherever the *consequence* was expected — a compaction that never started, a message that
+/// was never sent — which is nowhere near the line that actually broke.
+///
+/// The first `enterText` in a test usually works, because nothing has taken focus yet. The *second*
+/// often does not: a completed run rebuilds the composer, the text-input connection goes stale, and
+/// `enterText` writes into nothing. So tap the field first, exactly as a person would, and then
+/// **check** — a helper that can fail quietly is a helper that will.
+Future<void> typeInto(WidgetTester tester, Finder field, String text) async {
+  await tester.tap(field);
+  await tester.pumpAndSettle();
+  await tester.enterText(field, text);
+  await tester.pumpAndSettle();
+
+  final editable = tester.widget<TextField>(
+    find.descendant(of: field, matching: find.byType(TextField)),
+  );
+  final landed = editable.controller?.text ?? '';
+  if (landed != text) {
+    throw TestFailure(
+      'enterText did not land: expected "$text" but the field holds "$landed". '
+      'The field was probably not focused — enterText fails silently when it is not.',
+    );
+  }
+}
 
 /// Scrolls [finder] into view, then taps it.
 ///

@@ -42,10 +42,10 @@ void lifecycleSuite() {
     // It brings its own conversation: every test drives the same server, in order, so renaming a
     // *seeded* one breaks the next test that looks for it by name. (Which is what happened the
     // first time this suite ran.)
-    final title = await createOwnConversation('the rename test');
+    final chat = await createOwnConversation('the rename test');
     await launchApp(tester);
 
-    final id = await idOf(tester, title);
+    final id = chat.id;
     await tester.tap(find.byKey(ValueKey('k-conv-menu-$id')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('k-conv-rename-$id')));
@@ -125,29 +125,29 @@ void lifecycleSuite() {
   ) async {
     // The delete is **held**, not undone: the server's delete is irreversible the moment it lands.
     // Undo must mean it never happens at all -- which only a real server can prove.
-    final title = await createOwnConversation('the delete test');
+    final chat = await createOwnConversation('the delete test');
     await launchApp(tester);
 
-    final id = await idOf(tester, title);
+    final id = chat.id;
     await tester.tap(find.byKey(ValueKey('k-conv-menu-$id')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('k-conv-delete-$id')));
     await tester.pumpAndSettle();
 
     // Hidden at once.
-    expect(find.text(title), findsNothing);
+    expect(find.text(chat.title), findsNothing);
 
     await tester.tap(find.byKey(ValueKey('k-conv-undo-$id')));
     await tester.pumpAndSettle();
 
-    expect(find.text(title), findsOneWidget);
+    expect(find.text(chat.title), findsOneWidget);
 
     // Wait out the window it *would* have fired in, then ask the **server**. The UI alone cannot
     // tell "hidden" from "gone" -- and the whole claim is that an undone delete never happened.
     await tester.pump(const Duration(seconds: 6));
     await tester.pumpAndSettle();
     expect(
-      await serverHasConversation(title),
+      await serverHasConversation(chat.title),
       isTrue,
       reason: 'an undone delete must never reach the server',
     );

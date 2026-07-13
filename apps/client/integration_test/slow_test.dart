@@ -33,17 +33,17 @@ void main() {
     // Pi's agent replays it and completes without any text at all. Only a session Pi itself created
     // -- which is what `POST /api/conversations` makes -- can be chatted with. The hand-seeded ones
     // are for the fast tier, which never sends a message.
-    final title = await createOwnConversation('a real generation');
+    final chat = await createOwnConversation('a real generation');
     await launchApp(tester);
 
-    await tester.tap(find.text(title));
+    await tester.tap(find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
 
-    await tester.enterText(
+    await typeInto(
+      tester,
       find.byKey(const ValueKey('k-composer-input')),
       'Reply with exactly one word: yes',
     );
-    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('k-composer-send')));
 
     // The weights load first. It is tens of seconds, and the transcript says so rather than sitting
@@ -78,17 +78,17 @@ void main() {
     // `AbortSignal`, so the model actually stops generating rather than finishing into a void. And
     // the composer must stay *usable* while a run streams -- a stop button under a `pointer-events:
     // none` overlay is a stop button that cannot be pressed, which is a bug `apps/web` shipped.
-    final title = await createOwnConversation('a stopped run');
+    final chat = await createOwnConversation('a stopped run');
     await launchApp(tester);
 
-    await tester.tap(find.text(title));
+    await tester.tap(find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
 
-    await tester.enterText(
+    await typeInto(
+      tester,
       find.byKey(const ValueKey('k-composer-input')),
       'Count slowly from 1 to 500, one number per line.',
     );
-    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('k-composer-send')));
 
     // Wait until it is genuinely streaming, then stop it.
@@ -109,10 +109,136 @@ void main() {
 
     // The conversation is `ready` again on the **server**, not merely on screen: an abort that left
     // a stuck `running` row would block every future send.
-    final id = await idOf(tester, title);
+    final id = chat.id;
     final snapshot = await serverGet('/api/conversations/$id');
     final conversation =
         (snapshot['snapshot'] as Map)['conversation'] as Map<String, dynamic>;
     expect(conversation['status'], 'ready');
   }, timeout: const Timeout(Duration(minutes: 5)));
+
+  testWidgets('/compact is intercepted by the client and really compacts', (
+    tester,
+  ) async {
+    // **`/compact` is NOT refused by the chat route** -- it is on the server's allowlist, so
+    // posting it to `chat/stream` would hand the model the literal text "/compact". Intercepting it
+    // and calling the compaction endpoint instead is the *client's* job, and this is the only test
+    // that proves the client does it against a real Pi session rather than a stub.
+    //
+    // It needs a real model: compaction is Pi summarizing the conversation, so there is nothing to
+    // stub and nothing to fake.
+    final chat = await createOwnConversation('a compacted chat');
+    await launchApp(tester);
+
+    await tester.tap(find.text(chat.title));
+    await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
+
+    // Something to compact.
+    await typeInto(
+      tester,
+      find.byKey(const ValueKey('k-composer-input')),
+      'In one short sentence, what is a pelican?',
+    );
+    await tester.tap(find.byKey(const ValueKey('k-composer-send')));
+    await pumpUntil(
+      tester,
+      find.byKey(const ValueKey('k-composer-send')),
+      timeout: const Duration(minutes: 3),
+    );
+
+    // **`typeInto`, not `enterText`.** A completed run rebuilds the composer, and `enterText` into
+    // an unfocused field is a *silent no-op* -- the "/compact" simply never arrives, the send button
+    // does nothing because the box is empty, and the failure surfaces three minutes later as a
+    // compaction that never started. That is the bug this test found on its first run, in itself.
+    await typeInto(
+      tester,
+      find.byKey(const ValueKey('k-composer-input')),
+      '/compact',
+    );
+    await tester.tap(find.byKey(const ValueKey('k-composer-send')));
+
+    // The "context compacted" row is **synthesized** from `compact.completed`.
+    // `buildConversationMessages` drops compaction entries (they have no role), so a reload will
+    // never show it -- which means seeing it here is proof the *event* arrived, not merely that a
+    // snapshot happened to contain something.
+    await pumpUntil(
+      tester,
+      find.byKey(const ValueKey('k-chat-compact-note')),
+      timeout: const Duration(minutes: 3),
+    );
+    expect(tester.takeException(), isNull);
+
+    // ...and the conversation is usable afterwards, which is the whole point of compacting it.
+    await pumpUntil(tester, find.byKey(const ValueKey('k-composer-send')));
+    final id = chat.id;
+    final snapshot = await serverGet('/api/conversations/$id');
+    final conversation =
+        (snapshot['snapshot'] as Map)['conversation'] as Map<String, dynamic>;
+    expect(conversation['status'], 'ready');
+  }, timeout: const Timeout(Duration(minutes: 8)));
+
+  testWidgets('switching conversations mid-run leaves the run alone', (
+    tester,
+  ) async {
+    // **Run state is per conversation**, and this is where that stops being a claim. A client that
+    // tracked one global "is running" would show the second chat as busy, leak the first chat's
+    // deltas into the second transcript, or -- worst -- abort the run on the way out. The user
+    // starts a long answer and goes to read something else; the answer must still be there.
+    final answering = await createOwnConversation('the chat that is answering');
+    final other = await createOwnConversation('the chat being read');
+    await launchApp(tester);
+
+    await tester.tap(find.text(answering.title));
+    await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
+    await typeInto(
+      tester,
+      find.byKey(const ValueKey('k-composer-input')),
+      'Count slowly from 1 to 200, one number per line.',
+    );
+    await tester.tap(find.byKey(const ValueKey('k-composer-send')));
+
+    // Genuinely streaming.
+    await pumpUntil(
+      tester,
+      find.byKey(const ValueKey('k-composer-stop')),
+      timeout: const Duration(minutes: 3),
+    );
+
+    // Leave, mid-stream. (On a phone the chat replaces the list, so go back first; on a desktop
+    // the back button is not there and the list already is. Either way the *tap on the other
+    // conversation* is the thing being tested.)
+    final back = find.byKey(const ValueKey('k-chat-back'));
+    if (back.evaluate().isNotEmpty) {
+      await tester.tap(back);
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.text(other.title));
+    await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
+
+    // The other conversation is idle and **sendable** -- its composer offers send, not stop. The
+    // run belongs to the chat that started it.
+    expect(find.byKey(const ValueKey('k-composer-send')), findsOneWidget);
+    expect(find.byKey(const ValueKey('k-composer-stop')), findsNothing);
+    // ...and the first chat's tokens are not leaking into this transcript.
+    expect(find.textContaining('\n2\n'), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    // The run it left behind was never touched: it finishes, on the server, on its own.
+    final id = answering.id;
+    var status = '';
+    final deadline = DateTime.now().add(const Duration(minutes: 4));
+    while (DateTime.now().isBefore(deadline)) {
+      await tester.pump(const Duration(milliseconds: 500));
+      final snapshot = await serverGet('/api/conversations/$id');
+      status =
+          ((snapshot['snapshot'] as Map)['conversation']
+                  as Map<String, dynamic>)['status']
+              as String;
+      if (status == 'ready') break;
+    }
+    expect(
+      status,
+      'ready',
+      reason: 'switching away must not abort the run, nor leave it stuck running',
+    );
+  }, timeout: const Timeout(Duration(minutes: 10)));
 }

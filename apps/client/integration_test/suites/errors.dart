@@ -25,8 +25,9 @@ void errorsSuite() {
     await tester.pumpAndSettle();
 
     const typed = 'A message that will be refused';
-    await tester.enterText(find.byKey(const ValueKey('k-composer-input')), typed);
-    await tester.pumpAndSettle();
+    // `typeInto`, not `enterText`: the latter is a silent no-op on an unfocused field, and a test
+    // that asserts on text it never actually typed is worse than no test at all.
+    await typeInto(tester, find.byKey(const ValueKey('k-composer-input')), typed);
     await tester.tap(find.byKey(const ValueKey('k-composer-send')));
 
     // The server's own sentence, not a client guess at why. Waited for, not settled for.

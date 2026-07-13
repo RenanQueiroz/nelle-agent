@@ -353,9 +353,22 @@ Project-specific guidance for AI coding agents.
     nothing and fails *silently*. Use `tapAt` (which `ensureVisible`s first). `tester.pageBack()`
     is useless here: it looks for a Material/Cupertino back button and this app is forui over a
     bare `FScaffold`.
+  - **`tester.enterText` is a silent no-op on a field that is not focused** — the most expensive
+    trap in the suite. It does not throw and does not warn: the text is simply not there, and the
+    test sails on to assert against a screen where nothing was typed, so the failure surfaces
+    wherever the *consequence* was expected and nowhere near the line that broke. The *first*
+    `enterText` in a test usually works, because nothing has taken focus yet; the second often does
+    not, because a completed run rebuilds the composer and the text-input connection goes stale.
+    Use `typeInto`, which taps the field first and then **verifies the text landed**. (This cost an
+    hour: `/compact` was never typed, so the send button did nothing, and the failure appeared three
+    minutes later as a compaction that never started.)
   - **The seeded fixtures are read-only.** Every test drives the same server, in one process,
     in order, so a test that renames a seeded conversation breaks the next test that looks for
-    it by name. A mutating test calls `createOwnConversation()`.
+    it by name. A mutating test calls `createOwnConversation()`, which answers the **id** — and a
+    slow test must use that rather than looking the conversation up by title, because **the server
+    generates a title from the first exchange**: the moment a real model answers, the chat is no
+    longer called what the test called it. It is a race, too (title generation is fire-and-forget),
+    so the same test passes on a fast day and fails on a slow one.
   - **A hand-seeded Pi session can be READ but not CONTINUED.** Entries written directly with
     `SessionManager.appendMessage` replay fine, but Pi's agent then completes with no text at
     all. Only a session Pi itself created (`POST /api/conversations`) can be chatted with — so

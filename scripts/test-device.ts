@@ -28,14 +28,39 @@ const isAndroid = device.startsWith('emulator-') || device.startsWith('android')
 // `deviceFlag` is -1 and that expression is 0 -- which would silently drop the first positional
 // argument, i.e. the very file the caller asked to run.
 const deviceNameIndex = deviceFlag >= 0 ? deviceFlag + 1 : -1;
-const targets = args.filter((arg, i) => !arg.startsWith('-') && i !== deviceNameIndex);
-// The **entrypoint**, not the directory: `flutter test <dir>` runs each file in its own app
-// launch, and on Linux the second launch fails outright. See `integration_test/app_test.dart`.
+
+// Flags that take a *value*, so the token after them is theirs and is not a target. Without this,
+// `--plain-name compact` loses its argument: "compact" does not start with a dash, so it is read
+// as the file to run, and flutter is handed a `--plain-name` with nothing after it.
+const valueFlags = new Set(['--plain-name', '--name', '--tags', '--exclude-tags']);
+const valueIndexes = new Set(
+  args.map((arg, i) => (valueFlags.has(arg) ? i + 1 : -1)).filter(i => i >= 0),
+);
+
+const isTarget = (arg: string, i: number) =>
+  !arg.startsWith('-') && i !== deviceNameIndex && !valueIndexes.has(i);
+const targets = args.filter(isTarget);
 // The **entrypoint**, not the directory: `flutter test <dir>` runs each file in its own app
 // launch, and on Linux the second launch fails outright. See `integration_test/app_test.dart`.
 const target =
   targets[0] ??
   (args.includes('--slow') ? 'integration_test/slow_test.dart' : 'integration_test/app_test.dart');
+
+/**
+ * Anything else is handed to `flutter test` untouched -- `--plain-name`, above all.
+ *
+ * The suite is one entrypoint, so without this the only way to re-run a single failing test is to
+ * run every test before it. On the slow tier that is minutes of real generation per attempt, which
+ * is enough friction to make you debug by staring instead of by running.
+ */
+const passthrough = args.filter(
+  (arg, i) =>
+    !isTarget(arg, i) &&
+    arg !== '--slow' &&
+    arg !== '-d' &&
+    i !== deviceNameIndex &&
+    arg !== target,
+);
 
 const cleanups: Array<() => void | Promise<void>> = [];
 
@@ -118,6 +143,7 @@ const flutter = Bun.spawn(
     // The port is passed in, never guessed. A hard-coded 8787 would point the suite at whatever
     // the developer happens to have running.
     `--dart-define=NELLE_FIXTURE_PORT=${port}`,
+    ...passthrough,
   ],
   {cwd: 'apps/client', stdout: 'inherit', stderr: 'inherit'},
 );
