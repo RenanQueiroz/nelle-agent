@@ -8,6 +8,7 @@ import {createAppPaths} from '../apps/server/src/paths';
 import {createServer} from '../apps/server/src/server';
 import {AppDatabase} from '../apps/server/src/database';
 import {ConversationRepository} from '../apps/server/src/conversations';
+import {AppStore} from '../apps/server/src/store';
 
 /**
  * The Nelle server the **device tests** drive.
@@ -64,14 +65,57 @@ export const FIXTURE = {
   aboutPelicans: 'Everything about pelicans',
   /** No entries at all. Cloning it is refused (`conversation_not_branchable`). */
   empty: 'An empty conversation',
+  /**
+   * Bound to a Pi session file that is not there -- `unavailable` from the moment it is read.
+   *
+   * Seeded broken rather than broken by the test, because the test runs **on the device** (an
+   * emulator, even) and cannot reach into the host's filesystem to move a file. The fixture can,
+   * and it is the fixture's job to produce the states the app has to survive.
+   */
+  broken: 'A conversation whose history is gone',
+  /**
+   * The needle for the search test, and it is deliberately **not on the first page**: the list
+   * route pages at 50, so this one is created first (making it the oldest, and therefore last) and
+   * padded past the boundary. A client-side filter over the loaded rows would never find it --
+   * which is the entire reason search is a server query.
+   */
+  needle: 'Xylophone concerto in B minor',
+  /** How many filler rows sit between the needle and the first page. */
+  fillerCount: 60,
+  /**
+   * A configured model — **without which the composer never even tries to send**.
+   *
+   * The client blocks a send with no model selected, so the message would never reach the server
+   * and the `llama_server_stopped` refusal would never happen. The point of the fixture is to
+   * produce the state under test, and "llama.cpp is stopped but a model is configured" is a state
+   * every fresh install is in: the model is a line in `models.ini`, and llama.cpp has to be built
+   * before it can run. Nothing is downloaded and nothing is loaded.
+   */
+  modelId: 'unsloth/gemma-4-E2B-it-qat-GGUF:Q4_K_XL',
 } as const;
 
 async function seed(): Promise<void> {
+  // A model in `models.ini`, and llama.cpp not installed: exactly what a fresh install looks like
+  // after its first import. Without it the composer refuses client-side and the server's own
+  // refusal is never exercised.
+  const store = new AppStore(paths);
+  await store.addHuggingFaceModel({
+    repoId: 'unsloth/gemma-4-E2B-it-qat-GGUF',
+    quant: 'UD-Q4_K_XL',
+  });
+
   const database = new AppDatabase(paths);
   await database.open();
   try {
     const conversations = new ConversationRepository(database);
     await conversations.init();
+
+    // Oldest first: `updated_at` descending is the sidebar's order, so this ends up last -- past
+    // the 50-row page boundary, which is the whole point of it.
+    conversations.createConversation({title: FIXTURE.needle});
+    for (let i = 0; i < FIXTURE.fillerCount; i += 1) {
+      conversations.createConversation({title: `Filler conversation ${i + 1}`});
+    }
 
     for (const title of [FIXTURE.withHistory, FIXTURE.aboutPelicans]) {
       const conversation = conversations.createConversation({title});
@@ -88,13 +132,46 @@ async function seed(): Promise<void> {
       });
     }
 
-    // Bound to a header-only session, exactly as `POST /api/conversations` leaves one. There is
-    // nothing to branch from, which is the state the clone refusal is about.
-    const empty = conversations.createConversation({title: FIXTURE.empty});
-    const emptyManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
-    conversations.attachPiSession(empty.id, {
-      piSessionPath: emptyManager.getSessionFile()!,
-      piSessionId: emptyManager.getSessionId(),
+    // Bound to a session file that does not exist. `markUnavailableIfPiSessionInvalid` will find
+    // it the moment anything reads the conversation.
+    const broken = conversations.createConversation({title: FIXTURE.broken});
+    const brokenPath = path.join(paths.piSessionsDir, 'this-file-was-never-written.jsonl');
+    conversations.attachPiSession(broken.id, {
+      piSessionPath: brokenPath,
+      piSessionId: 'a-session-that-is-gone',
+      activeLeafPiEntryId: 'e-broken-assistant',
+    });
+    // Give a rebuild something to work from -- a rebuild reconstructs the Pi session from the
+    // projection, so an empty projection would rebuild into an empty conversation and prove
+    // nothing.
+    //
+    // The field is **`text`**, not `textPreview`: despite the column being named `text_preview` it
+    // holds the full message, and `SyncConversationEntry` calls it `text`. Writing the wrong key
+    // silently stored empty strings, and the rebuild then "worked" and produced blank messages.
+    //
+    // And `activeLeafPiEntryId` must be set, because a rebuild walks the **active path**
+    // (`getActivePathEntries`) -- with no leaf there is no path, and it rebuilds into nothing.
+    conversations.replaceConversationProjection(broken.id, {
+      piSessionPath: brokenPath,
+      piSessionId: 'a-session-that-is-gone',
+      activeLeafPiEntryId: 'e-broken-assistant',
+      entries: [
+        {
+          piEntryId: 'e-broken-user',
+          entryType: 'message',
+          role: 'user',
+          text: 'A question whose answer is now only in SQLite.',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          piEntryId: 'e-broken-assistant',
+          parentPiEntryId: 'e-broken-user',
+          entryType: 'message',
+          role: 'assistant',
+          text: 'And this is that answer.',
+          createdAt: new Date().toISOString(),
+        },
+      ],
     });
   } finally {
     database.close();
@@ -112,6 +189,27 @@ const server = Bun.serve({
   idleTimeout: 255,
   fetch: req => app.handle(req, {trusted: true}),
 });
+
+/**
+ * The **empty** conversation is created through the API, not the repository.
+ *
+ * `SessionManager.create()` allocates a session path; it does **not** write the file. Only
+ * `POST /api/conversations` does (it calls `ensureSessionFile`, which is private to the harness) --
+ * so a repository-seeded "empty" conversation was not empty at all, it was *broken*, and answered
+ * `session_unavailable` instead of `conversation_not_branchable`. Two different refusals.
+ *
+ * Going through the route makes it byte-for-byte what a user's empty conversation is, which is the
+ * only thing that makes a test about empty conversations mean anything. (Chasing the wrong refusal
+ * also turned up a real server bug: branching an *unavailable* conversation answered a bare 500.)
+ */
+const created = await fetch(`http://127.0.0.1:${server.port}/api/conversations`, {
+  method: 'POST',
+  headers: {'content-type': 'application/json'},
+  body: JSON.stringify({title: FIXTURE.empty}),
+});
+if (!created.ok) {
+  throw new Error(`fixture could not create the empty conversation: ${created.status}`);
+}
 
 console.log(`fixture server on http://127.0.0.1:${server.port} (data: ${dataDir})`);
 

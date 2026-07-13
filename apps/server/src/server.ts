@@ -1009,7 +1009,16 @@ export async function createServer(
       return json({conversation: snapshot.conversation, snapshot});
     } catch (error) {
       const normalized = normalizeNelleError(error);
-      if (normalized.code === NELLE_ERROR_CODES.conversationNotBranchable) {
+      // Both are the client asking for something that cannot exist, and both are a 409.
+      //
+      // `session_unavailable` was missed in M8 T1 and kept falling through to a bare 500: a
+      // conversation whose Pi session file is gone has no history to branch, and the server said so
+      // in a form no client could render. Found by the device suite, which is exactly the kind of
+      // thing it is for -- a widget test stubs the response and would never have noticed.
+      if (
+        normalized.code === NELLE_ERROR_CODES.conversationNotBranchable ||
+        normalized.code === NELLE_ERROR_CODES.sessionUnavailable
+      ) {
         return json({error: normalized}, 409);
       }
       throw error;

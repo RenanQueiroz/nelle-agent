@@ -21,8 +21,9 @@ void smokeSuite() {
     expect(find.text(Fixture.aboutPelicans), findsOneWidget);
     expect(find.text(Fixture.empty), findsOneWidget);
 
-    // ...and the header counts what the *server* says, not what happens to be on screen.
-    expect(find.textContaining('Chats (3)'), findsOneWidget);
+    // ...and the header counts what the *server* says (65 seeded), not the rows on screen (50 --
+    // the list pages at 50, which is what makes the search test mean anything).
+    expect(find.textContaining('Chats (65)'), findsOneWidget);
   });
 
   testWidgets('opening a conversation loads its real history', (tester) async {

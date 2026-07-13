@@ -383,3 +383,41 @@ test('a valid archive with no history is NOT "corrupt": the two refusals are dis
     await app.close();
   }
 });
+
+test('branching a BROKEN conversation is a 409, not a 500', () => {
+  // A conversation whose Pi session file is gone has no history to branch. M8 T1 gave
+  // `conversation_not_branchable` a 409 and missed this one, so it kept falling through to a bare
+  // 500 -- a refusal in a form no client can render, which is the whole thing that fix was about.
+  //
+  // The M9 device suite found it: cloning the fixture's conversation-with-no-session answered 500.
+  // A widget test stubs the response and would never have noticed.
+  return (async () => {
+    const paths = await createTempPaths();
+    const database = new AppDatabase(paths);
+    await database.open();
+    const repository = new ConversationRepository(database);
+    await repository.init();
+    const conversation = repository.createConversation({title: 'Broken'});
+    repository.attachPiSession(conversation.id, {
+      piSessionPath: path.join(paths.piSessionsDir, 'never-written.jsonl'),
+      piSessionId: 'gone',
+    });
+    await repository.markUnavailableIfPiSessionInvalid(conversation.id);
+    database.close();
+
+    const app = await createTestServer(paths);
+    try {
+      for (const action of ['clone', 'fork'] as const) {
+        const response = await app.inject({
+          method: 'POST',
+          url: `/api/conversations/${encodeURIComponent(conversation.id)}/${action}`,
+          payload: action === 'fork' ? {entryId: 'e1'} : undefined,
+        });
+        assert.equal(response.statusCode, 409, `${action} must refuse, not crash`);
+        assert.equal(response.json<{error: {code: string}}>().error.code, 'session_unavailable');
+      }
+    } finally {
+      await app.close();
+    }
+  })();
+});

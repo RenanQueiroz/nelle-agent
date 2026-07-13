@@ -1,5 +1,7 @@
 import 'helpers/device_harness.dart';
+import 'suites/errors.dart';
 import 'suites/http_probe.dart';
+import 'suites/lifecycle.dart';
 import 'suites/smoke.dart';
 
 /// **The one entrypoint**, and it is not a stylistic choice.
@@ -21,4 +23,6 @@ void main() {
   httpProbeSuite();
 
   smokeSuite();
+  lifecycleSuite();
+  errorsSuite();
 }
