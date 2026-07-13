@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
 import 'package:nelle_agent/src/api/api_client.dart';
+import 'package:nelle_agent/src/api/generated/models/llama_router_model.dart';
 import 'package:nelle_agent/src/api/generated/models/invalid_model_param.dart';
 import 'package:nelle_agent/src/api/generated/models/model_param_warning.dart';
 import 'package:nelle_agent/src/api/generated/models/invalid_model_param_reason.dart';
@@ -11,6 +12,7 @@ import 'package:nelle_agent/src/features/models/model_detail_screen.dart';
 import 'package:nelle_agent/src/features/models/models_controller.dart';
 import 'package:nelle_agent/src/features/models/models_screen.dart';
 import 'package:nelle_agent/src/features/models/param_editor.dart';
+import 'package:nelle_agent/src/features/models/router_models_notifier.dart';
 
 import '../helpers/fake_dio.dart';
 
@@ -78,6 +80,7 @@ Widget _host(
 
 void main() {
   _activeRunTests();
+  _routerStatusTests();
   group('formatBytes', () {
     test('null is "not downloaded", and never zero', () {
       // Absent is a real state: the weights arrive on the model's *first load*. Rendering it as
@@ -748,4 +751,47 @@ class _StubActiveRuns extends ActiveRuns {
 
   @override
   Map<String, String> build() => _initial;
+}
+
+void _routerStatusTests() {
+  group('routerStatusLabel', () {
+    LlamaRouterModel model(String status, {double? progress}) => LlamaRouterModel(
+      sectionId: 'org/repo:Q4_K_XL',
+      alias: 'org/repo:Q4_K_XL',
+      status: status,
+      aliases: const [],
+      progress: progress,
+    );
+
+    test('llama.cpp stopped and "not in our list yet" are DIFFERENT things', () {
+      // Conflating them told a freshly imported model that llama.cpp was stopped while it was
+      // plainly running — and, because the Load button was gated on the same check, left the one
+      // model you had just added as the one model you could not load. The list screen learned
+      // this; the detail screen then made the identical mistake on its own, which is why the rule
+      // lives in one place now.
+      expect(routerStatusLabel(null, listed: null), 'llama.cpp stopped');
+      expect(routerStatusLabel(null, listed: const []), 'not listed yet');
+    });
+
+    test('a known status is llama.cpp own word, verbatim', () {
+      // Free-form on purpose: a status a newer llama.cpp invents must not break a client that
+      // only renders it.
+      expect(routerStatusLabel(model('loaded'), listed: const []), 'loaded');
+      expect(routerStatusLabel(model('sleeping'), listed: const []), 'sleeping');
+      expect(
+        routerStatusLabel(model('something-new'), listed: const []),
+        'something-new',
+      );
+    });
+
+    test('loading with no measurement is not 0%', () {
+      // `undefined` means "loading, amount unknown". Rendering it as 0% invents a number the
+      // server never sent.
+      expect(routerStatusLabel(model('loading'), listed: const []), 'loading');
+      expect(
+        routerStatusLabel(model('loading', progress: 0.42), listed: const []),
+        'loading 42%',
+      );
+    });
+  });
 }

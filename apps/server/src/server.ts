@@ -500,10 +500,21 @@ export async function createServer(
       // the load is a reason to take a field away from a client that reads it. `loaded` is
       // `false` when the model was already runnable -- a load that was not needed, not one that
       // failed, which throws.
-      async () => ({
-        modelId: ctx.params.id,
-        ...(await llama.ensureModelRunnable(ctx.params.id)),
-      }),
+      async () => {
+        const result = await llama.ensureModelRunnable(ctx.params.id);
+        if (result.loaded) {
+          // The same thing a run does. Without it, a model loaded from Settings sits there
+          // `loaded` with no architecture, no context window, and its capabilities unknown.
+          await cacheModelPropsAfterLoad({
+            llama,
+            modelCache,
+            ggufMetadata,
+            modelId: ctx.params.id,
+            log,
+          });
+        }
+        return {modelId: ctx.params.id, ...result};
+      },
       NELLE_ERROR_CODES.modelLoadFailed,
     ),
   );
@@ -1710,6 +1721,29 @@ async function ensureModelReadyForRun(input: {
   if (!result.loaded) {
     return;
   }
+  await cacheModelPropsAfterLoad(input);
+}
+
+/**
+ * Caches what llama.cpp will now say about a model it has just loaded.
+ *
+ * **Every path that loads a model must call this**, and for a while only the chat run did. The
+ * `/props` route is otherwise the *only* writer of `model_cache`'s modality and context columns,
+ * and it fires because a client asked — so a model loaded from Settings had no architecture, no
+ * context window, and a `canReason`/`canAttachImages` of "unknown", for ever, while sitting there
+ * plainly loaded. (Driven: a freshly imported model loaded from Settings, and its own detail
+ * screen still said its architecture was unknown.)
+ *
+ * A model that will not describe itself can still answer a prompt: losing the cache entry costs a
+ * capability, never the load.
+ */
+async function cacheModelPropsAfterLoad(input: {
+  llama: LlamaCppManager;
+  modelCache: ModelCacheRepository;
+  ggufMetadata: GgufMetadataRepository;
+  modelId: string;
+  log: {warn: (input: unknown, message?: string) => void};
+}): Promise<void> {
   try {
     await recordModelProps({
       sectionId: input.modelId,
@@ -1720,8 +1754,6 @@ async function ensureModelReadyForRun(input: {
         input.log.warn({err: error, modelId: input.modelId}, 'could not parse the GGUF header'),
     });
   } catch (error) {
-    // A model that will not describe itself can still answer a prompt. Losing the
-    // cache entry costs a capability, not the run.
     input.log.warn({err: error, modelId: input.modelId}, 'could not cache model props after load');
   }
 }

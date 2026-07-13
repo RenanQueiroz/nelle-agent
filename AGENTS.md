@@ -1027,6 +1027,20 @@ Project-specific guidance for AI coding agents.
   `model_cache`'s modality and context columns, and it fires because a client
   asked. A thin client never asks, so without this every capability derived from
   props -- `canAttachImages`, `canReason` -- silently degrades to "unknown".
+  **Every** path that loads a model must do it, and for a while only the chat run did:
+  a model loaded from *Settings* sat there `loaded` with no architecture, no context
+  window and its capabilities unknown, for ever. `cacheModelPropsAfterLoad` is the one
+  place; call it from any new load path.
+- **"llama.cpp is stopped" and "not in the list we hold" are different things, and
+  conflating them is a bug that has now been made twice.** The server *seeds* every
+  configured section into `GET /api/llama/models`, so a configured model missing from a
+  client's cached list means that list is simply older than the import -- not that the
+  runtime is down. Saying "llama.cpp stopped" there told a freshly imported model the
+  runtime was off while it was plainly running, *and* -- because the Load button was gated
+  on the same check -- left the one model you had just added as the one model you could not
+  load. The Flutter client's `routerStatusLabel` is the single rule (`listed == null` ->
+  stopped; `router == null` -> not listed yet; else llama.cpp's own free-form word), and
+  Load is gated on llama.cpp being **up**, never on the model being in the list.
 - Settings rows for models with active runs must show an active-run token and
   keep unload/save/remove disabled until a terminal run event arrives.
 - **The run lock is the client's, and it is keyed by conversation.** A model with a run

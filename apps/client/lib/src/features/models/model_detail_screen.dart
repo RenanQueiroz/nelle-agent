@@ -84,11 +84,14 @@ class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
       return const FScaffold(child: SizedBox.shrink());
     }
 
-    final routerModels =
-        ref.watch(routerModelsProvider).valueOrNull ?? const [];
+    // `null` means llama.cpp is stopped. An **empty list** means it is running and has told us
+    // nothing yet — two different things, and defaulting the first to `const []` erased the
+    // difference. See `routerStatusLabel`.
+    final routerModels = ref.watch(routerModelsProvider).valueOrNull;
     final router = routerModels
-        .where((item) => item.sectionId == model.id)
+        ?.where((item) => item.sectionId == model.id)
         .firstOrNull;
+    final llamaRunning = routerModels != null;
     final isActive = model.id == catalog?.activeModelId;
     // **A model being answered on must not be touched.** Unloading evicts the weights the reply
     // is streaming out of, saving rewrites `models.ini` and reloads the router under the run,
@@ -126,7 +129,7 @@ class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
                   ),
                 ),
 
-              _Facts(model: model, router: router),
+              _Facts(model: model, router: router, listed: routerModels),
               const SizedBox(height: 20),
 
               const _Label('Name'),
@@ -235,7 +238,11 @@ class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
                   Expanded(
                     child: FButton(
                       key: const ValueKey('k-model-load'),
-                      onPress: router == null || _busy != null
+                      // Gated on llama.cpp being **up**, not on this model being in the list we
+                      // happen to hold. A freshly imported model is not in it yet, and gating on
+                      // `router` left its Load button dead — so the one model you had just added
+                      // was the one model you could not load.
+                      onPress: !llamaRunning || _busy != null
                           ? null
                           : () => _run(
                               'load',
@@ -314,10 +321,14 @@ class _RunLock extends StatelessWidget {
 }
 
 class _Facts extends StatelessWidget {
-  const _Facts({required this.model, required this.router});
+  const _Facts({required this.model, required this.router, required this.listed});
 
   final ConfiguredModel model;
   final LlamaRouterModel? router;
+
+  /// The whole router list, or `null` when llama.cpp is stopped. Needed to tell that apart from
+  /// a model the list simply has not caught up with.
+  final List<LlamaRouterModel>? listed;
 
   @override
   Widget build(BuildContext context) {
@@ -350,7 +361,7 @@ class _Facts extends StatelessWidget {
         _Fact(label: 'Hugging Face', value: model.hfRef ?? model.presetName),
         if (router?.routerModelId != null)
           _Fact(label: 'Router id', value: router!.routerModelId!),
-        _Fact(label: 'Status', value: router?.status ?? 'llama.cpp stopped'),
+        _Fact(label: 'Status', value: routerStatusLabel(router, listed: listed)),
         _Fact(label: 'On disk', value: formatBytes(model.diskBytes)),
         // **The only evidence a load failed.** llama.cpp answers `{success: true}` to a load —
         // it accepted the *request* — and a child that then dies before it loads a byte (a bad

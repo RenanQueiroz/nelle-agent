@@ -269,6 +269,52 @@ test('models.ini is the catalog: the router may not add to it', async () => {
   }
 });
 
+test('the Settings load caches props too, not just a chat run', async () => {
+  // Two paths load a model, and for a while only the *run* cached what llama.cpp then knew about
+  // it. So a model loaded from Settings sat there `loaded` with no architecture, no context
+  // window, and `canReason`/`canAttachImages` of "unknown" -- for ever, because the `/props` route
+  // is the only other writer and it fires only because a client asked. Driven: a freshly imported
+  // model, loaded from its own detail screen, whose own screen then said its architecture was
+  // unknown.
+  const statuses = ['unloaded', 'loaded'];
+  let statusIndex = 0;
+  const router = await createMockRouter({
+    modelsFactory: () => {
+      const status = statuses[Math.min(statusIndex, statuses.length - 1)]!;
+      statusIndex += 1;
+      return [{id: 'repo/model:Q4_K_M', aliases: [], status: {value: status}}];
+    },
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+  const app = await createTestServer(paths);
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/llama/models/${encodeURIComponent(model.id)}/load`,
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json<{loaded: boolean}>().loaded, true);
+
+    // The load asked llama.cpp what the model is, without any client doing so.
+    assert.ok(
+      router.calls.some(call => call.url.startsWith('/props')),
+      'a successful load must fetch the props it is now able to fetch',
+    );
+  } finally {
+    await app.close();
+    await router.close();
+  }
+});
+
 test('a run loads the model and caches its props with no client asking', async () => {
   // The props route is the only writer of model_cache's modality columns today,
   // and it fires because a client asked. A thin client never asks.

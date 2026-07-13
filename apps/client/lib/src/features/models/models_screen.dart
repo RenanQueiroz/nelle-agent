@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
 import '../../api/generated/models/configured_model.dart';
-import '../../api/generated/models/llama_router_model.dart';
 import 'global_params_screen.dart';
 import 'huggingface_screen.dart';
 import 'active_runs.dart';
@@ -167,7 +166,7 @@ class _ModelTile extends ConsumerWidget {
       subtitle: Text(
         [
           if (busy) 'answering',
-          _routerStatus(router, listed: routerModels),
+          routerStatusLabel(router, listed: routerModels),
           if (model.diskBytes != null) formatBytes(model.diskBytes),
           if (isActive) 'default for new chats',
         ].join(' · '),
@@ -179,26 +178,4 @@ class _ModelTile extends ConsumerWidget {
     );
   }
 
-  String _routerStatus(
-    LlamaRouterModel? router, {
-    required List<LlamaRouterModel>? listed,
-  }) {
-    // Three different things, and conflating them told a freshly imported model that llama.cpp
-    // was stopped while it was plainly running. The server *seeds* every configured section into
-    // the router list, so a configured model missing from it means the client's cached list is
-    // simply older than the import.
-    if (listed == null) return 'llama.cpp stopped';
-    if (router == null) return 'not listed yet';
-    // `status` is free-form on purpose: a status a newer llama.cpp invents must not break a
-    // client that only renders it.
-    if (router.status == 'loading') {
-      final progress = router.progress;
-      return progress == null
-          // `undefined` means "loading, amount unknown" -- and it is never zero. Inventing a 0%
-          // the server never sent is worse than saying nothing.
-          ? 'loading'
-          : 'loading ${(progress * 100).round()}%';
-    }
-    return router.status;
-  }
 }

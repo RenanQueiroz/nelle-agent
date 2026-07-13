@@ -188,3 +188,35 @@ bool isRunnableRouterStatus(String status) {
   final s = status.toLowerCase();
   return s == 'loaded' || s == 'ready' || s == 'sleeping';
 }
+
+
+/// What to *show* for a model's router status — three different things, and conflating any two
+/// of them is a bug that has already been made twice.
+///
+/// - `listed == null`: llama.cpp is **stopped**. There is no router to ask.
+/// - `router == null`: llama.cpp is running and this model is **not in the list we hold**. The
+///   server seeds every configured section into the router list, so this means our cached list is
+///   simply older than the import — not that llama.cpp is down. Saying "llama.cpp stopped" here
+///   told a freshly imported model that the runtime was off while it was plainly running, *and*
+///   left its Load button disabled, so it could never be loaded at all.
+/// - otherwise: llama.cpp's own word, which is free-form on purpose — a status a newer llama.cpp
+///   invents must not break a client that only renders it.
+///
+/// Shared, because the list screen learned this and the detail screen then made the same mistake
+/// independently. One rule, one place.
+String routerStatusLabel(
+  LlamaRouterModel? router, {
+  required List<LlamaRouterModel>? listed,
+}) {
+  if (listed == null) return 'llama.cpp stopped';
+  if (router == null) return 'not listed yet';
+  if (router.status == 'loading') {
+    final progress = router.progress;
+    // `undefined` means "loading, amount unknown" — and it is never zero. Inventing a 0% the
+    // server never sent is worse than saying nothing.
+    return progress == null
+        ? 'loading'
+        : 'loading ${(progress * 100).round()}%';
+  }
+  return router.status;
+}
