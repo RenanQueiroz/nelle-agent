@@ -13,6 +13,7 @@ ConfiguredModel _$ConfiguredModelFromJson(Map<String, dynamic> json) =>
       presetName: json['presetName'] as String,
       source: json['source'] as String,
       pinned: json['pinned'] as bool,
+      diskBytes: json['diskBytes'] as num?,
       params: ModelParams.fromJson(json['params'] as Map<String, dynamic>),
       createdAt: json['createdAt'] as String,
       repoId: json['repoId'] as String?,
@@ -30,6 +31,7 @@ Map<String, dynamic> _$ConfiguredModelToJson(ConfiguredModel instance) =>
       'quant': instance.quant,
       'hfRef': instance.hfRef,
       'pinned': instance.pinned,
+      'diskBytes': instance.diskBytes,
       'params': instance.params,
       'createdAt': instance.createdAt,
     };

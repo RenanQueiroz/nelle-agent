@@ -1,0 +1,548 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:forui/forui.dart';
+
+import '../../api/generated/models/configured_model.dart';
+import '../../api/generated/models/invalid_model_param.dart';
+import '../../api/generated/models/llama_router_model.dart';
+import 'llama_repository.dart';
+import 'models_controller.dart';
+import 'models_repository.dart';
+import 'param_editor.dart';
+import 'router_models_notifier.dart';
+
+/// One model: what it is, what it costs, and what can be done to it.
+class ModelDetailScreen extends ConsumerStatefulWidget {
+  const ModelDetailScreen({super.key, required this.modelId});
+
+  final String modelId;
+
+  @override
+  ConsumerState<ModelDetailScreen> createState() => _ModelDetailScreenState();
+}
+
+class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
+  late final TextEditingController _name;
+  Map<String, String> _params = const {};
+  List<InvalidModelParam> _invalid = const [];
+  String? _busy;
+  String? _notice;
+
+  @override
+  void initState() {
+    super.initState();
+    final model = modelById(
+      ref.read(modelCatalogProvider).valueOrNull,
+      widget.modelId,
+    );
+    _name = TextEditingController(text: model?.name ?? '');
+    _params = Map.of(model?.params.extra ?? const {});
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  Future<void> _run(String key, Future<void> Function() action) async {
+    // Busy is keyed **per model and per action**, never a shared string. `apps/web` used a bare
+    // `'activate'`, so clicking one row spun every row's button.
+    setState(() {
+      _busy = key;
+      _notice = null;
+    });
+    try {
+      await action();
+      setState(() => _invalid = const []);
+    } on InvalidModelParamsException catch (error) {
+      // Every offending key at once, so a form with three typos lights up three rows.
+      setState(() => _invalid = error.invalidParams);
+    } catch (error) {
+      setState(() => _notice = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final catalog = ref.watch(modelCatalogProvider).valueOrNull;
+    final model = modelById(catalog, widget.modelId);
+    final theme = Theme.of(context);
+
+    if (model == null) {
+      // Gone -- deleted, here or elsewhere. **Not a spinner**: a spinner animates for ever, so
+      // the screen would sit there pretending to load a model that no longer exists (and, in a
+      // test, `pumpAndSettle` never settles, which is how this was found).
+      return const FScaffold(child: SizedBox.shrink());
+    }
+
+    final routerModels =
+        ref.watch(routerModelsProvider).valueOrNull ?? const [];
+    final router = routerModels
+        .where((item) => item.sectionId == model.id)
+        .firstOrNull;
+    final isActive = model.id == catalog?.activeModelId;
+
+    return FScaffold(
+      header: FHeader.nested(
+        title: Text(model.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        prefixes: [
+          FHeaderAction.back(
+            key: const ValueKey('k-model-back'),
+            onPress: Navigator.of(context).pop,
+          ),
+        ],
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            children: [
+              if (_notice != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    _notice!,
+                    key: const ValueKey('k-model-notice'),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
+                ),
+
+              _Facts(model: model, router: router),
+              const SizedBox(height: 20),
+
+              const _Label('Name'),
+              FTextField(
+                key: const ValueKey('k-model-name'),
+                control: FTextFieldControl.managed(controller: _name),
+              ),
+              const SizedBox(height: 16),
+
+              _PinSwitch(
+                model: model,
+                busy: _busy == 'pin',
+                onChanged: (pinned) => _run(
+                  'pin',
+                  () => ref
+                      .read(modelCatalogProvider.notifier)
+                      .setPinned(model.id, pinned),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              const _Label('Parameters'),
+              Text(
+                // The client never validates a key: an unknown key is fatal to llama-server, and
+                // only its own `--help` knows which are which.
+                'Written to models.ini. Sampling lives here — temp, top-k, min-p, seed — '
+                'because Nelle sends none in its requests.',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ParamEditor(
+                // A STABLE key. Keying on `params.hashCode` looks right and is a trap: Dart's
+                // Map.hashCode is identity-based, so every catalog refresh would mint a new key,
+                // destroy the editor and eat what the user was typing. `didUpdateWidget`
+                // re-seeds on a real content change instead.
+                key: const ValueKey('k-model-params'),
+                initial: model.params.extra,
+                invalidParams: _invalid,
+                onChanged: (params) => _params = params,
+              ),
+              const SizedBox(height: 12),
+              FButton(
+                key: const ValueKey('k-model-save'),
+                onPress: _busy != null
+                    ? null
+                    : () => _run(
+                        'save',
+                        () => ref
+                            .read(modelCatalogProvider.notifier)
+                            .saveParams(model.id, _params)
+                            .then(
+                              (_) => ref
+                                  .read(modelCatalogProvider.notifier)
+                                  .rename(model.id, _name.text.trim()),
+                            ),
+                      ),
+                child: Text(_busy == 'save' ? 'Saving…' : 'Save'),
+              ),
+
+              const SizedBox(height: 24),
+              const _Label('Actions'),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: FButton(
+                      key: const ValueKey('k-model-activate'),
+                      onPress: isActive || _busy != null
+                          ? null
+                          : () => _run(
+                              'activate',
+                              () => ref
+                                  .read(modelCatalogProvider.notifier)
+                                  .activate(model.id),
+                            ),
+                      child: Text(isActive ? 'Default' : 'Make default'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FButton(
+                      key: const ValueKey('k-model-duplicate'),
+                      onPress: _busy != null
+                          ? null
+                          : () => _run(
+                              'duplicate',
+                              () => ref
+                                  .read(modelCatalogProvider.notifier)
+                                  .duplicate(model.id),
+                            ),
+                      child: const Text('Duplicate'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: FButton(
+                      key: const ValueKey('k-model-load'),
+                      onPress: router == null || _busy != null
+                          ? null
+                          : () => _run(
+                              'load',
+                              () => ref
+                                  .read(llamaRepositoryProvider)
+                                  .load(model.id),
+                            ),
+                      child: const Text('Load'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FButton(
+                      key: const ValueKey('k-model-unload'),
+                      onPress:
+                          router == null ||
+                              !isRunnableRouterStatus(router.status) ||
+                              _busy != null
+                          ? null
+                          : () => _run(
+                              'unload',
+                              () => ref
+                                  .read(llamaRepositoryProvider)
+                                  .unload(model.id),
+                            ),
+                      child: const Text('Unload'),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 24),
+              _DeleteSection(model: model, busy: _busy != null),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// What llama.cpp knows, and what it does not know **yet**.
+class _Facts extends StatelessWidget {
+  const _Facts({required this.model, required this.router});
+
+  final ConfiguredModel model;
+  final LlamaRouterModel? router;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    // Every one of these is absent until the model has been loaded once, because llama.cpp is
+    // the one that reports them. Saying so is better than guessing.
+    final facts = <String>[
+      if (router?.architecture != null) router!.architecture!,
+      if (router?.parameterCount != null)
+        '${(router!.parameterCount! / 1e9).toStringAsFixed(1)}B params',
+      if (router?.contextTrain != null)
+        'Full window: ${_thousands(router!.contextTrain!)}',
+      if (router?.contextWindow != null)
+        'running at ${_thousands(router!.contextWindow!)}',
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _Fact(label: 'Hugging Face', value: model.hfRef ?? model.presetName),
+        if (router?.routerModelId != null)
+          _Fact(label: 'Router id', value: router!.routerModelId!),
+        _Fact(label: 'Status', value: router?.status ?? 'llama.cpp stopped'),
+        _Fact(label: 'On disk', value: formatBytes(model.diskBytes)),
+        if (facts.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              facts.join(' · '),
+              key: const ValueKey('k-model-facts'),
+              style: TextStyle(
+                fontSize: 11,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Architecture and context window are unknown until this model has loaded once.',
+              key: const ValueKey('k-model-facts-unknown'),
+              style: TextStyle(
+                fontSize: 11,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  String _thousands(num value) => value.toInt().toString().replaceAllMapped(
+    RegExp(r'(\d)(?=(\d{3})+$)'),
+    (m) => '${m[1]},',
+  );
+}
+
+/// The pin: a **switch**, not a param row.
+class _PinSwitch extends StatelessWidget {
+  const _PinSwitch({
+    required this.model,
+    required this.busy,
+    required this.onChanged,
+  });
+
+  final ConfiguredModel model;
+  final bool busy;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // **`diskBytes`, not `pinned`.** They are different questions, and conflating them told a
+    // model with 4.8 GB on disk that it was "not downloaded yet". Nelle pins a model the moment
+    // it *loads* — a successful load is proof its blobs are complete — so weights can be present
+    // while the pin is not.
+    final hasWeights = model.diskBytes != null;
+
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Pinned to the weights on disk'),
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  model.pinned
+                      // llama.cpp re-resolves `hf-repo` on *every* load, and only falls back to
+                      // the cache when the repo listing comes back empty. A repo that still
+                      // exists but has dropped your quant kills a working model. This is what
+                      // stops that.
+                      ? 'Hugging Face is not re-checked. Turn this off to check for an '
+                            'update — it re-pins itself once the model loads.'
+                      : hasWeights
+                      // Weights on disk, but never loaded *by this server*. Nelle will not pin on
+                      // the strength of some bytes being present: only a successful load proves
+                      // they are complete.
+                      ? 'Weights are on disk. Nelle pins it the next time it loads.'
+                      : 'Not downloaded yet. The weights arrive the first time it loads.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        // FSwitch, not Material's Switch: this app has no Material ancestor, so a Material-only
+        // widget throws "No Material widget found" and paints a red box.
+        // Only un-pinning is offered. Pinning is Nelle's to do, and it does it on a successful
+        // load -- pinning on the strength of "some bytes exist" could pin a half-finished
+        // download, and `offline` also means *never fetch*, so the model could never repair
+        // itself.
+        FSwitch(
+          key: const ValueKey('k-model-pinned'),
+          value: model.pinned,
+          onChange: model.pinned && !busy ? onChanged : null,
+        ),
+      ],
+    );
+  }
+}
+
+class _DeleteSection extends ConsumerStatefulWidget {
+  const _DeleteSection({required this.model, required this.busy});
+
+  final ConfiguredModel model;
+  final bool busy;
+
+  @override
+  ConsumerState<_DeleteSection> createState() => _DeleteSectionState();
+}
+
+class _DeleteSectionState extends ConsumerState<_DeleteSection> {
+  bool _withWeights = false;
+  bool _confirming = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final model = widget.model;
+    final hasWeights = model.diskBytes != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _Label('Remove'),
+        const SizedBox(height: 8),
+        if (hasWeights)
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  // Deleting a section has always left the weights on disk for ever, invisibly.
+                  // This is the first time Nelle can offer them back, and it is only safe
+                  // because the cache is Nelle's now.
+                  'Also delete ${formatBytes(model.diskBytes)} of weights',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+              FSwitch(
+                key: const ValueKey('k-model-delete-weights'),
+                value: _withWeights,
+                onChange: (value) => setState(() => _withWeights = value),
+              ),
+            ],
+          ),
+        if (_confirming)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              // The warning is its own line, not the button's label. forui's FButton lays its
+              // child out in an unflexed Row, so a long label overflows the button by 94px --
+              // which is how M6's composer overflowed on Android, in a different costume.
+              _withWeights
+                  ? 'This removes the model and deletes its weights. It cannot be undone.'
+                  : 'This removes the model. It cannot be undone.',
+              key: const ValueKey('k-model-delete-warning'),
+              style: TextStyle(fontSize: 11, color: theme.colorScheme.error),
+            ),
+          ),
+        const SizedBox(height: 8),
+        FButton(
+          key: const ValueKey('k-model-delete'),
+          onPress: widget.busy ? null : _delete,
+          child: Text(_confirming ? 'Confirm' : 'Remove model'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _delete() async {
+    if (!_confirming) {
+      setState(() => _confirming = true);
+      return;
+    }
+
+    final response = await ref
+        .read(modelCatalogProvider.notifier)
+        .remove(widget.model.id, withWeights: _withWeights);
+
+    if (!mounted) return;
+
+    // The model is gone either way, so this screen goes with it and the *result* comes back —
+    // because the server may have **kept** the weights. A Hugging Face repo directory holds every
+    // quant of that repo, so a sibling model can be holding them alive, and claiming a reclaim
+    // that never happened would be a lie about the user's disk.
+    final message = !_withWeights
+        ? null
+        : response.weightsRemoved
+        ? 'Model removed. Reclaimed ${formatBytes(response.reclaimedBytes)}.'
+        : 'Model removed. Its weights were kept — '
+              '${response.sharedWithModelIds.join(', ')} still uses them.';
+    Navigator.of(context).pop(message);
+  }
+}
+
+class _Label extends StatelessWidget {
+  const _Label(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Text(
+      text.toUpperCase(),
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.5,
+      ),
+    ),
+  );
+}
+
+class _Fact extends StatelessWidget {
+  const _Fact({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 5,
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

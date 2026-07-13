@@ -83,6 +83,16 @@ export const configuredModelSchema = z.object({
    * so an update is a deliberate act rather than a standing exposure.
    */
   pinned: z.boolean(),
+  /**
+   * What this model's weights occupy, in bytes. `null` when nothing has been downloaded yet
+   * (the weights arrive on the first load), or when the user pointed llama.cpp at a cache of
+   * their own -- Nelle will not report on, or delete from, a directory it does not own.
+   *
+   * **It is the whole repository, and a repository is shared by every quant of it.** Two
+   * models on the same `repoId` -- two quants, or a duplicate -- report the same number and
+   * share the same bytes. See `DeleteModelResponse.sharedWithModelIds`.
+   */
+  diskBytes: z.number().nullable(),
   params: modelParamsSchema,
   createdAt: z.string(),
 });
@@ -110,6 +120,34 @@ export const modelCatalogSchema = z.object({
 });
 
 export type ModelCatalogContract = z.infer<typeof modelCatalogSchema>;
+
+/**
+ * `DELETE /api/models/:id[?weights=1]`.
+ *
+ * Deleting a model has always removed its `models.ini` section and left the weights on disk
+ * for ever, invisibly -- which is how a 6.7 GB model nobody had configured came to be sitting
+ * in the cache. `?weights=1` reclaims them, and that is only safe because the cache is Nelle's.
+ */
+export const deleteModelResponseSchema = z.object({
+  ok: z.boolean(),
+  removedModelId: z.string(),
+  catalog: modelCatalogSchema,
+  weightsRemoved: z.boolean(),
+  /** Bytes reclaimed. `0` unless [weightsRemoved]. */
+  reclaimedBytes: z.number(),
+  /**
+   * Other configured models that share this repository -- **the weights were kept because of
+   * them**, even though `?weights=1` was asked for.
+   *
+   * A Hugging Face repo directory holds *every* quant of that repo, so two models on the same
+   * `repoId` share one pile of blobs. That is not exotic: duplicating a model produces exactly
+   * this, and so does importing a second quant. Deleting the directory would silently destroy
+   * a working model's weights.
+   */
+  sharedWithModelIds: z.array(z.string()),
+});
+
+export type DeleteModelResponse = z.infer<typeof deleteModelResponseSchema>;
 
 /**
  * One rejected `models.ini` key, from a 400 on `PATCH /api/models/:id` or

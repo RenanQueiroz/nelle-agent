@@ -5,6 +5,7 @@ import '../../api/api_client.dart';
 import '../../api/api_exception.dart';
 import '../../api/generated/models/configured_model.dart';
 import '../../api/generated/models/invalid_model_param.dart';
+import '../../api/generated/models/delete_model_response.dart';
 import '../../api/generated/models/model_catalog.dart';
 import '../../api/request.dart';
 
@@ -100,13 +101,28 @@ class ModelsRepository {
     );
   }
 
-  Future<ModelCatalog> remove(String id) {
-    return _mutate(
+  /// Removes a model's `models.ini` section, and — with [withWeights] — its weights too.
+  ///
+  /// Deleting a model has always left the weights on disk for ever, invisibly: that is how a
+  /// 6.7 GB model nobody had configured came to be sitting in the cache. Reclaiming them is
+  /// only safe because the cache is Nelle's now.
+  ///
+  /// **The server may refuse to delete the weights anyway**, and say so: a Hugging Face repo
+  /// directory holds *every* quant of that repo, so two models on one repository share one
+  /// pile of blobs. `sharedWithModelIds` names the models that kept them alive — render it,
+  /// because otherwise the reclaim silently does nothing.
+  Future<DeleteModelResponse> remove(
+    String id, {
+    bool withWeights = false,
+  }) async {
+    final res = await sendJson(
       () => _dio.delete<Map<String, dynamic>>(
-        '/api/models/${Uri.encodeComponent(id)}',
+        '/api/models/${Uri.encodeComponent(id)}'
+        '${withWeights ? '?weights=1' : ''}',
         options: longCall(),
       ),
     );
+    return DeleteModelResponse.fromJson(res.data ?? const {});
   }
 
   /// Every mutation returns `{..., catalog}` and a 400 carries `invalidParams`.

@@ -16,6 +16,7 @@ class ConfiguredModel {
     required this.presetName,
     required this.source,
     required this.pinned,
+    required this.diskBytes,
     required this.params,
     required this.createdAt,
     this.repoId,
@@ -34,6 +35,7 @@ class ConfiguredModel {
   final String? quant;
   final String? hfRef;
   final bool pinned;
+  final num? diskBytes;
   final ModelParams params;
   final String createdAt;
 

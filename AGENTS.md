@@ -180,6 +180,16 @@ Project-specific guidance for AI coding agents.
     exactly the device the route was added for. `storage_path` comes out of the database,
     so it is refused if it escapes the attachments tree: a row is not a capability to read
     any file on the machine.
+- **Three Flutter traps the M7 param editor walked into, each invisible to `flutter analyze`
+  and to every unit test.** (1) **`Map.hashCode` is identity-based in Dart.** Keying a widget on
+  `params.hashCode` so a save re-seeds it looks right and is a bug: every catalog refresh parses
+  a fresh Map, mints a new key, destroys the State and eats what the user was typing. Compare
+  content in `didUpdateWidget` instead. (2) **`AsyncValue.guard` swallows the exception into the
+  state**, so a caller awaiting a Riverpod mutation never sees it — a refused params save then
+  silently does nothing: no marked rows, no message. Rethrow. (3) **forui's `FButton` lays its
+  child out in an unflexed `Row`**, so a long label overflows the button (94px here) — the same
+  shape as M6's 91px composer overflow on Android. Keep button labels short and put the sentence
+  beside them.
 - **This app is forui over a bare `FScaffold`, so it has no `Material` ancestor.** A
   Material-only widget (`Switch`, `IconButton`, anything wanting an ink splash) throws
   *"No Material widget found"* and Flutter paints a red error box where the control should
@@ -477,6 +487,20 @@ Project-specific guidance for AI coding agents.
   design rather than a mode: every fact about an installed model comes from the
   local blob and from `/props`. Hugging Face is needed to browse, and for the
   trained context window of a model never loaded.
+- **Deleting a model can reclaim its weights — but a repository is shared by every quant of
+  it.** `DELETE /api/models/:id?weights=1` removes the Hugging Face repo directory (only
+  possible, and only *safe*, because the cache is Nelle's now: in the user's global
+  `~/.cache/huggingface/hub` those blobs are shared with every other HF tool). But a repo
+  directory holds **all** of that repo's quants, so two models on one `repoId` — two quants,
+  or a **duplicate** — share one pile of blobs, and deleting the directory would silently
+  destroy a working model's weights. The route therefore keeps them and answers
+  `sharedWithModelIds`, naming the models that held them; a client must render that rather
+  than claim a reclaim that never happened. `ConfiguredModel.diskBytes` is the repo's size,
+  `null` when nothing is downloaded (the weights arrive on the **first load**) or when the
+  user pointed llama.cpp at a cache of their own. **`diskBytes` and `pinned` answer different
+  questions**: weights can be on disk while the pin is not set, because Nelle only pins on a
+  *successful load* — conflating them told a model with 4.8 GB on disk that it was "not
+  downloaded yet".
 - **A downloaded model is pinned to its weights, and that is what makes the sentence
   above true.** llama.cpp re-resolves `hf-repo` against Hugging Face on **every** load,
   and its cache fallback (`common_download_get_hf_plan`) fires **only when the repo

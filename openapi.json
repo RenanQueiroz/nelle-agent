@@ -1969,6 +1969,16 @@
           "pinned": {
             "type": "boolean"
           },
+          "diskBytes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "params": {
             "$ref": "#/components/schemas/ModelParams"
           },
@@ -1976,7 +1986,16 @@
             "type": "string"
           }
         },
-        "required": ["id", "name", "presetName", "source", "pinned", "params", "createdAt"],
+        "required": [
+          "id",
+          "name",
+          "presetName",
+          "source",
+          "pinned",
+          "diskBytes",
+          "params",
+          "createdAt"
+        ],
         "additionalProperties": false
       },
       "ModelCatalog": {
@@ -2009,6 +2028,41 @@
           }
         },
         "required": ["models", "activeModelId", "globalModelParams"],
+        "additionalProperties": false
+      },
+      "DeleteModelResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "removedModelId": {
+            "type": "string"
+          },
+          "catalog": {
+            "$ref": "#/components/schemas/ModelCatalog"
+          },
+          "weightsRemoved": {
+            "type": "boolean"
+          },
+          "reclaimedBytes": {
+            "type": "number"
+          },
+          "sharedWithModelIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ok",
+          "removedModelId",
+          "catalog",
+          "weightsRemoved",
+          "reclaimedBytes",
+          "sharedWithModelIds"
+        ],
         "additionalProperties": false
       },
       "InvalidModelParam": {

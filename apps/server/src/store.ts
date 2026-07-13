@@ -184,6 +184,7 @@ export class AppStore {
       // A new import has no weights yet, so it must stay online long enough to fetch them.
       // Nelle pins it the moment it has loaded once -- see `configuredModelSchema.pinned`.
       pinned: false,
+      diskBytes: null,
       params: {...DEFAULT_PARAMS, ...input.params},
       createdAt: new Date().toISOString(),
     };
@@ -475,6 +476,9 @@ function getConfiguredModelsFromModelsIni(
           hfRef,
           // `models.ini` is the source of truth for the pin, as it is for everything else.
           pinned: isTruthyIniValue(values.get('offline')),
+          // The store does not touch the filesystem. Disk is a *view* of the model, filled in
+          // where it leaves the server (`decorateModel`), which keeps this read synchronous.
+          diskBytes: null,
           params: normalizeModelParams({extra}, globalContextSize),
           createdAt: previous?.createdAt ?? now,
         },

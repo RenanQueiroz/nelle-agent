@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../api/settings_schema.dart';
 import '../connection/connection_screen.dart';
+import '../models/models_screen.dart';
 import '../runtime/runtime_screen.dart';
 import 'device_settings.dart';
 import 'host_tools.dart';
@@ -99,6 +100,16 @@ class SettingsScreen extends ConsumerWidget {
                 onPress: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (context) => const RuntimeScreen(),
+                  ),
+                ),
+              ),
+              _SectionTile(
+                key: const ValueKey('k-settings-section-models'),
+                title: 'Models',
+                subtitle: 'The models.ini catalog, and what they cost on disk.',
+                onPress: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (context) => const ModelsScreen(),
                   ),
                 ),
               ),

@@ -1385,10 +1385,21 @@ const MODEL_CACHE_ENV_VARS = ['LLAMA_CACHE', 'HF_HUB_CACHE', 'HUGGINGFACE_HUB_CA
  * them.
  */
 export function modelCacheEnv(modelsDir: string): Record<string, string> {
-  if (MODEL_CACHE_ENV_VARS.some(name => process.env[name])) {
+  if (!ownsModelCache()) {
     return {};
   }
   return {LLAMA_CACHE: modelsDir};
+}
+
+/**
+ * Whether the weights live in a directory Nelle owns.
+ *
+ * `false` when the user pointed llama.cpp at a cache of their own. Nelle will then neither
+ * report on that directory's size nor delete anything from it: it may be shared with the
+ * `hf` CLI, with a standalone llama.cpp, or with 50 GB of somebody else's models.
+ */
+export function ownsModelCache(): boolean {
+  return !MODEL_CACHE_ENV_VARS.some(name => process.env[name]);
 }
 
 function findConfiguredSectionId(

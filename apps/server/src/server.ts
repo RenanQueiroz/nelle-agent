@@ -7,13 +7,14 @@ import type {ModelCatalogContract} from '../../../packages/shared/src/modelCatal
 import type {RuntimeInstallEvent} from '../../../packages/shared/src/runtime.ts';
 import {reasoningLevelSchema} from '../../../packages/shared/src/reasoning.ts';
 import {HuggingFaceService} from './huggingface';
-import {LlamaCppManager} from './llamacpp';
+import {LlamaCppManager, ownsModelCache} from './llamacpp';
 import {registerLlamaProxy} from './llamaProxy';
 import {PiHarness, isConversationNotFoundError} from './piHarness';
 import {streamDirectLlama} from './directLlama';
 import {createErrorEvent, normalizeNelleError} from './errors';
 import {Router, applyCors, createStaticHandler, json, preflightResponse, type Ctx} from './http';
 import {AppStore} from './store';
+import {removeRepoWeights, repoDiskBytes} from './modelWeights';
 import {AppDatabase} from './database';
 import {exportConversationArchive, importConversationArchive} from './conversationArchive';
 import {HostToolRepository} from './hostTools';
@@ -38,7 +39,7 @@ import {
 } from './conversations';
 import {resolveConversationModel} from './conversationModel';
 import type {AppPaths} from './paths';
-import type {ChatAttachmentInput, ChatStreamEvent} from './types';
+import type {ChatAttachmentInput, ChatStreamEvent, ConfiguredModel} from './types';
 import type {NelleError, UploadResponse} from '../../../packages/shared/src/contracts.ts';
 import {
   chatRequestSchema,
@@ -488,10 +489,21 @@ export async function createServer(
    * the derived `contextSize` of every model at once. So a client *applies* the catalog
    * rather than patching one row and guessing at the rest.
    */
+  /**
+   * Fills in what the store deliberately does not know: what this model's weights cost on
+   * disk. `null` when nothing has been downloaded, or when the user pointed llama.cpp at a
+   * cache of their own -- Nelle will neither measure nor delete a directory it does not own.
+   */
+  const decorateModel = async (model: ConfiguredModel): Promise<ConfiguredModel> => ({
+    ...model,
+    diskBytes:
+      ownsModelCache() && model.repoId ? await repoDiskBytes(paths.modelsDir, model.repoId) : null,
+  });
+
   const modelCatalog = async (): Promise<ModelCatalogContract> => {
     const state = await store.getState();
     return {
-      models: state.models,
+      models: await Promise.all(state.models.map(decorateModel)),
       activeModelId: state.activeModelId,
       globalModelParams: state.globalModelParams,
     };
@@ -502,7 +514,7 @@ export async function createServer(
   router.post('/api/models/:id/activate', async ctx => {
     const model = await store.setActiveModel(ctx.params.id);
     await llama.writePreset(model);
-    return json({model, catalog: await modelCatalog()});
+    return json({model: await decorateModel(model), catalog: await modelCatalog()});
   });
 
   // Served so a settings UI can offer completion, and so no client carries a copy
@@ -555,7 +567,7 @@ export async function createServer(
       );
     }
     await writePresetAndReloadRouter(llama, store, modelCache);
-    return json({model, catalog: await modelCatalog()});
+    return json({model: await decorateModel(model), catalog: await modelCatalog()});
   });
 
   router.post('/api/models/:id/duplicate', async ctx => {
@@ -575,7 +587,7 @@ export async function createServer(
       );
     }
     await writePresetAndReloadRouter(llama, store, modelCache);
-    return json({model, catalog: await modelCatalog()});
+    return json({model: await decorateModel(model), catalog: await modelCatalog()});
   });
 
   router.delete('/api/models/:id', async ctx => {
@@ -586,7 +598,43 @@ export async function createServer(
     }
     await llama.removeModelSection(id);
     await writePresetAndReloadRouter(llama, store, modelCache);
-    return json({ok: true, removedModelId: id, catalog: await modelCatalog()});
+
+    // Removing a section has always left the weights on disk for ever, invisibly -- which is
+    // how a 6.7 GB model nobody had configured came to be sitting in the cache. `?weights=1`
+    // reclaims them, and it is only safe because the cache is Nelle's.
+    const wantsWeights = ctx.query.weights === '1';
+    const state = await store.getState();
+    // **A repo directory holds every quant of that repo.** Two models on one `repoId` -- two
+    // quants, or a duplicate -- share one pile of blobs, so deleting the directory would
+    // silently destroy a working model's weights. Not exotic: duplicating a model produces
+    // exactly this.
+    const sharedWithModelIds = state.models
+      .filter(model => removed.repoId != null && model.repoId === removed.repoId)
+      .map(model => model.id);
+
+    let reclaimedBytes = 0;
+    let weightsRemoved = false;
+    if (
+      wantsWeights &&
+      ownsModelCache() &&
+      removed.repoId != null &&
+      sharedWithModelIds.length === 0
+    ) {
+      reclaimedBytes = await removeRepoWeights(paths.modelsDir, removed.repoId);
+      weightsRemoved = true;
+      // The router's model list is a **startup snapshot** of the cache: without this it keeps
+      // offering a model whose weights are gone.
+      await llama.getRouterModels({reload: true}).catch(() => undefined);
+    }
+
+    return json({
+      ok: true,
+      removedModelId: id,
+      catalog: await modelCatalog(),
+      weightsRemoved,
+      reclaimedBytes,
+      sharedWithModelIds,
+    });
   });
 
   router.get('/api/huggingface/search', async ctx =>

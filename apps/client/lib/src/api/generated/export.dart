@@ -42,6 +42,7 @@ export 'models/llama_option_catalogue.dart';
 export 'models/model_params.dart';
 export 'models/configured_model.dart';
 export 'models/model_catalog.dart';
+export 'models/delete_model_response.dart';
 export 'models/invalid_model_param.dart';
 export 'models/invalid_model_params_response.dart';
 export 'models/hugging_face_file.dart';

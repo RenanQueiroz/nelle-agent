@@ -46,6 +46,7 @@ import {
 } from '../../../packages/shared/src/llamaModels.ts';
 import {
   configuredModelSchema,
+  deleteModelResponseSchema,
   invalidModelParamSchema,
   invalidModelParamsResponseSchema,
   modelCatalogSchema,
@@ -142,6 +143,9 @@ const CONTRACT_SCHEMAS: ReadonlyArray<readonly [string, z.ZodType]> = [
   ['ModelParams', modelParamsSchema],
   ['ConfiguredModel', configuredModelSchema],
   ['ModelCatalog', modelCatalogSchema],
+  // Deleting a model can now reclaim its weights -- and must never destroy a sibling's, since
+  // a Hugging Face repo directory holds every quant of that repo.
+  ['DeleteModelResponse', deleteModelResponseSchema],
   // The 400 that a bad params save answers with. It names *every* offending key, so a
   // client can mark the rows rather than print one line of red text under a form of ten.
   ['InvalidModelParam', invalidModelParamSchema],
