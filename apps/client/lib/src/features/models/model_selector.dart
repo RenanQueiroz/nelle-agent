@@ -5,6 +5,7 @@ import 'package:forui/forui.dart';
 import '../../api/generated/models/llama_router_model.dart';
 import '../../api/generated/models/model_list_item.dart';
 import '../chat/chat_controller.dart';
+import 'favorites.dart';
 import 'llama_repository.dart';
 import 'router_models_notifier.dart';
 
@@ -37,6 +38,9 @@ class ModelSelector extends ConsumerWidget {
     final router =
         ref.watch(routerModelsProvider).valueOrNull ??
         const <LlamaRouterModel>[];
+    // Stored server-side, so they follow the user to their phone.
+    final favorites =
+        ref.watch(favoriteModelsProvider).valueOrNull ?? const <String>[];
 
     return SizedBox(
       width: 320,
@@ -44,7 +48,9 @@ class ModelSelector extends ConsumerWidget {
         key: const ValueKey('k-composer-model'),
         // The trigger is narrow, so it shows the name alone; status lives in the rows.
         format: (id) => _name(_itemFor(catalog, id) ?? id, id),
-        filter: (query) => _filter(catalog, query),
+        // Favourites first. The point of a favourite is to be near the top of a list that
+        // may hold dozens of models, so the sort *is* the feature.
+        filter: (query) => sortByFavorite(_filter(catalog, query), favorites),
         contentBuilder: (context, query, ids) => [
           for (final id in ids)
             FSelectItem<String>.item(
@@ -57,6 +63,12 @@ class ModelSelector extends ConsumerWidget {
               // The status is its own line: as a suffix it was the first thing the
               // ellipsis ate, which hid the very thing the router SSE is here to say.
               subtitle: _StatusLine(status: _routerFor(router, id)),
+              // A star, not a menu: favouriting is a one-tap thing you do while you are
+              // already looking at the list.
+              suffixBuilder: (context, selected) => _FavoriteStar(
+                modelId: id,
+                isFavorite: favorites.contains(id),
+              ),
             ),
         ],
         control: FSelectControl.lifted(
@@ -166,4 +178,35 @@ class _StatusLine extends StatelessWidget {
 /// Local `unawaited` so the fire-and-forget load reads as deliberate.
 void unawaited(Future<void> future) {
   future.catchError((Object _) {});
+}
+
+/// Toggles a favourite without selecting the model.
+///
+/// It sits inside the select's row, so the tap must not fall through to the row and
+/// switch the conversation's model -- picking a model and starring one are different
+/// intentions, and a user who meant to star would be very surprised.
+class _FavoriteStar extends ConsumerWidget {
+  const _FavoriteStar({required this.modelId, required this.isFavorite});
+
+  final String modelId;
+  final bool isFavorite;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => GestureDetector(
+    key: ValueKey('k-composer-model-favorite-$modelId'),
+    behavior: HitTestBehavior.opaque,
+    onTap: () => ref.read(favoriteModelsProvider.notifier).toggle(modelId),
+    child: Padding(
+      padding: const EdgeInsets.all(4),
+      // Lucide is an outline set with no filled star, so the state is carried by colour:
+      // the favourite is the accent, the rest are barely there. One icon, two colours.
+      child: Icon(
+        FLucideIcons.star,
+        size: 14,
+        color: isFavorite
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).colorScheme.outline.withValues(alpha: 0.4),
+      ),
+    ),
+  );
 }
