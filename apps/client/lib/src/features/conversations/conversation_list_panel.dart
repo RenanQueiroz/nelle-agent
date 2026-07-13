@@ -9,6 +9,7 @@ import '../../api/api_exception.dart';
 import '../../api/generated/models/conversation_list_item.dart';
 import '../../api/generated/models/conversation_status.dart';
 import 'conversations_notifier.dart';
+import 'conversations_repository.dart';
 
 /// The conversation sidebar: pinned + recent sections, new-chat, delete, and the
 /// full match count in the header.
@@ -254,6 +255,15 @@ class _RowMenuState extends ConsumerState<_RowMenu>
               },
             ),
             FItem(
+              key: ValueKey('k-conv-duplicate-${c.id}'),
+              title: const Text('Duplicate'),
+              prefix: const Icon(FLucideIcons.copy),
+              onPress: () {
+                _popover.hide();
+                _duplicate(context, ref, c);
+              },
+            ),
+            FItem(
               key: ValueKey('k-conv-pin-${c.id}'),
               title: Text(c.pinned ? 'Unpin' : 'Pin'),
               prefix: Icon(c.pinned ? FLucideIcons.pinOff : FLucideIcons.pin),
@@ -308,6 +318,40 @@ class _RowMenuState extends ConsumerState<_RowMenu>
     } catch (e) {
       if (context.mounted) {
         _toastError(context, '${c.pinned ? 'Unpin' : 'Pin'} failed: $e');
+      }
+    }
+  }
+
+  /// Duplicates the whole conversation, and **opens the copy**.
+  ///
+  /// A clone, not a fork: it copies the conversation entire, so it needs no entry to start from.
+  /// (A fork branches at one of your messages, and lives in the transcript footer.) The source is
+  /// left exactly as it was, which is why neither asks for a confirmation.
+  ///
+  /// Refused with `conversation_not_branchable` on a chat with no messages -- there is genuinely
+  /// nothing to duplicate, and the server says so rather than making an empty copy that looks
+  /// like it worked.
+  Future<void> _duplicate(
+    BuildContext context,
+    WidgetRef ref,
+    ConversationListItem c,
+  ) async {
+    try {
+      final created = await ref
+          .read(conversationsRepositoryProvider)
+          .clone(c.id);
+      ref
+          .read(conversationsProvider.notifier)
+          .addConversation(created.conversation);
+      ref.read(selectedConversationIdProvider.notifier).state =
+          created.conversation.id;
+    } catch (error) {
+      if (context.mounted) {
+        _toastError(
+          context,
+          'Could not duplicate: '
+          '${error is NelleApiException ? error.message : error}',
+        );
       }
     }
   }

@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
+import '../../api/api_exception.dart';
 import '../../api/generated/models/conversation_message_role.dart';
+import '../../api/generated/models/fork_kind.dart';
 import '../attachments/drop_target.dart';
+import '../conversations/conversations_notifier.dart';
+import '../conversations/conversations_repository.dart';
 import 'chat_composer.dart';
 import 'chat_controller.dart';
 import 'context_bar.dart';
@@ -57,6 +61,7 @@ class ChatView extends ConsumerWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          if (state?.forkKind != null) _BranchedBanner(kind: state!.forkKind!),
           if (state != null) ContextBar(usage: state.context),
           const Divider(height: 1),
           Expanded(
@@ -151,6 +156,15 @@ class _TranscriptState extends ConsumerState<_Transcript> {
             !isPending &&
             !widget.state.running &&
             message.role == ConversationMessageRole.assistant;
+        // A fork replays **your** prompt down a new branch, so it hangs off a *user* turn --
+        // the mirror of regenerate, which re-answers in place off an assistant one. `canFork` is
+        // the server's word (an `unavailable` conversation has no session to branch), and it has
+        // been on every snapshot since M1 with nothing reading it.
+        final canFork =
+            !isPending &&
+            !widget.state.running &&
+            message.role == ConversationMessageRole.user &&
+            widget.state.snapshot.capabilities.canFork;
         return MessageBubble(
           message: message,
           onRegenerate: canRegenerate
@@ -160,8 +174,80 @@ class _TranscriptState extends ConsumerState<_Transcript> {
                     )
                     .regenerate(message.id)
               : null,
+          onFork: canFork ? () => _fork(context, ref, message.id) : null,
         );
       },
+    );
+  }
+
+  /// Branches a new conversation from [entryId] and **opens it**.
+  ///
+  /// Opening it is the whole point: a fork you cannot see is indistinguishable from a button that
+  /// did nothing. The source conversation is untouched -- that is the server's guarantee, and it
+  /// is why this is safe to do without a confirmation.
+  Future<void> _fork(BuildContext context, WidgetRef ref, String entryId) async {
+    try {
+      final created = await ref
+          .read(conversationsRepositoryProvider)
+          .fork(widget.conversationId, entryId);
+      ref.read(conversationsProvider.notifier).addConversation(created.conversation);
+      ref.read(selectedConversationIdProvider.notifier).state =
+          created.conversation.id;
+    } catch (error) {
+      if (context.mounted) {
+        // The server's own sentence. `conversation_not_branchable` says *why* -- and the client
+        // cannot say it better, because it does not know which of the reasons applied.
+        showFToast(
+          context: context,
+          icon: const Icon(FLucideIcons.circleX),
+          title: Text('Could not branch: ${_reason(error)}'),
+        );
+      }
+    }
+  }
+
+  static String _reason(Object error) =>
+      error is NelleApiException ? error.message : '$error';
+}
+
+/// Says that this conversation came from another one, and that the other one is still there.
+///
+/// A fork's transcript looks like an ordinary chat that happens to begin mid-thought. Without
+/// this the user has no way to tell where it came from -- or, more to the point, that the original
+/// still exists untouched, which is the entire reason forking is safe to do without a warning.
+class _BranchedBanner extends StatelessWidget {
+  const _BranchedBanner({required this.kind});
+
+  final ForkKind kind;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      key: const ValueKey('k-chat-branched'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      color: scheme.surfaceContainerHighest,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(FLucideIcons.gitBranch, size: 12, color: scheme.outline),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              switch (kind) {
+                ForkKind.fork =>
+                  'Branched from another chat. The original is unchanged.',
+                ForkKind.clone =>
+                  'A copy of another chat. The original is unchanged.',
+                // A `forkKind` a newer server invents must not blank the banner it belongs to.
+                _ => 'Branched from another chat.',
+              },
+              style: TextStyle(fontSize: 11, color: scheme.outline),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -10,6 +10,7 @@ import '../../api/generated/models/conversation_context_usage.dart';
 import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
 import '../../api/generated/models/conversation_snapshot.dart';
+import '../../api/generated/models/fork_kind.dart';
 import '../models/active_runs.dart';
 import '../../api/generated/models/reasoning_level.dart';
 import '../attachments/attachment_draft.dart';
@@ -84,6 +85,14 @@ class ChatState {
   final String? compactNote;
 
   String get title => snapshot.conversation.title;
+
+  /// This conversation was **branched from another one**, and which way.
+  ///
+  /// A `fork` started at one message of its parent; a `clone` copied the whole thing. Saying so
+  /// matters because a fork's transcript *looks like* an ordinary chat that happens to begin
+  /// mid-thought -- and without this the user has no way to know where it came from, or that the
+  /// original is still there, untouched.
+  ForkKind? get forkKind => snapshot.conversation.forkKind;
 
   /// The model **this conversation** runs on. Not `models.selectedModelId`, which is
   /// the global default new chats inherit — reading that would show the wrong model.

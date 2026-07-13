@@ -9,7 +9,12 @@ import 'message_attachments.dart';
 /// One rendered message. User turns align right; assistant turns align left with
 /// an optional collapsible reasoning block and a model/variant footer.
 class MessageBubble extends StatelessWidget {
-  const MessageBubble({super.key, required this.message, this.onRegenerate});
+  const MessageBubble({
+    super.key,
+    required this.message,
+    this.onRegenerate,
+    this.onFork,
+  });
 
   final ConversationMessage message;
 
@@ -17,6 +22,15 @@ class MessageBubble extends StatelessWidget {
   /// regenerating makes no sense: a user turn, a reply still streaming, or a run in
   /// flight.
   final VoidCallback? onRegenerate;
+
+  /// Branches a **new conversation** from this message — the same prompt, a different path,
+  /// and the original left exactly as it was.
+  ///
+  /// A **user** turn only, and that is the server's rule, not a UI choice: a fork replays *your*
+  /// prompt down a new branch, so there is nothing to fork from the model's answer. (The server
+  /// refuses it with `conversation_not_branchable`.) Regenerate is the assistant-side twin: it
+  /// re-answers *in place*. Fork leaves and takes the conversation with it.
+  final VoidCallback? onFork;
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +86,7 @@ class MessageBubble extends StatelessWidget {
                     )
                   : MarkdownMessage(text: message.content),
             ),
-            if (footer.isNotEmpty || onRegenerate != null)
+            if (footer.isNotEmpty || onRegenerate != null || onFork != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Row(
@@ -83,23 +97,23 @@ class MessageBubble extends StatelessWidget {
                         footer,
                         style: TextStyle(fontSize: 10, color: scheme.outline),
                       ),
-                    if (onRegenerate != null) ...[
+                    if (onFork != null) ...[
                       if (footer.isNotEmpty) const SizedBox(width: 8),
-                      GestureDetector(
-                        key: ValueKey('k-msg-regenerate-${message.id}'),
-                        behavior: HitTestBehavior.opaque,
-                        onTap: onRegenerate,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 2,
-                            vertical: 2,
-                          ),
-                          child: Icon(
-                            FLucideIcons.refreshCw,
-                            size: 12,
-                            color: scheme.outline,
-                          ),
-                        ),
+                      _FooterAction(
+                        actionKey: ValueKey('k-msg-fork-${message.id}'),
+                        icon: FLucideIcons.gitBranch,
+                        tooltip: 'Branch a new chat from here',
+                        onTap: onFork!,
+                      ),
+                    ],
+                    if (onRegenerate != null) ...[
+                      if (footer.isNotEmpty || onFork != null)
+                        const SizedBox(width: 8),
+                      _FooterAction(
+                        actionKey: ValueKey('k-msg-regenerate-${message.id}'),
+                        icon: FLucideIcons.refreshCw,
+                        tooltip: 'Answer again',
+                        onTap: onRegenerate!,
                       ),
                     ],
                   ],
@@ -110,6 +124,43 @@ class MessageBubble extends StatelessWidget {
       ),
     );
   }
+}
+
+/// One small icon in a message footer.
+///
+/// A `GestureDetector`, not an `IconButton`: this app is forui over a bare `FScaffold` and has no
+/// `Material` ancestor, so anything wanting an ink splash throws "No Material widget found" and
+/// paints a red box where the control should be.
+class _FooterAction extends StatelessWidget {
+  const _FooterAction({
+    required this.actionKey,
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final Key actionKey;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => FTooltip(
+    tipBuilder: (context, _) => Text(tooltip),
+    child: GestureDetector(
+      key: actionKey,
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+        child: Icon(
+          icon,
+          size: 12,
+          color: Theme.of(context).colorScheme.outline,
+        ),
+      ),
+    ),
+  );
 }
 
 class _ReasoningBlock extends StatefulWidget {
