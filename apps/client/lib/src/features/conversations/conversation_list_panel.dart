@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
@@ -16,7 +18,9 @@ class ConversationListPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(conversationsProvider);
-    final total = async.valueOrNull?.total;
+    // What the user can *see*, not what the server still counts: a held delete is already gone
+    // from the list, and a header that still counts it contradicts the rows beneath it.
+    final total = async.valueOrNull?.visibleTotal;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -36,6 +40,7 @@ class ConversationListPanel extends ConsumerWidget {
             ),
           ],
         ),
+        const _SearchBox(),
         Expanded(
           child: switch (async) {
             AsyncData(:final value) => _ConversationList(state: value),
@@ -67,6 +72,64 @@ class ConversationListPanel extends ConsumerWidget {
   }
 }
 
+/// Searches on the **server**, on a debounce.
+///
+/// Never a filter over the loaded page. The sidebar holds a *window* onto the conversation list,
+/// so filtering what happens to be loaded would report "no matching chats" for every conversation
+/// the user has not scrolled far enough to see -- which is most of them.
+///
+/// The debounce is not cosmetic: without it every keystroke is a round trip, and the answers come
+/// back out of order. (The notifier guards that race as well, because a debounce narrows the
+/// window and does not close it.)
+class _SearchBox extends ConsumerStatefulWidget {
+  const _SearchBox();
+
+  @override
+  ConsumerState<_SearchBox> createState() => _SearchBoxState();
+}
+
+class _SearchBoxState extends ConsumerState<_SearchBox> {
+  final _controller = TextEditingController();
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    // forui's `FTextField` takes no `onChange`: the controller *is* the change channel.
+    _controller.addListener(_onChanged);
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.removeListener(_onChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onChanged() {
+    final query = _controller.text;
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 250), () {
+      // A failed search leaves the previous results on screen. The list is not *wrong* then, only
+      // un-narrowed, and blanking it would be worse than doing nothing.
+      unawaited(
+        ref.read(conversationsProvider.notifier).search(query).catchError((_) {}),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+    child: FTextField(
+      key: const ValueKey('k-conv-search'),
+      control: FTextFieldControl.managed(controller: _controller),
+      hint: 'Search chats',
+    ),
+  );
+}
+
 class _ConversationList extends ConsumerWidget {
   const _ConversationList({required this.state});
 
@@ -74,11 +137,18 @@ class _ConversationList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (state.items.isEmpty) {
-      return const Center(
+    if (state.isEmpty) {
+      // "No chats yet" is a lie when a search simply matched nothing -- it says the user has no
+      // conversations, when what happened is that this word does not appear in any of them.
+      final searching = state.search.isNotEmpty;
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text('No chats yet.', textAlign: TextAlign.center),
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            searching ? 'No chats match “${state.search}”.' : 'No chats yet.',
+            key: ValueKey(searching ? 'k-conv-no-matches' : 'k-conv-empty'),
+            textAlign: TextAlign.center,
+          ),
         ),
       );
     }
@@ -136,29 +206,228 @@ class _ConversationList extends ConsumerWidget {
       selected: c.id == selectedId,
       onPress: () =>
           ref.read(selectedConversationIdProvider.notifier).state = c.id,
-      suffix: FButton.icon(
-        key: ValueKey('k-conv-delete-${c.id}'),
-        onPress: () => _delete(context, ref, c),
-        child: const Icon(FLucideIcons.trash2, size: 16),
+      suffix: _RowMenu(conversation: c),
+    );
+  }
+}
+
+/// Rename, pin, delete — and, from T4/T5, duplicate and export.
+///
+/// A menu rather than a row of icons: a phone has no room for four, and `apps/web` learned the
+/// same thing. The trash icon it replaces was a **one-tap, unconfirmed, irreversible delete**.
+class _RowMenu extends ConsumerStatefulWidget {
+  const _RowMenu({required this.conversation});
+
+  final ConversationListItem conversation;
+
+  @override
+  ConsumerState<_RowMenu> createState() => _RowMenuState();
+}
+
+class _RowMenuState extends ConsumerState<_RowMenu>
+    with SingleTickerProviderStateMixin {
+  late final FPopoverController _popover = FPopoverController(vsync: this);
+
+  @override
+  void dispose() {
+    _popover.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.conversation;
+    return FPopoverMenu(
+      control: FPopoverControl.managed(controller: _popover),
+      menuAnchor: Alignment.topRight,
+      childAnchor: Alignment.bottomRight,
+      menu: [
+        FItemGroup(
+          children: [
+            FItem(
+              key: ValueKey('k-conv-rename-${c.id}'),
+              title: const Text('Rename'),
+              prefix: const Icon(FLucideIcons.pencil),
+              onPress: () {
+                _popover.hide();
+                _rename(context, ref, c);
+              },
+            ),
+            FItem(
+              key: ValueKey('k-conv-pin-${c.id}'),
+              title: Text(c.pinned ? 'Unpin' : 'Pin'),
+              prefix: Icon(c.pinned ? FLucideIcons.pinOff : FLucideIcons.pin),
+              onPress: () {
+                _popover.hide();
+                _setPinned(context, ref, c);
+              },
+            ),
+            FItem(
+              key: ValueKey('k-conv-delete-${c.id}'),
+              title: const Text('Delete'),
+              prefix: const Icon(FLucideIcons.trash2),
+              onPress: () {
+                _popover.hide();
+                _delete(context, ref, c);
+              },
+            ),
+          ],
+        ),
+      ],
+      builder: (context, controller, child) => FButton.icon(
+        key: ValueKey('k-conv-menu-${c.id}'),
+        onPress: controller.toggle,
+        child: const Icon(FLucideIcons.ellipsis, size: 16),
       ),
     );
   }
 
-  Future<void> _delete(
+  Future<void> _rename(
     BuildContext context,
     WidgetRef ref,
     ConversationListItem c,
   ) async {
-    final wasSelected = ref.read(selectedConversationIdProvider) == c.id;
+    final title = await showRenameDialog(context, c.title);
+    if (title == null || !context.mounted) return;
     try {
-      await ref.read(conversationsProvider.notifier).deleteConversation(c.id);
-      if (wasSelected) {
-        ref.read(selectedConversationIdProvider.notifier).state = null;
-      }
+      await ref.read(conversationsProvider.notifier).rename(c.id, title);
     } catch (e) {
-      if (context.mounted) _toastError(context, 'Delete failed: $e');
+      if (context.mounted) _toastError(context, 'Rename failed: $e');
     }
   }
+
+  Future<void> _setPinned(
+    BuildContext context,
+    WidgetRef ref,
+    ConversationListItem c,
+  ) async {
+    try {
+      await ref
+          .read(conversationsProvider.notifier)
+          .setPinned(c.id, !c.pinned);
+    } catch (e) {
+      if (context.mounted) {
+        _toastError(context, '${c.pinned ? 'Unpin' : 'Pin'} failed: $e');
+      }
+    }
+  }
+
+  /// Hides the row and **holds** the delete for five seconds.
+  ///
+  /// There is no confirmation dialog, deliberately: a dialog on every delete taxes the ninety-nine
+  /// deliberate ones to catch the one mistake. The undo does the same job and costs nothing --
+  /// and it is a *held request*, not a reversal, because the server's delete cannot be reversed
+  /// (it removes the Pi session file and any attachment nothing else references).
+  void _delete(BuildContext context, WidgetRef ref, ConversationListItem c) {
+    final notifier = ref.read(conversationsProvider.notifier);
+    final wasSelected = ref.read(selectedConversationIdProvider) == c.id;
+    notifier.deleteConversation(c.id);
+    if (wasSelected) {
+      ref.read(selectedConversationIdProvider.notifier).state = null;
+    }
+    showFToast(
+      context: context,
+      icon: const Icon(FLucideIcons.trash2),
+      title: Text('Deleted “${c.title.isEmpty ? 'Untitled' : c.title}”'),
+      suffixBuilder: (context, entry) => FButton(
+        key: ValueKey('k-conv-undo-${c.id}'),
+        variant: FButtonVariant.outline,
+        onPress: () {
+          notifier.undoDelete(c.id);
+          if (wasSelected) {
+            ref.read(selectedConversationIdProvider.notifier).state = c.id;
+          }
+          entry.dismiss();
+        },
+        child: const Text('Undo'),
+      ),
+      duration: kDeleteUndoWindow,
+    );
+  }
+}
+
+/// Asks for a new title. `null` means the user backed out — which is not the same as an empty
+/// title, and must not rename the chat to nothing.
+Future<String?> showRenameDialog(BuildContext context, String current) =>
+    showFDialog<String>(
+      context: context,
+      builder: (context, style, animation) => _RenameDialog(
+        style: style,
+        animation: animation,
+        current: current,
+      ),
+    );
+
+/// Stateful **so that it owns the controller**, which is the whole point.
+///
+/// The obvious version -- `showFDialog(...).whenComplete(controller.dispose)` -- disposes the
+/// controller the moment `Navigator.pop` is called, while the dialog is still *animating out*.
+/// Its `FTextField` keeps rebuilding against it for those few frames, throws "A
+/// TextEditingController was used after being disposed", and takes the entire app down to a red
+/// screen. `flutter analyze` was clean and every widget test passed; it took one rename in the
+/// running app to find.
+///
+/// A `State`'s `dispose()` runs when the element is actually unmounted, which is after the
+/// animation, which is the only time this is safe.
+class _RenameDialog extends StatefulWidget {
+  const _RenameDialog({
+    required this.style,
+    required this.animation,
+    required this.current,
+  });
+
+  final FDialogStyle style;
+  final Animation<double> animation;
+  final String current;
+
+  @override
+  State<_RenameDialog> createState() => _RenameDialogState();
+}
+
+class _RenameDialogState extends State<_RenameDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.current,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final title = _controller.text.trim();
+    // An empty title is not a rename. The server refuses it anyway (`min(1)`), and quietly doing
+    // nothing is friendlier than showing the user a 400 for pressing Save on an empty box.
+    Navigator.of(context).pop(title.isEmpty ? null : title);
+  }
+
+  @override
+  Widget build(BuildContext context) => FDialog(
+    style: widget.style,
+    animation: widget.animation,
+    direction: Axis.horizontal,
+    title: const Text('Rename chat'),
+    body: FTextField(
+      key: const ValueKey('k-conv-rename-field'),
+      control: FTextFieldControl.managed(controller: _controller),
+      autofocus: true,
+      onSubmit: (_) => _save(),
+    ),
+    actions: [
+      FButton(
+        key: const ValueKey('k-conv-rename-cancel'),
+        variant: FButtonVariant.outline,
+        onPress: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FButton(
+        key: const ValueKey('k-conv-rename-save'),
+        onPress: _save,
+        child: const Text('Save'),
+      ),
+    ],
+  );
 }
 
 String? _statusLabel(ConversationStatus status) => switch (status) {
