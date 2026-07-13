@@ -1017,6 +1017,45 @@ Project-specific guidance for AI coding agents.
   `GET /api/settings/schema`, the way `GET /api/commands` serves the
   slash-command registry, so a second client renders it without a copy of the
   copy.
+- **The settings schema is itself a served contract.** `SettingsField` is a discriminated
+  union on `type` (`text` | `textarea` | `number` | `boolean` | `select`), and the
+  TypeScript types are `z.infer`red from the zod schemas so the document and the registry
+  cannot drift. The Dart model is **hand-written** (`lib/src/api/settings_schema.dart`),
+  like `ChatStreamEvent` and for a sharper reason: swagger_parser turns the `oneOf` into
+  `SettingsFieldSealedVariant1..5` and deserializes by *trying each variant until one does
+  not throw* -- and `text` and `textarea` carry identical keys apart from the `type`
+  literal, so a textarea comes back as a text field, silently, putting 8,000 characters of
+  custom instructions in a one-line box. An unknown `type` becomes `UnknownSettingsField`
+  and renders as *nothing*, so a newer server never breaks an older client's settings
+  screen.
+- **Seven groups, one renderer, and it must stay that way.** `instructions`,
+  `attachments`, `titles`, `reasoning`, `display`, `runtime`, `network` all render from
+  `GET /api/settings/schema` with **no client code that knows what any of them mean** --
+  labels, help, bounds, options and defaults all arrive from the server, so a new setting
+  ships without a client release. The moment a client special-cases `maxImageMegapixels`,
+  the schema has been thrown away. Reasoning budgets, the runtime limits and the six
+  display toggles were *moved into* the registry to make this true; the `runtime` group is
+  where `--models-max` and `--sleep-idle-seconds` come from.
+- **`SettingsSection`/`SettingsField` is a *rendering* contract, not "the server's data".**
+  The Flutter client describes its **device-local** sections (Appearance, and Notifications
+  when it lands) with the *same types* and draws them with the *same widget*, behind a
+  `SettingsSource` (`ServerSettingsSource` over HTTP, `DeviceSettingsSource` over
+  SharedPreferences). A setting is device-local when applying it to another device would be
+  wrong or impossible: `System` theme resolves against *that* OS, a notification permission
+  is granted per device, and the server connection *is* this device's relationship to a
+  server. Everything else follows the user. If a device setting ever needs its own UI, the
+  renderer is wrong.
+- **Two things are deliberately *not* settings**, and knowing why is what keeps the renderer
+  generic. **Host tools** are an acknowledgement *gate* on an unsandboxed shell -- the
+  registry can express a boolean but not "this one may only be turned on after you have read
+  something" -- and the server *enforces* it (`enabled` without `acknowledged` is refused).
+  **Favourites** are a *set*, and the registry has no field type for one. Both are custom
+  screens; custom is the escape hatch, never the default.
+- **A refused save keeps the draft and names the field.** `PATCH /api/settings/<slug>` is
+  `.strict()` and zod-validated, and the refusal carries the offending key in
+  `error.detail` -- so the client shows the server's own sentence *under that control*, not
+  at the bottom of a nine-field form. Only touched fields are sent: a save must not rewrite
+  a value the user never looked at.
 - A server setting exists in exactly one place: `SETTINGS_REGISTRY` in
   `packages/shared/src/settings.ts`. The served schema and the zod schema
   `PATCH /api/settings/<slug>` validates against are both *derived* from it, so
@@ -1031,6 +1070,11 @@ Project-specific guidance for AI coding agents.
   untouched rather than eating a setting the user would lose on the way back up.
   Reads coerce field by field, so one unreadable value falls back to its default
   alone and takes no sibling with it.
+- `apps/web`'s Settings dialog has hand-built surfaces for reasoning, runtime and the
+  display toggles (its own tabs, its own save-on-flip switches), so its **General** section
+  now *skips* those three groups -- without that they appear twice, once from the schema and
+  once from the hand-built block. It is being retired and keeps the UI it has; the Flutter
+  client is the one that renders all seven generically.
 - The Settings dialog's **General** section renders the served schema and nothing
   else. `GeneralSettingsSection.tsx` knows what a `select` is; it must never know
   what a title is. Labels, help text, bounds, options and defaults all arrive

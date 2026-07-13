@@ -418,6 +418,18 @@ export function settingsValueSchema(field: SettingsField): z.ZodType<SettingsVal
       return z.boolean();
     case 'select':
       return z.enum(field.options.map(option => option.value) as [string, ...string[]]);
+    default: {
+      // TypeScript already refuses a field type this switch does not handle -- adding one
+      // to `settingsFieldSchema` without adding it here is a compile error, which is the
+      // guard that matters. This is the message if it ever slips through anyway (a
+      // hand-built registry in a test, say): a *named* failure beats
+      // `undefined is not an object (evaluating 'settingsValueSchema(field).safeParse')`,
+      // which is what the client was shown when it did.
+      const unhandled: never = field;
+      throw new Error(
+        `Unhandled settings field type: ${JSON.stringify((unhandled as SettingsField).type)}`,
+      );
+    }
   }
 }
 
