@@ -40,12 +40,19 @@ void main() {
   // lib/src/api/settings_schema.dart, switching on the wire `type`, which is the
   // stable contract. `SettingsSection` and `SettingsSchema` go with it because they
   // reference it.
+  //
+  // `RuntimeInstallEvent` is the third of these and goes the same way. Its four variants
+  // do carry distinguishable keys, so swagger_parser's try-each-variant deserializer might
+  // even stumble into the right answer -- but "might" is the problem. The wire `type` is
+  // the contract; a sealed switch on it is exhaustive, and an unknown variant becomes an
+  // `Unknown...` member instead of a thrown exception in the middle of a ten-minute build.
   final schemas = ((spec['components'] as Map)['schemas']) as Map;
   for (final id in [
     'ChatStreamEvent',
     'SettingsField',
     'SettingsSection',
     'SettingsSchema',
+    'RuntimeInstallEvent',
   ]) {
     schemas.remove(id);
   }

@@ -48,24 +48,34 @@ class SseTransport {
     yield* parseSseByteStream(byteStream);
   }
 
-  /// GETs an SSE endpoint and yields each frame's **raw JSON payload**.
+  /// Opens an SSE endpoint and yields each frame's **raw JSON payload**.
   ///
-  /// Used for llama.cpp's router events (`/api/llama/models/events`), which the
-  /// server pipes straight through: they are *not* Nelle envelopes, so they must
-  /// never go through [ChatStreamEvent.fromEnvelope]. Only the frame-splitting is
-  /// shared.
+  /// Two callers, and they are not the same shape:
+  /// - llama.cpp's router events (`GET /api/llama/models/events`), which the server pipes
+  ///   straight through — they are *not* Nelle envelopes, so they must never go through
+  ///   [ChatStreamEvent.fromEnvelope];
+  /// - the install stream (`POST /api/runtime/install/stream`), which *is* a Nelle envelope
+  ///   but carries `RuntimeInstallEvent`, not `ChatStreamEvent`.
+  ///
+  /// Only the frame-splitting is shared. Each caller parses its own events, because feeding
+  /// one of these shapes to the other's parser mis-reads every frame.
   Stream<Map<String, dynamic>> streamJson(
     String path, {
+    String method = 'GET',
+    Object? body,
     CancelToken? cancelToken,
   }) async* {
     final Response<ResponseBody> res;
     try {
-      res = await _dio.get<ResponseBody>(
+      res = await _dio.request<ResponseBody>(
         path,
+        data: body,
         options: Options(
+          method: method,
           responseType: ResponseType.stream,
-          // The router is quiet between loads; a receive timeout would kill an
-          // idle-but-healthy stream.
+          // No receive timeout at all. The router is quiet between loads, and an install is
+          // quiet while cmake links — a timeout here would kill a stream that is perfectly
+          // healthy and merely thinking.
           receiveTimeout: Duration.zero,
           headers: const {'accept': 'text/event-stream'},
         ),

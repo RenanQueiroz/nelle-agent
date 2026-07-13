@@ -2,9 +2,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/api_client.dart';
-import '../../api/api_exception.dart';
 import '../../api/generated/models/llama_models_response.dart';
 import '../../api/generated/models/llama_router_model.dart';
+import '../../api/request.dart';
 
 /// llama.cpp's router: the live model list plus load/unload.
 ///
@@ -17,7 +17,7 @@ class LlamaRepository {
   final Dio _dio;
 
   Future<List<LlamaRouterModel>> list() async {
-    final res = await _send(
+    final res = await sendJson(
       () => _dio.get<Map<String, dynamic>>('/api/llama/models'),
     );
     return LlamaModelsResponse.fromJson(res.data ?? const {}).models;
@@ -26,7 +26,7 @@ class LlamaRepository {
   /// Fire-and-forget from the caller's point of view: a failure here is not fatal,
   /// because the send would surface a real `model_load_failed`.
   Future<void> load(String modelId) async {
-    await _send(
+    await sendJson(
       () => _dio.post<Map<String, dynamic>>(
         '/api/llama/models/${Uri.encodeComponent(modelId)}/load',
       ),
@@ -34,28 +34,22 @@ class LlamaRepository {
   }
 
   Future<void> unload(String modelId) async {
-    await _send(
+    await sendJson(
       () => _dio.post<Map<String, dynamic>>(
         '/api/llama/models/${Uri.encodeComponent(modelId)}/unload',
       ),
     );
   }
 
-  Future<Response<Map<String, dynamic>>> _send(
-    Future<Response<Map<String, dynamic>>> Function() run,
-  ) async {
-    final Response<Map<String, dynamic>> res;
-    try {
-      res = await run();
-    } on DioException catch (e) {
-      throw NelleApiException.network(e);
-    }
-    final code = res.statusCode ?? 0;
-    if (code < 200 || code >= 300) {
-      // llama.cpp stopped answers 502 here; that is a state, not a crash.
-      throw NelleApiException.fromResponse(res);
-    }
-    return res;
+  /// Re-reads `models.ini`. The router's model list is a **startup snapshot**: delete a
+  /// model's weights and it keeps offering it until this is called.
+  Future<void> reload() async {
+    await sendJson(
+      () => _dio.post<Map<String, dynamic>>(
+        '/api/llama/models/reload',
+        options: longCall(),
+      ),
+    );
   }
 }
 

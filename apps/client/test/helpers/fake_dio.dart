@@ -40,8 +40,14 @@ class FakeTransport extends SseTransport {
   @override
   Stream<Map<String, dynamic>> streamJson(
     String path, {
+    String method = 'GET',
+    Object? body,
     CancelToken? cancelToken,
-  }) => jsonEventsBuilder?.call() ?? jsonEvents ?? const Stream.empty();
+  }) {
+    lastPath = path;
+    lastBody = body;
+    return jsonEventsBuilder?.call() ?? jsonEvents ?? const Stream.empty();
+  }
 }
 
 /// A dio adapter that returns canned responses, so repository tests never touch
