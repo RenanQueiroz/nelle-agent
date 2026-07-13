@@ -5,6 +5,7 @@ import {
   chatRequestSchema,
   devicesResponseSchema,
   deviceViewSchema,
+  hostToolsResponseSchema,
   issuedTokensSchema,
   nelleErrorSchema,
   nelleWarningSchema,
@@ -96,6 +97,7 @@ const CONTRACT_SCHEMAS: ReadonlyArray<readonly [string, z.ZodType]> = [
   // rendered generically is the only one a client cannot codegen -- and the Flutter
   // client hand-rolled a class to parse it, which is precisely the copy-of-the-copy
   // that serving a schema exists to prevent.
+  ['HostToolsResponse', hostToolsResponseSchema],
   ['SettingsField', settingsFieldSchema],
   ['SettingsSection', settingsSectionSchema],
   ['SettingsSchema', settingsSchemaResponseSchema],

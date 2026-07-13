@@ -1,6 +1,9 @@
 import {z} from 'zod';
 
 import {ATTACHMENT_LIMITS, ATTACHMENT_LIMIT_MESSAGES} from './attachments.ts';
+// Re-exported so the server has one import, but *defined* zod-free: the web app imports
+// the copy directly, and the web bundle carries no zod.
+export {HOST_TOOLS_DESCRIPTION, HOST_TOOLS_WARNING} from './hostToolsCopy.ts';
 
 export const nelleErrorSchema = z.object({
   code: z.string().min(1),
@@ -44,6 +47,24 @@ export const preferencesSchema = z.object({
 });
 
 export type PreferencesInput = z.infer<typeof preferencesSchema>;
+
+export const hostToolSettingsSchema = z.object({
+  enabled: z.boolean(),
+  acknowledged: z.boolean(),
+  updatedAt: z.string(),
+});
+
+export type HostToolSettingsContract = z.infer<typeof hostToolSettingsSchema>;
+
+/** What `GET`/`PATCH /api/settings/host-tools` answers with. */
+export const hostToolsResponseSchema = z.object({
+  hostTools: hostToolSettingsSchema,
+  /** The security warning, so a client renders the server's sentence rather than its own. */
+  warning: z.string(),
+  description: z.string(),
+});
+
+export type HostToolsResponse = z.infer<typeof hostToolsResponseSchema>;
 
 export const NELLE_ERROR_CODES = {
   // Conversation and session lifecycle.

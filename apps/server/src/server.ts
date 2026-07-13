@@ -41,6 +41,8 @@ import type {NelleError, UploadResponse} from '../../../packages/shared/src/cont
 import {
   chatRequestSchema,
   createEventEnvelope,
+  HOST_TOOLS_DESCRIPTION,
+  HOST_TOOLS_WARNING,
   pairRequestSchema,
   preferencesSchema,
   refreshRequestSchema,
@@ -249,7 +251,15 @@ export async function createServer(
     }),
   );
 
-  router.get('/api/settings/host-tools', async () => json({hostTools: hostTools.getSettings()}));
+  router.get('/api/settings/host-tools', async () =>
+    json({
+      hostTools: hostTools.getSettings(),
+      // The server's own sentence. A security warning each client writes for itself is
+      // the one copy you least want drifting.
+      warning: HOST_TOOLS_WARNING,
+      description: HOST_TOOLS_DESCRIPTION,
+    }),
+  );
 
   // Favorites follow the user, not the browser profile that set them.
   router.get('/api/settings/preferences', async () => {
@@ -312,7 +322,11 @@ export async function createServer(
       );
     }
     pi.resetSession();
-    return json({hostTools: hostToolSettings});
+    return json({
+      hostTools: hostToolSettings,
+      warning: HOST_TOOLS_WARNING,
+      description: HOST_TOOLS_DESCRIPTION,
+    });
   });
 
   router.get('/api/runtime', async ctx => {

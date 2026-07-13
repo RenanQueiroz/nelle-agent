@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../api/settings_schema.dart';
 import '../connection/connection_screen.dart';
 import 'device_settings.dart';
+import 'host_tools.dart';
 import 'settings_controller.dart';
 import 'settings_section_screen.dart';
 
@@ -68,6 +69,20 @@ class SettingsScreen extends ConsumerWidget {
                   child: Center(child: CircularProgressIndicator()),
                 ),
               },
+
+              // Custom, not schema-rendered: host tools are an acknowledgement *gate* on
+              // an unsandboxed shell, and the registry can express a boolean but not
+              // "this one may only be turned on after you have read something".
+              _SectionTile(
+                key: const ValueKey('k-settings-section-host-tools'),
+                title: 'Host tools',
+                subtitle: 'Let the model read files and run shell commands.',
+                onPress: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (context) => const HostToolsScreen(),
+                  ),
+                ),
+              ),
 
               const SizedBox(height: 20),
               const _GroupHeading(

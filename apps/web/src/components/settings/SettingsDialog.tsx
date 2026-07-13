@@ -56,6 +56,12 @@ import {GLOBAL_PARAM_SCOPE, useSettingsStore} from '../../stores/settingsStore';
 import {useUiStore} from '../../stores/uiStore';
 import {formatBytes, formatRouterStatus, routerStatusColor} from '../../utils/format';
 import {formatInteger} from '../../utils/context';
+// The security warning is the server's sentence, shared so both clients say the same
+// thing. A warning each client writes for itself is the one copy you least want drifting.
+import {
+  HOST_TOOLS_DESCRIPTION,
+  HOST_TOOLS_WARNING,
+} from '../../../../../packages/shared/src/hostToolsCopy.ts';
 
 type SettingsDialogProps = {
   isOpen: boolean;
@@ -475,15 +481,10 @@ function HostToolsSettingsSection({
       </HStack>
       <Divider />
       <VStack gap={3}>
-        {!acknowledged && (
-          <Banner
-            status="warning"
-            title="Host file and shell tools run with the same OS permissions as the user who launched Nelle."
-          />
-        )}
+        {!acknowledged && <Banner status="warning" title={HOST_TOOLS_WARNING} />}
         <Switch
           label="Enable host file and shell tools"
-          description="Allows Pi to read files, edit files, search the project, and run shell commands from Nelle conversations."
+          description={HOST_TOOLS_DESCRIPTION}
           value={enabled}
           isDisabled={!acknowledged}
           disabledMessage="Acknowledge the host tool warning first."

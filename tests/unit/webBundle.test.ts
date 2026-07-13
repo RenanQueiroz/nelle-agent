@@ -68,3 +68,26 @@ async function sourceFiles(directory: string): Promise<string[]> {
   }
   return files;
 }
+
+test('the web bundle carries no zod', async () => {
+  // The rule existed and nothing enforced it, so it was broken the first time someone
+  // reached into `contracts.ts` for a shared *string*: importing anything from a module
+  // that imports zod pulls the whole validator into the browser -- 67 kB, to render one
+  // sentence. Shared copy the web needs lives in a zod-free module (`hostToolsCopy.ts`,
+  // `attachments.ts`, `settingsKeys.ts`), which is why those exist.
+  //
+  // The server validates. The browser renders. A validator in the browser is a second
+  // copy of a rule that already has an owner.
+  const files = await fs.readdir(WEB_DIST_ASSETS).catch(() => []);
+  const scripts = files.filter(file => file.endsWith('.js'));
+  assert.ok(scripts.length > 0, 'run: bun run build:web');
+
+  for (const script of scripts) {
+    const source = await fs.readFile(path.join(WEB_DIST_ASSETS, script), 'utf8');
+    assert.doesNotMatch(
+      source,
+      /ZodError|ZodIssueCode|\$ZodType/,
+      `${script} carries zod -- something under apps/web/src imports a module that imports it`,
+    );
+  }
+});

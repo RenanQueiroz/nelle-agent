@@ -1401,6 +1401,35 @@
         "required": ["devices"],
         "additionalProperties": false
       },
+      "HostToolsResponse": {
+        "type": "object",
+        "properties": {
+          "hostTools": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "acknowledged": {
+                "type": "boolean"
+              },
+              "updatedAt": {
+                "type": "string"
+              }
+            },
+            "required": ["enabled", "acknowledged", "updatedAt"],
+            "additionalProperties": false
+          },
+          "warning": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": ["hostTools", "warning", "description"],
+        "additionalProperties": false
+      },
       "SettingsField": {
         "oneOf": [
           {
