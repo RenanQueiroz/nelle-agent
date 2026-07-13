@@ -32,6 +32,13 @@ import {
   conversationListResponseSchema,
   conversationSnapshotSchema,
   conversationStatusSchema,
+  cloneConversationRequestSchema,
+  archiveConversationRefSchema,
+  archiveSourceSchema,
+  conversationArchiveManifestSchema,
+  conversationCreatedResponseSchema,
+  conversationDiagnosticsSchema,
+  forkConversationRequestSchema,
   modelListItemSchema,
 } from '../../../packages/shared/src/conversations.ts';
 import {
@@ -105,6 +112,21 @@ const CONTRACT_SCHEMAS: ReadonlyArray<readonly [string, z.ZodType]> = [
   ['ActiveRunStatus', activeRunStatusSchema],
   ['ReasoningLevel', reasoningLevelSchema],
   ['ModelListItem', modelListItemSchema],
+  // Conversation lifecycle (M8). `ConversationDiagnostics` was hand-declared in
+  // `apps/web/src/api.ts` and nowhere else -- exactly the copy-of-the-copy that serving a
+  // contract exists to prevent, and the same thing the runtime DTOs were before M7.
+  ['ForkConversationRequest', forkConversationRequestSchema],
+  ['CloneConversationRequest', cloneConversationRequestSchema],
+  // One shape for fork, clone *and* import, because they are one act: a conversation came into
+  // existence. Import is never a merge -- importing an archive twice gives you two chats.
+  ['ConversationCreatedResponse', conversationCreatedResponseSchema],
+  ['ConversationDiagnostics', conversationDiagnosticsSchema],
+  // The archive's manifest. The bytes are a zip and are not in the contract; this is, because a
+  // client must be able to say what an archive *is* -- above all `piSessionMissing`, which is
+  // why an import can be refused.
+  ['ArchiveConversationRef', archiveConversationRefSchema],
+  ['ArchiveSource', archiveSourceSchema],
+  ['ConversationArchiveManifest', conversationArchiveManifestSchema],
   ['AttachmentMetadata', attachmentMetadataSchema],
   // llama.cpp's live model view, so the client codegens the model selector's DTOs.
   ['LlamaRouterModel', llamaRouterModelSchema],

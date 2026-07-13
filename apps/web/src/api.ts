@@ -1,4 +1,5 @@
 import type {SlashCommandRegistry} from '../../../packages/shared/src/commands.ts';
+import type {ConversationDiagnostics} from '../../../packages/shared/src/conversations.ts';
 import type {ContextUsageStatus} from '../../../packages/shared/src/context.ts';
 import type {DisplayPreferences} from '../../../packages/shared/src/displayPreferences.ts';
 
@@ -835,18 +836,12 @@ export async function deleteConversation(id: string): Promise<void> {
   await apiDelete(`/api/conversations/${encodeURIComponent(id)}`);
 }
 
-export type ConversationDiagnostics = {
-  conversationId: string;
-  status: ConversationListItem['status'];
-  piSessionPath?: string;
-  piSessionId?: string;
-  exists: boolean;
-  reason?: string;
-  sizeBytes?: number;
-  projectionEntryCount: number;
-  attachmentCount: number;
-  toolAuditCount: number;
-};
+/**
+ * Re-exported from the contract, never re-declared. This was a hand-written copy of a shape the
+ * server owns -- the exact thing serving an OpenAPI document exists to prevent, and the reason
+ * a second client had to reverse-engineer it.
+ */
+export type {ConversationDiagnostics};
 
 export async function getConversationDiagnostics(id: string): Promise<ConversationDiagnostics> {
   const response = await apiGet<{diagnostics: ConversationDiagnostics}>(

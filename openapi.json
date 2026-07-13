@@ -1146,6 +1146,164 @@
         "required": ["id", "alias"],
         "additionalProperties": false
       },
+      "ForkConversationRequest": {
+        "type": "object",
+        "properties": {
+          "entryId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["entryId"],
+        "additionalProperties": false
+      },
+      "CloneConversationRequest": {
+        "type": "object",
+        "properties": {
+          "entryId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConversationCreatedResponse": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/components/schemas/ConversationListItem"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ConversationSnapshot"
+          }
+        },
+        "required": ["conversation", "snapshot"],
+        "additionalProperties": false
+      },
+      "ConversationDiagnostics": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConversationStatus"
+          },
+          "piSessionPath": {
+            "type": "string"
+          },
+          "piSessionId": {
+            "type": "string"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "projectionEntryCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "attachmentCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "toolAuditCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "conversationId",
+          "status",
+          "exists",
+          "projectionEntryCount",
+          "attachmentCount",
+          "toolAuditCount"
+        ],
+        "additionalProperties": false
+      },
+      "ArchiveConversationRef": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "title"],
+        "additionalProperties": false
+      },
+      "ArchiveSource": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string"
+          }
+        },
+        "required": ["platform"],
+        "additionalProperties": false
+      },
+      "ConversationArchiveManifest": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "const": "nelle-chat"
+          },
+          "version": {
+            "type": "number",
+            "const": 1
+          },
+          "exportedAt": {
+            "type": "string"
+          },
+          "appVersion": {
+            "type": "string"
+          },
+          "conversation": {
+            "$ref": "#/components/schemas/ArchiveConversationRef"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ArchiveSource"
+          },
+          "piSessionMissing": {
+            "type": "boolean"
+          },
+          "files": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["format", "version", "exportedAt", "appVersion", "files"],
+        "additionalProperties": false
+      },
       "AttachmentMetadata": {
         "type": "object",
         "properties": {

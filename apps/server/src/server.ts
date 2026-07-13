@@ -6,6 +6,10 @@ import {z} from 'zod';
 import type {ModelCatalogContract} from '../../../packages/shared/src/modelCatalog.ts';
 import type {RuntimeInstallEvent} from '../../../packages/shared/src/runtime.ts';
 import {reasoningLevelSchema} from '../../../packages/shared/src/reasoning.ts';
+import {
+  cloneConversationRequestSchema,
+  forkConversationRequestSchema,
+} from '../../../packages/shared/src/conversations.ts';
 import {HuggingFaceService} from './huggingface';
 import {LlamaCppManager, ownsModelCache} from './llamacpp';
 import {registerLlamaProxy} from './llamaProxy';
@@ -121,17 +125,10 @@ const regenerateMessageSchema = z
   })
   .optional();
 
-const forkConversationSchema = z.object({
-  entryId: z.string().min(1),
-  title: z.string().min(1).max(200).optional(),
-});
-
-const cloneConversationSchema = z
-  .object({
-    entryId: z.string().min(1).optional(),
-    title: z.string().min(1).max(200).optional(),
-  })
-  .optional();
+// Fork and clone live in `packages/shared` now: they are contract shapes, and a client that has
+// to guess at them is a client that will guess wrong. `.optional()` on the clone body because a
+// bare `POST` with no body is a whole-conversation duplicate.
+const cloneConversationSchema = cloneConversationRequestSchema.optional();
 
 const listConversationsQuerySchema = z.object({
   search: z.string().optional(),
@@ -992,32 +989,52 @@ export async function createServer(
     });
   });
 
-  router.post('/api/conversations/:id/fork', async ctx => {
-    const id = ctx.params.id;
+  /**
+   * Fork and clone both answer `ConversationCreatedResponse` -- a new conversation, and its
+   * snapshot -- and both refuse the same way. A conversation with no messages has nothing to
+   * branch from, and a fork must land on one of the user's own messages: those are the client
+   * asking for something impossible, so they are a **409 with a code**, not the bare 500 they
+   * used to be. The source conversation is never touched by either.
+   */
+  const branchConversation = async (
+    id: string,
+    branch: () => Promise<Awaited<ReturnType<PiHarness['forkConversation']>>>,
+  ): Promise<Response> => {
     if (!conversations.getConversation(id)) {
       return conversationNotFound(id);
     }
-    const body = forkConversationSchema.parse(await ctx.body());
-    const snapshot = await pi.forkConversation({
-      conversationId: id,
-      entryId: body.entryId,
-      title: body.title,
-    });
-    return json({conversation: snapshot.conversation, snapshot});
+    try {
+      const snapshot = await branch();
+      return json({conversation: snapshot.conversation, snapshot});
+    } catch (error) {
+      const normalized = normalizeNelleError(error);
+      if (normalized.code === NELLE_ERROR_CODES.conversationNotBranchable) {
+        return json({error: normalized}, 409);
+      }
+      throw error;
+    }
+  };
+
+  router.post('/api/conversations/:id/fork', async ctx => {
+    const body = forkConversationRequestSchema.parse(await ctx.body());
+    return branchConversation(ctx.params.id, () =>
+      pi.forkConversation({
+        conversationId: ctx.params.id,
+        entryId: body.entryId,
+        title: body.title,
+      }),
+    );
   });
 
   router.post('/api/conversations/:id/clone', async ctx => {
-    const id = ctx.params.id;
-    if (!conversations.getConversation(id)) {
-      return conversationNotFound(id);
-    }
     const body = cloneConversationSchema.parse(await ctx.body()) ?? {};
-    const snapshot = await pi.cloneConversation({
-      conversationId: id,
-      entryId: body.entryId,
-      title: body.title,
-    });
-    return json({conversation: snapshot.conversation, snapshot});
+    return branchConversation(ctx.params.id, () =>
+      pi.cloneConversation({
+        conversationId: ctx.params.id,
+        entryId: body.entryId,
+        title: body.title,
+      }),
+    );
   });
 
   router.post('/api/conversations/:id/chat/stream', async ctx => {

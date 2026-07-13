@@ -1539,16 +1539,22 @@ export class PiHarness {
       this.paths.piSessionsDir,
       this.paths.repoRoot,
     );
+    // These three are the client asking for something impossible, not the server breaking, so
+    // they carry a code and become a 4xx. They used to be bare `Error`s and therefore bare 500s
+    // -- and a 500 with no code is a thing no second client can render. An empty conversation is
+    // the common one: there is genuinely nothing to duplicate.
     const entryId = input.entryId ?? sourceManager.getLeafId();
     if (!entryId) {
-      throw new Error('This conversation does not have a persisted entry to branch from.');
+      throw notBranchableError(
+        'This conversation has no messages yet, so there is nothing to branch from.',
+      );
     }
     const entry = sourceManager.getEntry(entryId);
     if (!entry) {
-      throw new Error(`Entry ${entryId} was not found in the Pi session.`);
+      throw notBranchableError(`Entry ${entryId} was not found in the Pi session.`);
     }
     if (input.kind === 'fork' && !isUserMessageEntry(entry)) {
-      throw new Error('Forking is only available from persisted user messages.');
+      throw notBranchableError('A conversation can only be forked from one of your own messages.');
     }
 
     const branchedSessionPath = sourceManager.createBranchedSession(entryId);
@@ -2434,6 +2440,13 @@ function extractMessageThinking(message: unknown): string {
     })
     .filter(Boolean)
     .join('\n');
+}
+
+/** A fork/clone the client asked for that cannot exist. A 4xx, never a 500. */
+function notBranchableError(message: string): Error {
+  const error = new Error(message);
+  Object.assign(error, {code: NELLE_ERROR_CODES.conversationNotBranchable, retryable: false});
+  return error;
 }
 
 function isUserMessageEntry(entry: unknown): boolean {

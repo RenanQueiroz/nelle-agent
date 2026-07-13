@@ -71,6 +71,13 @@ export const NELLE_ERROR_CODES = {
   conversationBusy: 'conversation_busy',
   conversationNotFound: 'conversation_not_found',
   invalidConversationTransition: 'invalid_conversation_transition',
+  /**
+   * There is nothing to branch from. A conversation with no persisted entries cannot be cloned
+   * (there is no history to duplicate), and a fork must land on a **user** message. Both are the
+   * client asking for something impossible, not the server breaking -- and they used to come back
+   * as a bare `500`, which no client can render.
+   */
+  conversationNotBranchable: 'conversation_not_branchable',
   sessionUnavailable: 'session_unavailable',
 
   // Runtime and model.

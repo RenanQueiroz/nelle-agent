@@ -8,35 +8,24 @@ import {z} from 'zod';
 import type {AppPaths} from './paths';
 import type {AppStore} from './store';
 import type {HostToolRepository, ToolAuditEvent} from './hostTools';
+import {
+  ARCHIVE_FORMAT,
+  ARCHIVE_VERSION,
+  conversationArchiveManifestSchema,
+} from '../../../packages/shared/src/conversations.ts';
 import type {
   ConversationRepository,
   ImportedAttachmentInput,
   SyncConversationEntry,
 } from './conversations';
 
-const ARCHIVE_FORMAT = 'nelle-chat';
-const ARCHIVE_VERSION = 1;
-
-const manifestSchema = z.object({
-  format: z.literal(ARCHIVE_FORMAT),
-  version: z.literal(ARCHIVE_VERSION),
-  exportedAt: z.string(),
-  appVersion: z.string(),
-  conversation: z
-    .object({
-      id: z.string(),
-      title: z.string(),
-    })
-    .optional(),
-  source: z
-    .object({
-      platform: z.string(),
-    })
-    .optional(),
-  /** Exported from a conversation whose Pi session file was already lost. */
-  piSessionMissing: z.boolean().optional(),
-  files: z.record(z.string(), z.string()),
-});
+/**
+ * The manifest is a **contract shape**, so it lives in `packages/shared` and is imported here
+ * rather than re-declared. A second copy is a copy that drifts, and this one is what an import
+ * validates every archive against -- the two disagreeing would mean Nelle writing archives it
+ * would then refuse to read.
+ */
+const manifestSchema = conversationArchiveManifestSchema;
 
 const archiveAttachmentSchema = z.object({
   id: z.string().optional(),

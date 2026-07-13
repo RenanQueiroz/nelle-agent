@@ -180,6 +180,128 @@ export const conversationListResponseSchema = z.object({
 
 export type ConversationListResponse = z.infer<typeof conversationListResponseSchema>;
 
+/**
+ * `POST /api/conversations/:id/fork` — branch the conversation **at a message**.
+ *
+ * `entryId` is required, and that is the whole difference from a clone: a fork starts a new
+ * conversation from a point *inside* this one, so it must be told which point. It is a
+ * transcript action (a footer on a user message), never a sidebar one.
+ */
+export const forkConversationRequestSchema = z.object({
+  entryId: z.string().min(1),
+  title: z.string().min(1).max(200).optional(),
+});
+
+export type ForkConversationRequest = z.infer<typeof forkConversationRequestSchema>;
+
+/**
+ * `POST /api/conversations/:id/clone` — duplicate the conversation.
+ *
+ * `entryId` is **optional**: absent means the whole conversation, which is what the sidebar's
+ * "Duplicate" does. The source conversation is left completely unchanged either way.
+ */
+export const cloneConversationRequestSchema = z.object({
+  entryId: z.string().min(1).optional(),
+  title: z.string().min(1).max(200).optional(),
+});
+
+export type CloneConversationRequest = z.infer<typeof cloneConversationRequestSchema>;
+
+/**
+ * What fork, clone and **import** all answer with: a brand new conversation, and its snapshot.
+ *
+ * One shape, because they are one act -- a conversation came into existence. Import is not a
+ * merge and never has been: it always creates a new conversation, so an archive imported twice
+ * gives you two.
+ */
+export const conversationCreatedResponseSchema = z.object({
+  conversation: conversationListItemSchema,
+  snapshot: conversationSnapshotSchema,
+});
+
+export type ConversationCreatedResponse = z.infer<typeof conversationCreatedResponseSchema>;
+
+/**
+ * `GET /api/conversations/:id/diagnostics` — *why* a conversation is `unavailable`.
+ *
+ * A conversation is bound to one Pi session JSONL file, and that file is the authoritative
+ * history. If it goes missing or will not parse, the conversation is `unavailable` and no read
+ * path may quietly create a replacement. This says what actually happened, so the user can
+ * choose between the three explicit exits (repair, rebuild, delete) with the facts in front of
+ * them rather than guessing.
+ *
+ * `exists: false` with a `reason` is the interesting case. The counts are what a **rebuild**
+ * would have to work from: `projectionEntryCount` is how many entries survive in
+ * `conversation_entry_projection`, and it is the ceiling on what a rebuild can recover.
+ */
+export const conversationDiagnosticsSchema = z.object({
+  conversationId: z.string(),
+  status: conversationStatusSchema,
+  /** Where the Pi session file should be. Absent if the conversation was never bound. */
+  piSessionPath: z.string().optional(),
+  piSessionId: z.string().optional(),
+  /** Whether the Pi session file is present **and** readable. */
+  exists: z.boolean(),
+  /** Why it is not, in the filesystem's own words. Absent when `exists` is true. */
+  reason: z.string().optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  /** What a rebuild would have to work from -- and therefore the most it could recover. */
+  projectionEntryCount: z.number().int().nonnegative(),
+  attachmentCount: z.number().int().nonnegative(),
+  toolAuditCount: z.number().int().nonnegative(),
+});
+
+export type ConversationDiagnostics = z.infer<typeof conversationDiagnosticsSchema>;
+
+/**
+ * The manifest inside a `.nelle-chat.zip`.
+ *
+ * Served in the contract even though **the archive itself is not JSON**: the bytes are a zip and
+ * always will be, but a client that wants to say what an archive *is* -- before importing it, or
+ * when the server refuses it -- needs to be able to read this. `files` maps each entry to its
+ * checksum, and the import verifies every one.
+ *
+ * `piSessionMissing` is the one that matters. Exporting an `unavailable` conversation is
+ * **allowed** (you should be able to get your data out of a broken chat), and the archive says
+ * so. Importing that archive is then refused with `archive_session_missing` -- because the
+ * alternative is silently creating an empty conversation, which looks like success.
+ */
+export const ARCHIVE_FORMAT = 'nelle-chat';
+export const ARCHIVE_VERSION = 1;
+
+/**
+ * Named, not inlined. An anonymous nested object codegens into `Conversation2` / `Source` --
+ * names nobody can reason about -- which is the same reason `ChatAttachmentReference` is
+ * registered by name rather than left inside `ChatRequest`.
+ */
+export const archiveConversationRefSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+});
+
+export type ArchiveConversationRef = z.infer<typeof archiveConversationRefSchema>;
+
+export const archiveSourceSchema = z.object({
+  platform: z.string(),
+});
+
+export type ArchiveSource = z.infer<typeof archiveSourceSchema>;
+
+export const conversationArchiveManifestSchema = z.object({
+  format: z.literal(ARCHIVE_FORMAT),
+  version: z.literal(ARCHIVE_VERSION),
+  exportedAt: z.string(),
+  appVersion: z.string(),
+  conversation: archiveConversationRefSchema.optional(),
+  source: archiveSourceSchema.optional(),
+  /** Exported from a conversation whose Pi session file was already lost. */
+  piSessionMissing: z.boolean().optional(),
+  /** Every file in the archive, by checksum. The import verifies all of them. */
+  files: z.record(z.string(), z.string()),
+});
+
+export type ConversationArchiveManifest = z.infer<typeof conversationArchiveManifestSchema>;
+
 const allowedConversationTransitions: Record<ConversationStatus, Set<ConversationStatus>> = {
   ready: new Set(['running', 'compacting', 'unavailable']),
   running: new Set(['ready', 'aborting', 'unavailable']),
