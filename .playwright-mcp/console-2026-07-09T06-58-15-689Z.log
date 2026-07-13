@@ -1,5 +1,0 @@
-[     118ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:14335
-[  443085ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://127.0.0.1:5173/api/llama/models/events:0
-[34149573ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:14335
-[34149605ms] [LOG] shared-import-works @ http://127.0.0.1:5173/src/main.tsx?t=1783614445094:12
-[34150921ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:14335

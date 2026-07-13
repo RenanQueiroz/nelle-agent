@@ -1,6 +1,0 @@
-[      79ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=48ec87f8:14335
-[ 6536524ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://127.0.0.1:5173/api/llama/models/events:0
-[ 7684500ms] [ERROR] [vite] ReferenceError: AdjustmentsHorizontalIcon is not defined
-    at http://127.0.0.1:5173/src/components/settings/SettingsDialog.tsx?t=1783657226432:30:9 @ http://127.0.0.1:5173/@vite/client:928
-[ 7684501ms] [ERROR] [vite] Failed to reload /src/components/settings/SettingsDialog.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://127.0.0.1:5173/@vite/client:928
-[ 7703157ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/@fs/home/renan/nelle-server/node_modules/.vite/deps/client-CXBLEmf1.js?v=eb12234d:14335
