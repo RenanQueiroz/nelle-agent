@@ -450,6 +450,28 @@ Project-specific guidance for AI coding agents.
   only way to know gemma-4-26B's 25.2B parameters, which its header does not
   declare). It is server-only and `tests/unit/webBundle.test.ts` guards the
   bundle against it, the way it guards `pdfjs-dist`.
+- **Which GGUF files in a repo are *models* is llama.cpp's decision, not Nelle's.**
+  `isModelGguf` (`huggingface.ts`) is a deliberate port of `gguf_filename_is_model`
+  (`common/download.cpp`): three substrings -- `mmproj`, `imatrix`, `mtp-` -- tested
+  against the **basename**, **case-sensitively**. llama.cpp is what downloads the
+  file, and `find_best_model` applies that rule *before* it matches the quant tag, so
+  a file it rejects can never be reached by `hf-repo = <repo>:<TAG>` however the tag
+  is spelled. Offering one anyway does not yield a broken model -- it yields one that
+  imports cleanly, sits in the catalog looking ordinary, and can **never load**, with
+  the reason in llama-server's log and nowhere a user will look. (It was live:
+  `unsloth/gemma-4-26B-A4B-it-qat-GGUF` offered five quants, four of which were MTP
+  heads.) The three exclusions are not junk -- they are **accessories** llama.cpp
+  fetches *alongside* the chosen model (`find_best_mmproj`, `find_best_mtp`), so
+  offering one as a quant offers the accessory instead of the thing. Keep it a
+  faithful port and **do not lowercase it**: repos exist whose names carry an
+  uppercase `MTP` (`unsloth/Qwen3.6-35B-A3B-MTP-GGUF`), and a case-folding filter
+  would sit one naming convention away from emptying a whole catalog. Hugging Face
+  publishes no per-file classification -- no endpoint, no sibling field, nothing in
+  `@huggingface/gguf` -- so this convention is the only contract there is. Update it
+  from llama.cpp's source, never by adding a guess. A quant legitimately spanning
+  several files is **sharding** (`...-00001-of-00002.gguf`), which llama.cpp resolves
+  through `get_split_files`; summing those sizes is correct, and any filter that
+  deduplicated to one file per quant would break it.
 - `/props` `default_generation_settings.n_ctx` is the per-conversation window --
   with `kv_unified = true` each of the four slots sees the whole thing -- and it
   is cached in `model_cache.context_window`. The router also reports

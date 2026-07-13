@@ -22,6 +22,9 @@ type HfGguf = {
   context_length?: number;
 };
 
+/** `?blobs=true` is what makes `size` a number instead of `undefined`. */
+export type HfSibling = {rfilename: string; size?: number};
+
 type HfModelListItem = {
   id: string;
   author?: string;
@@ -29,7 +32,7 @@ type HfModelListItem = {
   likes?: number;
   tags?: string[];
   gguf?: HfGguf;
-  siblings?: Array<{rfilename: string; size?: number}>;
+  siblings?: HfSibling[];
 };
 
 type HfModelInfo = HfModelListItem;
@@ -93,7 +96,7 @@ export class HuggingFaceService {
     // A repo that answers nothing, or one with no `gguf` block, degrades to what
     // the list already said rather than throwing the whole search away.
     const info = response.ok ? ((await response.json()) as HfModelInfo) : fallback;
-    const files = extractGgufFiles(info);
+    const files = extractGgufFiles(info.siblings);
     const gguf = fallback.gguf ?? info.gguf;
     return {
       id: info.id ?? repoId,
@@ -114,8 +117,8 @@ function positiveInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
-function extractGgufFiles(info: HfModelInfo): HuggingFaceFile[] {
-  return (info.siblings ?? [])
+export function extractGgufFiles(siblings: HfSibling[] = []): HuggingFaceFile[] {
+  return siblings
     .filter(file => isModelGguf(file.rfilename))
     .map(file => ({
       filename: file.rfilename,
@@ -127,7 +130,7 @@ function extractGgufFiles(info: HfModelInfo): HuggingFaceFile[] {
     });
 }
 
-function extractGgufQuants(files: HuggingFaceFile[]): HuggingFaceQuant[] {
+export function extractGgufQuants(files: HuggingFaceFile[]): HuggingFaceQuant[] {
   const quants = new Map<string, HuggingFaceFile[]>();
   for (const file of files) {
     const quant = extractQuant(file.filename);
@@ -172,9 +175,36 @@ function isQuant(value: string): boolean {
   );
 }
 
-function isModelGguf(filename: string): boolean {
-  const base = path.posix.basename(filename).toLowerCase();
-  return base.endsWith('.gguf') && !base.startsWith('mmproj-');
+/**
+ * A port of llama.cpp's `gguf_filename_is_model` (`common/download.cpp`).
+ *
+ * **llama.cpp is what downloads the file**, and `find_best_model` runs this rule *before*
+ * it matches the quant tag -- so a file rejected here can never be selected by
+ * `hf-repo = <repo>:<TAG>`, however the tag is spelled. Offering one anyway does not
+ * produce a broken model; it produces a model that imports cleanly, sits in the catalog
+ * looking ordinary, and can never load, with the reason in llama-server's log and nowhere
+ * a user will find it.
+ *
+ * The three exclusions are not junk files. Each is an **accessory** llama.cpp fetches
+ * *alongside* the model you chose, never instead of it:
+ *   - `mmproj`   the vision projector             (`find_best_mmproj`)
+ *   - `mtp-`     the speculative-decoding head    (`find_best_mtp`)
+ *   - `imatrix`  importance-matrix calibration data -- not weights at all
+ *
+ * Keep it a faithful port; do not tidy it up. In particular **do not lowercase**:
+ * llama.cpp's `find("mtp-")` is case-sensitive, and repos exist whose own names carry an
+ * uppercase `MTP` (`unsloth/Qwen3.6-35B-A3B-MTP-GGUF`), so a case-folding filter would sit
+ * one naming convention away from emptying an entire catalog. Hugging Face publishes no
+ * per-file classification -- no endpoint, no sibling field -- so this convention is the only
+ * contract there is, and llama.cpp owns it. Update this from that source rather than adding
+ * a fourth guess.
+ */
+export function isModelGguf(filename: string): boolean {
+  if (!filename.endsWith('.gguf')) {
+    return false;
+  }
+  const base = path.posix.basename(filename);
+  return !base.includes('mmproj') && !base.includes('imatrix') && !base.includes('mtp-');
 }
 
 function sumKnownSizes(files: HuggingFaceFile[]): number | null {
