@@ -399,6 +399,25 @@ bun run format
 bun run lint:fix
 ```
 
+### The Flutter client's device tests
+
+```bash
+bun run test:device       # the fast tier, with llama.cpp stopped
+bun run test:device:slow  # a real gemma-4-E2B, really generating
+```
+
+These run the **real** client — `main()`, real providers, real dio, real HTTP — against a
+**real Nelle server**: `scripts/serve-fixture.ts`, on a throwaway `.nelle-device/`, port 8797. They are the regression tier, pinning behaviour that driving the app with Marionette
+discovered; Marionette stays the exploratory tool.
+
+The fast tier keeps llama.cpp stopped, which is what a fresh install looks like and where
+most error paths live. The slow tier loads a small model and asks it real questions, because
+a chat app whose chatting is never tested end to end has a hole in the middle of it. It is
+separate because it costs minutes, and a suite nobody runs because it is slow is worse than
+one that is honestly optional.
+
+### Playwright
+
 `bun run test:e2e` starts an isolated server on `127.0.0.1:8799`, stores test
 data in `.nelle-e2e/`, and runs Chromium Playwright tests from `tests/e2e`.
 Install the browser once with:

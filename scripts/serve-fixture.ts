@@ -47,6 +47,28 @@ process.env.NELLE_HOST = '127.0.0.1';
 process.env.NELLE_PORT = String(port);
 // Never 8080. See (1) above.
 process.env.NELLE_LLAMA_PORT = process.env.NELLE_LLAMA_PORT ?? '18081';
+const llamaPort = Number(process.env.NELLE_LLAMA_PORT);
+
+/**
+ * The **slow tier** needs a real llama.cpp and real weights, and it borrows both rather than
+ * spending three minutes compiling and 2.6 GB downloading on every run.
+ *
+ * - `LLAMA_SERVER_PATH` is the documented external-binary override, and points at the developer's
+ *   build.
+ * - `LLAMA_CACHE` is honoured *over* Nelle's own choice, deliberately (see AGENTS: "an explicit
+ *   choice wins"), so llama.cpp finds the gemma-4-E2B blobs already on disk.
+ *
+ * It still runs llama.cpp on the fixture's **own** port, so it cannot collide with — or be mistaken
+ * for — the developer's. Nothing here writes to the developer's data directory: the borrowed cache
+ * is read (and, at worst, re-verified) by llama.cpp, never deleted by Nelle, whose own
+ * `ownsModelCache()` goes false the moment `LLAMA_CACHE` is set by hand.
+ */
+const slow = process.env.NELLE_DEVICE_SLOW === '1';
+if (slow) {
+  const devDataDir = path.join(repoRoot, '.nelle');
+  process.env.LLAMA_SERVER_PATH ??= path.join(devDataDir, 'llama', 'bin', 'llama-server');
+  process.env.LLAMA_CACHE ??= path.join(devDataDir, 'models');
+}
 
 const paths = createAppPaths();
 
@@ -117,6 +139,13 @@ async function seed(): Promise<void> {
       conversations.createConversation({title: `Filler conversation ${i + 1}`});
     }
 
+    // **These sessions can be read, but not continued.** Writing Pi entries by hand produces a
+    // session Pi's agent will happily *replay* and then complete with no text at all -- so a chat
+    // sent to one of these conversations gets `pi_run_failed` and no answer. Only a session Pi
+    // itself created (i.e. `POST /api/conversations`) can be chatted with.
+    //
+    // That is fine, and deliberate: these exist for the **fast tier**, which never sends a message.
+    // The slow tier makes its own conversations through the API.
     for (const title of [FIXTURE.withHistory, FIXTURE.aboutPelicans]) {
       const conversation = conversations.createConversation({title});
       const manager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
@@ -211,9 +240,44 @@ if (!created.ok) {
   throw new Error(`fixture could not create the empty conversation: ${created.status}`);
 }
 
+if (slow) {
+  // A previous run that was killed rather than stopped leaves its detached llama-server behind. It
+  // is holding a preset from a data directory that no longer exists, so adopting it is worse than
+  // useless -- reap it before starting a clean one.
+  const orphan = await fetch(`http://127.0.0.1:${llamaPort}/health`)
+    .then(response => response.ok)
+    .catch(() => false);
+  if (orphan) {
+    console.log(`reaping an orphaned llama-server on ${llamaPort}`);
+    await fetch(`http://127.0.0.1:${port}/api/runtime/stop`, {method: 'POST'}).catch(() => {});
+  }
+
+  // Start llama.cpp so the tests do not each pay for it. The model is *not* loaded here: loading is
+  // the server's job on the first run, and watching it happen is one of the things being tested.
+  const started = await fetch(`http://127.0.0.1:${server.port}/api/runtime/start`, {
+    method: 'POST',
+  });
+  const status = (await started.json()) as {running?: boolean; lastError?: string | null};
+  if (!status.running) {
+    throw new Error(`fixture could not start llama.cpp: ${status.lastError ?? 'unknown'}`);
+  }
+  console.log('llama.cpp running (slow tier)');
+}
+
 console.log(`fixture server on http://127.0.0.1:${server.port} (data: ${dataDir})`);
 
 const shutdown = async (): Promise<void> => {
+  // **Stop llama.cpp, or it outlives us and the next run adopts it.**
+  //
+  // Nelle's managed llama-server is *detached on purpose* -- it survives a Nelle restart so a new
+  // process can adopt it by pid file. That is right for a real install and wrong for a fixture:
+  // this data directory is wiped on every run, so the orphan keeps running against a preset that no
+  // longer exists, and the runtime probe -- which treats **any** healthy server on the port as a
+  // running llama.cpp -- hands it straight to the next fixture. The symptom is a slow tier that
+  // "works" while talking to a llama-server configured by a run that finished an hour ago.
+  if (slow) {
+    await fetch(`http://127.0.0.1:${port}/api/runtime/stop`, {method: 'POST'}).catch(() => {});
+  }
   // `stop(true)` closes sockets rather than waiting for in-flight requests -- an SSE stream never
   // finishes, so a graceful stop would hang forever with the app connected and the next run would
   // never get the port back.

@@ -1,3 +1,8 @@
+import 'package:nelle_agent/src/features/chat/sse_transport.dart';
+import '../helpers/fake_dio.dart';
+import 'dart:async';
+import 'dart:typed_data';
+import 'package:dio/dio.dart';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +22,8 @@ Map<String, dynamic> delta(String d) => {
 };
 
 void main() {
+  _cancellationTests();
+  _cancellationTests();
   group('parseSseFrame', () {
     test('reads the data line', () {
       final event = parseSseFrame(
@@ -71,5 +78,94 @@ void main() {
       ).toList();
       expect(events.single, isA<RunAbortedEvent>());
     });
+  });
+}
+
+/// **A cancelled SSE stream has ENDED, not failed** — driven through the real [SseTransport].
+///
+/// The transport's `try/catch` covers only the *request*. Once the stream is open, cancelling its
+/// token makes dio `addErrorAndClose` the byte stream — and both SSE notifiers dispose `_sub` before
+/// `_cancel`, so the listener is already gone when that error lands and it escapes the zone as an
+/// unhandled `DioException [request cancelled]`. That is every provider dispose, including a
+/// connection change.
+///
+/// It was invisible in the app for eight milestones; the M9 device suite, which fails on unhandled
+/// zone errors, is what finally surfaced it. So this drives the **real** transport over a stubbed
+/// adapter — asserting against a local copy of the filter would only test the copy.
+void _cancellationTests() {
+  /// A transport whose response body is a stream this test drives — including erroring it the way
+  /// dio does when a `CancelToken` is cancelled mid-stream.
+  (SseTransport, StreamController<Uint8List>) transportOverStream() {
+    final controller = StreamController<Uint8List>();
+    final dio = Dio(BaseOptions(baseUrl: 'http://localhost'))
+      ..httpClientAdapter = StubAdapter(
+        (_) => ResponseBody(
+          controller.stream,
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['text/event-stream'],
+          },
+        ),
+      );
+    return (SseTransport(dio), controller);
+  }
+
+  test('a cancellation ends the stream instead of escaping as an error', () async {
+    final (transport, controller) = transportOverStream();
+
+    final frames = <String>[];
+    Object? escaped;
+    final sub = transport
+        .streamJson('/api/llama/models/events')
+        .listen(
+          (frame) => frames.add(frame['event'] as String),
+          onError: (Object e) => escaped = e,
+        );
+
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    controller.add(
+      Uint8List.fromList(utf8.encode('data: {"event":"status_change"}\n\n')),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    // Exactly what dio does to an open response stream when its token is cancelled.
+    controller.addError(
+      DioException.requestCancelled(
+        requestOptions: RequestOptions(path: '/api/llama/models/events'),
+        reason: 'cancelled',
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await sub.cancel();
+
+    expect(frames, ['status_change'], reason: 'frames before the cancel still arrive');
+    expect(
+      escaped,
+      isNull,
+      reason: 'a cancellation is what the caller ASKED for; it is not an error to report',
+    );
+  });
+
+  test('a real network fault mid-stream is STILL an error', () async {
+    // The filter is narrow on purpose. A dropped connection must still reach the caller, or it
+    // would look like a stream that simply ended — and the notifier would never reattach.
+    final (transport, controller) = transportOverStream();
+
+    Object? escaped;
+    final sub = transport
+        .streamJson('/api/llama/models/events')
+        .listen((_) {}, onError: (Object e) => escaped = e);
+
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    controller.addError(
+      DioException.connectionError(
+        requestOptions: RequestOptions(path: '/api/llama/models/events'),
+        reason: 'the network went away',
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await sub.cancel();
+
+    expect(escaped, isA<DioException>());
   });
 }

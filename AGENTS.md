@@ -311,6 +311,44 @@ Project-specific guidance for AI coding agents.
   found this way gets a regression test before the fix is committed. Marionette
   matches by `ValueKey` or visible text, so give every interactive widget a stable
   `ValueKey` — without one you are tapping raw coordinates, which silently rots.
+- **Two testing tools, and they are not alternatives.** **Marionette is exploratory** — the
+  agent drives the running app while iterating on a task, which is how the bugs above get
+  found. **`integration_test` is the regression tool** — it *pins* what driving discovered,
+  so it cannot come back. A bug found by driving becomes a device test; a device test is
+  never how you explore. The device suite runs the **real** app (`main()`, real providers,
+  real dio, real HTTP) against a **real Nelle server** — `scripts/serve-fixture.ts`, on a
+  throwaway `.nelle-device`, port 8797, with `NELLE_LLAMA_PORT=18081` so it can never adopt
+  the developer's llama-server. Two tiers:
+  - **`bun run test:device`** (fast, ~7 min) — llama.cpp **stopped**, which is what a fresh
+    install is and where most error paths live. One entrypoint (`integration_test/app_test.dart`)
+    calling suite functions, because **multiple `integration_test` files fail on Linux**
+    ("Unable to start the app on the device").
+  - **`bun run test:device:slow`** (~2 min, on demand) — a **real gemma-4-E2B** really
+    generating. A chat app whose chatting is never tested end to end has a hole in the middle
+    of it, and stubbing llama.cpp would test nothing: the whole question is whether Nelle, Pi,
+    llama.cpp and the client agree about a stream of tokens.
+
+  The traps, each of which cost a debugging session:
+  - **`pumpAndSettle` does not wait for network I/O.** It settles *frames*, and an HTTP
+    response schedules none until it lands — so it returns happily mid-request and the next
+    `expect` reads a screen that has been told nothing. Worse, `expect(finder, findsNothing)`
+    then passes **vacuously**. Assert presence with `pumpUntil`, never a bare `pumpAndSettle`.
+    (Widget tests never meet this, because `stubDio` answers synchronously.)
+  - **A finder matches off-screen widgets**, and `tap()` at off-screen coordinates hits
+    nothing and fails *silently*. Use `tapAt` (which `ensureVisible`s first). `tester.pageBack()`
+    is useless here: it looks for a Material/Cupertino back button and this app is forui over a
+    bare `FScaffold`.
+  - **The seeded fixtures are read-only.** Every test drives the same server, in one process,
+    in order, so a test that renames a seeded conversation breaks the next test that looks for
+    it by name. A mutating test calls `createOwnConversation()`.
+  - **A hand-seeded Pi session can be READ but not CONTINUED.** Entries written directly with
+    `SessionManager.appendMessage` replay fine, but Pi's agent then completes with no text at
+    all. Only a session Pi itself created (`POST /api/conversations`) can be chatted with — so
+    the slow tier brings its own conversations, and `SessionManager.create()` allocates a path
+    without writing a file, which is why the "empty" fixture is created through the API too.
+  - Only **one binding** may exist, so `main.dart` guards on `BindingBase.debugBindingType() == null`
+    before initializing `MarionetteBinding` — otherwise it collides with
+    `IntegrationTestWidgetsFlutterBinding`.
 - **Test against the small models, not the real ones.** For any model-backed test
   (agent-driven UI drives, e2e, a real generation), use
   `unsloth/gemma-4-E4B-it-qat-GGUF:Q4_K_XL` (4.22 GB) — and add

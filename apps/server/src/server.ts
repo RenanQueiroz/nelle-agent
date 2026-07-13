@@ -1745,10 +1745,24 @@ async function ensureModelReadyForRun(input: {
         createdAt: new Date().toISOString(),
       }),
   });
-  if (!result.loaded) {
-    return;
+  // **Cache the props whenever we have not got them -- not only when we just loaded.**
+  //
+  // `ensureModelRunnable` answers `{loaded: false}` for a model that was *already* runnable, and
+  // `sleeping` counts as runnable (llama.cpp wakes it on demand). So a model llama.cpp already has
+  // resident never took the load path, never cached its props, and Pi then refused every run with
+  // "has no known context window" -- an error whose own advice ("load the model once") the server
+  // had just silently declined to follow.
+  //
+  // That is not exotic: it is any fresh `model_cache` against a llama.cpp that already knows the
+  // model -- a reinstall, a deleted `settings.sqlite`, a router that auto-loaded on startup. It is
+  // exactly what the M9 fixture is, which is how it was found.
+  //
+  // `/props` 502s for a genuinely `unloaded` model, and `cacheModelPropsAfterLoad` swallows that:
+  // losing the cache entry costs a capability, never the run.
+  const known = input.modelCache.getModel(input.modelId)?.contextWindow != null;
+  if (result.loaded || !known) {
+    await cacheModelPropsAfterLoad(input);
   }
-  await cacheModelPropsAfterLoad(input);
 }
 
 /**

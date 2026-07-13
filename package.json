@@ -10,6 +10,7 @@
   "scripts": {
     "test": "bun run format:check && bun run lint && bun run test:unit && bun run build",
     "test:device": "bun run scripts/test-device.ts",
+    "test:device:slow": "bun run scripts/test-device.ts --slow",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",

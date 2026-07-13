@@ -45,7 +45,7 @@ class SseTransport {
     if (code < 200 || code >= 300) {
       throw _errorFromBody(await _collect(byteStream), code);
     }
-    yield* parseSseByteStream(byteStream);
+    yield* parseSseByteStream(_endOnCancel(byteStream));
   }
 
   /// Opens an SSE endpoint and yields each frame's **raw JSON payload**.
@@ -92,7 +92,7 @@ class SseTransport {
       // llama.cpp is not running: 502. The caller retries; it is not a crash.
       throw _errorFromBody(await _collect(byteStream), code);
     }
-    yield* parseSseJsonFrames(byteStream);
+    yield* parseSseJsonFrames(_endOnCancel(byteStream));
   }
 
   Future<String> _collect(Stream<Uint8List> byteStream) async {
@@ -125,4 +125,30 @@ class SseTransport {
 
 final sseTransportProvider = Provider<SseTransport>(
   (ref) => SseTransport(ref.watch(dioProvider)),
+);
+
+/// A cancelled SSE stream has **ended**, not failed.
+///
+/// The `try/catch` in each method above covers only the *request*. Once the stream is open,
+/// cancelling its token makes dio `addErrorAndClose` the underlying byte stream — and a listener
+/// that has already been cancelled cannot catch that, so it escapes as an **unhandled**
+/// `DioException [request cancelled]`.
+///
+/// That is not hypothetical. Both SSE notifiers dispose in this order:
+///
+/// ```dart
+/// _sub?.cancel();     // the listener goes first...
+/// _cancel?.cancel();  // ...and *then* dio errors the stream, with nobody left to hear it
+/// ```
+///
+/// which is every provider dispose — including a **connection change**, when the user pairs,
+/// unpairs, or is revoked. In the app it was invisible, which is why it survived eight milestones;
+/// the M9 device suite fails on unhandled zone errors, and that is what surfaced it.
+///
+/// The filter is deliberately narrow: a *real* fault mid-stream (a dropped connection) must still
+/// reach the caller, or it would look like a stream that simply ended and the notifier would never
+/// reattach. Only a cancellation is swallowed — because that is what cancelling asked for.
+Stream<T> _endOnCancel<T>(Stream<T> stream) => stream.handleError(
+  (Object _) {},
+  test: (error) => error is DioException && CancelToken.isCancel(error),
 );

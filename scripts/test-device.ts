@@ -31,7 +31,11 @@ const deviceNameIndex = deviceFlag >= 0 ? deviceFlag + 1 : -1;
 const targets = args.filter((arg, i) => !arg.startsWith('-') && i !== deviceNameIndex);
 // The **entrypoint**, not the directory: `flutter test <dir>` runs each file in its own app
 // launch, and on Linux the second launch fails outright. See `integration_test/app_test.dart`.
-const target = targets[0] ?? 'integration_test/app_test.dart';
+// The **entrypoint**, not the directory: `flutter test <dir>` runs each file in its own app
+// launch, and on Linux the second launch fails outright. See `integration_test/app_test.dart`.
+const target =
+  targets[0] ??
+  (args.includes('--slow') ? 'integration_test/slow_test.dart' : 'integration_test/app_test.dart');
 
 const cleanups: Array<() => void | Promise<void>> = [];
 
@@ -47,8 +51,18 @@ async function cleanup(): Promise<void> {
 
 // --- the fixture server -------------------------------------------------------------------
 
+// The **slow tier** loads a real model and generates real tokens. It borrows the developer's
+// llama.cpp build and their gemma-4-E2B weights (see `serve-fixture.ts`), because compiling and
+// re-downloading them per run would cost minutes and gigabytes -- and it is Nelle under test here,
+// not llama.cpp's installer, which M7 covered.
+const slow = args.includes('--slow');
+
 const fixture = Bun.spawn(['bun', 'run', 'scripts/serve-fixture.ts'], {
-  env: {...process.env, NELLE_PORT: String(port)},
+  env: {
+    ...process.env,
+    NELLE_PORT: String(port),
+    NELLE_DEVICE_SLOW: slow ? '1' : '0',
+  },
   stdout: 'inherit',
   stderr: 'inherit',
 });
@@ -56,7 +70,7 @@ cleanups.push(() => {
   fixture.kill();
 });
 
-const deadline = Date.now() + 60_000;
+const deadline = Date.now() + (slow ? 180_000 : 60_000);
 let up = false;
 while (Date.now() < deadline) {
   try {

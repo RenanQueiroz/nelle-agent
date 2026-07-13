@@ -3471,16 +3471,16 @@ test('the chat route enforces the guards the composer enforces', async () => {
 
     new ConversationRepository(database).createConversation({id: conversationId, title: 'Guards'});
 
-    // `/model` would otherwise reach Pi as a literal prompt. The refusal is the
-    // registry's own copy, so the client and the server say the same thing.
-    const refused = await streamError({message: '/model gemma'});
-    assert.equal(refused.code, 'unsupported_slash_command');
-    assert.equal(refused.message, unsupportedSlashCommandMessage('/model gemma'));
-    assert.equal((await streamError({message: '/compact'})).code, undefined);
-
     // The image was attached while the model's vision support was unknown, and
     // the user then chose a model llama.cpp has proven cannot see it. The upload
     // gate cannot catch that; the send gate must.
+    //
+    // **It has to come first, and that ordering is now part of what is being tested.** An upload
+    // is refused only for a model llama.cpp has *proven* is blind, so this one is only allowed
+    // while the answer is still unknown -- and a chat run *makes it known*, because
+    // `ensureModelReadyForRun` caches the model's props whenever it has not got them. So the
+    // upload has to happen before any run, which is exactly the situation the send gate exists
+    // for: the picture was attached first, and the blind model was chosen afterwards.
     const uploaded = await app.inject({
       method: 'POST',
       url: '/api/uploads',
@@ -3496,6 +3496,13 @@ test('the chat route enforces the guards the composer enforces', async () => {
     });
     assert.equal(uploaded.statusCode, 201);
     const {uploadId} = uploaded.json<{uploadId: string}>();
+
+    // `/model` would otherwise reach Pi as a literal prompt. The refusal is the
+    // registry's own copy, so the client and the server say the same thing.
+    const refused = await streamError({message: '/model gemma'});
+    assert.equal(refused.code, 'unsupported_slash_command');
+    assert.equal(refused.message, unsupportedSlashCommandMessage('/model gemma'));
+    assert.equal((await streamError({message: '/compact'})).code, undefined);
 
     new ModelCacheRepository(database).upsertModelProps(model.id, {
       modelId: model.id,
@@ -3940,5 +3947,92 @@ test('reading a snapshot twice through the harness leaves the sidebar order alon
     assert.deepEqual(sidebarTitles(repository), ['Answered just now', 'Answered yesterday']);
   } finally {
     database.close();
+  }
+});
+
+test('a run caches the props of a model llama.cpp ALREADY has resident', async () => {
+  // **The bug the M9 device suite found, and it made every run fail.**
+  //
+  // `ensureModelRunnable` answers `{loaded: false}` for a model that is already runnable -- and
+  // `sleeping` is runnable, because llama.cpp wakes it on demand. The old code cached props only
+  // `if (result.loaded)`, so a model llama.cpp already held never took that branch, its
+  // `model_cache` row never got a context window, and Pi then refused *every* run with "has no
+  // known context window" -- an error whose own advice ("load the model once") the server had
+  // just silently declined to follow.
+  //
+  // It is not an exotic state. It is any fresh `model_cache` against a llama.cpp that already
+  // knows the model: a reinstall, a deleted `settings.sqlite`, a router that auto-loaded on
+  // startup. It is what the M9 fixture is, which is how it surfaced.
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await store.setActiveModel(model.id);
+
+  const originalFetch = globalThis.fetch;
+  const previousPiDisabled = process.env.NELLE_PI_DISABLED;
+  process.env.NELLE_PI_DISABLED = '1';
+  let propsFetches = 0;
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    const href = String(url);
+    if (href.includes('/props')) {
+      propsFetches += 1;
+      // What a real llama.cpp answers for a model it is holding.
+      return new Response(
+        JSON.stringify({
+          default_generation_settings: {n_ctx: 32_768},
+          modalities: {vision: true, audio: false, video: false},
+        }),
+        {status: 200, headers: {'content-type': 'application/json'}},
+      );
+    }
+    if (href.includes('/models')) {
+      // **Already resident.** The run needs no load, so the old code cached nothing.
+      return new Response(JSON.stringify([{id: model.id, status: {value: 'loaded'}}]), {
+        status: 200,
+        headers: {'content-type': 'application/json'},
+      });
+    }
+    return new Response('[]', {status: 200, headers: {'content-type': 'application/json'}});
+  }) as typeof fetch;
+
+  const app = await createTestServer(paths);
+  const database = new AppDatabase(paths);
+  await database.open();
+  try {
+    const cache = new ModelCacheRepository(database);
+    const conversationId = LEGACY_DEFAULT_CONVERSATION_ID;
+    new ConversationRepository(database).createConversation({
+      id: conversationId,
+      title: 'Resident',
+    });
+
+    // Nothing is known about the model yet -- which is the whole premise.
+    assert.equal(cache.getModel(model.id)?.contextWindow ?? null, null);
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${conversationId}/chat/stream`,
+      payload: {message: 'hello'},
+    });
+
+    // The run asked llama.cpp what it was holding, and wrote the answer down.
+    assert.ok(propsFetches >= 1, 'the run must fetch /props when it has no context window');
+    assert.equal(cache.getModel(model.id)?.contextWindow, 32_768);
+    // ...and the capabilities derived from props came with it, so `canAttachImages` is not
+    // silently degraded to "unknown" for a thin client that never calls `/props` itself.
+    assert.equal(cache.getVisionSupport(model.id), true);
+  } finally {
+    database.close();
+    await app.close();
+    globalThis.fetch = originalFetch;
+    if (previousPiDisabled == null) {
+      delete process.env.NELLE_PI_DISABLED;
+    } else {
+      process.env.NELLE_PI_DISABLED = previousPiDisabled;
+    }
   }
 });
