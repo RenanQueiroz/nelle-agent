@@ -96,6 +96,12 @@ const tokenizeSchema = z.object({
 
 const updateModelSchema = z.object({
   name: z.string().min(1).max(200).optional(),
+  /**
+   * `false` lets the next load re-check Hugging Face, so an upstream fix can land. It
+   * re-pins itself once that load succeeds -- an update is a deliberate act, not a standing
+   * exposure. See `configuredModelSchema.pinned`.
+   */
+  pinned: z.boolean().optional(),
   params: editableParamsSchema.optional(),
 });
 
@@ -488,7 +494,10 @@ export async function createServer(
     const body = updateModelSchema.parse(await ctx.body());
     if (body.params) {
       const invalid = validateModelParams(body.params, {
-        reservedKeys: new Set(['hf-repo', 'alias']),
+        // `offline` is the `pinned` field, and Nelle writes it after a successful load -- a
+        // user who set it here would watch it be overwritten, and one who deleted it would
+        // watch it come back. It has a switch, not a text box.
+        reservedKeys: new Set(['hf-repo', 'alias', 'offline']),
         acceptedKeys: await llamaOptions.acceptedKeys(),
       });
       if (invalid.length > 0) {

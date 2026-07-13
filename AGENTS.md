@@ -476,10 +476,48 @@ Project-specific guidance for AI coding agents.
 - Nelle works offline once a model is downloaded, and that is a property of the
   design rather than a mode: every fact about an installed model comes from the
   local blob and from `/props`. Hugging Face is needed to browse, and for the
-  trained context window of a model never loaded. llama.cpp itself falls back to
-  its cache when the API is unreachable (`download.cpp:694`), so an offline load
-  works but pays a failed round trip; `offline = 1` in `models.ini` (or
-  `LLAMA_ARG_OFFLINE`, which children inherit) skips it.
+  trained context window of a model never loaded.
+- **A downloaded model is pinned to its weights, and that is what makes the sentence
+  above true.** llama.cpp re-resolves `hf-repo` against Hugging Face on **every** load,
+  and its cache fallback (`common_download_get_hf_plan`) fires **only when the repo
+  listing comes back empty**. Measured against a real load, with a fake Hugging Face:
+  - repo **deleted**, gated, or unreachable → the listing is empty → falls back to the
+    cache → **loads fine** (it pays a failed round trip, and logs an `E` line that is not
+    a failure -- worth knowing before the M7 log screen scares someone).
+  - repo **still exists but dropped your quant** (a re-upload, a rename, a prune -- which
+    publishers do routinely) → the listing *succeeds*, the tag is not in it,
+    `find_best_model` returns nothing, and llama-server exits with
+    **`failed to load model ''`** while the weights sit intact on disk. The router does not
+    even mark it `failed`; it silently stays `unloaded`, so a run grinds to its timeout and
+    reports a bare `model_load_failed`.
+
+  So `ConfiguredModel.pinned` (`offline = 1` in the section) is written **the moment a
+  model has loaded once** -- a successful load is proof its blobs are complete, and it is
+  the only moment pinning is both safe and possible. It **cannot be a default**: `offline`
+  also means *never download*, so a fresh import would have nothing to fetch with. The
+  preset is written but the router is *not* reloaded -- the running instance already holds
+  its resolved args, so a reload would only restart a model that is working.
+
+  `pinned: false` via `PATCH /api/models/:id` lets the next load re-check Hugging Face, so
+  an upstream fix (a corrected chat template, a re-quant) can land; it re-pins itself once
+  that load succeeds. An update is therefore a deliberate act, not a standing exposure.
+  **`offline` is a field, not a param**: it is in `RESERVED_MODEL_KEYS` and refused by the
+  params validator, because Nelle writes it -- a user who deleted the row would watch it
+  come straight back, which is the fight `stop-timeout` used to pick.
+- **Nelle does not own the model download, and this was reconsidered, not assumed.**
+  llama.cpp's downloader **resumes** (it HEADs for `Accept-Ranges` and sends
+  `Range: bytes=<n>-`), etag-caches, fetches shards in parallel, and auto-discovers *and
+  wires* the accessories -- `mmproj` → `params.mmproj.path`, the MTP head →
+  `params.speculative.draft` (that is speculative decoding, free). It writes the
+  content-addressed HF layout that `model_cache.model_oid` depends on, and it already
+  streams `download_progress` on the router SSE. Owning it would mean reimplementing repo
+  listing, commit resolution, file selection, shard collection, and **`find_best_sibling`'s
+  mmproj/MTP pairing rules** (deepest shared directory, then closest quant bit-width) --
+  rules llama.cpp owns, which is the exact drift that produced the MTP quant-picker bug.
+  It is *expressible* if we ever want it (`model`, `mmproj` and `spec-draft-model` are all
+  in the option catalogue, so local absolute paths would work), and the one thing it would
+  buy is a background download queue that does not load the weights into RAM. But it is not
+  needed for correctness: the pin above closes that hole for ~20 lines instead of ~500.
 - GGUF metadata has three sources, and the cheapest that answers wins. The search
   takes `architecture`, `context_length` and the parameter count from
   `expand[]=gguf` on the *list* endpoint -- one request, no extra cost -- and the

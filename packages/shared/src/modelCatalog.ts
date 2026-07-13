@@ -62,6 +62,27 @@ export const configuredModelSchema = z.object({
    * differs from `id`, which uses llama.cpp's canonical quant tag. Never hand-roll either.
    */
   hfRef: z.string().optional(),
+  /**
+   * **The model is pinned to the weights already on disk** (`offline = 1` in its section),
+   * and llama.cpp will not re-resolve the repo when it loads.
+   *
+   * It has to be able to. llama.cpp re-resolves `hf-repo` against Hugging Face on *every*
+   * load, and its cache fallback fires only when the repo listing comes back **empty**. So
+   * a deleted, gated or unreachable repo is survivable -- but a repo that still exists and
+   * has merely **dropped your quant** (a re-upload, a rename, a prune) is not: the listing
+   * succeeds, the tag is not in it, and llama-server dies with `failed to load model ''`
+   * while the weights sit intact on disk. Measured, not theorised.
+   *
+   * So Nelle pins a model the moment it has loaded once -- proof its blobs are complete --
+   * and from then on nothing upstream can break it. It cannot be the default: with nothing
+   * cached, `offline` also means "never download", so a first import could never fetch
+   * anything.
+   *
+   * Set `pinned: false` to let the next load re-check Hugging Face and pick up an upstream
+   * fix (a corrected chat template, a re-quant). It re-pins itself once that load succeeds,
+   * so an update is a deliberate act rather than a standing exposure.
+   */
+  pinned: z.boolean(),
   params: modelParamsSchema,
   createdAt: z.string(),
 });

@@ -1901,6 +1901,9 @@
           "hfRef": {
             "type": "string"
           },
+          "pinned": {
+            "type": "boolean"
+          },
           "params": {
             "$ref": "#/components/schemas/ModelParams"
           },
@@ -1908,7 +1911,7 @@
             "type": "string"
           }
         },
-        "required": ["id", "name", "presetName", "source", "params", "createdAt"],
+        "required": ["id", "name", "presetName", "source", "pinned", "params", "createdAt"],
         "additionalProperties": false
       },
       "ModelCatalog": {

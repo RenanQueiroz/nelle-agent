@@ -181,6 +181,9 @@ export class AppStore {
       repoId: input.repoId,
       quant: input.quant,
       hfRef,
+      // A new import has no weights yet, so it must stay online long enough to fetch them.
+      // Nelle pins it the moment it has loaded once -- see `configuredModelSchema.pinned`.
+      pinned: false,
       params: {...DEFAULT_PARAMS, ...input.params},
       createdAt: new Date().toISOString(),
     };
@@ -232,6 +235,7 @@ export class AppStore {
     id: string,
     input: {
       name?: string;
+      pinned?: boolean;
       params?: Record<string, string>;
     },
   ): Promise<ConfiguredModel> {
@@ -246,6 +250,7 @@ export class AppStore {
     const next: ConfiguredModel = {
       ...previous,
       name: input.name?.trim() || previous.name,
+      pinned: input.pinned ?? previous.pinned,
       params:
         input.params == null
           ? previous.params
@@ -354,7 +359,15 @@ export class AppStore {
         next = removeModelsIniKeys(next, sectionId, editableKeys);
       }
       next = upsertModelsIniValues(next, sectionId, modelSourceValues(model));
-      return removeModelsIniKeys(next, sectionId, ['load-on-startup']);
+      // An upsert can *add* a key but never remove one, so a Nelle-managed key that no
+      // longer applies has to be struck explicitly. Un-pinning is exactly that: dropping
+      // `offline` from `modelSourceValues` leaves the old `offline = 1` line in the file,
+      // which reads straight back as `pinned: true` -- the un-pin silently does nothing.
+      return removeModelsIniKeys(
+        next,
+        sectionId,
+        model.pinned ? ['load-on-startup'] : ['load-on-startup', 'offline'],
+      );
     });
   }
 
@@ -404,7 +417,15 @@ function normalizeState(input: Partial<AppState>): AppState {
   };
 }
 
-const RESERVED_MODEL_KEYS = new Set(['hf-repo', 'alias', 'load-on-startup']);
+/**
+ * Keys Nelle manages, which therefore never appear in a model's editable params.
+ *
+ * `offline` is `pinned` (see `configuredModelSchema`). It is deliberately *not* a free-form
+ * param: Nelle writes it after a successful load, so a user who deleted the row would watch
+ * it come straight back -- the same fight `stop-timeout` used to pick. It is a field with a
+ * switch, not a parameter with a value.
+ */
+const RESERVED_MODEL_KEYS = new Set(['hf-repo', 'alias', 'load-on-startup', 'offline']);
 
 function modelCatalogSignature(state: AppState): string {
   return JSON.stringify({
@@ -452,6 +473,8 @@ function getConfiguredModelsFromModelsIni(
           repoId: parsedRef?.repoId,
           quant: parsedRef?.quant,
           hfRef,
+          // `models.ini` is the source of truth for the pin, as it is for everything else.
+          pinned: isTruthyIniValue(values.get('offline')),
           params: normalizeModelParams({extra}, globalContextSize),
           createdAt: previous?.createdAt ?? now,
         },
@@ -459,13 +482,30 @@ function getConfiguredModelsFromModelsIni(
     });
 }
 
-function modelSourceValues(model: ConfiguredModel): Record<string, string> {
+/** `1`, `true`, `yes`, `on` -- however the user or Nelle wrote it. */
+function isTruthyIniValue(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+/**
+ * The `models.ini` section for a model: what Nelle owns, plus the user's free-form params.
+ *
+ * **One copy, deliberately.** `llamacpp.ts` had its own identical version, and `writePreset`
+ * used *that* one -- so a field added here (the `offline` pin) was written to state and then
+ * silently stripped from the preset on the next write. Two copies of a serializer is a bug
+ * with a delay fuse.
+ */
+export function modelSourceValues(model: ConfiguredModel): Record<string, string> {
   if (!model.hfRef) {
     throw new Error(`Model ${model.name} has no Hugging Face reference.`);
   }
   return {
     'hf-repo': model.hfRef,
     alias: model.name || model.hfRef,
+    // Written only when pinned: `offline` also means "never download", so an unpinned
+    // (not-yet-downloaded) model must be able to reach Hugging Face for its first fetch.
+    ...(model.pinned ? {offline: '1'} : {}),
     ...(model.params.extra ?? {}),
   };
 }

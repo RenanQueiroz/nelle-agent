@@ -19,7 +19,7 @@ import type {
   LlamaTokenizeResult,
   RuntimeStatus,
 } from './types';
-import {AppStore} from './store';
+import {AppStore, modelSourceValues} from './store';
 import {llamaRuntimeModelId} from './modelCompat';
 import {commandExists, runCommand} from './process';
 import {NELLE_ERROR_CODES} from '../../../packages/shared/src/contracts.ts';
@@ -298,6 +298,34 @@ export class LlamaCppManager {
     };
   }
 
+  /**
+   * A model that has loaded has its weights on disk. Pin it to them.
+   *
+   * llama.cpp re-resolves `hf-repo` against Hugging Face on **every** load, and its cache
+   * fallback fires only when the repo listing comes back *empty*. A deleted or unreachable
+   * repo is therefore survivable -- but one that still exists and has merely dropped your
+   * quant is not: the listing succeeds, the tag is missing from it, and llama-server exits
+   * with `failed to load model ''` while the weights sit intact on disk. Upstream prunes and
+   * re-uploads quants routinely, so this is a working model breaking because a stranger
+   * edited a repository.
+   *
+   * A successful load is proof the blobs are complete, and it is the only moment at which
+   * pinning is both safe and possible: `offline` also means "never download", so it cannot
+   * be a default -- a fresh import would have nothing to fetch with.
+   *
+   * The preset is written but the router is **not** reloaded: the running instance already
+   * holds its resolved args, so a reload would only restart a model that is working. The pin
+   * is durable and takes effect from the next load.
+   */
+  private async pinToDownloadedWeights(modelId: string): Promise<void> {
+    const model = await this.store.getModel(modelId);
+    if (!model || model.pinned) {
+      return;
+    }
+    await this.store.updateModel(modelId, {pinned: true});
+    await this.writePreset();
+  }
+
   async loadRouterModel(modelId: string): Promise<{modelId: string; raw: unknown}> {
     return {
       modelId,
@@ -331,6 +359,9 @@ export class LlamaCppManager {
 
     const current = find((await this.getRouterModels()).models);
     if (!current || isRunnableRouterStatus(current.status)) {
+      if (current) {
+        await this.pinToDownloadedWeights(modelId);
+      }
       return {loaded: false};
     }
 
@@ -352,6 +383,7 @@ export class LlamaCppManager {
           progress: progress.latest() ?? next?.progress,
         });
         if (isRunnableRouterStatus(next?.status)) {
+          await this.pinToDownloadedWeights(modelId);
           return {loaded: true};
         }
         if (next?.status === 'failed') {
@@ -1396,15 +1428,4 @@ function arrayOfStrings(value: unknown): string[] {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
-}
-
-function modelSourceValues(model: ConfiguredModel): Record<string, string> {
-  if (model.hfRef) {
-    return {
-      'hf-repo': model.hfRef,
-      alias: model.name || model.hfRef,
-      ...(model.params.extra ?? {}),
-    };
-  }
-  throw new Error(`Model ${model.name} has no Hugging Face reference.`);
 }
