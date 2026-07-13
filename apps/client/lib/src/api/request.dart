@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
 import 'api_exception.dart';
@@ -41,3 +44,61 @@ const kLongCallTimeout = Duration(minutes: 2);
 /// [Options] for one of those calls. Streaming endpoints set their own (an install has no
 /// business timing out at all while cmake is linking).
 Options longCall() => Options(receiveTimeout: kLongCallTimeout);
+
+/// Sends a request whose **response is bytes**, and turns anything that is not a 2xx into a
+/// [NelleApiException].
+///
+/// The twin of [sendJson], and it exists for the same reason: dio's `validateStatus: (_) => true`
+/// means a failure does not throw. But a byte response cannot reuse [sendJson] at all — dio needs
+/// `ResponseType.bytes` up front, and on a *failure* the server answers **JSON**, so the error
+/// body arrives as raw bytes that `NelleApiException.fromResponse` cannot read. It is decoded
+/// here, or the user gets "Request failed" for a refusal the server explained in words.
+Future<Uint8List> sendBytes(
+  Future<Response<List<int>>> Function() run,
+) async {
+  final Response<List<int>> res;
+  try {
+    res = await run();
+  } on DioException catch (e) {
+    throw NelleApiException.network(e);
+  }
+  final code = res.statusCode ?? 0;
+  if (code < 200 || code >= 300) {
+    throw NelleApiException.fromResponse(
+      Response<dynamic>(
+        requestOptions: res.requestOptions,
+        statusCode: code,
+        // The failure body is JSON even though we asked for bytes. Hand the decoded error back,
+        // or a `conversation_not_found` reads as an empty download.
+        data: _decodeJsonBody(res.data),
+      ),
+    );
+  }
+  return Uint8List.fromList(res.data ?? const []);
+}
+
+/// [Options] for a request that sends **raw bytes as the body**.
+///
+/// `POST /api/conversations/import` is **not multipart**, unlike `/api/uploads`: it reads the zip
+/// straight off `ctx.req.arrayBuffer()`. Sending it as `multipart/form-data` gets
+/// `invalid_archive_upload`, which is a confusing thing to debug from the client side.
+Options zipUpload() => Options(
+  contentType: 'application/zip',
+  receiveTimeout: kLongCallTimeout,
+);
+
+/// [Options] for a request that expects **raw bytes back**.
+Options zipDownload() => Options(
+  responseType: ResponseType.bytes,
+  receiveTimeout: kLongCallTimeout,
+);
+
+Object? _decodeJsonBody(List<int>? bytes) {
+  if (bytes == null || bytes.isEmpty) return null;
+  try {
+    return jsonDecode(utf8.decode(bytes));
+  } catch (_) {
+    // Not JSON. `fromResponse` falls back to a status-based message, which is the honest answer.
+    return null;
+  }
+}

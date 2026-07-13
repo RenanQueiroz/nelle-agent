@@ -53,9 +53,14 @@ class FakeTransport extends SseTransport {
 /// A dio adapter that returns canned responses, so repository tests never touch
 /// the network.
 class StubAdapter implements HttpClientAdapter {
-  StubAdapter(this.responder);
+  StubAdapter(this.responder, {this.onRequestBytes});
 
   final ResponseBody Function(RequestOptions options) responder;
+
+  /// The **raw request body**, when one was streamed. `POST /api/conversations/import` sends the
+  /// zip as the body rather than a multipart field, and a test that cannot see the bytes cannot
+  /// tell the difference -- which is the one thing worth pinning about it.
+  final void Function(Uint8List bytes)? onRequestBytes;
 
   @override
   void close({bool force = false}) {}
@@ -65,7 +70,14 @@ class StubAdapter implements HttpClientAdapter {
     RequestOptions options,
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
-  ) async => responder(options);
+  ) async {
+    final capture = onRequestBytes;
+    if (capture != null && requestStream != null) {
+      final chunks = await requestStream.toList();
+      capture(Uint8List.fromList(chunks.expand((c) => c).toList()));
+    }
+    return responder(options);
+  }
 }
 
 ResponseBody jsonResponse(Object body, {int status = 200}) =>
@@ -77,11 +89,30 @@ ResponseBody jsonResponse(Object body, {int status = 200}) =>
       },
     );
 
-Dio stubDio(ResponseBody Function(RequestOptions options) responder) {
+/// A canned **binary** response, for `POST /api/conversations/:id/export`.
+ResponseBody bytesResponse(
+  List<int> body, {
+  int status = 200,
+  String contentType = 'application/zip',
+  String? filename,
+}) => ResponseBody.fromBytes(
+  body,
+  status,
+  headers: {
+    Headers.contentTypeHeader: [contentType],
+    if (filename != null)
+      'content-disposition': ['attachment; filename="$filename"'],
+  },
+);
+
+Dio stubDio(
+  ResponseBody Function(RequestOptions options) responder, {
+  void Function(Uint8List bytes)? onRequestBytes,
+}) {
   final dio = Dio(
     BaseOptions(baseUrl: 'http://test.local', validateStatus: (_) => true),
   );
-  dio.httpClientAdapter = StubAdapter(responder);
+  dio.httpClientAdapter = StubAdapter(responder, onRequestBytes: onRequestBytes);
   return dio;
 }
 
