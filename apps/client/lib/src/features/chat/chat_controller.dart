@@ -10,6 +10,7 @@ import '../../api/generated/models/conversation_context_usage.dart';
 import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
 import '../../api/generated/models/conversation_snapshot.dart';
+import '../../api/generated/models/conversation_status.dart';
 import '../../api/generated/models/fork_kind.dart';
 import '../models/active_runs.dart';
 import '../../api/generated/models/reasoning_level.dart';
@@ -93,6 +94,16 @@ class ChatState {
   /// mid-thought -- and without this the user has no way to know where it came from, or that the
   /// original is still there, untouched.
   ForkKind? get forkKind => snapshot.conversation.forkKind;
+
+  /// The Pi session file that **is** this conversation's history is missing or unreadable.
+  ///
+  /// SQLite holds only a projection of it, so the transcript is empty -- and rendering that as an
+  /// ordinary empty chat tells the user their conversation is gone, when it is recoverable. There
+  /// are three explicit ways out (repair, rebuild, delete) and no implicit ones: no read path may
+  /// conjure a replacement session, because that would be Nelle inventing a history it has not
+  /// got.
+  bool get unavailable =>
+      snapshot.conversation.status == ConversationStatus.unavailable;
 
   /// The model **this conversation** runs on. Not `models.selectedModelId`, which is
   /// the global default new chats inherit — reading that would show the wrong model.

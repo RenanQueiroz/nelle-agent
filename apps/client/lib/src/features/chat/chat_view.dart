@@ -12,6 +12,7 @@ import 'chat_composer.dart';
 import 'chat_controller.dart';
 import 'context_bar.dart';
 import 'message_bubble.dart';
+import 'unavailable_panel.dart';
 
 /// The chat detail pane for one conversation: header, context bar, transcript,
 /// composer. Streams assistant replies (content + reasoning) into the transcript.
@@ -62,10 +63,19 @@ class ChatView extends ConsumerWidget {
             ),
           ),
           if (state?.forkKind != null) _BranchedBanner(kind: state!.forkKind!),
-          if (state != null) ContextBar(usage: state.context),
+          // An unavailable conversation has no context to speak of, and no history to bar.
+          if (state != null && !state.unavailable)
+            ContextBar(usage: state.context),
           const Divider(height: 1),
           Expanded(
             child: switch (async) {
+              // The transcript of an `unavailable` conversation is **empty**, because SQLite holds
+              // only a projection and the real history is in the file that is missing. Rendering
+              // it as an ordinary empty chat told the user their conversation was gone -- when in
+              // fact it is recoverable, and the way to recover it is right here.
+              AsyncData(:final value) when value.unavailable => UnavailablePanel(
+                conversationId: conversationId,
+              ),
               AsyncData(:final value) => _Transcript(
                 state: value,
                 conversationId: conversationId,
@@ -79,7 +89,11 @@ class ChatView extends ConsumerWidget {
               _ => const Center(child: CircularProgressIndicator()),
             },
           ),
-          if (state != null) ChatComposer(conversationId: conversationId),
+          // No composer: there is nowhere to send a message to. `capabilities.canSend` is already
+          // false, but a disabled box the user can type into and watch do nothing is worse than
+          // no box at all.
+          if (state != null && !state.unavailable)
+            ChatComposer(conversationId: conversationId),
         ],
       ),
     );
