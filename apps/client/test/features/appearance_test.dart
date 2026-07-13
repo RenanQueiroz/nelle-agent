@@ -16,8 +16,8 @@ Future<void> _pumpApp(
   String? storedTheme,
   Brightness platform = Brightness.light,
 }) async {
-  SharedPreferences.setMockInitialValues({
-    if (storedTheme != null) 'settings.appearance.themeMode': storedTheme,
+  SharedPreferences.setMockInitialValues(<String, Object>{
+    'settings.appearance.themeMode': ?storedTheme,
   });
   final prefs = await SharedPreferences.getInstance();
 
