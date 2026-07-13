@@ -59,9 +59,16 @@ export const COMMON_SAMPLING_KEYS = [
  * `common_params_add_preset_options` (`common/arg.cpp`) registers these with
  * `.set_preset_only()`, so they never reach the CLI's usage text -- but
  * `get_map_key_opt` builds its map from the same option list, so a preset
- * accepts them. Nelle writes `stop-timeout` into every model section itself
- * (`store.ts`), which means a catalogue read from `--help` alone rejects Nelle's
- * own `models.ini`.
+ * accepts them. A catalogue read from `--help` alone would therefore reject a
+ * key llama-server itself is perfectly happy with, and the user would be told
+ * their valid parameter is a typo.
+ *
+ * Nelle writes neither of them. `stop-timeout` used to be stamped into every
+ * model section at `10`, which is *exactly* llama.cpp's own default
+ * (`DEFAULT_STOP_TIMEOUT`, `tools/server/server-models.cpp`) -- so it bought
+ * nothing and cost a mystery row in every model's parameter editor, plus a rule
+ * saying it was the one key a full replacement could not delete. Writing a
+ * default back to its owner is never worth that.
  *
  * This is the one place a copy of llama.cpp's argument list is unavoidable.
  * Keep it as short as llama.cpp keeps its preset-only list.

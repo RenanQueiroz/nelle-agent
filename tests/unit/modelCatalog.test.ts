@@ -198,6 +198,17 @@ test('a model carries only the params the server actually sends', async () => {
   const app = await createTestServer(await createTempPaths());
   try {
     const id = await importModel(app, 'unsloth/gemma-4-E4B-it-qat-GGUF', 'Q4_K_XL');
+
+    // A freshly imported model has **no params at all**, and that is the honest answer: it
+    // is running on llama.cpp's defaults. Nelle used to stamp `stop-timeout = 10` into
+    // every section -- which is llama.cpp's own default -- so a brand-new model opened its
+    // editor showing one row nobody had asked for and nobody could delete.
+    const fresh = await app.inject({method: 'GET', url: '/api/models'});
+    assert.deepEqual(
+      fresh.json<{models: Array<{params: {extra: unknown}}>}>().models[0]?.params.extra,
+      {},
+    );
+
     const response = await app.inject({
       method: 'PATCH',
       url: `/api/models/${encodeURIComponent(id)}`,
@@ -211,12 +222,8 @@ test('a model carries only the params the server actually sends', async () => {
     // server never sends is worse than a missing one: a client renders a control for it.
     assert.deepEqual(Object.keys(model.params).sort(), ['extra']);
 
-    // The save was a full replacement and it did *not* carry `stop-timeout` -- yet here it
-    // is, back at its default. Nelle writes it into every section itself on every preset
-    // write, so it is a row a client may **change but never remove**: delete it and it
-    // returns as `10`. A param editor that treats its reappearance as a failed save, or
-    // that keeps re-deleting it, will fight the server forever.
-    assert.deepEqual(model.params.extra, {'stop-timeout': '10', temp: '0.7'});
+    // A full replacement means exactly what it says: what the user sent, and nothing else.
+    assert.deepEqual(model.params.extra, {temp: '0.7'});
   } finally {
     await app.close();
   }

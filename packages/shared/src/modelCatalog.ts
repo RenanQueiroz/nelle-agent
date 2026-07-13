@@ -33,9 +33,11 @@ export const modelParamsSchema = z.object({
    */
   contextSize: z.number().optional(),
   /**
-   * Every llama.cpp key this model's `models.ini` section carries, verbatim. Nelle writes
-   * `stop-timeout` into every section itself, so it shows up here and a client must send
-   * it back or it silently reverts to the default.
+   * Every llama.cpp key this model's `models.ini` section carries, verbatim -- and
+   * **only** what the user put there. Nelle writes no defaults of its own into a section
+   * (it used to stamp `stop-timeout = 10`, which is llama.cpp's own default, so it bought
+   * nothing and put a mystery row in every editor). A freshly imported model therefore has
+   * an empty `extra`, which is the honest answer: it is running on llama.cpp's defaults.
    */
   extra: z.record(z.string(), z.string()),
 });

@@ -166,19 +166,21 @@ test('a reserved key keeps its own code, and a good save still lands', async () 
       'reserved',
     );
 
-    // A real sampling key saves, and reaches the preset.
+    // A real sampling key saves, and reaches the preset. So does `stop-timeout`, which
+    // `--help` never prints -- it is `set_preset_only()`, so only `PRESET_ONLY_KEYS` keeps
+    // the validator from calling a key llama-server accepts a typo. The *user* submits it
+    // here: Nelle writes no defaults of its own into a section.
     const saved = await app.inject({
       method: 'PATCH',
       url: `/api/models/${encodeURIComponent(model.id)}`,
-      payload: {params: {temp: '0.7', 'top-k': '40'}},
+      payload: {params: {temp: '0.7', 'top-k': '40', 'stop-timeout': '30'}},
     });
     assert.equal(saved.statusCode, 200);
     const document = parseModelsIni(await fs.readFile(paths.llamaPresetPath, 'utf8'));
     const values = getModelsIniSectionValues(document, model.id);
     assert.equal(values.get('temp'), '0.7');
     assert.equal(values.get('top-k'), '40');
-    // And `stop-timeout`, which `--help` never prints, survived its own validator.
-    assert.equal(values.get('stop-timeout'), '10');
+    assert.equal(values.get('stop-timeout'), '30');
   } finally {
     await app.close();
   }

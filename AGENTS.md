@@ -771,12 +771,17 @@ Project-specific guidance for AI coding agents.
   number of rows paged in.
 - Model param update payloads are full replacements for editable params in a
   section. Preserve a free-form key by including it in the submitted key/value
-  draft; omit it to delete it -- **except `stop-timeout`, which cannot be
-  deleted**: Nelle writes it into every section on every preset write, so omitting
-  it does not remove the row, it resets it to `10`. It can be *changed* (an `extra`
-  value wins over the default), never removed. A param editor that reads its
-  reappearance as a failed save, or that keeps re-deleting it, fights the server
-  forever.
+  draft; omit it to delete it.
+- **Nelle writes no llama.cpp defaults into a `models.ini` section.** A section
+  carries `hf-repo`, `alias`, and whatever the *user* put there -- nothing else, so a
+  freshly imported model has an empty param list, which is the honest answer: it runs
+  on llama.cpp's defaults. It used to stamp `stop-timeout = 10` into every section,
+  which is *precisely* llama.cpp's own default (`DEFAULT_STOP_TIMEOUT`,
+  `tools/server/server-models.cpp`; `apply_stop_timeout()` only overrides it when the
+  preset carries the key). It bought nothing and cost two real things: a mystery row
+  in every model's parameter editor, and the one key a full replacement could not
+  delete -- omit it and Nelle wrote it straight back. Restating a default to its owner
+  is never worth that, so do not reintroduce one.
 - **`ModelParams` reads and writes in two different shapes, and it is not
   guessable.** `GET /api/models` answers
   `params: {contextSize?, extra: Record<string,string>}` -- where `contextSize` is a
@@ -1192,10 +1197,10 @@ Project-specific guidance for AI coding agents.
   `LLAMA_ARG_CTX_SIZE` are all the same option. It is **case-sensitive**: `-c` is
   `--ctx-size` and `-C` is `--cpu-mask`, so a duplicate check must compare
   trimmed keys, never lowercased ones. Two keys are `set_preset_only()` in
-  `common/arg.cpp` and never appear in `--help` -- `stop-timeout`, which Nelle
-  writes into every model section, and `load-on-startup` -- so
-  `PRESET_ONLY_KEYS` carries them; a catalogue read from `--help` alone rejects
-  Nelle's own `models.ini`. Help text that parses to nothing is `available:
+  `common/arg.cpp` and never appear in `--help` -- `stop-timeout` and
+  `load-on-startup` -- so `PRESET_ONLY_KEYS` carries them: a catalogue read from
+  `--help` alone would reject a key llama-server is perfectly happy with, and tell
+  the user their valid parameter is a typo. Help text that parses to nothing is `available:
 false`, which *skips* the unknown-key check: refusing to save a parameter
   because Nelle could not run a binary is worse than the typo. Validation reports
   every bad key at once as `invalidParams: [{key, reason, message, suggestion?}]`

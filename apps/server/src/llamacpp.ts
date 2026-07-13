@@ -1356,7 +1356,6 @@ function modelSourceValues(model: ConfiguredModel): Record<string, string> {
     return {
       'hf-repo': model.hfRef,
       alias: model.name || model.hfRef,
-      'stop-timeout': '10',
       ...(model.params.extra ?? {}),
     };
   }
