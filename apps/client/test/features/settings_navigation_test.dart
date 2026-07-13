@@ -10,8 +10,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../helpers/fake_dio.dart';
 
-/// The settings screen inside a router whose `/` is a stand-in for the workbench, so
-/// the test exercises the real back action rather than a mock of it.
+/// The Server screen inside a router whose `/` is a stand-in for the workbench, so the
+/// test exercises the real back action rather than a mock of it.
+///
+/// It is reached from Settings > This device > Server now, but it stays independently
+/// routable: a deep link or a restart can land straight on it, and it must not be the
+/// dead end it was before M2.
 Future<GoRouter> _pumpSettings(WidgetTester tester) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
@@ -51,7 +55,7 @@ Future<GoRouter> _pumpSettings(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('settings is not a dead end: back returns to the workbench', (
+  testWidgets('the Server screen is not a dead end: back gets out', (
     tester,
   ) async {
     final router = await _pumpSettings(tester);
@@ -60,16 +64,16 @@ void main() {
     // left the user stranded here with no way out.
     router.push('/connection');
     await tester.pumpAndSettle();
-    expect(find.text('Server connection'), findsOneWidget);
+    expect(find.text('Connection'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('k-connection-back')));
     await tester.pumpAndSettle();
 
     expect(find.text('workbench'), findsOneWidget);
-    expect(find.text('Server connection'), findsNothing);
+    expect(find.text('Connection'), findsNothing);
   });
 
-  testWidgets('back still escapes when settings was not pushed', (
+  testWidgets('back still escapes when the screen was not pushed', (
     tester,
   ) async {
     // A deep link or a restart can land straight on settings, with nothing to pop.
@@ -78,7 +82,7 @@ void main() {
 
     router.go('/connection');
     await tester.pumpAndSettle();
-    expect(find.text('Server connection'), findsOneWidget);
+    expect(find.text('Connection'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('k-connection-back')));
     await tester.pumpAndSettle();
