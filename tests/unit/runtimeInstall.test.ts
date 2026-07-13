@@ -22,11 +22,29 @@ import {createTempPaths} from './helpers/paths.ts';
 const originalServerPath = process.env.LLAMA_SERVER_PATH;
 const originalPath = process.env.PATH;
 
+const originalLlamaPort = process.env.NELLE_LLAMA_PORT;
+
+/**
+ * **A port nothing is listening on**, and it is load-bearing.
+ *
+ * The runtime status probe calls a llama.cpp healthy on the configured port *running* -- it has
+ * to, because llama-server is detached and survives a Nelle restart, which is the whole point of
+ * pid-file adoption. So a test left on the default 8080 does not test a stopped runtime: it
+ * **adopts the developer's own llama-server** and reports `running: true`. This test was written
+ * that way and failed exactly like that, against a real llama-server on 8080.
+ */
+const DEAD_LLAMA_PORT = '18098';
+
 afterEach(() => {
   if (originalServerPath === undefined) {
     delete process.env.LLAMA_SERVER_PATH;
   } else {
     process.env.LLAMA_SERVER_PATH = originalServerPath;
+  }
+  if (originalLlamaPort === undefined) {
+    delete process.env.NELLE_LLAMA_PORT;
+  } else {
+    process.env.NELLE_LLAMA_PORT = originalLlamaPort;
   }
   process.env.PATH = originalPath;
 });
@@ -230,4 +248,167 @@ test('a second install is refused while one is running', async () => {
 
   // ...and once it finishes, the guard is released rather than latched forever.
   await llama.installOrUpdate();
+});
+
+/**
+ * **`GET /api/runtime` and `GET /api/runtime/logs`, which nothing on the server tested.**
+ *
+ * Both routes were covered only by the Playwright suite, through `apps/web` — which is being
+ * deleted. The M9 audit walked all 46 e2e tests to prove the deletion cost no server coverage,
+ * and these two are the entire bill: 39 of the 46 mock the API outright, and every other
+ * real-server behaviour had a named unit test already. `/api/runtime/logs` had **no test
+ * anywhere** in the repository, while the Flutter client calls it on every visit to the
+ * llama.cpp screen.
+ *
+ * So they are tested here, on the server, where they belonged in the first place. A route whose
+ * only cover is a browser is a route that stops being covered the moment the browser goes.
+ */
+test('GET /api/runtime reports a fresh install, and the runtime settings group it launches with', async () => {
+  process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
+  const paths = await createTempPaths();
+  const app = await createTestServer(paths);
+  try {
+    const response = await app.inject({method: 'GET', url: '/api/runtime'});
+    assert.equal(response.statusCode, 200);
+    const status = response.json<{
+      installed: boolean;
+      running: boolean;
+      binaryPath: string | null;
+      installedVersion: string | null;
+      latestVersion: string | null;
+      modelsMax: number;
+      sleepIdleSeconds: number;
+      pid: number | null;
+    }>();
+
+    // Nothing is built, and that is a *state*, not an error -- it is what every install looks
+    // like before the user has compiled llama.cpp, and the screen has to render it.
+    assert.equal(status.installed, false);
+    assert.equal(status.running, false);
+    assert.equal(status.installedVersion, null);
+    assert.equal(status.pid, null);
+
+    // **`binaryPath` is null when there is no binary**, which is what the contract promises and
+    // what both clients' `?? 'Not installed'` fallback is written against. The server used to
+    // report the path llama-server *would* live at, so that fallback was dead code and a fresh
+    // install displayed the path of a file that did not exist. Nothing tested this route, which
+    // is how it survived.
+    assert.equal(status.binaryPath, null);
+
+    // **`latest` costs a GitHub round trip, so it is only fetched when asked for.** An unasked-for
+    // network call on a status poll is how an offline machine gets a slow, failing settings screen.
+    assert.equal(status.latestVersion, null);
+
+    // The launch limits are the `runtime` settings group; this route only *reports* them. The
+    // registry keeps `modelsMax` at 1 on purpose -- a fresh install on constrained hardware must
+    // not try to hold two models -- and a multi-model test has to raise it rather than assume it.
+    assert.equal(status.modelsMax, 1);
+    assert.equal(status.sleepIdleSeconds, 90);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/runtime reports the binary path once a binary is actually there', async () => {
+  // The other half of the contract, so the fix above cannot be over-applied into "always null".
+  // `LLAMA_SERVER_PATH` is the `external` install mode: the binary is the user's own, and Nelle
+  // reports where it is rather than pretending it installed it.
+  process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
+  const binary = await script('echo "version: test"');
+  process.env.LLAMA_SERVER_PATH = binary;
+
+  const paths = await createTempPaths();
+  const app = await createTestServer(paths);
+  try {
+    const status = (await app.inject({method: 'GET', url: '/api/runtime'})).json<{
+      installed: boolean;
+      binaryPath: string | null;
+      installMode: string;
+    }>();
+    assert.equal(status.installed, true);
+    assert.equal(status.binaryPath, path.resolve(binary));
+    assert.equal(status.installMode, 'external');
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/runtime reflects a PATCH of the runtime settings group', async () => {
+  process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
+  const paths = await createTempPaths();
+  const app = await createTestServer(paths);
+  try {
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/runtime',
+      payload: {modelsMax: 2, sleepIdleSeconds: 30},
+    });
+    assert.equal(patched.statusCode, 200);
+
+    // The status route is a *view* of the settings group, not a second copy of it. If these ever
+    // disagree, a user raises `modelsMax` to run two models, the runtime screen keeps saying 1,
+    // and the only way to find out which is true is to load a second model and watch it evict the
+    // first -- which reports a pass while testing eviction.
+    const status = (await app.inject({method: 'GET', url: '/api/runtime'})).json<{
+      modelsMax: number;
+      sleepIdleSeconds: number;
+    }>();
+    assert.equal(status.modelsMax, 2);
+    assert.equal(status.sleepIdleSeconds, 30);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/runtime/logs answers with an empty tail when llama.cpp has never run', async () => {
+  process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
+  const paths = await createTempPaths();
+  const app = await createTestServer(paths);
+  try {
+    const response = await app.inject({method: 'GET', url: '/api/runtime/logs'});
+    assert.equal(response.statusCode, 200);
+    const tail = response.json<{path: string; text: string}>();
+
+    // **A missing log file is not an error.** llama.cpp has never started, so there is nothing to
+    // read -- and the route must say "empty", not 500, or the llama.cpp screen cannot render on
+    // exactly the machine that most needs it: one where the runtime has never come up.
+    assert.equal(tail.text, '');
+    // The path is served even when the file is absent, because it is what the user needs in order
+    // to go and look for themselves.
+    assert.equal(tail.path, paths.llamaLogPath);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/runtime/logs tails the END of the log, and caps what it will read', async () => {
+  process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
+  const paths = await createTempPaths();
+  await fs.mkdir(path.dirname(paths.llamaLogPath), {recursive: true});
+  // A log is append-only and grows without bound; what a reader wants is the *end* of it, which
+  // is where the failure that just happened is.
+  await fs.writeFile(paths.llamaLogPath, `${'x'.repeat(500)}THE-LAST-LINE\n`, 'utf8');
+
+  const app = await createTestServer(paths);
+  try {
+    const full = (await app.inject({method: 'GET', url: '/api/runtime/logs'})).json<{
+      text: string;
+    }>();
+    assert.match(full.text, /THE-LAST-LINE/);
+
+    // `maxBytes` reads the tail, not the head.
+    const tail = (await app.inject({method: 'GET', url: '/api/runtime/logs?maxBytes=14'})).json<{
+      text: string;
+    }>();
+    assert.equal(tail.text, 'THE-LAST-LINE\n');
+
+    // Garbage falls back to the default rather than reading zero bytes or throwing: a broken query
+    // string must not be able to blank the one screen that explains why the runtime will not start.
+    const nonsense = (
+      await app.inject({method: 'GET', url: '/api/runtime/logs?maxBytes=banana'})
+    ).json<{text: string}>();
+    assert.match(nonsense.text, /THE-LAST-LINE/);
+  } finally {
+    await app.close();
+  }
 });

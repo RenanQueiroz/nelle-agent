@@ -118,7 +118,15 @@ export class LlamaCppManager {
       platform: process.platform,
       arch: process.arch,
       dataDir: this.paths.dataDir,
-      binaryPath,
+      // **`null` when nothing is installed, which is what the contract has always promised.**
+      //
+      // `getBinaryPath()` answers where llama-server *would* live -- it has to, because that is
+      // where the installer writes it -- and it is never null. Reporting that raw meant
+      // `binaryPath` was never null either, so the `?? 'Not installed'` fallback that *both*
+      // clients wrote against this field was dead code, and a fresh install showed the path of a
+      // binary that was not there. Found by the M9 coverage audit: no test had ever injected
+      // `GET /api/runtime`.
+      binaryPath: installed ? binaryPath : null,
       logPath: this.paths.llamaLogPath,
       installMode: process.env.LLAMA_SERVER_PATH
         ? 'external'
