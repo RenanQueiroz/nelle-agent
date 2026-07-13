@@ -19,6 +19,7 @@ class LlamaRouterModel {
     this.source,
     this.canRemove,
     this.architecture,
+    this.exitCode,
     this.contextWindow,
     this.contextTrain,
     this.parameterCount,
@@ -37,6 +38,7 @@ class LlamaRouterModel {
   final String? source;
   final bool? canRemove;
   final String? architecture;
+  final num? exitCode;
   final num? contextWindow;
   final num? contextTrain;
   final num? parameterCount;

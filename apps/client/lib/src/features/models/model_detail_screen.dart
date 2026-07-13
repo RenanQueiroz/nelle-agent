@@ -268,6 +268,15 @@ class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
 }
 
 /// What llama.cpp knows, and what it does not know **yet**.
+/// A model whose last child process died, which the router reports as `unloaded` and not as
+/// `failed`. A *running* model's exit code, if it carries one, belongs to a previous life and
+/// says nothing about this one.
+bool _loadFailed(LlamaRouterModel? router) =>
+    router != null &&
+    router.status == 'unloaded' &&
+    router.exitCode != null &&
+    router.exitCode != 0;
+
 class _Facts extends StatelessWidget {
   const _Facts({required this.model, required this.router});
 
@@ -298,6 +307,21 @@ class _Facts extends StatelessWidget {
           _Fact(label: 'Router id', value: router!.routerModelId!),
         _Fact(label: 'Status', value: router?.status ?? 'llama.cpp stopped'),
         _Fact(label: 'On disk', value: formatBytes(model.diskBytes)),
+        // **The only evidence a load failed.** llama.cpp answers `{success: true}` to a load —
+        // it accepted the *request* — and a child that then dies before it loads a byte (a bad
+        // `ctk` value, a preset it will not parse) leaves the model at `unloaded`, never
+        // `failed`, carrying only this exit code. Without it, pressing Load on a broken model
+        // looks exactly like pressing a button that does nothing.
+        if (_loadFailed(router))
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Last load failed (llama-server exited with code ${router!.exitCode!.toInt()}). '
+              'The reason is in the llama.cpp log — see Settings › llama.cpp.',
+              key: const ValueKey('k-model-load-failed'),
+              style: TextStyle(fontSize: 11, color: theme.colorScheme.error),
+            ),
+          ),
         if (facts.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 8),

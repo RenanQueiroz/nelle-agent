@@ -476,8 +476,36 @@ export async function createServer(
     return handleLlamaRoute(() => llama.tokenize(body.content, body));
   });
 
+  /**
+   * Loads a model, and **waits for it**, because a load that has not finished has not happened.
+   *
+   * This used to proxy `POST /models/load` straight through, which answers `{success: true}` the
+   * moment the router accepts the *request*. Three things fell out of that, and all three were
+   * live:
+   *
+   * 1. A child that dies at startup is never marked `failed` -- it is left at `unloaded` with an
+   *    exit code -- so a Load that failed was indistinguishable from a Load that did nothing.
+   * 2. **The model was never pinned.** `pinToDownloadedWeights` runs on a *successful* load, and
+   *    a successful load is the only moment pinning is both safe and possible. Only
+   *    `ensureModelRunnable` did it, so a model loaded from Settings stayed unpinned while the
+   *    same model loaded by a chat run got pinned -- the same button, two different outcomes.
+   * 3. It reported success for a model that was still loading, which is simply not true.
+   *
+   * `ensureModelRunnable` is what a chat run already calls. Settings should not have its own,
+   * worse copy of it.
+   */
   router.post('/api/llama/models/:id/load', async ctx =>
-    handleLlamaRoute(() => llama.loadRouterModel(ctx.params.id), NELLE_ERROR_CODES.modelLoadFailed),
+    handleLlamaRoute(
+      // `modelId` stays in the answer: the shape is the contract, and nothing about waiting for
+      // the load is a reason to take a field away from a client that reads it. `loaded` is
+      // `false` when the model was already runnable -- a load that was not needed, not one that
+      // failed, which throws.
+      async () => ({
+        modelId: ctx.params.id,
+        ...(await llama.ensureModelRunnable(ctx.params.id)),
+      }),
+      NELLE_ERROR_CODES.modelLoadFailed,
+    ),
   );
 
   router.post('/api/llama/models/:id/unload', async ctx =>

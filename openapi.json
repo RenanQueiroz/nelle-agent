@@ -1226,6 +1226,9 @@
           "architecture": {
             "type": "string"
           },
+          "exitCode": {
+            "type": "number"
+          },
           "contextWindow": {
             "type": "number"
           },

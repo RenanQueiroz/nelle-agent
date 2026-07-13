@@ -36,6 +36,7 @@ Widget _host(
   Widget child, {
   List<Map<String, dynamic>>? models,
   Map<String, dynamic>? deleteResponse,
+  List<Map<String, dynamic>>? routerModels,
 }) => ProviderScope(
   overrides: [
     dioProvider.overrideWithValue(
@@ -58,7 +59,7 @@ Widget _host(
           );
         }
         if (options.path.contains('/api/llama/models')) {
-          return jsonResponse({'models': <Object>[]});
+          return jsonResponse({'models': routerModels ?? <Object>[]});
         }
         return jsonResponse({
           'models': models ?? [_model()],
@@ -146,6 +147,81 @@ void main() {
         expect(find.textContaining('check for an update'), findsOneWidget);
       },
     );
+
+    testWidgets('a load that died is SHOWN as dead, not left looking like a no-op', (
+      tester,
+    ) async {
+      // The router answers `{success: true}` to a load -- it accepted the *request* -- and a
+      // child that then dies before loading a byte (a bad `ctk` value, a preset it will not
+      // parse) is left at `unloaded`, never `failed`, carrying only an exit code. Measured: 7s
+      // of polling, `unloaded` and `exit_code: 1` on every tick. So pressing Load on a broken
+      // model looked *exactly* like pressing a button that does nothing.
+      await tester.pumpWidget(
+        _host(
+          const ModelDetailScreen(modelId: 'org/repo:Q4_K_XL'),
+          routerModels: [
+            {
+              'sectionId': 'org/repo:Q4_K_XL',
+              'alias': 'org/repo:Q4_K_XL',
+              'status': 'unloaded',
+              'aliases': <String>[],
+              'exitCode': 1,
+            },
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('k-model-load-failed')), findsOneWidget);
+      expect(find.textContaining('exited with code 1'), findsOneWidget);
+    });
+
+    testWidgets('a healthy model shows no failure, whatever exit code it carries', (
+      tester,
+    ) async {
+      // An exit code on a *loaded* model belongs to a previous life. Reading it as a current
+      // failure would paint a red line under a model that is working perfectly.
+      await tester.pumpWidget(
+        _host(
+          const ModelDetailScreen(modelId: 'org/repo:Q4_K_XL'),
+          routerModels: [
+            {
+              'sectionId': 'org/repo:Q4_K_XL',
+              'alias': 'org/repo:Q4_K_XL',
+              'status': 'loaded',
+              'aliases': <String>[],
+              'exitCode': 1,
+            },
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('k-model-load-failed')), findsNothing);
+    });
+
+    testWidgets('a clean unloaded model is not called a failure', (
+      tester,
+    ) async {
+      // exit_code 0, or none at all: it was unloaded on purpose, or never loaded.
+      await tester.pumpWidget(
+        _host(
+          const ModelDetailScreen(modelId: 'org/repo:Q4_K_XL'),
+          routerModels: [
+            {
+              'sectionId': 'org/repo:Q4_K_XL',
+              'alias': 'org/repo:Q4_K_XL',
+              'status': 'unloaded',
+              'aliases': <String>[],
+              'exitCode': 0,
+            },
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('k-model-load-failed')), findsNothing);
+    });
 
     testWidgets('facts absent before a load are SAID to be absent, not guessed', (
       tester,

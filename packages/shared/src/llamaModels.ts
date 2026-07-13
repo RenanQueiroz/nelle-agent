@@ -21,6 +21,17 @@ export const llamaRouterModelSchema = z.object({
   source: z.string().optional(),
   canRemove: z.boolean().optional(),
   architecture: z.string().optional(),
+  /**
+   * How this model's last child process ended, when the router has one to report.
+   *
+   * **`unloaded` with a nonzero `exitCode` is a model whose last load FAILED**, and it is the
+   * only way to know: llama.cpp answers `{success: true}` to a load (it accepted the request),
+   * and a child that then dies before it loads a byte -- a bad `ctk` value, a preset it will not
+   * parse -- leaves the model sitting at `unloaded`, never `failed`. Render it, or a Load button
+   * that failed looks exactly like one that did nothing at all. The reason itself is in the
+   * llama.cpp log; Nelle does not guess at it.
+   */
+  exitCode: z.number().optional(),
   /** llama.cpp's `/props` answer: the window a conversation on it actually gets. */
   contextWindow: z.number().optional(),
   /** `n_ctx_train`: the window the model was trained for. Absent until loaded once. */

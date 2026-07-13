@@ -28,6 +28,7 @@ import {templateSupportsThinking} from '../../../packages/shared/src/reasoning.t
 import {routerLoadProgress} from '../../../packages/shared/src/routerProgress.ts';
 import {
   MODEL_LOAD_POLL_MS,
+  MODEL_LOAD_START_GRACE_MS,
   MODEL_LOAD_TIMEOUT_MS,
   isRunnableRouterStatus,
 } from '../../../packages/shared/src/router.ts';
@@ -423,6 +424,10 @@ export class LlamaCppManager {
     // for the tens of seconds a load takes. Subscribe before asking for the load, so no
     // early frame is missed.
     const progress = this.watchModelLoadProgress(modelId);
+    const startedAt = Date.now();
+    // Whether the router ever moved the model off `unloaded`. See the dead-child check below:
+    // the exit code alone cannot say *which* attempt failed, but "it never even started" can.
+    let everStarted = false;
     try {
       if (current.status !== 'loading') {
         await this.loadRouterModel(modelId);
@@ -442,6 +447,33 @@ export class LlamaCppManager {
           throw modelLoadError(modelLoadFailureMessage(modelId, next, this.paths.llamaLogPath), {
             logRef: this.paths.llamaLogPath,
           });
+        }
+        if (next && next.status !== 'unloaded') {
+          everStarted = true;
+        }
+        // **A child that dies at startup is never marked `failed`.** `POST /models/load`
+        // answers `{success: true}` -- the router accepted the *request* -- and if the child
+        // then exits before it loads a byte (a bad `ctk` value, a preset it will not parse),
+        // the router leaves the model at `unloaded` and records the exit code, and nothing
+        // else ever happens. Measured: 7s of polling, `unloaded` and `exit_code: 1` on every
+        // single tick, no `loading`, no `failed`. Without this the loop grinds out its whole
+        // timeout and reports "did not finish loading", when llama.cpp knew the reason
+        // instantly and wrote it down.
+        //
+        // The exit code cannot say *which* attempt it belongs to -- a previous failure leaves
+        // the same 1 sitting there -- so it is only trusted once the model has had a grace
+        // window to reach `loading` and has not. A real load is `loading` within a second.
+        if (
+          !everStarted &&
+          next?.status === 'unloaded' &&
+          Date.now() - startedAt > MODEL_LOAD_START_GRACE_MS
+        ) {
+          const exitCode = routerExitCode(next.raw);
+          if (exitCode != null && exitCode !== 0) {
+            throw modelLoadError(modelLoadFailureMessage(modelId, next, this.paths.llamaLogPath), {
+              logRef: this.paths.llamaLogPath,
+            });
+          }
         }
         await delayMs(pollMs);
       }
@@ -1327,6 +1359,12 @@ function normalizeRouterModel(raw: unknown): LlamaRouterModel {
     source: stringOrUndefined(getProp(raw, 'source')),
     canRemove: booleanOrNull(getProp(raw, 'can_remove') ?? getProp(raw, 'canRemove')) ?? undefined,
     architecture: stringOrUndefined(getProp(raw, 'architecture')),
+    // The router's own record of how this model's last child process ended. Served rather than
+    // left in `raw`, because it is the *only* evidence a load failed instantly: a child that
+    // dies at startup is never marked `failed`, it stays `unloaded` carrying this. A client
+    // must not have to reach into `raw` to find that out -- that is how every client ends up
+    // re-deriving llama.cpp's shape.
+    exitCode: routerExitCode(raw) ?? undefined,
     raw,
   };
 }

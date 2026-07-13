@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {test} from 'bun:test';
 
+import {MODEL_LOAD_TIMEOUT_MS} from '../../packages/shared/src/router.ts';
 import {ConversationRepository} from '../../apps/server/src/conversations.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';
@@ -75,12 +76,19 @@ test('llama router facade normalizes props, models, model props, actions, and ev
       raw: {tokens: [1, 2, 3]},
     });
 
+    // The load **waits**, and so it is also idempotent: this model is already `loaded`, so there
+    // is nothing to do and the router is not asked to do it. `loaded: false` is "it was already
+    // runnable", not "it failed" -- a failure throws. (It used to proxy `/models/load` blindly,
+    // which answers `{success: true}` the instant the router accepts the *request*, so a Load
+    // that died reported success and a Load that succeeded never pinned the weights.)
     const loadResponse = await app.inject({
       method: 'POST',
       url: `/api/llama/models/${encodeURIComponent(model.id)}/load`,
     });
     assert.equal(loadResponse.statusCode, 200);
-    assert.equal(loadResponse.json<{modelId: string}>().modelId, model.id);
+    const load = loadResponse.json<{modelId: string; loaded: boolean}>();
+    assert.equal(load.modelId, model.id);
+    assert.equal(load.loaded, false, 'already loaded: nothing to do');
 
     const unloadResponse = await app.inject({
       method: 'POST',
@@ -103,10 +111,12 @@ test('llama router facade normalizes props, models, model props, actions, and ev
     assert.equal(eventsResponse.statusCode, 200);
     assert.match(eventsResponse.body, /event: model_status/);
 
+    // Unload always reaches the router. Load did not, and must not: the model was already
+    // loaded, so asking llama.cpp to load it again would be a request with no meaning.
     const actionBodies = router.calls
       .filter(call => call.url === '/models/load' || call.url === '/models/unload')
       .map(call => call.body);
-    assert.deepEqual(actionBodies, [{model: model.id}, {model: model.id}]);
+    assert.deepEqual(actionBodies, [{model: model.id}]);
   } finally {
     await app.close();
     await router.close();
@@ -369,6 +379,87 @@ test('a model that fails to load ends the run with model_load_failed', async () 
     await assert.rejects(
       () => new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {pollMs: 1}),
       (error: Error & {code?: string}) => error.code === 'model_load_failed',
+    );
+  } finally {
+    await router.close();
+  }
+});
+
+test('a child that dies at startup fails the run, rather than grinding to the timeout', async () => {
+  // **The router never marks it `failed`.** `POST /models/load` answers `{success: true}` -- it
+  // accepted the *request* -- and if the child then exits before loading a byte (a bad `ctk`
+  // value, a preset it will not parse), llama.cpp leaves the model at `unloaded` and records the
+  // exit code, and nothing else ever happens. Measured against the real router: 7 seconds of
+  // polling, `unloaded` and `exit_code: 1` on every single tick, no `loading`, no `failed`.
+  //
+  // Without this, the poll loop runs its full 30s deadline and reports "did not finish loading"
+  // -- a bare `model_load_failed` after half a minute, when llama.cpp knew the reason instantly
+  // and had already written it in the log.
+  const router = await createMockRouter({
+    modelsFactory: () => [
+      {id: 'repo/model:Q4_K_M', aliases: [], status: {value: 'unloaded', exit_code: 1}},
+    ],
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+
+  try {
+    const startedAt = Date.now();
+    await assert.rejects(
+      () => new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {pollMs: 1}),
+      (error: Error & {code?: string; logRef?: string}) =>
+        error.code === 'model_load_failed' &&
+        // The exit code is the evidence, so it must be in the sentence...
+        /exited with code 1/.test(error.message) &&
+        // ...and the reason itself is llama.cpp's, in the log. Nelle never guesses at it.
+        typeof error.logRef === 'string',
+    );
+    // It must fail on the *evidence*, not by outlasting the deadline.
+    assert.ok(
+      Date.now() - startedAt < MODEL_LOAD_TIMEOUT_MS,
+      'the run must not wait out the full load timeout to report a failure it can already see',
+    );
+  } finally {
+    await router.close();
+  }
+});
+
+test('a load that is merely slow is not mistaken for a dead child', async () => {
+  // The exit code cannot say which attempt it belongs to: a *previous* failure leaves the same
+  // `1` sitting there while the next load is starting up. So the model gets a grace window to
+  // reach `loading` -- and once it has, a stale exit code must never be read as this load's.
+  const router = await createMockRouter({
+    modelsFactory: () => [
+      {id: 'repo/model:Q4_K_M', aliases: [], status: {value: 'loading', exit_code: 1}},
+    ],
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+
+  try {
+    await assert.rejects(
+      () =>
+        new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {
+          pollMs: 1,
+          timeoutMs: 200,
+        }),
+      // It times out -- which is right, because it never stopped loading. It must NOT be
+      // reported as an exited child.
+      (error: Error) => /did not finish loading/.test(error.message),
     );
   } finally {
     await router.close();

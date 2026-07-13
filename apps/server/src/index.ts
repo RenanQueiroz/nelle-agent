@@ -55,9 +55,44 @@ const shutdown = async (): Promise<void> => {
   await app.close();
 };
 
-process.on('SIGINT', () => {
-  void shutdown().finally(() => process.exit(0));
-});
-process.on('SIGTERM', () => {
-  void shutdown().finally(() => process.exit(0));
-});
+/**
+ * Shutdown is **bounded**, and that is the whole point.
+ *
+ * A clean shutdown normally takes ~10ms, even holding a managed llama-server and serving a
+ * connected client. But `shutdown()` awaits three things that each talk to something else --
+ * two socket servers and an `app.close()` that has llama.cpp fetches and SSE subscriptions
+ * behind it -- and any one of them hanging strands the process *after* it has printed
+ * "Shutting down": SIGTERM is received, the exit never comes, and the port stays bound. It was
+ * caught in the act once (10s and counting, mid-drive) and has not reproduced since, which is
+ * exactly what a race looks like and exactly why it must not be chased one await at a time.
+ *
+ * So the deadline is the fix, not a workaround for one. We are going down: every byte worth
+ * keeping is already on disk (SQLite commits per statement, Pi sessions are append-only), the
+ * llama-server child is detached and *meant* to outlive us for pid-file adoption, and a client
+ * whose SSE stream dies reattaches on its own. There is nothing here worth hanging for -- and a
+ * server that will not die reads as a server that cannot be restarted, which is how the whole
+ * `bun --watch` EADDRINUSE confusion starts.
+ */
+const SHUTDOWN_DEADLINE_MS = 5_000;
+
+let exiting = false;
+const exit = (signal: string): void => {
+  // A second Ctrl-C must kill, not queue another graceful shutdown behind the stuck one.
+  if (exiting) {
+    process.exit(1);
+  }
+  exiting = true;
+  const deadline = setTimeout(() => {
+    console.error(`Shutdown did not finish in ${SHUTDOWN_DEADLINE_MS}ms after ${signal}; exiting.`);
+    process.exit(1);
+  }, SHUTDOWN_DEADLINE_MS);
+  // Do not let the timer itself hold the loop open once shutdown wins the race.
+  deadline.unref?.();
+  void shutdown().finally(() => {
+    clearTimeout(deadline);
+    process.exit(0);
+  });
+};
+
+process.on('SIGINT', () => exit('SIGINT'));
+process.on('SIGTERM', () => exit('SIGTERM'));

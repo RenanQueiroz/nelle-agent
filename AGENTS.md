@@ -519,6 +519,39 @@ Project-specific guidance for AI coding agents.
   poll 8080, find the live router, and report the doomed start a success — passing alone and
   failing in the suite, or worse, passing in both while testing nothing. This is the same trap
   that made the e2e harness pin `18080`.
+- **A model whose child died at startup is `unloaded`, never `failed`, and the exit code is the
+  only evidence.** `POST /models/load` answers `{success: true}` — the router accepted the
+  *request* — and if the child then exits before loading a byte (a bad `ctk` value, a preset it
+  will not parse), llama.cpp leaves the model at `unloaded`, records `status.exit_code`, and
+  nothing else ever happens. Measured against the real router: **7 seconds of polling,
+  `unloaded` and `exit_code: 1` on every single tick — no `loading`, no `failed`.** So
+  `ensureModelRunnable` treats `unloaded` + a nonzero exit code as a failure, but only after
+  `MODEL_LOAD_START_GRACE_MS` (3s): the exit code cannot say *which* attempt it belongs to,
+  because a previous failure leaves the same `1` sitting there while the next load is starting.
+  A real load reaches `loading` within a second. Without this the run grinds out its full 30s
+  deadline and reports "did not finish loading" — a bare `model_load_failed` half a minute
+  after llama.cpp knew the reason and wrote it down. `exitCode` is served on
+  `LlamaRouterModel` so a client renders it without reaching into `raw`.
+- **`POST /api/llama/models/:id/load` waits, and that is load-bearing.** It used to proxy
+  `/models/load` straight through and answer the router's instant `{success: true}`, which was
+  wrong three ways at once: a Load that *died* looked exactly like a Load that did nothing; a
+  Load that *succeeded* never pinned the weights (`pinToDownloadedWeights` runs on a successful
+  load, and only `ensureModelRunnable` called it — so the same model pinned itself when a chat
+  run loaded it and stayed unpinned when Settings did); and it claimed success for a model still
+  loading. It calls `ensureModelRunnable` now, the same thing a run calls. `loaded: false` means
+  the model was **already runnable** — a load that was not needed, not one that failed, which
+  throws.
+- **Shutdown is bounded (`SHUTDOWN_DEADLINE_MS`), and the deadline is the fix rather than a
+  workaround for one.** `shutdown()` awaits two socket servers and an `app.close()` that has
+  llama.cpp fetches and SSE subscriptions behind it; any one of them hanging strands the process
+  *after* it prints "Shutting down" — SIGTERM received, exit never comes, port stays bound. A
+  clean shutdown is ~10ms even holding a managed llama-server and serving a connected client, and
+  it was caught hanging **once** (10s and counting, mid-drive) and has not reproduced since,
+  which is what a race looks like and why it must not be chased one await at a time. Nothing here
+  is worth hanging for: SQLite commits per statement, Pi sessions are append-only, the
+  llama-server child is detached *on purpose* for pid-file adoption, and a client whose SSE
+  stream dies reattaches on its own. A second signal exits immediately rather than queueing a
+  second graceful shutdown behind the stuck one.
 - Cache GGUF metadata by the file's blob oid, never by repo, commit, path or
   mtime. `recordModelProps` is the single place a successful `/props` is
   recorded: it takes `raw.model_path`, `realpath`s it, keeps the basename when it
