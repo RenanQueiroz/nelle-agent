@@ -6,6 +6,7 @@ import '../../api/generated/models/configured_model.dart';
 import '../../api/generated/models/invalid_model_param.dart';
 import '../../api/generated/models/model_param_warning.dart';
 import '../../api/generated/models/llama_router_model.dart';
+import 'active_runs.dart';
 import 'llama_repository.dart';
 import 'models_controller.dart';
 import 'models_repository.dart';
@@ -89,6 +90,12 @@ class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
         .where((item) => item.sectionId == model.id)
         .firstOrNull;
     final isActive = model.id == catalog?.activeModelId;
+    // **A model being answered on must not be touched.** Unloading evicts the weights the reply
+    // is streaming out of, saving rewrites `models.ini` and reloads the router under the run,
+    // and deleting removes the section entirely. The user is watching the answer all three would
+    // kill. `busy` therefore locks them — and locks nothing else: renaming, making it the default
+    // and duplicating are `models.ini` bookkeeping and never reach the running model.
+    final busy = ref.watch(activeRunModelIdsProvider).contains(model.id);
 
     return FScaffold(
       header: FHeader.nested(
@@ -165,9 +172,12 @@ class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
                 onChanged: (params) => _params = params,
               ),
               const SizedBox(height: 12),
+              // A run in flight blocks the save: it rewrites `models.ini` and reloads the
+              // router, which would restart the model the answer is streaming out of.
+              if (busy) const _RunLock(),
               FButton(
                 key: const ValueKey('k-model-save'),
-                onPress: _busy != null
+                onPress: _busy != null || busy
                     ? null
                     : () => _run('save', () async {
                         // The save *lands* and may still have something to say — a context
@@ -243,7 +253,10 @@ class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
                       onPress:
                           router == null ||
                               !isRunnableRouterStatus(router.status) ||
-                              _busy != null
+                              _busy != null ||
+                              // Unloading evicts the weights the answer is being generated
+                              // from. This is the one that kills the reply outright.
+                              busy
                           ? null
                           : () => _run(
                               'unload',
@@ -258,7 +271,7 @@ class _ModelDetailScreenState extends ConsumerState<ModelDetailScreen> {
               ),
 
               const SizedBox(height: 24),
-              _DeleteSection(model: model, busy: _busy != null),
+              _DeleteSection(model: model, busy: _busy != null || busy),
             ],
           ),
         ),
@@ -276,6 +289,29 @@ bool _loadFailed(LlamaRouterModel? router) =>
     router.status == 'unloaded' &&
     router.exitCode != null &&
     router.exitCode != 0;
+
+/// Says *why* the controls above it are dead.
+///
+/// A disabled button with no explanation is a bug report: the user tries it, nothing happens,
+/// and they have no way to learn that the model is mid-answer. forui's `FButton` lays its child
+/// out in an unflexed `Row`, so the sentence goes *beside* the buttons rather than inside them.
+class _RunLock extends StatelessWidget {
+  const _RunLock();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(
+      'This model is answering a conversation. Saving, unloading and removing it are '
+      'unavailable until the run finishes.',
+      key: const ValueKey('k-model-run-lock'),
+      style: TextStyle(
+        fontSize: 11,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+    ),
+  );
+}
 
 class _Facts extends StatelessWidget {
   const _Facts({required this.model, required this.router});

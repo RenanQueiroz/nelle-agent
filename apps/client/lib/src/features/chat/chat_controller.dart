@@ -10,6 +10,7 @@ import '../../api/generated/models/conversation_context_usage.dart';
 import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
 import '../../api/generated/models/conversation_snapshot.dart';
+import '../models/active_runs.dart';
 import '../../api/generated/models/reasoning_level.dart';
 import '../attachments/attachment_draft.dart';
 import '../models/router_models_notifier.dart';
@@ -209,6 +210,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         clearWarning: true,
       ),
     );
+    _claimModel(current);
 
     _sentMessage = message;
     _runStarted = false;
@@ -265,6 +267,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         clearRefused: true,
       ),
     );
+    _claimModel(current);
 
     // A regenerate replays a turn that is already in the transcript, so there is no
     // typed message to hand back to the composer if the server refuses it.
@@ -309,6 +312,9 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         clearRefused: true,
       ),
     );
+    // A compaction runs the model too -- it summarizes the conversation with it -- so the
+    // model is just as unsafe to unload as during an answer.
+    _claimModel(current);
 
     // A compaction replays nothing and sends no message, so there is no typed text to
     // hand back if it is refused.
@@ -543,6 +549,13 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
   /// Runs once per run: cancels the subscription, then reloads the authoritative
   /// snapshot. If the reload fails, the streamed `pending` turns are merged into
   /// `messages` so nothing is lost.
+  /// Marks this conversation's model as *in use*, so Settings will not unload, re-parameterize
+  /// or delete it out from under the answer the user is watching. Released in [_finish], which
+  /// every terminal path goes through — completed, aborted, failed, or the stream simply ending.
+  void _claimModel(ChatState state) {
+    ref.read(activeRunsProvider.notifier).start(arg, state.modelId);
+  }
+
   Future<void> _finish({String? errorMessage}) async {
     final sub = _sub;
     if (sub == null) {
@@ -551,6 +564,10 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     _sub = null;
     await sub.cancel();
     _cancel = null;
+    // The run is over however it ended, so the model is free. This is the *only* release, and
+    // it must stay that way: a claim that outlives its run locks a model out of Settings for
+    // the rest of the session, and there is nothing the user could do about it.
+    ref.read(activeRunsProvider.notifier).end(arg);
 
     final s = state.valueOrNull;
     final error = errorMessage ?? s?.runError;

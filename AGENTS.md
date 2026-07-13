@@ -1029,6 +1029,19 @@ Project-specific guidance for AI coding agents.
   props -- `canAttachImages`, `canReason` -- silently degrades to "unknown".
 - Settings rows for models with active runs must show an active-run token and
   keep unload/save/remove disabled until a terminal run event arrives.
+- **The run lock is the client's, and it is keyed by conversation.** A model with a run
+  streaming on it must not be unloaded (that evicts the weights the answer is being generated
+  from), have its params saved (that rewrites `models.ini` and reloads the router under the run)
+  or be removed. The server does not police this and should not: a live run is the one piece of
+  state a client tracks more freshly than any payload can carry. The Flutter client's
+  `activeRunsProvider` maps **conversationId -> modelId**, never a bare set of model ids: two
+  conversations can be answered by one model at once -- that is what `runtime.modelsMax >= 2` is
+  *for* -- and a set would be cleared by whichever run finished first, unlocking a model that is
+  still generating. It is claimed when the run *starts* (the model is loaded before `run.started`
+  is emitted, and unloading it during that window is just as fatal) and released in the single
+  terminal path, which every ending goes through. Renaming, activating and duplicating stay
+  available: they are `models.ini` bookkeeping and never reach the running model. A disabled
+  button with no explanation is a bug report, so the screen says why.
 - Browser chat run state is conversation-scoped. Use per-conversation run-kind
   state and abort controllers, keep inactive stream deltas out of the visible
   transcript, and allow a ready conversation to send while another conversation

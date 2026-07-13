@@ -6,6 +6,7 @@ import 'package:nelle_agent/src/api/api_client.dart';
 import 'package:nelle_agent/src/api/generated/models/invalid_model_param.dart';
 import 'package:nelle_agent/src/api/generated/models/model_param_warning.dart';
 import 'package:nelle_agent/src/api/generated/models/invalid_model_param_reason.dart';
+import 'package:nelle_agent/src/features/models/active_runs.dart';
 import 'package:nelle_agent/src/features/models/model_detail_screen.dart';
 import 'package:nelle_agent/src/features/models/models_controller.dart';
 import 'package:nelle_agent/src/features/models/models_screen.dart';
@@ -76,6 +77,7 @@ Widget _host(
 );
 
 void main() {
+  _activeRunTests();
   group('formatBytes', () {
     test('null is "not downloaded", and never zero', () {
       // Absent is a real state: the weights arrive on the model's *first load*. Rendering it as
@@ -614,4 +616,136 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+}
+
+void _activeRunTests() {
+  group('a model with a run in flight', () {
+    /// Hosts the detail screen with [runs] already registered — conversation id -> model id.
+    Widget host(Map<String, String> runs) => ProviderScope(
+      overrides: [
+        dioProvider.overrideWithValue(
+          stubDio((options) {
+            if (options.path.contains('/api/llama/models')) {
+              return jsonResponse({
+                'models': [
+                  {
+                    'sectionId': 'org/repo:Q4_K_XL',
+                    'alias': 'org/repo:Q4_K_XL',
+                    'status': 'loaded',
+                    'aliases': <String>[],
+                  },
+                ],
+              });
+            }
+            return jsonResponse({
+              'models': [_model()],
+              'activeModelId': 'org/repo:Q4_K_XL',
+              'globalModelParams': <String, String>{},
+            });
+          }),
+        ),
+        activeRunsProvider.overrideWith(() => _StubActiveRuns(runs)),
+      ],
+      child: MaterialApp(
+        theme: FThemes.neutral.light.desktop.toApproximateMaterialTheme(),
+        home: FTheme(
+          data: FThemes.neutral.light.desktop,
+          child: const ModelDetailScreen(modelId: 'org/repo:Q4_K_XL'),
+        ),
+      ),
+    );
+
+    /// A lazy `ListView` does not build what is off-screen, so on a normal viewport the action
+    /// buttons do not exist to be found at all. (The delete test learned this the same way.)
+    void tallViewport(WidgetTester tester) {
+      tester.view.physicalSize = const Size(1200, 4000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+    }
+
+    testWidgets('save and unload are locked, and the screen says why', (
+      tester,
+    ) async {
+      tallViewport(tester);
+      // All three of these go through llama.cpp and would kill the reply the user is watching:
+      // unloading evicts the weights it is being generated from, saving rewrites `models.ini`
+      // and reloads the router under the run, and removing deletes the section outright.
+      await tester.pumpWidget(host({'conv-1': 'org/repo:Q4_K_XL'}));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<FButton>(find.byKey(const ValueKey('k-model-save'))).onPress,
+        isNull,
+      );
+      expect(
+        tester.widget<FButton>(find.byKey(const ValueKey('k-model-unload'))).onPress,
+        isNull,
+      );
+      // A dead button with no explanation is a bug report.
+      expect(find.byKey(const ValueKey('k-model-run-lock')), findsOneWidget);
+    });
+
+    testWidgets('bookkeeping that never touches llama.cpp stays available', (
+      tester,
+    ) async {
+      tallViewport(tester);
+      // Duplicating writes a new `models.ini` section. It does not reach the running model, so
+      // locking it would be cargo-culting the run lock rather than applying it.
+      await tester.pumpWidget(host({'conv-1': 'org/repo:Q4_K_XL'}));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<FButton>(find.byKey(const ValueKey('k-model-duplicate')))
+            .onPress,
+        isNotNull,
+      );
+    });
+
+    testWidgets('a run on a DIFFERENT model locks nothing here', (tester) async {
+      tallViewport(tester);
+      await tester.pumpWidget(host({'conv-1': 'some/other:Q4_K_XL'}));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<FButton>(find.byKey(const ValueKey('k-model-save'))).onPress,
+        isNotNull,
+      );
+      expect(find.byKey(const ValueKey('k-model-run-lock')), findsNothing);
+    });
+  });
+
+  test('two conversations on one model: the first to finish must not unlock it', () {
+    // Keyed by conversation, not by model, exactly for this. `runtime.modelsMax >= 2` exists so
+    // two chats can be answered at once, and they can be answered by the *same* model. A bare
+    // set of model ids would be cleared by whichever run finished first, unlocking a model that
+    // is still generating — and the user unloads it out from under the other answer.
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final runs = container.read(activeRunsProvider.notifier);
+
+    runs.start('conv-1', 'org/repo:Q4_K_XL');
+    runs.start('conv-2', 'org/repo:Q4_K_XL');
+    expect(container.read(activeRunModelIdsProvider), {'org/repo:Q4_K_XL'});
+
+    runs.end('conv-1');
+    expect(
+      container.read(activeRunModelIdsProvider),
+      {'org/repo:Q4_K_XL'},
+      reason: 'conv-2 is still generating on it',
+    );
+
+    runs.end('conv-2');
+    expect(container.read(activeRunModelIdsProvider), isEmpty);
+  });
+}
+
+class _StubActiveRuns extends ActiveRuns {
+  _StubActiveRuns(this._initial);
+
+  final Map<String, String> _initial;
+
+  @override
+  Map<String, String> build() => _initial;
 }

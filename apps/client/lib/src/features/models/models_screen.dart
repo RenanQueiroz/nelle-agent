@@ -6,6 +6,7 @@ import '../../api/generated/models/configured_model.dart';
 import '../../api/generated/models/llama_router_model.dart';
 import 'global_params_screen.dart';
 import 'huggingface_screen.dart';
+import 'active_runs.dart';
 import 'model_detail_screen.dart';
 import 'models_controller.dart';
 import 'router_models_notifier.dart';
@@ -148,6 +149,10 @@ class _ModelTile extends ConsumerWidget {
     final router = routerModels
         ?.where((item) => item.sectionId == model.id)
         .firstOrNull;
+    // A model mid-answer, so the row says so before the user opens it and finds three dead
+    // buttons. It goes *first* in the subtitle: it is the reason the model cannot be touched,
+    // and the line is ellipsized.
+    final busy = ref.watch(activeRunModelIdsProvider).contains(model.id);
 
     return FTile(
       onPress: () async {
@@ -161,6 +166,7 @@ class _ModelTile extends ConsumerWidget {
       title: Text(model.name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         [
+          if (busy) 'answering',
           _routerStatus(router, listed: routerModels),
           if (model.diskBytes != null) formatBytes(model.diskBytes),
           if (isActive) 'default for new chats',
