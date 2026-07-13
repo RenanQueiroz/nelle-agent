@@ -1268,6 +1268,67 @@ Project-specific guidance for AI coding agents.
   manifest checksums, the Pi session JSONL, Nelle sidecar metadata, referenced
   attachment files, model snapshots, and `tool-audit.jsonl` rows when host tools
   were used. Imports always create a new conversation.
+- **`apps/client` (Milestone 8: the conversation lifecycle).** Search, pin, rename, fork,
+  clone, export, import, repair, rebuild, diagnostics -- every route the server already had
+  and no client but the browser used.
+  - **Export cannot save a file on a phone**, and this is what the packages implement, not a
+    preference. `file_selector_android` has exactly three methods (`openFile`, `openFiles`,
+    `getDirectoryPath`); `getSaveLocation` exists on linux/windows/macOS/web and **nowhere
+    else**, where the platform interface's default throws `UnimplementedError`. (`getDirectoryPath`
+    is no way round it: on Android it returns a SAF content URI, which `dart:io` cannot write
+    to.) So `ArchiveService` splits -- a Save dialog on the desktop, the **OS share sheet**
+    (`share_plus`) on mobile, which is the only thing that actually reaches a phone's storage.
+    Import is uniform (`openFiles`, SAF picker on Android). `share_plus` is plain platform
+    channels: no `irondash`, no cargokit, so it is not the `super_clipboard` trap.
+  - **`POST /api/conversations/import` is NOT multipart**, unlike `/api/uploads`: it reads the
+    zip straight off `ctx.req.arrayBuffer()`, so a multipart envelope gets `invalid_archive_upload`.
+    And **export answers bytes while a *failed* export answers JSON** -- dio needs
+    `ResponseType.bytes` up front, so the error body arrives as unreadable bytes unless it is
+    decoded (`sendBytes`), and the user gets "Request failed" for a refusal the server explained
+    in a sentence. The archive's filename comes off `content-disposition`; the server already
+    slugged it, and a client re-deriving it would invent a second name for the same file.
+  - **Fork and clone are different acts in different places.** A **fork** branches at one of the
+    *user's* messages (a transcript footer action, gated on `capabilities.canFork`) -- there is
+    nothing to fork from the model's answer, and regenerate is what belongs there. A **clone**
+    duplicates the whole conversation (a sidebar action, no `entryId`). Both refuse the
+    impossible with **`conversation_not_branchable`** and a 409: an empty conversation has a
+    header-only Pi session and nothing to branch from, and both used to be a bare 500. A branched
+    conversation must *say* so (`forkKind`), because a fork's transcript looks like an ordinary
+    chat that begins mid-thought, and the user needs to know the original still exists.
+  - **`archive_session_missing` is a distinct refusal, not "your file is corrupt".** Exporting an
+    `unavailable` conversation is allowed on purpose -- you must be able to salvage a broken chat
+    -- and the manifest records `piSessionMissing`. Importing it is refused, but the zip is
+    perfectly *valid*; it simply carries no history. The import route hard-coded `invalid_archive`
+    for every failure and threw the specific code away, leaving it in `NELLE_ERROR_CODES` as
+    something nothing ever emitted.
+  - **Delete is held, not undone.** The server's delete is irreversible the moment it lands (the
+    Pi session file, and every attachment nothing else references), so the request is simply not
+    *sent* for five seconds and the row is hidden -- and hidden from a refresh too, or a list
+    reload inside the window resurrects it. No confirmation dialog: it taxes the ninety-nine
+    deliberate deletes to catch the one mistake, and the undo catches it for free. (The browser's
+    `pagehide` + `keepalive` machinery is a *browser* problem -- a reload cancelling the request --
+    and has no equivalent here.)
+  - **The unavailable conversation is not an empty one.** The Pi session JSONL *is* the history;
+    SQLite holds a projection. A broken chat rendered as an ordinary empty chat with a working
+    composer told the user their conversation was gone when it was recoverable. Three explicit
+    exits: **repair** (lossless, and therefore offered first -- it only succeeds if the user put
+    the file back, because it never invents a session), **rebuild** (lossy, and the UI must *name*
+    what it destroys: tool results, image content, compaction summaries, regenerate variants --
+    "this is lossy" is not a choice a user can weigh), and delete. The reason line is the
+    *filesystem's own*, from `GET /diagnostics`. A repair or rebuild must also **refresh the
+    sidebar**: the list row carries `status` and does not re-fetch on its own.
+  - **Search is a server query**, and the loaded page is a window onto the list -- filtering it
+    client-side reports "no matching chats" for every conversation the user has not scrolled to.
+    The query rides into `loadMore`, or page two pages them out of their own results. Debounced
+    *and* token-guarded: a debounce narrows the race and does not close it, and a slow early
+    answer landing last leaves the box saying one thing and the list showing another.
+- **A dialog must own its `TextEditingController`.** `showFDialog(...).whenComplete(
+  controller.dispose)` is the obvious spelling and it **crashes the app to a red screen**: the
+  future completes when `Navigator.pop` is called, while the dialog is still *animating out*, and
+  its `FTextField` keeps rebuilding against the controller. "A TextEditingController was used
+  after being disposed." `flutter analyze` is clean and every widget test passes -- a test only
+  sees it if it `pumpAndSettle`s past the exit animation. Put the controller in a `State`, whose
+  `dispose()` runs when the element is actually unmounted.
 - Show context-window usage through the Astryx `ChatComposer` header
   `ProgressBar` with tooltip token counts. Use composer top status for
   send-blocking errors and bottom status for non-blocking warnings.
