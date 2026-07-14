@@ -3,7 +3,7 @@ import {test} from 'bun:test';
 
 import {AppDatabase} from '../../../apps/server/src/db/database.ts';
 import {ModelCacheRepository} from '../../../apps/server/src/models/cache.ts';
-import {assertSupportedAttachments} from '../../../apps/server/src/server.ts';
+import {assertSupportedAttachments} from '../../../apps/server/src/routes/guards.ts';
 import type {ChatAttachmentInput} from '../../../apps/server/src/contracts/contracts.ts';
 import {createTempPaths} from '../helpers/paths.ts';
 

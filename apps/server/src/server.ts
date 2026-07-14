@@ -63,7 +63,7 @@ import {
   serializeSseEnvelope,
   NELLE_ERROR_CODES,
 } from './contracts/contracts.ts';
-import {SLASH_COMMAND_REGISTRY, unsupportedSlashCommandMessage} from './contracts/commands.ts';
+import {SLASH_COMMAND_REGISTRY} from './contracts/commands.ts';
 import {
   SETTINGS_REGISTRY,
   settingsPatchSchema,
@@ -86,6 +86,11 @@ import {
   type InvalidModelParam,
 } from './contracts/modelParams.ts';
 import {LlamaOptionCatalogueCache} from './llama/params';
+import {
+  assertRuntimeRunning,
+  assertSupportedAttachments,
+  assertSupportedSlashCommand,
+} from './routes/guards';
 
 const useHuggingFaceModelSchema = z.object({
   repoId: z.string().min(1),
@@ -1550,61 +1555,6 @@ function invalidModelParamsResponse(invalid: InvalidModelParam[]): {
 function attachmentSetting(settings: SettingsRepository, key: string): number | undefined {
   const value = settings.tryGetGroup(ATTACHMENTS_SETTINGS_SLUG)?.[key];
   return typeof value === 'number' ? value : undefined;
-}
-
-/** llama.cpp is not running, so no run of any kind can start. */
-async function assertRuntimeRunning(llama: LlamaCppManager): Promise<void> {
-  if ((await llama.getStatus()).running) {
-    return;
-  }
-  const error = new Error('llama.cpp is not running. Start it in Settings > Runtime.');
-  Object.assign(error, {code: NELLE_ERROR_CODES.llamaServerStopped, retryable: true});
-  throw error;
-}
-
-/**
- * Nelle's chat composer owns a slash-command allowlist. The server owns it too,
- * or `/model` reaches Pi as a literal prompt from any other client.
- */
-function assertSupportedSlashCommand(message: string): void {
-  const refusal = unsupportedSlashCommandMessage(message);
-  if (!refusal) {
-    return;
-  }
-  const error = new Error(refusal);
-  Object.assign(error, {code: NELLE_ERROR_CODES.unsupportedSlashCommand, retryable: false});
-  throw error;
-}
-
-/**
- * Image attachments need a vision model. `null` means llama.cpp has never
- * reported props, so the model is unproven rather than proven text-only; let it
- * through and let llama.cpp reject it.
- */
-/**
- * Refuses an image the answering model has been *proven* unable to see.
- *
- * [modelId] is the **conversation's** model, not the global default: since M2 those are
- * different things, and the run answers on the conversation's. `null` (no model at all)
- * and an unproven model both pass -- the tri-state rule is that only `false` refuses.
- */
-export function assertSupportedAttachments(
-  attachments: ChatAttachmentInput[],
-  modelCache: ModelCacheRepository,
-  modelId: string | null,
-): void {
-  const hasImage = attachments.some(attachment => attachment.kind === 'image');
-  if (!hasImage || !modelId) {
-    return;
-  }
-  if (modelCache.getVisionSupport(modelId) !== false) {
-    return;
-  }
-  const error = new Error(
-    'The selected model cannot read images. Choose a vision model, or remove the image attachments.',
-  );
-  Object.assign(error, {code: NELLE_ERROR_CODES.unsupportedAttachment, retryable: false});
-  throw error;
 }
 
 /** Multipart text fields arrive as strings under `req.formData()`. */
