@@ -410,6 +410,18 @@ Project-specific guidance for AI coding agents.
   `http/ pi/ conversations/ llama/ models/ attachments/ settings/ auth/ db/ lib/ contracts/`.
   Two names are easy to collide and must not be: `pi/hostTools.ts` is the host file/shell tool
   repository, and `openapi.ts` is the builder rather than the route that serves it.
+- **`pi/` is eight modules and a harness, and three of its names sit next to a name they are not.**
+  `harness.ts` keeps what the run map welds together — `runPiPrompt` and the nine methods that touch
+  `#activeRuns` — and everything that came out of it takes its dependencies as arguments, so none of
+  it reaches back. The three near-collisions, each deliberate: **`pi/tools.ts`** is the subscriber
+  that *listens* to Pi's tool events (and fails closed when host tools are off), while
+  **`pi/hostTools.ts`** is the repository it writes audit rows to and the switch it checks;
+  **`pi/models.ts`** writes `.pi/models.json` — how Nelle describes a model *to Pi* — while
+  **`models/`** is Nelle's own catalog; and **`pi/toolCalls.ts`** correlates three events into one
+  call, which is a different job from either tools file. The rest read as they are named:
+  `events.ts` (the SSE envelopes), `errors.ts` (the coded refusals), `projection.ts` (Pi's session
+  file read back into rows, and the variant machinery that keeps a regenerated-away answer),
+  `attachments.ts` (the bytes a prompt carries), `session.ts` (constructing a Pi session).
 - The HTTP server is `Bun.serve` over a small native router
   (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
   owns JSON-body parsing, zod→400 mapping, and CORS. It serves no static files:
