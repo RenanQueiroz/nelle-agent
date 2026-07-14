@@ -29,7 +29,7 @@ void smokeSuite() {
   testWidgets('opening a conversation loads its real history', (tester) async {
     await launchApp(tester);
 
-    await tester.tap(find.text(Fixture.withHistory));
+    await tapAt(tester, find.text(Fixture.withHistory));
     await tester.pumpAndSettle();
 
     // The Pi session the fixture seeded, read back through the snapshot route. A widget test can

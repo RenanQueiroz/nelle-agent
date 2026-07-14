@@ -117,9 +117,16 @@ jobs:
   # and a conversation list that never reloaded after pairing); there is no reason to expect these
   # to be kinder. Finding that out is the point.
   #
-  # `continue-on-error` on the three new platforms: they are expected to surface real bugs on their
-  # first run, and a red X on a platform nobody has ever tried should not block a server refactor.
-  # Remove it once each is green -- a permanently-tolerated failure is not a test.
+  # The first run did exactly that. **macOS failed 14 of 15** -- the app carried no
+  # `com.apple.security.network.client` entitlement, so the App Sandbox blocked every outbound
+  # request and the client could not talk to its own server. A real, shipping bug, on a platform
+  # nobody had ever built for. **Windows failed 1 of 15**, on a `tapAt` that scrolled the screen it
+  # had just left. Both are green now and neither tolerates failure any more.
+  #
+  # iOS and Android still carry `continue-on-error`: iOS has never been built at all, and the CI
+  # emulator is its own adventure (it is 320x640, which is smaller than any real phone and finds
+  # off-screen taps nothing else does). Remove it the moment each goes green -- a permanently
+  # tolerated failure is a decoration, not a test.
   # ---------------------------------------------------------------------------------------------
   device-linux:
     name: device suite (linux)
@@ -153,7 +160,9 @@ jobs:
   device-macos:
     name: device suite (macos)
     runs-on: macos-latest
-    continue-on-error: true # never run before; expected to find real bugs
+    # Green as of the run that added `com.apple.security.network.client` -- 15/15. The
+    # `continue-on-error` it carried on its first outing is gone: a permanently tolerated failure is
+    # a decoration, not a test.
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -171,7 +180,7 @@ jobs:
   device-windows:
     name: device suite (windows)
     runs-on: windows-latest
-    continue-on-error: true # never run before; expected to find real bugs
+    # Green as of the `tapAt` ordering fix -- 15/15. No longer tolerated to fail.
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

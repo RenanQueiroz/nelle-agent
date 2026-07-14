@@ -21,7 +21,7 @@ void errorsSuite() {
     // and the composer must give the text back rather than making the user retype it.
     await launchApp(tester);
 
-    await tester.tap(find.text(Fixture.withHistory));
+    await tapAt(tester, find.text(Fixture.withHistory));
     await tester.pumpAndSettle();
 
     const typed = 'A message that will be refused';
@@ -90,7 +90,7 @@ void errorsSuite() {
       'history is gone',
     );
     await tester.pumpAndSettle(const Duration(seconds: 2));
-    await tester.tap(find.text(Fixture.broken));
+    await tapAt(tester, find.text(Fixture.broken));
     await pumpUntil(tester, find.byKey(const ValueKey('k-unavailable-title')));
 
     expect(find.byKey(const ValueKey('k-unavailable-title')), findsOneWidget);

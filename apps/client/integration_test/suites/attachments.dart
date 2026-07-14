@@ -29,7 +29,7 @@ void attachmentsSuite() {
     final chat = await createOwnConversation('an attachment');
     await launchApp(tester);
 
-    await tester.tap(find.text(chat.title));
+    await tapAt(tester, find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
 
     final id = chat.id;
@@ -62,7 +62,7 @@ void attachmentsSuite() {
     final chat = await createOwnConversation('a bad attachment');
     await launchApp(tester);
 
-    await tester.tap(find.text(chat.title));
+    await tapAt(tester, find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
 
     final id = chat.id;
@@ -91,7 +91,7 @@ void attachmentsSuite() {
     final chat = await createOwnConversation('a removed attachment');
     await launchApp(tester);
 
-    await tester.tap(find.text(chat.title));
+    await tapAt(tester, find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
 
     final id = chat.id;

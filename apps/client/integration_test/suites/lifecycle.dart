@@ -89,7 +89,7 @@ void lifecycleSuite() {
     final originalId = await idOf(tester, Fixture.withHistory);
     final before = await serverMessageCount(originalId);
 
-    await tester.tap(find.text(Fixture.withHistory));
+    await tapAt(tester, find.text(Fixture.withHistory));
     await tester.pumpAndSettle();
 
     // The fork icon hangs off the USER turn. There is nothing to fork from the model's answer.

@@ -36,7 +36,7 @@ void main() {
     final chat = await createOwnConversation('a real generation');
     await launchApp(tester);
 
-    await tester.tap(find.text(chat.title));
+    await tapAt(tester, find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
 
     await typeInto(
@@ -81,7 +81,7 @@ void main() {
     final chat = await createOwnConversation('a stopped run');
     await launchApp(tester);
 
-    await tester.tap(find.text(chat.title));
+    await tapAt(tester, find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
 
     await typeInto(
@@ -129,7 +129,7 @@ void main() {
     final chat = await createOwnConversation('a compacted chat');
     await launchApp(tester);
 
-    await tester.tap(find.text(chat.title));
+    await tapAt(tester, find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
 
     // Something to compact.
@@ -187,7 +187,7 @@ void main() {
     final other = await createOwnConversation('the chat being read');
     await launchApp(tester);
 
-    await tester.tap(find.text(answering.title));
+    await tapAt(tester, find.text(answering.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
     await typeInto(
       tester,
@@ -211,7 +211,7 @@ void main() {
       await tester.tap(back);
       await tester.pumpAndSettle();
     }
-    await tester.tap(find.text(other.title));
+    await tapAt(tester, find.text(other.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
 
     // The other conversation is idle and **sendable** -- its composer offers send, not stop. The
