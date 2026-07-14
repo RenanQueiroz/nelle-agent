@@ -50,7 +50,6 @@ import type {
   ConversationSnapshot,
   ConversationStatus,
   RunKind,
-  TerminalRunStatus,
 } from '../contracts/conversations.ts';
 import type {ChatAttachmentInput} from '../contracts/contracts.ts';
 import {
@@ -69,7 +68,6 @@ import {
   reasoningBudgetTokens,
   stripLeadingThinkingEndTag,
 } from '../contracts/reasoning.ts';
-import {withContextStatus} from '../contracts/context.ts';
 import type {
   AbortConversationResult,
   ChatMessage,
@@ -82,6 +80,18 @@ import type {
 import type {NelleError} from '../contracts/contracts.ts';
 import {NELLE_ERROR_CODES, NELLE_WARNING_CODES} from '../contracts/contracts.ts';
 import {createLiveContextTracker} from '../conversations/context';
+import {
+  type ActiveRun,
+  createCompactCompletedEvent,
+  createCompactFailedEvent,
+  createCompactStartedEvent,
+  createContextUpdatedEvent,
+  createConversationTitleEvent,
+  createRunAbortedEvent,
+  createRunCompletedEvent,
+  createRunStartedEvent,
+  pushRunAbortedEvents,
+} from './events.ts';
 
 const PROVIDER_ID = 'nelle-llamacpp';
 const TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
@@ -98,16 +108,6 @@ type ManagedSession = {
    */
   contextWindow: number;
   session: any;
-};
-
-type ActiveRun = {
-  runId: string;
-  conversationId: string;
-  kind: RunKind;
-  modelId?: string;
-  abortRequested: boolean;
-  abortController?: AbortController;
-  abortWarning?: NelleError;
 };
 
 type LlamaRuntimeServices = {
@@ -1867,111 +1867,6 @@ function emptyPreparedAttachments(): PreparedPromptAttachments {
   return {items: [], metadata: [], uploadIds: []};
 }
 
-function createRunStartedEvent(run: ActiveRun): ChatStreamEvent {
-  return {
-    type: 'run.started',
-    runId: run.runId,
-    conversationId: run.conversationId,
-    kind: run.kind,
-    modelId: run.modelId,
-    status: 'running',
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function createRunAbortedEvent(
-  run: ActiveRun,
-  reason: 'user' | 'server' | 'runtime',
-): ChatStreamEvent {
-  return {
-    type: 'run.aborted',
-    runId: run.runId,
-    conversationId: run.conversationId,
-    reason,
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function pushRunAbortedEvents(
-  queue: ReturnType<typeof createAsyncQueue<ChatStreamEvent>> | undefined,
-  run: ActiveRun,
-): void {
-  queue?.push(createRunAbortedEvent(run, 'user'));
-  if (run.abortWarning) {
-    queue?.push({
-      type: 'run.warning',
-      code: run.abortWarning.code,
-      message: run.abortWarning.message,
-      detail: run.abortWarning.detail,
-    });
-  }
-  queue?.push(createRunCompletedEvent(run, 'aborted'));
-}
-
-function createRunCompletedEvent(
-  run: ActiveRun,
-  status: TerminalRunStatus,
-  error?: {code: string; message: string; retryable?: boolean},
-): ChatStreamEvent {
-  return {
-    type: 'run.completed',
-    runId: run.runId,
-    conversationId: run.conversationId,
-    status,
-    error,
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function createContextUpdatedEvent(
-  conversationId: string,
-  context: ConversationContextUsage,
-): ChatStreamEvent {
-  return {
-    type: 'context.updated',
-    conversationId,
-    ...withContextStatus(context),
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function createCompactStartedEvent(
-  run: ActiveRun,
-  instructions: string | undefined,
-): ChatStreamEvent {
-  const trimmedInstructions = instructions?.trim();
-  return {
-    type: 'compact.started',
-    runId: run.runId,
-    conversationId: run.conversationId,
-    instructions: trimmedInstructions || undefined,
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function createCompactCompletedEvent(run: ActiveRun): ChatStreamEvent {
-  return {
-    type: 'compact.completed',
-    runId: run.runId,
-    conversationId: run.conversationId,
-    compacted: true,
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function createCompactFailedEvent(
-  run: ActiveRun,
-  error: {code: string; message: string; retryable?: boolean},
-): ChatStreamEvent {
-  return {
-    type: 'compact.failed',
-    runId: run.runId,
-    conversationId: run.conversationId,
-    error,
-    createdAt: new Date().toISOString(),
-  };
-}
-
 function renderContextEstimateInput(entries: SyncConversationEntry[]): string {
   return entries
     .map(entry => {
@@ -2448,16 +2343,6 @@ export function nelleOperationalPrompt(toolsEnabled: boolean): string {
 export function appendedSystemPrompts(customInstructions: string): string[] {
   const text = customInstructions.trim();
   return text ? [text] : [];
-}
-
-function createConversationTitleEvent(conversationId: string, title: string): ChatStreamEvent {
-  return {
-    type: 'conversation.updated',
-    conversationId,
-    title,
-    titleSource: 'generated',
-    updatedAt: new Date().toISOString(),
-  };
 }
 
 function formatDuration(durationMs: number): string {
