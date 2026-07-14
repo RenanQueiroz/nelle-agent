@@ -12,6 +12,7 @@ import {AppDatabase} from '../../apps/server/src/database.ts';
 import {SettingsRepository} from '../../apps/server/src/settings.ts';
 import {SETTINGS_REGISTRY} from '../../packages/shared/src/settings.ts';
 import {RUNTIME_SETTINGS_SLUG} from '../../packages/shared/src/settingsKeys.ts';
+import {needsPosixShell} from './helpers/platform.ts';
 
 test('new Hugging Face imports use stable canonical section ids', async () => {
   const paths = await createTempPaths();
@@ -174,7 +175,7 @@ test('removeModelSection deletes removed model from models.ini', async () => {
   assert.doesNotMatch(written, /\[repo\/model:Q4_K_M\]/);
 });
 
-test('start launches router mode with zero configured models', async () => {
+test.skipIf(needsPosixShell)('start launches router mode with zero configured models', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
   const port = await getFreePort();

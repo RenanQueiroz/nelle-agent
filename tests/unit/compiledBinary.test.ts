@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {afterAll, test} from 'bun:test';
+import {removeTemp} from './helpers/platform.ts';
 
 /**
  * **The one test that runs the artifact we would actually ship.**
@@ -36,7 +37,7 @@ const PORT = 8793;
 
 const temporaries: string[] = [];
 afterAll(async () => {
-  await Promise.all(temporaries.map(dir => fs.rm(dir, {recursive: true, force: true})));
+  await Promise.all(temporaries.map(dir => removeTemp(dir)));
 });
 
 async function pdfFixture(directory: string): Promise<string> {

@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import {ensureServerCert} from '../../apps/server/src/tls.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
+import {removeTemp} from './helpers/platform.ts';
 
 test('ensureServerCert generates, persists, and reuses a stable self-signed cert', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-tls-'));
@@ -26,6 +27,6 @@ test('ensureServerCert generates, persists, and reuses a stable self-signed cert
     assert.equal(second.fingerprint, first.fingerprint);
     assert.equal(second.certPem, first.certPem);
   } finally {
-    await fs.rm(dir, {recursive: true, force: true});
+    await removeTemp(dir);
   }
 });

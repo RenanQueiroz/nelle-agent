@@ -7,6 +7,7 @@ import path from 'node:path';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {DeviceRepository} from '../../apps/server/src/devices.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
+import {removeTemp} from './helpers/platform.ts';
 
 async function makeRepo() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-devices-'));
@@ -37,7 +38,7 @@ test('pairing issues tokens, validates access, and refresh rotates', async () =>
     assert.equal(repo.refresh(tokens.refreshToken), null, 'old refresh invalidated');
   } finally {
     database.close();
-    await fs.rm(dir, {recursive: true, force: true});
+    await removeTemp(dir);
   }
 });
 
@@ -50,7 +51,7 @@ test('pairing codes are single-use and unknown codes are rejected', async () => 
     assert.equal(repo.pair({code: 'NOTACODE', name: 'a'}), null, 'unknown code rejected');
   } finally {
     database.close();
-    await fs.rm(dir, {recursive: true, force: true});
+    await removeTemp(dir);
   }
 });
 
@@ -67,7 +68,7 @@ test('an expired access token does not validate, but refresh still works', async
     assert.ok(repo.validateAccessToken(rotated.accessToken), 'refresh issues a live access token');
   } finally {
     database.close();
-    await fs.rm(dir, {recursive: true, force: true});
+    await removeTemp(dir);
   }
 });
 
@@ -88,7 +89,7 @@ test('list shows devices and revoke cascades tokens away', async () => {
     assert.equal(repo.revoke(id), false, 'revoking twice is false');
   } finally {
     database.close();
-    await fs.rm(dir, {recursive: true, force: true});
+    await removeTemp(dir);
   }
 });
 
@@ -112,6 +113,6 @@ test('a paired device is told its own id', async () => {
     assert.equal(renewed?.deviceId, tokens.deviceId);
   } finally {
     database.close();
-    await fs.rm(dir, {recursive: true, force: true});
+    await removeTemp(dir);
   }
 });

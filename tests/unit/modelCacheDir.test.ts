@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
 import {afterEach, test} from 'bun:test';
 
 import {modelCacheEnv} from '../../apps/server/src/llamacpp.ts';
@@ -42,9 +44,13 @@ test('by default, llama.cpp downloads weights into the data directory', () => {
 
 test('the models directory follows NELLE_DATA_DIR, so a throwaway install downloads nothing of ours', () => {
   const previous = process.env.NELLE_DATA_DIR;
-  process.env.NELLE_DATA_DIR = '/tmp/throwaway';
+  // Built with `path.join`, not a string literal: `createAppPaths` uses the platform separator, so
+  // a hardcoded POSIX path asserts `/tmp/throwaway/models` against `D:\tmp\throwaway\models` on
+  // Windows and fails on a value that is entirely correct.
+  const dataDir = path.join(os.tmpdir(), 'throwaway');
+  process.env.NELLE_DATA_DIR = dataDir;
   try {
-    assert.equal(createAppPaths().modelsDir, '/tmp/throwaway/models');
+    assert.equal(createAppPaths().modelsDir, path.join(dataDir, 'models'));
   } finally {
     if (previous === undefined) {
       delete process.env.NELLE_DATA_DIR;
