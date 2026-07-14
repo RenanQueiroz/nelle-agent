@@ -55,26 +55,17 @@ import type {NelleError, UploadResponse} from './contracts/contracts.ts';
 import {
   chatRequestSchema,
   createEventEnvelope,
-  HOST_TOOLS_DESCRIPTION,
-  HOST_TOOLS_WARNING,
   pairRequestSchema,
-  preferencesSchema,
   refreshRequestSchema,
   serializeSseEnvelope,
   NELLE_ERROR_CODES,
 } from './contracts/contracts.ts';
-import {
-  SETTINGS_REGISTRY,
-  settingsPatchSchema,
-  type SettingsGroup,
-  type SettingsValues,
-} from './contracts/settings.ts';
+import {SETTINGS_REGISTRY, type SettingsGroup} from './contracts/settings.ts';
 import {
   ALLOW_LAN_ACCESS_KEY,
   ATTACHMENTS_SETTINGS_SLUG,
   MAX_IMAGE_MEGAPIXELS_KEY,
   NETWORK_SETTINGS_SLUG,
-  SESSION_RESETTING_SETTINGS_SLUGS,
 } from './contracts/settingsKeys.ts';
 import {
   invalidModelParamsCode,
@@ -92,6 +83,7 @@ import {
   assertSupportedSlashCommand,
 } from './routes/guards';
 import {registerHealthRoutes} from './routes/health';
+import {registerSettingsRoutes} from './routes/settings';
 
 const useHuggingFaceModelSchema = z.object({
   repoId: z.string().min(1),
@@ -160,11 +152,6 @@ const patchConversationSchema = z.object({
 });
 
 const conversationReasoningSchema = z.object({level: reasoningLevelSchema});
-
-const hostToolSettingsSchema = z.object({
-  enabled: z.boolean().optional(),
-  acknowledged: z.boolean().optional(),
-});
 
 export type NelleServer = {
   handle: (req: Request, opts: {trusted: boolean}) => Promise<Response>;
@@ -268,84 +255,7 @@ export async function createServer(
   const router = new Router();
   registerLlamaProxy(router, store);
   registerHealthRoutes(router, deps);
-
-  router.get('/api/settings/host-tools', async () =>
-    json({
-      hostTools: hostTools.getSettings(),
-      // The server's own sentence. A security warning each client writes for itself is
-      // the one copy you least want drifting.
-      warning: HOST_TOOLS_WARNING,
-      description: HOST_TOOLS_DESCRIPTION,
-    }),
-  );
-
-  // Favorites follow the user, not the browser profile that set them.
-  router.get('/api/settings/preferences', async () => {
-    const state = await store.getState();
-    return json(preferences.getPreferences(state.models.map(model => model.id)));
-  });
-
-  router.patch('/api/settings/preferences', async ctx => {
-    const body = preferencesSchema.parse(await ctx.body());
-    const saved = preferences.updatePreferences(body);
-    const state = await store.getState();
-    const known = new Set(state.models.map(model => model.id));
-    return json({...saved, favoriteModelIds: saved.favoriteModelIds.filter(id => known.has(id))});
-  });
-
-  // The settings schema is served for the same reason the slash-command registry
-  // is: a second client renders the fields without carrying a copy of fifteen
-  // labels, and a new setting ships without a client release.
-  router.get('/api/settings/schema', async () => json({sections: settings.groups}));
-
-  // One route pair per registry group. Registering them from the registry rather
-  // than behind a `/api/settings/:group` parameter keeps `schema`, `preferences`
-  // and `host-tools` from being swallowed by it, and makes a slug collision a
-  // loud failure at boot instead of a route that silently never matches.
-  for (const group of settings.groups) {
-    const patchSchema = settingsPatchSchema(group);
-    // Pi bakes the system prompt into a session at construction, so a change to
-    // the custom instructions reaches an open conversation only if the session it
-    // would reuse is thrown away. `PATCH /api/settings/host-tools` already does
-    // exactly this, for exactly the same reason.
-    const resetsSessions = SESSION_RESETTING_SETTINGS_SLUGS.includes(group.slug);
-    router.get(`/api/settings/${group.slug}`, async () => json(settings.getGroup(group.slug)));
-    router.patch(`/api/settings/${group.slug}`, async ctx => {
-      const body = patchSchema.parse(await ctx.body()) as SettingsValues;
-      const saved = settings.updateGroup(group.slug, body);
-      if (resetsSessions) {
-        pi.resetSession();
-      }
-      return json(saved);
-    });
-  }
-
-  router.patch('/api/settings/host-tools', async ctx => {
-    const body = hostToolSettingsSchema.parse(await ctx.body());
-    let hostToolSettings;
-    try {
-      hostToolSettings = hostTools.updateSettings(body);
-    } catch (error) {
-      return json(
-        {
-          error: {
-            code: 'host_tools_acknowledgement_required',
-            message:
-              error instanceof Error
-                ? error.message
-                : 'Host tools must be acknowledged before they can be enabled.',
-          },
-        },
-        400,
-      );
-    }
-    pi.resetSession();
-    return json({
-      hostTools: hostToolSettings,
-      warning: HOST_TOOLS_WARNING,
-      description: HOST_TOOLS_DESCRIPTION,
-    });
-  });
+  registerSettingsRoutes(router, deps);
 
   router.get('/api/runtime', async ctx => {
     const checkLatest = ctx.query.latest === '1';
