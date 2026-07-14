@@ -93,6 +93,7 @@ import {
   pushRunAbortedEvents,
 } from './events.ts';
 import {PROVIDER_ID, writePiModels} from './models.ts';
+import {createToolEventSubscriber} from './tools.ts';
 import {
   buildPiPrompt,
   emptyPreparedAttachments,
@@ -106,14 +107,7 @@ import {
   prependExistingVariantGroup,
   syncPiConversation,
 } from './projection.ts';
-import {
-  formatDuration,
-  getToolCallId,
-  isToolExecutionEvent,
-  stringifyToolData,
-  summarizeToolTarget,
-  upsertToolCall,
-} from './toolCalls.ts';
+import {isToolExecutionEvent} from './toolCalls.ts';
 
 // The harness is what `server.ts` and the tests import, so what it used to define it still
 // hands out. Moving a symbol into a neighbouring module is an internal change, and a public
@@ -862,8 +856,6 @@ export class PiHarness {
       onPerformance: pushPerformance,
     });
     const toolCalls: ToolCallEvent[] = [];
-    let toolsDisabledAborted = false;
-    const toolCallStarts = new Map<string, number>();
     let thinkingText = '';
     let providerError: string | null = null;
     let resourcesStopped = false;
@@ -880,17 +872,17 @@ export class PiHarness {
         isReasoning: false,
       });
     };
+    const handleToolEvent = createToolEventSubscriber({
+      hostTools: this.hostTools,
+      conversationId,
+      queue,
+      toolCalls,
+      abortRun: () => void session.abort?.(),
+    });
     const unsubscribe = session.subscribe((event: any) => {
-      // `tools: []` at session construction is a build-time gate, not a runtime
-      // one. A cached session, a Pi retry, or a future Pi version could still
-      // emit a tool event; the user disabling host tools mid-run certainly can.
-      // Fail closed: no audit row, no tool event, and the run ends.
-      if (isToolExecutionEvent(event.type) && !this.hostTools.areToolsEnabled()) {
-        if (!toolsDisabledAborted) {
-          toolsDisabledAborted = true;
-          queue.push(createErrorEvent(new ToolsDisabledError()));
-          void session.abort?.();
-        }
+      // A tool event is the subscriber's -- including one that arrives with host tools
+      // disabled, which it refuses and ends the run over. Nothing below may see one.
+      if (handleToolEvent(event)) {
         return;
       }
       if (event.type === 'message_update') {
@@ -915,70 +907,6 @@ export class PiHarness {
             assistantEvent.errorMessage ??
             'Pi provider error';
         }
-      }
-
-      if (event.type === 'tool_execution_start') {
-        const id = getToolCallId(event);
-        const startedAt = Date.now();
-        const call: ToolCallEvent = {
-          id,
-          name: String(event.toolName ?? 'tool'),
-          target: summarizeToolTarget(event.toolName, event.args),
-          status: 'running',
-          input: stringifyToolData(event.args),
-        };
-        toolCallStarts.set(id, startedAt);
-        this.hostTools.recordToolStart({
-          conversationId,
-          piToolCallId: id,
-          toolName: call.name,
-          args: event.args,
-          startedAt: new Date(startedAt),
-        });
-        toolCalls.push(call);
-        queue.push({type: 'tool_call.updated', call: {...call}});
-      }
-
-      if (event.type === 'tool_execution_update') {
-        const id = getToolCallId(event);
-        const call = upsertToolCall(toolCalls, {
-          id,
-          name: String(event.toolName ?? 'tool'),
-          target: summarizeToolTarget(event.toolName, event.args),
-          status: 'running',
-          input: stringifyToolData(event.args),
-          output: stringifyToolData(event.partialResult),
-        });
-        queue.push({type: 'tool_call.updated', call: {...call}});
-      }
-
-      if (event.type === 'tool_execution_end') {
-        const id = getToolCallId(event);
-        const startedAt = toolCallStarts.get(id);
-        const completedAt = Date.now();
-        const durationMs = startedAt ? completedAt - startedAt : undefined;
-        const call = upsertToolCall(toolCalls, {
-          id,
-          name: String(event.toolName ?? 'tool'),
-          target: summarizeToolTarget(event.toolName, event.args),
-          status: event.isError ? 'error' : 'complete',
-          input: stringifyToolData(event.args),
-          output: stringifyToolData(event.result),
-          duration: durationMs == null ? undefined : formatDuration(durationMs),
-          errorMessage: event.isError ? stringifyToolData(event.result) : undefined,
-        });
-        this.hostTools.recordToolEnd({
-          conversationId,
-          piToolCallId: id,
-          toolName: call.name,
-          args: event.args,
-          status: event.isError ? 'error' : 'complete',
-          output: event.isError ? undefined : event.result,
-          error: event.isError ? event.result : undefined,
-          completedAt: new Date(completedAt),
-          durationMs,
-        });
-        queue.push({type: 'tool_call.updated', call: {...call}});
       }
     });
     const stopPromptResources = () => {
