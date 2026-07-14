@@ -10,7 +10,6 @@ import type {
   ConversationStatus,
 } from '../contracts/conversations.ts';
 import {assertConversationTransition} from '../contracts/conversations.ts';
-import type {ChatAttachmentKind} from '../contracts/contracts.ts';
 import type {ReasoningLevel} from '../contracts/reasoning.ts';
 import {
   DEFAULT_NEW_CONVERSATION_REASONING_LEVEL,
@@ -19,13 +18,27 @@ import {
 import type {AppDatabase} from '../db/database';
 import {ModelCacheRepository} from '../models/cache';
 import type {AppState, ChatMessage} from '../lib/types';
+import type {
+  CreateAttachmentInput,
+  ImportedAttachmentInput,
+  StoredAttachment,
+} from './messageAttachments';
+import {
+  bindAttachmentsToEntry,
+  copyAttachmentsForEntries,
+  insertImportedAttachments,
+  insertPendingAttachments,
+  isAttachmentStorageReferencedByOtherConversation,
+  refreshAttachmentSummary,
+  remapAttachmentEntryIds,
+  selectAttachmentById,
+  selectAttachments,
+  selectAttachmentsForEntry,
+} from './messageAttachments';
 import type {ConversationRow, SyncConversationEntry} from './rows';
 import {
   insertConversationRow,
-  isString,
-  jsonOrNull,
   mapConversationListItem,
-  parseJson,
   selectConversationEntries,
   upsertConversationEntryRow,
 } from './rows';
@@ -46,21 +59,6 @@ import {
 } from './sessionFile';
 import {buildActivePathEntryIds, buildConversationSnapshot} from './snapshot';
 
-type AttachmentRow = {
-  id: string;
-  conversation_id: string;
-  pi_entry_id: string | null;
-  upload_id: string | null;
-  kind: string;
-  name: string;
-  mime_type: string | null;
-  size_bytes: number | null;
-  storage_path: string | null;
-  text_content: string | null;
-  processing_json: string | null;
-  created_at: string;
-};
-
 // The list-item and page shapes live in `contracts/` as zod schemas
 // (conversationListItemSchema / conversationListResponseSchema) so the served
 // OpenAPI can carry them and the Flutter client can codegen them. Re-exported
@@ -78,36 +76,10 @@ export type PiSessionBinding = {
   activeLeafPiEntryId?: string | null;
 };
 
-export type CreateAttachmentInput = {
-  uploadId: string;
-  kind: ChatAttachmentKind;
-  name: string;
-  mimeType?: string;
-  sizeBytes?: number;
-  storagePath?: string;
-  textContent?: string;
-  processing?: unknown;
-  createdAt?: string;
-};
-
-export type StoredAttachment = AttachmentMetadata & {
-  uploadId?: string;
-  textContent?: string;
-  processing?: unknown;
-};
-
-export type ImportedAttachmentInput = {
-  piEntryId?: string | null;
-  uploadId?: string | null;
-  kind: ChatAttachmentKind;
-  name: string;
-  mimeType?: string;
-  sizeBytes?: number;
-  storagePath?: string;
-  textContent?: string;
-  processing?: unknown;
-  createdAt?: string;
-};
+// The `message_attachments` table and its statements live in `messageAttachments.ts`.
+// Re-exported here so the upload routes, the archive code and the tests keep their
+// import paths.
+export type {CreateAttachmentInput, ImportedAttachmentInput, StoredAttachment};
 
 export type RegenerationSource = {
   assistantEntry: ConversationEntryProjection;
@@ -286,28 +258,8 @@ export class ConversationRepository {
     return collectConversationDiagnostics(this.database.connection, row);
   }
 
-  /**
-   * Repoints attachment rows at the entry ids a rebuilt Pi session handed out.
-   *
-   * Rebuilding writes fresh Pi entries, so every `pi_entry_id` sidecar rows hold
-   * is stale. Attachments would otherwise stay bound to entries that no longer
-   * exist and quietly vanish from the transcript.
-   */
   remapAttachmentEntryIds(conversationId: string, mapping: Map<string, string>): void {
-    const db = this.database.connection;
-    const statement = db.prepare(
-      'UPDATE message_attachments SET pi_entry_id = ? WHERE conversation_id = ? AND pi_entry_id = ?',
-    );
-    db.run('BEGIN');
-    try {
-      for (const [previousId, nextId] of mapping) {
-        statement.run(nextId, conversationId, previousId);
-      }
-      db.run('COMMIT');
-    } catch (error) {
-      db.run('ROLLBACK');
-      throw error;
-    }
+    remapAttachmentEntryIds(this.database.connection, conversationId, mapping);
   }
 
   getConversationEntries(id: string): ConversationEntryProjection[] {
@@ -373,55 +325,7 @@ export class ConversationRepository {
     conversationId: string,
     attachments: CreateAttachmentInput[],
   ): AttachmentMetadata[] {
-    if (attachments.length === 0) {
-      return [];
-    }
-    const created: AttachmentMetadata[] = [];
-    const db = this.database.connection;
-    const insert = db.prepare(
-      `INSERT INTO message_attachments (
-         id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
-         size_bytes, storage_path, text_content, processing_json, created_at
-       ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    db.run('BEGIN');
-    try {
-      for (const attachment of attachments) {
-        const now = attachment.createdAt ?? new Date().toISOString();
-        const id = crypto.randomUUID();
-        insert.run(
-          id,
-          conversationId,
-          attachment.uploadId,
-          attachment.kind,
-          attachment.name,
-          attachment.mimeType ?? null,
-          attachment.sizeBytes ?? null,
-          attachment.storagePath ?? null,
-          attachment.textContent ?? null,
-          jsonOrNull(attachment.processing),
-          now,
-        );
-        created.push({
-          id,
-          conversationId,
-          uploadId: attachment.uploadId,
-          kind: attachment.kind,
-          name: attachment.name,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-          storagePath: attachment.storagePath,
-          textPreview: attachment.textContent?.slice(0, 240),
-          processing: attachment.processing,
-          createdAt: now,
-        });
-      }
-      db.run('COMMIT');
-    } catch (error) {
-      db.run('ROLLBACK');
-      throw error;
-    }
-    return created;
+    return insertPendingAttachments(this.database.connection, conversationId, attachments);
   }
 
   copyAttachmentsForEntries(
@@ -429,80 +333,16 @@ export class ConversationRepository {
     targetConversationId: string,
     piEntryIds: string[],
   ): AttachmentMetadata[] {
-    if (piEntryIds.length === 0) {
-      return [];
-    }
-    const placeholders = piEntryIds.map(() => '?').join(', ');
-    const rows = this.database.connection
-      .prepare(
-        `SELECT id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
-                size_bytes, storage_path, text_content, processing_json, created_at
-         FROM message_attachments
-         WHERE conversation_id = ? AND pi_entry_id IN (${placeholders})
-         ORDER BY created_at ASC`,
-      )
-      .all(sourceConversationId, ...piEntryIds) as AttachmentRow[];
-    if (rows.length === 0) {
-      return [];
-    }
-
-    const now = new Date().toISOString();
-    const copied: AttachmentMetadata[] = [];
-    const db = this.database.connection;
-    const insert = db.prepare(
-      `INSERT INTO message_attachments (
-         id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
-         size_bytes, storage_path, text_content, processing_json, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    return copyAttachmentsForEntries(
+      this.database.connection,
+      sourceConversationId,
+      targetConversationId,
+      piEntryIds,
     );
-    db.run('BEGIN');
-    try {
-      for (const row of rows) {
-        const id = crypto.randomUUID();
-        insert.run(
-          id,
-          targetConversationId,
-          row.pi_entry_id,
-          row.upload_id,
-          row.kind,
-          row.name,
-          row.mime_type,
-          row.size_bytes,
-          row.storage_path,
-          row.text_content,
-          row.processing_json,
-          now,
-        );
-        copied.push({
-          ...mapAttachmentRow({
-            ...row,
-            id,
-            conversation_id: targetConversationId,
-            created_at: now,
-          }),
-        });
-      }
-      db.run('COMMIT');
-    } catch (error) {
-      db.run('ROLLBACK');
-      throw error;
-    }
-
-    for (const piEntryId of new Set(rows.map(row => row.pi_entry_id).filter(id => id != null))) {
-      this.refreshAttachmentSummary(targetConversationId, piEntryId);
-    }
-    return copied;
   }
 
   refreshAttachmentSummary(conversationId: string, piEntryId: string): void {
-    const attachments = this.getAttachmentsForEntry(conversationId, piEntryId);
-    this.database.connection
-      .prepare(
-        `UPDATE conversation_entry_projection
-         SET attachment_summary_json = ?
-         WHERE conversation_id = ? AND pi_entry_id = ?`,
-      )
-      .run(jsonOrNull(summarizeAttachments(attachments)), conversationId, piEntryId);
+    refreshAttachmentSummary(this.database.connection, conversationId, piEntryId);
   }
 
   bindAttachmentsToEntry(
@@ -510,19 +350,7 @@ export class ConversationRepository {
     uploadIds: string[],
     piEntryId: string,
   ): AttachmentMetadata[] {
-    if (uploadIds.length === 0) {
-      return [];
-    }
-    const placeholders = uploadIds.map(() => '?').join(', ');
-    const db = this.database.connection;
-    db.prepare(
-      `UPDATE message_attachments
-       SET pi_entry_id = ?
-       WHERE conversation_id = ? AND upload_id IN (${placeholders})`,
-    ).run(piEntryId, conversationId, ...uploadIds);
-
-    this.refreshAttachmentSummary(conversationId, piEntryId);
-    return this.getAttachmentsForEntry(conversationId, piEntryId);
+    return bindAttachmentsToEntry(this.database.connection, conversationId, uploadIds, piEntryId);
   }
 
   getStoredAttachmentsForEntry(conversationId: string, piEntryId: string): StoredAttachment[] {
@@ -537,61 +365,7 @@ export class ConversationRepository {
     conversationId: string,
     attachments: ImportedAttachmentInput[],
   ): AttachmentMetadata[] {
-    if (attachments.length === 0) {
-      return [];
-    }
-    const created: AttachmentMetadata[] = [];
-    const db = this.database.connection;
-    const insert = db.prepare(
-      `INSERT INTO message_attachments (
-         id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
-         size_bytes, storage_path, text_content, processing_json, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    db.run('BEGIN');
-    try {
-      for (const attachment of attachments) {
-        const now = attachment.createdAt ?? new Date().toISOString();
-        const id = crypto.randomUUID();
-        insert.run(
-          id,
-          conversationId,
-          attachment.piEntryId ?? null,
-          attachment.uploadId ?? null,
-          attachment.kind,
-          attachment.name,
-          attachment.mimeType ?? null,
-          attachment.sizeBytes ?? null,
-          attachment.storagePath ?? null,
-          attachment.textContent ?? null,
-          jsonOrNull(attachment.processing),
-          now,
-        );
-        created.push({
-          id,
-          conversationId,
-          piEntryId: attachment.piEntryId ?? undefined,
-          uploadId: attachment.uploadId ?? undefined,
-          kind: attachment.kind,
-          name: attachment.name,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-          storagePath: attachment.storagePath,
-          textPreview: attachment.textContent?.slice(0, 240),
-          processing: attachment.processing,
-          createdAt: now,
-        });
-      }
-      db.run('COMMIT');
-    } catch (error) {
-      db.run('ROLLBACK');
-      throw error;
-    }
-
-    for (const piEntryId of new Set(attachments.map(item => item.piEntryId).filter(isString))) {
-      this.refreshAttachmentSummary(conversationId, piEntryId);
-    }
-    return created;
+    return insertImportedAttachments(this.database.connection, conversationId, attachments);
   }
 
   getSnapshot(id: string, state: AppState): ConversationSnapshot | null {
@@ -958,51 +732,16 @@ export class ConversationRepository {
     return selectConversationEntries(this.database.connection, conversationId);
   }
 
-  /**
-   * One attachment by id, for serving its bytes.
-   *
-   * The id is the only thing the client has: a transcript renders what the snapshot
-   * gave it, and the snapshot carries attachment metadata but not the bytes -- the
-   * bytes are on the server, and on a phone they always will be.
-   */
   getAttachmentById(id: string): AttachmentMetadata | null {
-    const row = this.database.connection
-      .prepare(
-        `SELECT id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
-                size_bytes, storage_path, text_content, processing_json, created_at
-         FROM message_attachments
-         WHERE id = ?`,
-      )
-      .get(id) as AttachmentRow | undefined;
-    return row ? mapAttachmentRow(row) : null;
+    return selectAttachmentById(this.database.connection, id);
   }
 
-  private getAttachments(conversationId: string): AttachmentMetadata[] {
-    const rows = this.database.connection
-      .prepare(
-        `SELECT id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
-                size_bytes, storage_path, text_content, processing_json, created_at
-         FROM message_attachments
-         WHERE conversation_id = ?
-         ORDER BY created_at ASC`,
-      )
-      .all(conversationId) as AttachmentRow[];
-
-    return rows.map(mapAttachmentRow);
+  private getAttachments(conversationId: string): StoredAttachment[] {
+    return selectAttachments(this.database.connection, conversationId);
   }
 
   private getAttachmentsForEntry(conversationId: string, piEntryId: string): StoredAttachment[] {
-    const rows = this.database.connection
-      .prepare(
-        `SELECT id, conversation_id, pi_entry_id, upload_id, kind, name, mime_type,
-                size_bytes, storage_path, text_content, processing_json, created_at
-         FROM message_attachments
-         WHERE conversation_id = ? AND pi_entry_id = ?
-         ORDER BY created_at ASC`,
-      )
-      .all(conversationId, piEntryId) as AttachmentRow[];
-
-    return rows.map(mapAttachmentRow);
+    return selectAttachmentsForEntry(this.database.connection, conversationId, piEntryId);
   }
 
   private upsertSearch(conversationId: string, title: string): void {
@@ -1013,51 +752,10 @@ export class ConversationRepository {
     storagePath: string,
     conversationId: string,
   ): boolean {
-    const row = this.database.connection
-      .prepare(
-        `SELECT COUNT(*) AS count
-         FROM message_attachments
-         WHERE storage_path = ? AND conversation_id != ?`,
-      )
-      .get(storagePath, conversationId) as {count: number};
-    return row.count > 0;
+    return isAttachmentStorageReferencedByOtherConversation(
+      this.database.connection,
+      storagePath,
+      conversationId,
+    );
   }
-}
-
-function mapAttachmentRow(row: AttachmentRow): StoredAttachment {
-  return {
-    id: row.id,
-    conversationId: row.conversation_id,
-    piEntryId: row.pi_entry_id ?? undefined,
-    uploadId: row.upload_id ?? undefined,
-    kind: normalizeAttachmentKind(row.kind),
-    name: row.name,
-    mimeType: row.mime_type ?? undefined,
-    sizeBytes: row.size_bytes ?? undefined,
-    storagePath: row.storage_path ?? undefined,
-    textPreview: row.text_content?.slice(0, 240),
-    textContent: row.text_content ?? undefined,
-    processing: parseJson(row.processing_json),
-    createdAt: row.created_at,
-  };
-}
-
-function normalizeAttachmentKind(kind: string): ChatAttachmentKind {
-  if (kind === 'pdf' || kind === 'image' || kind === 'text') {
-    return kind;
-  }
-  return 'text';
-}
-
-function summarizeAttachments(attachments: AttachmentMetadata[]): unknown {
-  return {
-    count: attachments.length,
-    items: attachments.map(attachment => ({
-      id: attachment.id,
-      kind: attachment.kind,
-      name: attachment.name,
-      mimeType: attachment.mimeType,
-      sizeBytes: attachment.sizeBytes,
-    })),
-  };
 }
