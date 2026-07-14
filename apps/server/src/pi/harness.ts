@@ -51,11 +51,7 @@ import type {
   RunKind,
 } from '../contracts/conversations.ts';
 import type {ChatAttachmentInput} from '../contracts/contracts.ts';
-import {
-  isReplyBudgetExhausted,
-  minimumUsableContextSize,
-  replyTokenBudget,
-} from '../contracts/piContext.ts';
+import {isReplyBudgetExhausted, minimumUsableContextSize} from '../contracts/piContext.ts';
 import {
   createThinkingEndTagFilter,
   isReasoningEnabled,
@@ -96,6 +92,7 @@ import {
   createRunStartedEvent,
   pushRunAbortedEvents,
 } from './events.ts';
+import {PROVIDER_ID, writePiModels} from './models.ts';
 import {
   buildPiPrompt,
   emptyPreparedAttachments,
@@ -131,7 +128,6 @@ export {
   ToolsDisabledError,
 };
 
-const PROVIDER_ID = 'nelle-llamacpp';
 const TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
 type ManagedSession = {
   conversationId: string;
@@ -1253,7 +1249,7 @@ export class PiHarness {
     }
 
     cached?.session.dispose?.();
-    await this.writePiModels(activeModel);
+    await writePiModels(this.paths, this.store, activeModel, this.modelCache);
 
     const authStorage = AuthStorage.create(this.paths.piAuthPath);
     authStorage.setRuntimeApiKey(PROVIDER_ID, 'nelle-local');
@@ -1563,70 +1559,6 @@ export class PiHarness {
       clearTimeout(timeout);
       signal?.removeEventListener('abort', abortTitleRequest);
     }
-  }
-
-  private async writePiModels(activeModel: ConfiguredModel): Promise<void> {
-    await fs.mkdir(this.paths.piDir, {recursive: true});
-    // Pi bakes `contextWindow` into a session at construction and clamps against
-    // it for the session's life, so it must never see a number nobody believes.
-    // The chat and regenerate routes load the model before this runs, which is
-    // what makes the window known; the assertion states that invariant.
-    const activeContextWindow = requireContextWindow(activeModel, this.modelCache);
-    const state = await this.store.getState();
-    const models = state.models.flatMap(model => {
-      const contextWindow =
-        model.id === activeModel.id ? activeContextWindow : this.contextWindow(model);
-      // Never loaded and never capped. Omit it rather than invent a window: Pi
-      // only looks up the model it is about to run, and that one is loaded.
-      if (contextWindow == null) {
-        return [];
-      }
-      return [
-        {
-          id: llamaRuntimeModelId(model),
-          name: model.name,
-          // Whether a model can actually think is decided by its chat template,
-          // not by its name. Declaring `reasoning` unlocks Pi's thinking levels
-          // for every model; a template that ignores `enable_thinking` just
-          // answers normally. `templateSupportsThinking` gates the UI control.
-          reasoning: true,
-          input: ['text', 'image'],
-          contextWindow,
-          // Pi clamps this against the live context, so advertise a generous
-          // ceiling instead of a flat 512-token cap that truncated long answers.
-          maxTokens: replyTokenBudget(contextWindow),
-          cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0},
-          // Pi hides `xhigh` unless the model maps it, and Nelle's `max` level
-          // maps onto it. The value is never sent: `supportsReasoningEffort` is
-          // false.
-          thinkingLevelMap: {xhigh: 'xhigh'},
-          // Pi's name for "pass `chat_template_kwargs.enable_thinking`", which
-          // is how Qwen3, Gemma 4, and every llama.cpp thinking template read it.
-          compat: {thinkingFormat: 'qwen-chat-template' as const},
-        },
-      ];
-    });
-
-    const config = {
-      providers: {
-        [PROVIDER_ID]: {
-          baseUrl: localLlamaProxyBaseUrl(),
-          api: 'openai-completions',
-          apiKey: 'nelle-local',
-          authHeader: false,
-          compat: {
-            supportsDeveloperRole: false,
-            supportsReasoningEffort: false,
-            supportsUsageInStreaming: false,
-            maxTokensField: 'max_tokens',
-          },
-          models,
-        },
-      },
-      activeModel: llamaRuntimeModelId(activeModel),
-    };
-
-    await fs.writeFile(this.paths.piModelsPath, `${JSON.stringify(config, null, 2)}\n`);
   }
 }
 
