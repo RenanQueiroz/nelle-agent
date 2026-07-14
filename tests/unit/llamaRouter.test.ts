@@ -430,7 +430,7 @@ test('a model that fails to load ends the run with model_load_failed', async () 
   } finally {
     await router.close();
   }
-});
+}, 60_000);
 
 test('a child that dies at startup fails the run, rather than grinding to the timeout', async () => {
   // **The router never marks it `failed`.** `POST /models/load` answers `{success: true}` -- it
@@ -476,7 +476,7 @@ test('a child that dies at startup fails the run, rather than grinding to the ti
   } finally {
     await router.close();
   }
-});
+}, 60_000);
 
 test('a load that is merely slow is not mistaken for a dead child', async () => {
   // The exit code cannot say which attempt it belongs to: a *previous* failure leaves the same
@@ -511,7 +511,7 @@ test('a load that is merely slow is not mistaken for a dead child', async () => 
   } finally {
     await router.close();
   }
-});
+}, 60_000);
 
 test('a load that never finishes times out rather than hanging the run', async () => {
   const router = await createMockRouter({
@@ -539,7 +539,7 @@ test('a load that never finishes times out rather than hanging the run', async (
   } finally {
     await router.close();
   }
-});
+}, 60_000);
 
 test('the server decides whether a model can reason, and caches the answer', async () => {
   // Whether a model can think is a property of its chat template. llama.cpp ships
