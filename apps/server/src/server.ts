@@ -1,10 +1,10 @@
-import path from 'node:path';
-
 import {HuggingFaceService} from './models/huggingface';
 import {LlamaCppManager} from './llama/manager';
 import {registerLlamaProxy} from './llama/proxy';
 import {PiHarness} from './pi/harness';
-import {Router, applyCors, json, preflightResponse, type Ctx} from './http/router';
+import {Router, applyCors, json, preflightResponse} from './http/router';
+import {NELLE_ERROR_CODES} from './contracts/contracts.ts';
+import {sweepOrphanAttachmentFiles} from './lib/files';
 import {AppStore} from './models/store';
 import {AppDatabase} from './db/database';
 import {HostToolRepository} from './pi/hostTools';
@@ -13,19 +13,18 @@ import {SettingsRepository} from './settings/repository';
 import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './attachments/uploads';
 import {DeviceRepository} from './auth/devices';
 import {AUTH_ALLOWLIST, authorizeBearer} from './auth/auth';
-import {buildPairingPayload} from './auth/pairing';
-import {ensureServerCert, localIPv4s, type ServerCert} from './auth/tls';
+import {ensureServerCert, type ServerCert} from './auth/tls';
 import {buildOpenApiDocument} from './openapi';
 import {ModelCacheRepository} from './models/cache';
 import {GgufMetadataRepository} from './models/gguf';
 import {ConversationRepository} from './conversations/repository';
-import {isPathWithin, resolveRelativeDataPath, sweepOrphanAttachmentFiles} from './lib/files';
 import {createLogger} from './lib/logger';
 import type {AppPaths} from './lib/paths';
-import {pairRequestSchema, refreshRequestSchema, NELLE_ERROR_CODES} from './contracts/contracts.ts';
 import {SETTINGS_REGISTRY, type SettingsGroup} from './contracts/settings.ts';
 import {ALLOW_LAN_ACCESS_KEY, NETWORK_SETTINGS_SLUG} from './contracts/settingsKeys.ts';
 import {LlamaOptionCatalogueCache} from './llama/params';
+import {registerAttachmentRoutes} from './routes/attachments';
+import {registerAuthRoutes} from './routes/auth';
 import {registerChatStreamRoute, registerRegenerateRoute} from './routes/chat';
 import {registerConversationRoutes} from './routes/conversations';
 import {registerUploadRoutes} from './routes/uploads';
@@ -145,145 +144,14 @@ export async function createServer(
   registerModelRoutes(router, deps);
   registerHuggingFaceRoutes(router, deps);
   registerConversationRoutes(router, deps);
-
+  // Chat and regenerate are one module and two calls, because the uploads routes have always
+  // sat between them. Keeping that is what makes the route table -- and the path order of the
+  // document below -- identical to what it was before any of this moved.
   registerChatStreamRoute(router, deps);
-
   registerUploadRoutes(router, deps);
-
   registerRegenerateRoute(router, deps);
-
-  /**
-   * The bytes of an attachment a message already carries.
-   *
-   * This exists because of the phone. A past message's bytes are not on the client and
-   * never were: the composer previews an image because it just read those bytes off
-   * disk, but a transcript loaded from a snapshot has only metadata. Until now the only
-   * honest thing a client could render for a past attachment was a chip.
-   *
-   * `storage_path` comes out of the database, so it is not trusted as a path: it is
-   * resolved against the data directory and refused if it escapes, and refused again if
-   * it is not under the attachments tree. A row is not a capability to read any file on
-   * the machine.
-   */
-  router.get('/api/attachments/:id/content', async ctx => {
-    const attachment = conversations.getAttachmentById(ctx.params.id);
-    if (!attachment?.storagePath) {
-      // No row, or a row whose bytes were never stored (a text attachment lives in the
-      // database, not on disk).
-      return json(
-        {error: {code: NELLE_ERROR_CODES.notFound, message: 'Attachment not found.'}},
-        404,
-      );
-    }
-
-    const resolved = resolveRelativeDataPath(paths.dataDir, attachment.storagePath);
-    if (!resolved || !isPathWithin(resolved, path.resolve(paths.attachmentsDir))) {
-      log.warn(
-        {attachmentId: attachment.id},
-        'attachment storage path escapes the attachments tree',
-      );
-      return json(
-        {error: {code: NELLE_ERROR_CODES.notFound, message: 'Attachment not found.'}},
-        404,
-      );
-    }
-
-    const file = Bun.file(resolved);
-    if (!(await file.exists())) {
-      return json(
-        {error: {code: NELLE_ERROR_CODES.notFound, message: 'The attachment file is missing.'}},
-        404,
-      );
-    }
-
-    return new Response(file, {
-      headers: {
-        'content-type': attachment.mimeType ?? 'application/octet-stream',
-        // Content-addressed: the bytes at this id can never change, so a client may
-        // keep them forever. That is what makes a phone's transcript cheap to reopen.
-        'cache-control': 'private, max-age=31536000, immutable',
-        // The name is the user's, and a browser will happily execute what it is handed.
-        'content-disposition': `inline; filename="${encodeURIComponent(attachment.name)}"`,
-        'x-content-type-options': 'nosniff',
-      },
-    });
-  });
-
-  // --- Device authentication (LAN clients) ---
-  // Loopback is trusted; code minting and device management are hidden from the
-  // LAN (they 404 there). `pair` and `auth/refresh` are token-exempt so a device
-  // can bootstrap; everything else on the LAN listener needs a bearer token.
-
-  router.post('/api/pair/code', async ctx => {
-    if (!ctx.trusted) {
-      return loopbackOnly(ctx);
-    }
-    const minted = devices.mintPairingCode();
-    return json({
-      code: minted.code,
-      expiresAt: minted.expiresAt,
-      qrPayload: buildPairingPayload({
-        code: minted.code,
-        expiresAt: minted.expiresAt,
-        cert: serverCert,
-        tlsPort,
-        addresses: localIPv4s(),
-      }),
-    });
-  });
-
-  router.post('/api/pair', async ctx => {
-    const body = pairRequestSchema.parse(await ctx.body());
-    const tokens = devices.pair({code: body.code, name: body.deviceName, platform: body.platform});
-    if (!tokens) {
-      return json(
-        {
-          error: {
-            code: NELLE_ERROR_CODES.pairingCodeInvalid,
-            message: 'Invalid or expired pairing code.',
-            retryable: false,
-          },
-        },
-        400,
-      );
-    }
-    return json(tokens);
-  });
-
-  router.post('/api/auth/refresh', async ctx => {
-    const body = refreshRequestSchema.parse(await ctx.body());
-    const tokens = devices.refresh(body.refreshToken);
-    if (!tokens) {
-      return json(
-        {
-          error: {
-            code: NELLE_ERROR_CODES.refreshTokenInvalid,
-            message: 'Invalid or expired refresh token.',
-            retryable: false,
-          },
-        },
-        401,
-      );
-    }
-    return json(tokens);
-  });
-
-  router.get('/api/devices', async ctx => {
-    if (!ctx.trusted) {
-      return loopbackOnly(ctx);
-    }
-    return json({devices: devices.list()});
-  });
-
-  router.delete('/api/devices/:id', async ctx => {
-    if (!ctx.trusted) {
-      return loopbackOnly(ctx);
-    }
-    if (!devices.revoke(ctx.params.id)) {
-      return json({error: {code: NELLE_ERROR_CODES.notFound, message: 'Device not found.'}}, 404);
-    }
-    return json({ok: true});
-  });
+  registerAttachmentRoutes(router, deps);
+  registerAuthRoutes(router, deps);
 
   // The machine-readable API contract, derived from the zod schemas + the live
   // route list, for client codegen. See plans/nelle-pre-flutter-prep.md.
@@ -296,6 +164,10 @@ export async function createServer(
     const url = new URL(req.url);
     // A LAN client needs a valid device access token for everything but health
     // and the pairing/refresh endpoints. Loopback is trusted and skips this.
+    //
+    // **It runs here, before `dispatch`, and it stays here.** An unauthenticated LAN request
+    // gets 401 whether or not the route exists, so the gate leaks nothing about the route
+    // table -- and no route module can forget to apply it, because none of them can.
     if (
       !opts.trusted &&
       url.pathname.startsWith('/api/') &&
@@ -362,17 +234,4 @@ export async function createServer(
     lanAccessEnabled,
     serverCert,
   };
-}
-
-/** Mimics the unknown-route 404 so a loopback-only endpoint is invisible from the LAN. */
-function loopbackOnly(ctx: Ctx): Response {
-  return json(
-    {
-      error: {
-        code: NELLE_ERROR_CODES.notFound,
-        message: `No route for ${ctx.req.method} ${ctx.url.pathname}.`,
-      },
-    },
-    404,
-  );
 }
