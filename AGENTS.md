@@ -475,6 +475,31 @@ Project-specific guidance for AI coding agents.
     because no job needs one. Default `permissions: contents: read`; only the release job may write.
     **Never a self-hosted runner on a public repo**: a fork's PR would execute arbitrary code on
     your machine.
+- **The unit suite runs on Windows and macOS in CI, and the first run found only *harness* bugs —
+  never a product bug.** Worth knowing, because a red Windows job looks alarming and was not:
+  - **POSIX shell fixtures do not run on Windows.** Several tests stand a `#!/bin/sh` script in for a
+    real binary (a fake `llama-server` printing a `--help` catalogue; a fake build command writing to
+    both streams and exiting 3). Windows has no shebang and no `sh`, so spawning them is
+    `ENOENT: uv_spawn`. They are `test.skipIf(needsPosixShell)` — what they verify (line splitting
+    across chunk boundaries, stream ordering, exit codes, `--help` parsing) is platform-independent
+    logic already covered on Linux and macOS, and on Windows the *product* spawns a real
+    `llama-server.exe`. It is only the stand-in that is POSIX.
+  - **`fs.rm` throws `EBUSY` on Windows** while anything still holds a handle, and SQLite does not
+    always release immediately after `close()` where POSIX would let the unlink through anyway.
+    Tests were failing in **teardown with their assertions already passed** — the worst kind of red,
+    because it looks like a product bug and is not one. Use `removeTemp()`
+    (`tests/unit/helpers/platform.ts`), which retries and then gives up: a temp directory that will
+    not delete is not a test failure.
+  - **Any test that reads a repository file and matches on line structure must normalise CRLF.** Git
+    checks out with CRLF on Windows, so a regex written with `\n` matches nothing there.
+  - **`fs.stat().mode & 0o111` is meaningless on Windows.** To assert a file is executable, assert
+    *git's index mode* (`git ls-files -s` → `100755`), which is identical on every platform and is
+    what a fresh clone actually restores.
+- **`libsecret-1-dev` is a *build* dependency of the Linux client, not an optional one.**
+  `flutter_secure_storage_linux` fails CMake outright without it, which is how the Linux device job
+  failed on its first CI run. That is a different thing from the **runtime** keyring (something
+  answering `org.freedesktop.secrets`), which genuinely is optional — loopback is unauthenticated by
+  design and needs none.
 - **The release workflow is tag-only, and that is enforced by a test.** Publishing downloadable
   binaries under the owner's name is a deliberate human act, not something an automated run does on
   its way past. `release.yml` triggers on `v*` tags and nothing else; a push to `main` can never cut

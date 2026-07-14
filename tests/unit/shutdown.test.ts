@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {removeTemp} from './helpers/platform.ts';
 
 /**
  * The server must die when it is told to, even while a client is streaming.
@@ -80,7 +81,7 @@ test('SIGTERM stops the server even while an SSE stream is open', async () => {
   } finally {
     child.kill('SIGKILL');
     fakeLlama.stop(true);
-    await fs.rm(dataDir, {recursive: true, force: true});
+    await removeTemp(dataDir);
   }
 }, 30_000);
 

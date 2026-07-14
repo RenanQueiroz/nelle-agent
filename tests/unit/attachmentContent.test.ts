@@ -8,6 +8,7 @@ import {AppDatabase} from '../../apps/server/src/database.ts';
 import {ConversationRepository} from '../../apps/server/src/conversations.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {tempPaths} from './helpers/paths.ts';
+import {removeTemp} from './helpers/platform.ts';
 
 /**
  * `GET /api/attachments/:id/content` exists because of the phone.
@@ -97,7 +98,7 @@ test('an attachment serves its bytes with its own content type', async () => {
   } finally {
     database.close();
     await app.close();
-    await fs.rm(dataDir, {recursive: true, force: true});
+    await removeTemp(dataDir);
   }
 });
 
@@ -119,7 +120,7 @@ test('a storage path that escapes the attachments tree is refused, not served', 
   } finally {
     database.close();
     await app.close();
-    await fs.rm(dataDir, {recursive: true, force: true});
+    await removeTemp(dataDir);
   }
 });
 
@@ -140,7 +141,7 @@ test('an attachment with no stored bytes is a 404, not an empty 200', async () =
   } finally {
     database.close();
     await app.close();
-    await fs.rm(dataDir, {recursive: true, force: true});
+    await removeTemp(dataDir);
   }
 });
 
@@ -152,7 +153,7 @@ test('an unknown attachment id is a 404', async () => {
   } finally {
     database.close();
     await app.close();
-    await fs.rm(dataDir, {recursive: true, force: true});
+    await removeTemp(dataDir);
   }
 });
 
@@ -179,6 +180,6 @@ test('a row whose file was swept is a 404 rather than a crash', async () => {
   } finally {
     database.close();
     await app.close();
-    await fs.rm(dataDir, {recursive: true, force: true});
+    await removeTemp(dataDir);
   }
 });

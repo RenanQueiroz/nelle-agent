@@ -8,6 +8,7 @@ import {runCommandStreaming, type CommandOutputLine} from '../../apps/server/src
 import type {RuntimeInstallEvent} from '../../packages/shared/src/runtime.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {createTempPaths} from './helpers/paths.ts';
+import {needsPosixShell} from './helpers/platform.ts';
 
 /**
  * Installing llama.cpp is a **build**, not a request.
@@ -65,24 +66,31 @@ async function script(body: string): Promise<string> {
   return file;
 }
 
-test('output arrives line by line, from both streams, and each stream keeps its order', async () => {
-  const lines: CommandOutputLine[] = [];
-  await runCommandStreaming(await script('echo one\necho two >&2\necho three\necho four >&2'), [], {
-    onLine: output => lines.push(output),
-  });
+test.skipIf(needsPosixShell)(
+  'output arrives line by line, from both streams, and each stream keeps its order',
+  async () => {
+    const lines: CommandOutputLine[] = [];
+    await runCommandStreaming(
+      await script('echo one\necho two >&2\necho three\necho four >&2'),
+      [],
+      {
+        onLine: output => lines.push(output),
+      },
+    );
 
-  const of = (stream: 'stdout' | 'stderr') =>
-    lines.filter(output => output.stream === stream).map(output => output.line);
+    const of = (stream: 'stdout' | 'stderr') =>
+      lines.filter(output => output.stream === stream).map(output => output.line);
 
-  // Order *within* a stream is guaranteed. Order *between* them is not, and cannot be: the
-  // two pipes are drained concurrently, and even in a real terminal stdout is block-buffered
-  // to a pipe while stderr is unbuffered, so faithful interleaving does not exist anywhere.
-  // A client must render the build log as two ordered streams, never claim a global order.
-  assert.deepEqual(of('stdout'), ['one', 'three']);
-  assert.deepEqual(of('stderr'), ['two', 'four']);
-});
+    // Order *within* a stream is guaranteed. Order *between* them is not, and cannot be: the
+    // two pipes are drained concurrently, and even in a real terminal stdout is block-buffered
+    // to a pipe while stderr is unbuffered, so faithful interleaving does not exist anywhere.
+    // A client must render the build log as two ordered streams, never claim a global order.
+    assert.deepEqual(of('stdout'), ['one', 'three']);
+    assert.deepEqual(of('stderr'), ['two', 'four']);
+  },
+);
 
-test('a line split across two chunks is not torn in half', async () => {
+test.skipIf(needsPosixShell)('a line split across two chunks is not torn in half', async () => {
   // A chunk boundary is not a line boundary. Emitting each chunk as it lands would cut a
   // compiler diagnostic in two, which is exactly the output that matters most.
   const long = 'x'.repeat(200_000);
@@ -95,57 +103,63 @@ test('a line split across two chunks is not torn in half', async () => {
   assert.equal(lines[0]?.line.length, 200_000);
 });
 
-test('a failure throws with the exit code, and does NOT repeat the output', async () => {
-  // `runCommand` packs the entire stderr into the Error message -- for a failed cmake build
-  // that is a megabyte of text inside one JSON error field. Here the output has already been
-  // streamed, so repeating it in the error would be the same mistake twice.
-  const noisy = await script('echo "compiling..."\necho "error: no such file" >&2\nexit 3');
-  const lines: CommandOutputLine[] = [];
+test.skipIf(needsPosixShell)(
+  'a failure throws with the exit code, and does NOT repeat the output',
+  async () => {
+    // `runCommand` packs the entire stderr into the Error message -- for a failed cmake build
+    // that is a megabyte of text inside one JSON error field. Here the output has already been
+    // streamed, so repeating it in the error would be the same mistake twice.
+    const noisy = await script('echo "compiling..."\necho "error: no such file" >&2\nexit 3');
+    const lines: CommandOutputLine[] = [];
 
-  await assert.rejects(
-    () => runCommandStreaming(noisy, [], {onLine: output => lines.push(output)}),
-    (error: Error) => {
-      assert.match(error.message, /exited with 3/);
-      assert.doesNotMatch(error.message, /no such file/, 'the output must not be in the error');
-      return true;
-    },
-  );
-
-  // ...but the user saw it, which is the point.
-  assert.deepEqual(lines, [
-    {stream: 'stdout', line: 'compiling...'},
-    {stream: 'stderr', line: 'error: no such file'},
-  ]);
-});
-
-test('the install streams, and ends with a terminal status event', async () => {
-  // `external` mode: `LLAMA_SERVER_PATH` is the user's own binary, so there is nothing to
-  // build and the route reports status. It exercises the whole stream end to end without a
-  // ten-minute compile.
-  process.env.LLAMA_SERVER_PATH = await script('echo "version: test"');
-  const app = await createTestServer(await createTempPaths());
-
-  try {
-    const response = await app.inject({method: 'POST', url: '/api/runtime/install/stream'});
-    assert.equal(response.statusCode, 200);
-    assert.match(response.headers['content-type'] ?? '', /text\/event-stream/);
-
-    const events = eventsFrom(response.body);
-    assert.deepEqual(
-      events.map(event => event.type),
-      ['runtime.install.started', 'runtime.install.completed'],
+    await assert.rejects(
+      () => runCommandStreaming(noisy, [], {onLine: output => lines.push(output)}),
+      (error: Error) => {
+        assert.match(error.message, /exited with 3/);
+        assert.doesNotMatch(error.message, /no such file/, 'the output must not be in the error');
+        return true;
+      },
     );
 
-    const started = events[0];
-    assert.equal(started?.type === 'runtime.install.started' && started.mode, 'external');
+    // ...but the user saw it, which is the point.
+    assert.deepEqual(lines, [
+      {stream: 'stdout', line: 'compiling...'},
+      {stream: 'stderr', line: 'error: no such file'},
+    ]);
+  },
+);
 
-    const completed = events[1];
-    assert.ok(completed?.type === 'runtime.install.completed');
-    assert.equal(completed.runtime.installed, true, 'the terminal event carries the status');
-  } finally {
-    await app.close();
-  }
-});
+test.skipIf(needsPosixShell)(
+  'the install streams, and ends with a terminal status event',
+  async () => {
+    // `external` mode: `LLAMA_SERVER_PATH` is the user's own binary, so there is nothing to
+    // build and the route reports status. It exercises the whole stream end to end without a
+    // ten-minute compile.
+    process.env.LLAMA_SERVER_PATH = await script('echo "version: test"');
+    const app = await createTestServer(await createTempPaths());
+
+    try {
+      const response = await app.inject({method: 'POST', url: '/api/runtime/install/stream'});
+      assert.equal(response.statusCode, 200);
+      assert.match(response.headers['content-type'] ?? '', /text\/event-stream/);
+
+      const events = eventsFrom(response.body);
+      assert.deepEqual(
+        events.map(event => event.type),
+        ['runtime.install.started', 'runtime.install.completed'],
+      );
+
+      const started = events[0];
+      assert.equal(started?.type === 'runtime.install.started' && started.mode, 'external');
+
+      const completed = events[1];
+      assert.ok(completed?.type === 'runtime.install.completed');
+      assert.equal(completed.runtime.installed, true, 'the terminal event carries the status');
+    } finally {
+      await app.close();
+    }
+  },
+);
 
 test.skipIf(process.platform !== 'linux')(
   'a failed install ends in an error event, not a dead stream',
@@ -225,7 +239,7 @@ test.skipIf(process.platform !== 'linux')(
   },
 );
 
-test('a second install is refused while one is running', async () => {
+test.skipIf(needsPosixShell)('a second install is refused while one is running', async () => {
   // A source build takes minutes and the button shows nothing, so a second click is not an
   // exotic race -- it is the obvious thing to do. Two builds would `rm -rf` each other's
   // `build/` directory.
@@ -263,152 +277,167 @@ test('a second install is refused while one is running', async () => {
  * So they are tested here, on the server, where they belonged in the first place. A route whose
  * only cover is a browser is a route that stops being covered the moment the browser goes.
  */
-test('GET /api/runtime reports a fresh install, and the runtime settings group it launches with', async () => {
-  process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
-  const paths = await createTempPaths();
-  const app = await createTestServer(paths);
-  try {
-    const response = await app.inject({method: 'GET', url: '/api/runtime'});
-    assert.equal(response.statusCode, 200);
-    const status = response.json<{
-      installed: boolean;
-      running: boolean;
-      binaryPath: string | null;
-      installedVersion: string | null;
-      latestVersion: string | null;
-      modelsMax: number;
-      sleepIdleSeconds: number;
-      pid: number | null;
-    }>();
+test.skipIf(needsPosixShell)(
+  'GET /api/runtime reports a fresh install, and the runtime settings group it launches with',
+  async () => {
+    process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
+    const paths = await createTempPaths();
+    const app = await createTestServer(paths);
+    try {
+      const response = await app.inject({method: 'GET', url: '/api/runtime'});
+      assert.equal(response.statusCode, 200);
+      const status = response.json<{
+        installed: boolean;
+        running: boolean;
+        binaryPath: string | null;
+        installedVersion: string | null;
+        latestVersion: string | null;
+        modelsMax: number;
+        sleepIdleSeconds: number;
+        pid: number | null;
+      }>();
 
-    // Nothing is built, and that is a *state*, not an error -- it is what every install looks
-    // like before the user has compiled llama.cpp, and the screen has to render it.
-    assert.equal(status.installed, false);
-    assert.equal(status.running, false);
-    assert.equal(status.installedVersion, null);
-    assert.equal(status.pid, null);
+      // Nothing is built, and that is a *state*, not an error -- it is what every install looks
+      // like before the user has compiled llama.cpp, and the screen has to render it.
+      assert.equal(status.installed, false);
+      assert.equal(status.running, false);
+      assert.equal(status.installedVersion, null);
+      assert.equal(status.pid, null);
 
-    // **`binaryPath` is null when there is no binary**, which is what the contract promises and
-    // what both clients' `?? 'Not installed'` fallback is written against. The server used to
-    // report the path llama-server *would* live at, so that fallback was dead code and a fresh
-    // install displayed the path of a file that did not exist. Nothing tested this route, which
-    // is how it survived.
-    assert.equal(status.binaryPath, null);
+      // **`binaryPath` is null when there is no binary**, which is what the contract promises and
+      // what both clients' `?? 'Not installed'` fallback is written against. The server used to
+      // report the path llama-server *would* live at, so that fallback was dead code and a fresh
+      // install displayed the path of a file that did not exist. Nothing tested this route, which
+      // is how it survived.
+      assert.equal(status.binaryPath, null);
 
-    // **`latest` costs a GitHub round trip, so it is only fetched when asked for.** An unasked-for
-    // network call on a status poll is how an offline machine gets a slow, failing settings screen.
-    assert.equal(status.latestVersion, null);
+      // **`latest` costs a GitHub round trip, so it is only fetched when asked for.** An unasked-for
+      // network call on a status poll is how an offline machine gets a slow, failing settings screen.
+      assert.equal(status.latestVersion, null);
 
-    // The launch limits are the `runtime` settings group; this route only *reports* them. The
-    // registry keeps `modelsMax` at 1 on purpose -- a fresh install on constrained hardware must
-    // not try to hold two models -- and a multi-model test has to raise it rather than assume it.
-    assert.equal(status.modelsMax, 1);
-    assert.equal(status.sleepIdleSeconds, 90);
-  } finally {
-    await app.close();
-  }
-});
+      // The launch limits are the `runtime` settings group; this route only *reports* them. The
+      // registry keeps `modelsMax` at 1 on purpose -- a fresh install on constrained hardware must
+      // not try to hold two models -- and a multi-model test has to raise it rather than assume it.
+      assert.equal(status.modelsMax, 1);
+      assert.equal(status.sleepIdleSeconds, 90);
+    } finally {
+      await app.close();
+    }
+  },
+);
 
-test('GET /api/runtime reports the binary path once a binary is actually there', async () => {
-  // The other half of the contract, so the fix above cannot be over-applied into "always null".
-  // `LLAMA_SERVER_PATH` is the `external` install mode: the binary is the user's own, and Nelle
-  // reports where it is rather than pretending it installed it.
-  process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
-  const binary = await script('echo "version: test"');
-  process.env.LLAMA_SERVER_PATH = binary;
+test.skipIf(needsPosixShell)(
+  'GET /api/runtime reports the binary path once a binary is actually there',
+  async () => {
+    // The other half of the contract, so the fix above cannot be over-applied into "always null".
+    // `LLAMA_SERVER_PATH` is the `external` install mode: the binary is the user's own, and Nelle
+    // reports where it is rather than pretending it installed it.
+    process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
+    const binary = await script('echo "version: test"');
+    process.env.LLAMA_SERVER_PATH = binary;
 
-  const paths = await createTempPaths();
-  const app = await createTestServer(paths);
-  try {
-    const status = (await app.inject({method: 'GET', url: '/api/runtime'})).json<{
-      installed: boolean;
-      binaryPath: string | null;
-      installMode: string;
-    }>();
-    assert.equal(status.installed, true);
-    assert.equal(status.binaryPath, path.resolve(binary));
-    assert.equal(status.installMode, 'external');
-  } finally {
-    await app.close();
-  }
-});
+    const paths = await createTempPaths();
+    const app = await createTestServer(paths);
+    try {
+      const status = (await app.inject({method: 'GET', url: '/api/runtime'})).json<{
+        installed: boolean;
+        binaryPath: string | null;
+        installMode: string;
+      }>();
+      assert.equal(status.installed, true);
+      assert.equal(status.binaryPath, path.resolve(binary));
+      assert.equal(status.installMode, 'external');
+    } finally {
+      await app.close();
+    }
+  },
+);
 
-test('GET /api/runtime reflects a PATCH of the runtime settings group', async () => {
-  process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
-  const paths = await createTempPaths();
-  const app = await createTestServer(paths);
-  try {
-    const patched = await app.inject({
-      method: 'PATCH',
-      url: '/api/settings/runtime',
-      payload: {modelsMax: 2, sleepIdleSeconds: 30},
-    });
-    assert.equal(patched.statusCode, 200);
+test.skipIf(needsPosixShell)(
+  'GET /api/runtime reflects a PATCH of the runtime settings group',
+  async () => {
+    process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
+    const paths = await createTempPaths();
+    const app = await createTestServer(paths);
+    try {
+      const patched = await app.inject({
+        method: 'PATCH',
+        url: '/api/settings/runtime',
+        payload: {modelsMax: 2, sleepIdleSeconds: 30},
+      });
+      assert.equal(patched.statusCode, 200);
 
-    // The status route is a *view* of the settings group, not a second copy of it. If these ever
-    // disagree, a user raises `modelsMax` to run two models, the runtime screen keeps saying 1,
-    // and the only way to find out which is true is to load a second model and watch it evict the
-    // first -- which reports a pass while testing eviction.
-    const status = (await app.inject({method: 'GET', url: '/api/runtime'})).json<{
-      modelsMax: number;
-      sleepIdleSeconds: number;
-    }>();
-    assert.equal(status.modelsMax, 2);
-    assert.equal(status.sleepIdleSeconds, 30);
-  } finally {
-    await app.close();
-  }
-});
+      // The status route is a *view* of the settings group, not a second copy of it. If these ever
+      // disagree, a user raises `modelsMax` to run two models, the runtime screen keeps saying 1,
+      // and the only way to find out which is true is to load a second model and watch it evict the
+      // first -- which reports a pass while testing eviction.
+      const status = (await app.inject({method: 'GET', url: '/api/runtime'})).json<{
+        modelsMax: number;
+        sleepIdleSeconds: number;
+      }>();
+      assert.equal(status.modelsMax, 2);
+      assert.equal(status.sleepIdleSeconds, 30);
+    } finally {
+      await app.close();
+    }
+  },
+);
 
-test('GET /api/runtime/logs answers with an empty tail when llama.cpp has never run', async () => {
-  process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
-  const paths = await createTempPaths();
-  const app = await createTestServer(paths);
-  try {
-    const response = await app.inject({method: 'GET', url: '/api/runtime/logs'});
-    assert.equal(response.statusCode, 200);
-    const tail = response.json<{path: string; text: string}>();
+test.skipIf(needsPosixShell)(
+  'GET /api/runtime/logs answers with an empty tail when llama.cpp has never run',
+  async () => {
+    process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
+    const paths = await createTempPaths();
+    const app = await createTestServer(paths);
+    try {
+      const response = await app.inject({method: 'GET', url: '/api/runtime/logs'});
+      assert.equal(response.statusCode, 200);
+      const tail = response.json<{path: string; text: string}>();
 
-    // **A missing log file is not an error.** llama.cpp has never started, so there is nothing to
-    // read -- and the route must say "empty", not 500, or the llama.cpp screen cannot render on
-    // exactly the machine that most needs it: one where the runtime has never come up.
-    assert.equal(tail.text, '');
-    // The path is served even when the file is absent, because it is what the user needs in order
-    // to go and look for themselves.
-    assert.equal(tail.path, paths.llamaLogPath);
-  } finally {
-    await app.close();
-  }
-});
+      // **A missing log file is not an error.** llama.cpp has never started, so there is nothing to
+      // read -- and the route must say "empty", not 500, or the llama.cpp screen cannot render on
+      // exactly the machine that most needs it: one where the runtime has never come up.
+      assert.equal(tail.text, '');
+      // The path is served even when the file is absent, because it is what the user needs in order
+      // to go and look for themselves.
+      assert.equal(tail.path, paths.llamaLogPath);
+    } finally {
+      await app.close();
+    }
+  },
+);
 
-test('GET /api/runtime/logs tails the END of the log, and caps what it will read', async () => {
-  process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
-  const paths = await createTempPaths();
-  await fs.mkdir(path.dirname(paths.llamaLogPath), {recursive: true});
-  // A log is append-only and grows without bound; what a reader wants is the *end* of it, which
-  // is where the failure that just happened is.
-  await fs.writeFile(paths.llamaLogPath, `${'x'.repeat(500)}THE-LAST-LINE\n`, 'utf8');
+test.skipIf(needsPosixShell)(
+  'GET /api/runtime/logs tails the END of the log, and caps what it will read',
+  async () => {
+    process.env.NELLE_LLAMA_PORT = DEAD_LLAMA_PORT;
+    const paths = await createTempPaths();
+    await fs.mkdir(path.dirname(paths.llamaLogPath), {recursive: true});
+    // A log is append-only and grows without bound; what a reader wants is the *end* of it, which
+    // is where the failure that just happened is.
+    await fs.writeFile(paths.llamaLogPath, `${'x'.repeat(500)}THE-LAST-LINE\n`, 'utf8');
 
-  const app = await createTestServer(paths);
-  try {
-    const full = (await app.inject({method: 'GET', url: '/api/runtime/logs'})).json<{
-      text: string;
-    }>();
-    assert.match(full.text, /THE-LAST-LINE/);
+    const app = await createTestServer(paths);
+    try {
+      const full = (await app.inject({method: 'GET', url: '/api/runtime/logs'})).json<{
+        text: string;
+      }>();
+      assert.match(full.text, /THE-LAST-LINE/);
 
-    // `maxBytes` reads the tail, not the head.
-    const tail = (await app.inject({method: 'GET', url: '/api/runtime/logs?maxBytes=14'})).json<{
-      text: string;
-    }>();
-    assert.equal(tail.text, 'THE-LAST-LINE\n');
+      // `maxBytes` reads the tail, not the head.
+      const tail = (await app.inject({method: 'GET', url: '/api/runtime/logs?maxBytes=14'})).json<{
+        text: string;
+      }>();
+      assert.equal(tail.text, 'THE-LAST-LINE\n');
 
-    // Garbage falls back to the default rather than reading zero bytes or throwing: a broken query
-    // string must not be able to blank the one screen that explains why the runtime will not start.
-    const nonsense = (
-      await app.inject({method: 'GET', url: '/api/runtime/logs?maxBytes=banana'})
-    ).json<{text: string}>();
-    assert.match(nonsense.text, /THE-LAST-LINE/);
-  } finally {
-    await app.close();
-  }
-});
+      // Garbage falls back to the default rather than reading zero bytes or throwing: a broken query
+      // string must not be able to blank the one screen that explains why the runtime will not start.
+      const nonsense = (
+        await app.inject({method: 'GET', url: '/api/runtime/logs?maxBytes=banana'})
+      ).json<{text: string}>();
+      assert.match(nonsense.text, /THE-LAST-LINE/);
+    } finally {
+      await app.close();
+    }
+  },
+);

@@ -58,13 +58,16 @@ test('a phone on the LAN cannot reach a WSL2 host, and the capability says so', 
   assert.equal(host.lanReachableByPhone, !host.isWsl);
 });
 
-test('the pre-push hook is committed, executable, and travels with a clone', async () => {
+test('the pre-push hook is committed, executable, and travels with a clone', () => {
   // `.git/hooks/` is inside `.git` and is never tracked, so a hook placed there dies with the
   // clone. `.githooks/` is an ordinary repo directory: the script and its **mode** are both
   // tracked, and only `core.hooksPath` (local config) has to be set on a new machine.
-  const stat = await fs.stat('.githooks/pre-push');
-  assert.ok(stat.mode & 0o111, 'the hook must be executable, or git will not run it');
-
+  //
+  // **Assert git's INDEX mode, not the filesystem's.** Windows has no POSIX permission bits, so
+  // `fs.stat().mode & 0o111` is meaningless there — the first version of this test did exactly that
+  // and failed on the Windows runner while the hook was perfectly fine. What actually has to be
+  // true is that *git* records the file as executable, because that is what a fresh clone on Linux
+  // or macOS restores. `git ls-files -s` reports the index mode and is identical on every platform.
   const listed = Bun.spawnSync(['git', 'ls-files', '-s', '.githooks/pre-push']);
   assert.match(
     listed.stdout.toString(),
@@ -74,7 +77,7 @@ test('the pre-push hook is committed, executable, and travels with a clone', asy
 });
 
 test('the hook scopes itself to what changed, and skips a docs-only push', async () => {
-  const hook = await fs.readFile('.githooks/pre-push', 'utf8');
+  const hook = (await fs.readFile('.githooks/pre-push', 'utf8')).replace(/\r\n/g, '\n');
 
   // The scoping is the reason the hook survives contact with a human. The full gate is ~54s, and
   // at ~10 pushes a day an unscoped hook is nine minutes of daily waiting -- which is exactly how
@@ -99,7 +102,14 @@ test('the release workflow is tag-only: a push to main can never publish binarie
   // owner's name on a public repository is a deliberate human act. An automated run -- or an agent
   // working through a plan -- must not be able to do it on its way past. The release workflow
   // therefore triggers on a **tag** and on nothing else.
-  const release = await fs.readFile('.github/workflows/release.yml', 'utf8');
+  // **Normalise line endings.** Git checks out with CRLF on Windows, so a regex written with `\n`
+  // matches nothing there — which is how the first version of this test failed on the Windows
+  // runner while the workflow was correct. Any test that reads a repository file and matches on
+  // line structure has to do this.
+  const release = (await fs.readFile('.github/workflows/release.yml', 'utf8')).replace(
+    /\r\n/g,
+    '\n',
+  );
 
   assert.match(release, /tags:\s*\['v\*'\]/, 'the release must be tag-triggered');
   // The dangerous shape is `push: {branches: [main]}`. If that ever appears here, every commit to
@@ -120,7 +130,7 @@ test('CI runs the binary smoke test on all three operating systems', async () =>
   // The bug that shipped once -- a binary that built successfully and could not read a PDF -- is
   // per-OS by nature (native bindings, path resolution, dlopen). Checking it only on Linux would
   // leave the other two exactly as exposed as before.
-  const ci = await fs.readFile('.github/workflows/ci.yml', 'utf8');
+  const ci = (await fs.readFile('.github/workflows/ci.yml', 'utf8')).replace(/\r\n/g, '\n');
   const smoke = /binary:\s*\n[\s\S]*?matrix:\s*\n\s*os:\s*\[([^\]]+)\]/.exec(ci)?.[1] ?? '';
   for (const os of ['ubuntu-latest', 'macos-latest', 'windows-latest']) {
     assert.ok(smoke.includes(os), `the binary smoke test must run on ${os}`);

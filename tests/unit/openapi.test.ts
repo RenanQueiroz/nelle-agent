@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import {createTestServer} from './helpers/testServer.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
+import {removeTemp} from './helpers/platform.ts';
 
 /**
  * Just enough of an OpenAPI schema object for what this file inspects.
@@ -249,6 +250,6 @@ test('the served OpenAPI document is valid, covers the contract, and matches the
     assert.deepEqual(doc, committed, 'openapi.json is stale -- run: bun run build:openapi');
   } finally {
     await app.close();
-    await fs.rm(dataDir, {recursive: true, force: true});
+    await removeTemp(dataDir);
   }
 });

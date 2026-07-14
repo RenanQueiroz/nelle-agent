@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import {createTestServer} from './helpers/testServer.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
+import {removeTemp} from './helpers/platform.ts';
 
 function tempPaths(dataDir: string): AppPaths {
   const repoRoot = path.resolve('.');
@@ -55,7 +56,7 @@ test('loopback is trusted; the LAN listener requires a device token', async () =
     assert.equal(health.statusCode, 200);
   } finally {
     await app.close();
-    await fs.rm(dataDir, {recursive: true, force: true});
+    await removeTemp(dataDir);
   }
 });
 
@@ -104,7 +105,7 @@ test('pairing issues a token that authorizes LAN requests; revoke cuts it off', 
     );
   } finally {
     await app.close();
-    await fs.rm(dataDir, {recursive: true, force: true});
+    await removeTemp(dataDir);
   }
 });
 
@@ -147,7 +148,7 @@ test('invalid pairing code and refresh token are rejected; refresh renews access
     assert.equal(badRefresh.json<{error: {code: string}}>().error.code, 'refresh_token_invalid');
   } finally {
     await app.close();
-    await fs.rm(dataDir, {recursive: true, force: true});
+    await removeTemp(dataDir);
   }
 });
 
@@ -180,6 +181,6 @@ test('admin endpoints 404 on the LAN even with a valid token', async () => {
     );
   } finally {
     await app.close();
-    await fs.rm(dataDir, {recursive: true, force: true});
+    await removeTemp(dataDir);
   }
 });

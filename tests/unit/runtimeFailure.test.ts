@@ -6,6 +6,7 @@ import {afterEach, beforeEach, test} from 'bun:test';
 import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
 import {createTempPaths} from './helpers/paths.ts';
+import {needsPosixShell} from './helpers/platform.ts';
 
 /**
  * **A runtime that will not start must say why.**
@@ -68,45 +69,51 @@ async function manager(binaryPath: string): Promise<LlamaCppManager> {
   return new LlamaCppManager(paths, store);
 }
 
-test('a failed start reports llama.cpp own reason, not just the exit code', async () => {
-  const directory = (await createTempPaths()).dataDir;
-  await fs.mkdir(directory, {recursive: true});
-  const binaryPath = await failingServer(
-    directory,
-    // The real line, verbatim, from a hand-edited models.ini with one bogus key.
-    '0.00.120.274 E srv  llama_server: failed to initialize router models: ' +
-      "option 'not-a-real-key' not recognized in preset 'unsloth/gemma-4-E4B-it-qat-GGUF:Q4_K_XL'",
-  );
-  const llama = await manager(binaryPath);
+test.skipIf(needsPosixShell)(
+  'a failed start reports llama.cpp own reason, not just the exit code',
+  async () => {
+    const directory = (await createTempPaths()).dataDir;
+    await fs.mkdir(directory, {recursive: true});
+    const binaryPath = await failingServer(
+      directory,
+      // The real line, verbatim, from a hand-edited models.ini with one bogus key.
+      '0.00.120.274 E srv  llama_server: failed to initialize router models: ' +
+        "option 'not-a-real-key' not recognized in preset 'unsloth/gemma-4-E4B-it-qat-GGUF:Q4_K_XL'",
+    );
+    const llama = await manager(binaryPath);
 
-  await assert.rejects(() => llama.start());
+    await assert.rejects(() => llama.start());
 
-  const status = await llama.getStatus();
-  assert.equal(status.running, false);
-  // The exit code is kept -- it is how a reader knows the E line is the *reason* and not one of
-  // the E lines a healthy offline load writes on every startup.
-  assert.match(status.lastError ?? '', /exited with code 1/);
-  // ...and the sentence names both the key and the section, which is the whole point.
-  assert.match(status.lastError ?? '', /not-a-real-key/);
-  assert.match(status.lastError ?? '', /gemma-4-E4B-it-qat-GGUF/);
-  // The timestamp/level prefix is llama.cpp's log format, not part of the message.
-  assert.doesNotMatch(status.lastError ?? '', /0\.00\.120/);
-});
+    const status = await llama.getStatus();
+    assert.equal(status.running, false);
+    // The exit code is kept -- it is how a reader knows the E line is the *reason* and not one of
+    // the E lines a healthy offline load writes on every startup.
+    assert.match(status.lastError ?? '', /exited with code 1/);
+    // ...and the sentence names both the key and the section, which is the whole point.
+    assert.match(status.lastError ?? '', /not-a-real-key/);
+    assert.match(status.lastError ?? '', /gemma-4-E4B-it-qat-GGUF/);
+    // The timestamp/level prefix is llama.cpp's log format, not part of the message.
+    assert.doesNotMatch(status.lastError ?? '', /0\.00\.120/);
+  },
+);
 
-test('a start gives up as soon as the child dies, rather than polling a dead port', async () => {
-  const directory = (await createTempPaths()).dataDir;
-  await fs.mkdir(directory, {recursive: true});
-  const binaryPath = await failingServer(directory, '0.00.1 E srv  boom');
-  const llama = await manager(binaryPath);
+test.skipIf(needsPosixShell)(
+  'a start gives up as soon as the child dies, rather than polling a dead port',
+  async () => {
+    const directory = (await createTempPaths()).dataDir;
+    await fs.mkdir(directory, {recursive: true});
+    const binaryPath = await failingServer(directory, '0.00.1 E srv  boom');
+    const llama = await manager(binaryPath);
 
-  const startedAt = Date.now();
-  await assert.rejects(() => llama.start());
-  const elapsed = Date.now() - startedAt;
+    const startedAt = Date.now();
+    await assert.rejects(() => llama.start());
+    const elapsed = Date.now() - startedAt;
 
-  // `waitForHealth`'s deadline is 30s. Polling it out would make a doomed start take half a
-  // minute to admit it, with the reason already sitting in `#lastError` the entire time.
-  assert.ok(
-    elapsed < 10_000,
-    `a doomed start took ${elapsed}ms; it should fail as the child exits`,
-  );
-});
+    // `waitForHealth`'s deadline is 30s. Polling it out would make a doomed start take half a
+    // minute to admit it, with the reason already sitting in `#lastError` the entire time.
+    assert.ok(
+      elapsed < 10_000,
+      `a doomed start took ${elapsed}ms; it should fail as the child exits`,
+    );
+  },
+);
