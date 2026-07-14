@@ -16,8 +16,7 @@ import type {
   LlamaTokenizeResult,
   RuntimeStatus,
 } from '../lib/types';
-import {AppStore, modelSourceValues} from '../models/store';
-import {llamaRuntimeModelId} from '../models/compat';
+import {AppStore} from '../models/store';
 import {
   commandExists,
   runCommand,
@@ -34,15 +33,7 @@ import {
   MODEL_LOAD_TIMEOUT_MS,
   isRunnableRouterStatus,
 } from '../contracts/router.ts';
-import {
-  getModelsIniSectionValues,
-  listModelsIniSections,
-  parseModelsIni,
-  removeModelsIniKeys,
-  removeModelsIniSection,
-  upsertModelsIniValues,
-  writeModelsIniAtomic,
-} from '../contracts/modelsIni.ts';
+import {readConfiguredModelSections, removeModelSection, writePreset} from './preset.ts';
 import {
   booleanOrFalse,
   delay,
@@ -698,39 +689,16 @@ export class LlamaCppManager {
     return this.getStatus();
   }
 
-  async writePreset(_activeModel?: ConfiguredModel): Promise<void> {
-    const state = await this.store.getState();
-    const existing = await fs.readFile(this.paths.llamaPresetPath, 'utf8').catch(error => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return '';
-      }
-      throw error;
-    });
-    let document = parseModelsIni(existing);
-    document = upsertModelsIniValues(document, null, {version: 1});
-    document = upsertModelsIniValues(document, '*', state.globalModelParams);
-
-    for (const model of state.models) {
-      document = upsertModelsIniValues(
-        document,
-        llamaRuntimeModelId(model),
-        modelSourceValues(model),
-      );
-      document = removeModelsIniKeys(document, llamaRuntimeModelId(model), ['load-on-startup']);
-    }
-
-    await writeModelsIniAtomic(this.paths.llamaPresetPath, document);
+  /**
+   * The facade keeps this. Six test files construct `LlamaCppManager` directly and `writePreset`
+   * alone appears at 22 call sites; the split is internal and must stay invisible to them.
+   */
+  async writePreset(activeModel?: ConfiguredModel): Promise<void> {
+    return writePreset(this.paths, this.store, activeModel);
   }
 
   async removeModelSection(modelId: string): Promise<void> {
-    const existing = await fs.readFile(this.paths.llamaPresetPath, 'utf8').catch(error => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return '';
-      }
-      throw error;
-    });
-    const document = removeModelsIniSection(parseModelsIni(existing), modelId);
-    await writeModelsIniAtomic(this.paths.llamaPresetPath, document);
+    return removeModelSection(this.paths, modelId);
   }
 
   private async mergeRouterModels(raw: unknown): Promise<LlamaRouterModel[]> {
@@ -784,36 +752,7 @@ export class LlamaCppManager {
   private async readConfiguredModelSections(): Promise<
     Array<{sectionId: string; alias?: string; hfRepo?: string}>
   > {
-    const state = await this.store.getState();
-    const sections = new Map<string, {sectionId: string; alias?: string; hfRepo?: string}>();
-    for (const model of state.models) {
-      sections.set(llamaRuntimeModelId(model), {
-        sectionId: llamaRuntimeModelId(model),
-        alias: model.name,
-        hfRepo: model.hfRef,
-      });
-    }
-
-    const existing = await fs.readFile(this.paths.llamaPresetPath, 'utf8').catch(error => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return '';
-      }
-      throw error;
-    });
-    const document = parseModelsIni(existing);
-    for (const sectionId of listModelsIniSections(document)) {
-      if (sectionId === '*') {
-        continue;
-      }
-      const values = getModelsIniSectionValues(document, sectionId);
-      sections.set(sectionId, {
-        sectionId,
-        alias: values.get('alias') ?? sections.get(sectionId)?.alias,
-        hfRepo: values.get('hf-repo') ?? sections.get(sectionId)?.hfRepo,
-      });
-    }
-
-    return Array.from(sections.values());
+    return readConfiguredModelSections(this.paths, this.store);
   }
 
   private async fetchRouterJson(
