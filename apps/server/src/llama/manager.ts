@@ -27,6 +27,7 @@ import {NELLE_ERROR_CODES} from '../contracts/contracts.ts';
 import type {RuntimeLogTail} from '../contracts/runtime.ts';
 import {LlamaModelLoader} from './load.ts';
 import {removeModelSection, writePreset} from './preset.ts';
+import {LlamaProcess} from './process.ts';
 import {LlamaRouterClient} from './router.ts';
 
 const LLAMA_REPO = 'ggml-org/llama.cpp';
@@ -41,20 +42,12 @@ type GithubRelease = {
   }>;
 };
 
-type ManagedProcessRecord = {
-  pid: number;
-  binaryPath: string;
-  args: string[];
-  host: string;
-  port: number;
-  presetPath: string;
-  startedAt: string;
-};
-
 export class LlamaCppManager {
-  #process: Bun.Subprocess | null = null;
-  #managedPid: number | null = null;
-  #startPromise: Promise<RuntimeStatus> | null = null;
+  /**
+   * Why llama-server is not running, when it should be. **The manager's, and it stays here**:
+   * `getStatus()` is the hub that reports it, and every collaborator that can fail writes
+   * through to it rather than keeping a second copy nobody would read.
+   */
   #lastError: string | null = null;
   /**
    * A source build takes minutes and the button shows nothing, so a second click is not an
@@ -77,6 +70,13 @@ export class LlamaCppManager {
    */
   readonly #loader: LlamaModelLoader;
 
+  /**
+   * The llama-server child, its pid file, and the in-flight start. The only thing here that owns
+   * an OS process -- and the only reason `#lastError` has a setter: the child's exit is
+   * asynchronous, so its death cannot be thrown at anybody.
+   */
+  readonly #process: LlamaProcess;
+
   constructor(
     private readonly paths: AppPaths,
     private readonly store: AppStore,
@@ -90,6 +90,14 @@ export class LlamaCppManager {
   ) {
     this.#router = new LlamaRouterClient(paths, store, () => this.getStatus());
     this.#loader = new LlamaModelLoader(paths, store, this.#router);
+    this.#process = new LlamaProcess(paths, store, () => this.#limits(), {
+      status: () => this.getStatus(),
+      binaryPath: () => this.getBinaryPath(),
+      lastError: () => this.#lastError,
+      reportError: message => {
+        this.#lastError = message;
+      },
+    });
   }
 
   /** The launch limits, from the settings group. */
@@ -103,10 +111,10 @@ export class LlamaCppManager {
     const installed = binaryPath != null && fsSync.existsSync(binaryPath);
     const installedVersion = await this.getInstalledVersion();
     const latestVersion = checkLatest ? await this.getLatestVersion().catch(() => null) : null;
-    const managedPid = await this.getManagedPid();
+    const managedPid = await this.#process.getManagedPid();
     const serverAlreadyReachable =
       managedPid == null &&
-      (await this.isServerHealthy(state.runtime.host, state.runtime.port, 300));
+      (await this.#process.isServerHealthy(state.runtime.host, state.runtime.port, 300));
 
     return {
       platform: process.platform,
@@ -174,58 +182,8 @@ export class LlamaCppManager {
     }
   }
 
-  /**
-   * Why llama-server died, in its own words.
-   *
-   * `llama-server exited with code 1` is true and useless. The reason is already written down —
-   * a single mistyped key in `models.ini` produces
-   * `option 'not-a-real-key' not recognized in preset '<section>'`, which names the key *and*
-   * the section — and Nelle is holding the log. Making the user go and find it is a choice, and
-   * the wrong one.
-   *
-   * The last `E` line only counts **because the process exited non-zero**. An `E` on its own is
-   * not a failure: a *successful* offline load of a pinned model logs
-   * `E get_repo_commit: error: GET failed (404)` every single time, which is the cache fallback
-   * working as designed. The exit code is what makes this line the reason.
-   */
-  private async describeExit(exitCode: number): Promise<string> {
-    const fallback = `llama-server exited with code ${exitCode}`;
-    try {
-      const {text} = await this.readLogTail(16_000);
-      const lastError = text
-        .split('\n')
-        .filter(line => / E [a-z]/i.test(line) || /\bE\s+srv\b/.test(line))
-        .at(-1);
-      if (!lastError) {
-        return fallback;
-      }
-      // Strip llama.cpp's timestamp/level prefix; keep the sentence.
-      const message = lastError.replace(/^[\d.]+\s+E\s+\S+\s*/, '').trim();
-      return message ? `${fallback}: ${message}` : fallback;
-    } catch {
-      return fallback;
-    }
-  }
-
   async readLogTail(maxBytes = 80_000): Promise<RuntimeLogTail> {
-    try {
-      const stat = await fs.stat(this.paths.llamaLogPath);
-      const start = Math.max(0, stat.size - maxBytes);
-      const length = stat.size - start;
-      const handle = await fs.open(this.paths.llamaLogPath, 'r');
-      try {
-        const buffer = Buffer.alloc(length);
-        await handle.read(buffer, 0, length, start);
-        return {path: this.paths.llamaLogPath, text: buffer.toString('utf8')};
-      } finally {
-        await handle.close();
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return {path: this.paths.llamaLogPath, text: ''};
-      }
-      throw error;
-    }
+    return this.#process.readLogTail(maxBytes);
   }
 
   async getRouterProps(): Promise<LlamaRouterProps> {
@@ -285,143 +243,11 @@ export class LlamaCppManager {
   }
 
   async start(): Promise<RuntimeStatus> {
-    if (this.#startPromise) {
-      return this.#startPromise;
-    }
-
-    this.#startPromise = this.startInternal().finally(() => {
-      this.#startPromise = null;
-    });
-    return this.#startPromise;
-  }
-
-  private async startInternal(): Promise<RuntimeStatus> {
-    this.#lastError = null;
-    if (await this.getManagedPid()) {
-      return this.getStatus();
-    }
-
-    const binaryPath = await this.getBinaryPath();
-    if (!binaryPath || !fsSync.existsSync(binaryPath)) {
-      throw new Error(
-        'llama-server is not installed. Install or configure LLAMA_SERVER_PATH first.',
-      );
-    }
-
-    const state = await this.store.getState();
-    if (await this.isServerHealthy(state.runtime.host, state.runtime.port, 500)) {
-      this.#lastError =
-        'llama-server is already reachable on the configured port; Nelle did not start another process.';
-      return this.getStatus();
-    }
-
-    await this.writePreset();
-    await fs.mkdir(path.dirname(this.paths.llamaLogPath), {recursive: true});
-    const log = fsSync.openSync(this.paths.llamaLogPath, 'a');
-    let logClosed = false;
-    const closeLog = () => {
-      if (!logClosed) {
-        logClosed = true;
-        try {
-          fsSync.closeSync(log);
-        } catch {
-          // The fd may already be gone; closing twice is not an error worth raising.
-        }
-      }
-    };
-    const limits = this.#limits();
-    const args = [
-      '--host',
-      state.runtime.host,
-      '--port',
-      String(state.runtime.port),
-      '--models-preset',
-      this.paths.llamaPresetPath,
-      '--models-max',
-      String(limits.modelsMax),
-      '--sleep-idle-seconds',
-      String(limits.sleepIdleSeconds),
-    ];
-
-    await fs.mkdir(this.paths.modelsDir, {recursive: true});
-
-    let child: Bun.Subprocess;
-    try {
-      child = Bun.spawn([binaryPath, ...args], {
-        // `Bun.spawn` does not inherit the parent env by default the way
-        // `node:child_process` does, and llama-server needs it (PATH for shared
-        // libs, `LLAMA_ARG_OFFLINE`, CUDA_VISIBLE_DEVICES, ...).
-        env: {...process.env, ...modelCacheEnv(this.paths.modelsDir)},
-        // POSIX: `setsid()`, so the child leads a new process group Nelle can kill
-        // with `process.kill(-pid)`. Windows: `UV_PROCESS_DETACHED`. Both let the
-        // llama-server outlive a nelle-server restart, so a new one can adopt it.
-        detached: process.platform !== 'win32',
-        stdin: 'ignore',
-        // Both streams append to the shared log fd, as `stdio: ['ignore', log, log]`
-        // did under `node:child_process`.
-        stdout: log,
-        stderr: log,
-      });
-    } catch (error) {
-      // `Bun.spawn` throws synchronously when the binary is missing or not
-      // executable, where `node:child_process` emitted an async `error` event.
-      closeLog();
-      this.#process = null;
-      this.#lastError = error instanceof Error ? error.message : String(error);
-      throw error;
-    }
-
-    this.#process = child;
-    const childPid = child.pid;
-    if (childPid) {
-      this.#managedPid = childPid;
-      await this.writePidFile({
-        pid: childPid,
-        binaryPath,
-        args,
-        host: state.runtime.host,
-        port: state.runtime.port,
-        presetPath: this.paths.llamaPresetPath,
-        startedAt: new Date().toISOString(),
-      });
-    }
-    void (async () => {
-      const exitCode = await child.exited;
-      this.#lastError = exitCode === 0 ? null : await this.describeExit(exitCode);
-      this.#process = null;
-      if (this.#managedPid === childPid) {
-        this.#managedPid = null;
-      }
-      if (childPid) {
-        void this.clearPidFile(childPid);
-      }
-      closeLog();
-    })();
-
-    await this.waitForHealth(state.runtime.host, state.runtime.port);
-    return this.getStatus();
+    return this.#process.start();
   }
 
   async stop(): Promise<RuntimeStatus> {
-    const pid = await this.getManagedPid();
-    if (!pid) {
-      this.#process = null;
-      this.#managedPid = null;
-      await this.clearPidFile();
-      return this.getStatus();
-    }
-
-    await terminateProcessTree(pid, 'SIGTERM');
-    await waitForProcessExit(pid, 5_000);
-    if (isProcessAlive(pid)) {
-      await terminateProcessTree(pid, 'SIGKILL');
-      await waitForProcessExit(pid, 2_000);
-    }
-
-    this.#process = null;
-    this.#managedPid = null;
-    await this.clearPidFile(pid);
-    return this.getStatus();
+    return this.#process.stop();
   }
 
   /**
@@ -576,128 +402,6 @@ export class LlamaCppManager {
     return path.join(this.paths.llamaBinDir, binaryName('llama-server'));
   }
 
-  private async getManagedPid(): Promise<number | null> {
-    if (this.#process?.pid && isProcessAlive(this.#process.pid)) {
-      this.#managedPid = this.#process.pid;
-      return this.#process.pid;
-    }
-
-    if (this.#managedPid && isProcessAlive(this.#managedPid)) {
-      return this.#managedPid;
-    }
-
-    const record = await this.readPidFile();
-    if (record) {
-      if (await this.isManagedProcess(record)) {
-        this.#managedPid = record.pid;
-        return record.pid;
-      }
-      await this.clearPidFile(record.pid);
-    }
-
-    const discoveredPid = await this.findManagedPidByCommand();
-    if (discoveredPid != null) {
-      this.#managedPid = discoveredPid;
-      return discoveredPid;
-    }
-
-    this.#managedPid = null;
-    return null;
-  }
-
-  private async readPidFile(): Promise<ManagedProcessRecord | null> {
-    try {
-      return JSON.parse(await fs.readFile(this.paths.llamaPidPath, 'utf8')) as ManagedProcessRecord;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        await this.clearPidFile();
-      }
-      return null;
-    }
-  }
-
-  private async writePidFile(record: ManagedProcessRecord): Promise<void> {
-    await fs.mkdir(path.dirname(this.paths.llamaPidPath), {recursive: true});
-    await fs.writeFile(this.paths.llamaPidPath, `${JSON.stringify(record, null, 2)}\n`);
-  }
-
-  private async clearPidFile(pid?: number): Promise<void> {
-    if (pid != null) {
-      const record = await this.readPidFile().catch(() => null);
-      if (record && record.pid !== pid) {
-        return;
-      }
-    }
-    await fs.rm(this.paths.llamaPidPath, {force: true});
-  }
-
-  private async isManagedProcess(record: ManagedProcessRecord): Promise<boolean> {
-    if (!isProcessAlive(record.pid)) {
-      return false;
-    }
-
-    const commandLine = await getProcessCommandLine(record.pid);
-    if (!commandLine) {
-      return false;
-    }
-
-    return (
-      commandLine.includes(path.basename(record.binaryPath)) &&
-      commandLine.includes(record.presetPath)
-    );
-  }
-
-  private async findManagedPidByCommand(): Promise<number | null> {
-    if (process.platform === 'win32') {
-      return null;
-    }
-
-    const output = await runCommand('ps', ['-eo', 'pid=,args=']).catch(() => '');
-    const state = await this.store.getState();
-    const binaryPath = (await this.getBinaryPath()) ?? 'llama-server';
-    for (const line of output.split('\n')) {
-      const trimmed = line.trim();
-      const match = trimmed.match(/^(\d+)\s+(.+)$/);
-      if (!match) {
-        continue;
-      }
-      const pid = Number(match[1]);
-      const commandLine = match[2];
-      if (
-        Number.isInteger(pid) &&
-        commandLine.includes('llama-server') &&
-        commandLine.includes(this.paths.llamaPresetPath)
-      ) {
-        await this.writePidFile({
-          pid,
-          binaryPath,
-          args: commandLine.split(/\s+/).slice(1),
-          host: state.runtime.host,
-          port: state.runtime.port,
-          presetPath: this.paths.llamaPresetPath,
-          startedAt: new Date().toISOString(),
-        });
-        return pid;
-      }
-    }
-    return null;
-  }
-
-  private async isServerHealthy(host: string, port: number, timeoutMs: number): Promise<boolean> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(`http://${host}:${port}/v1/models`, {
-        signal: controller.signal,
-      });
-      return response.ok;
-    } catch {
-      return false;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
   private async getInstalledVersion(): Promise<string | null> {
     const external = process.env.LLAMA_SERVER_PATH;
     if (external) {
@@ -750,101 +454,10 @@ export class LlamaCppManager {
       ),
     );
   }
-
-  /**
-   * Waits for the router, and **gives up the moment the child dies**.
-   *
-   * A llama-server that refuses its preset is gone in ~200 ms, and polling a port nothing will
-   * ever answer on for the remaining 30 s does not make it come back — it just makes the user
-   * watch a spinner for half a minute before being told what the process had already said. The
-   * exit handler sets `#lastError` *before* it nulls `#process`, so a null `#process` here means
-   * the reason is already known: report it rather than the timeout, which would blame the port.
-   */
-  private async waitForHealth(host: string, port: number): Promise<void> {
-    const deadline = Date.now() + 30_000;
-    const url = `http://${host}:${port}/v1/models`;
-    while (Date.now() < deadline) {
-      if (await this.isServerHealthy(host, port, 750)) {
-        return;
-      }
-      if (this.#process === null) {
-        throw new Error(this.#lastError ?? 'llama-server exited before it became healthy');
-      }
-      await new Promise(resolve => setTimeout(resolve, 750));
-    }
-    throw new Error(`llama-server did not become healthy at ${url}`);
-  }
 }
 
 function binaryName(base: string): string {
   return process.platform === 'win32' ? `${base}.exe` : base;
-}
-
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) {
-    return false;
-  }
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
-async function terminateProcessTree(pid: number, signal: NodeJS.Signals): Promise<void> {
-  if (process.platform === 'win32') {
-    const args = ['/pid', String(pid), '/t'];
-    if (signal === 'SIGKILL') {
-      args.push('/f');
-    }
-    await runCommand('taskkill', args).catch(() => undefined);
-    return;
-  }
-
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    try {
-      process.kill(pid, signal);
-    } catch {
-      // Process already exited.
-    }
-  }
-}
-
-async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (!isProcessAlive(pid)) {
-      return;
-    }
-    await new Promise(resolve => setTimeout(resolve, 200));
-  }
-}
-
-async function getProcessCommandLine(pid: number): Promise<string | null> {
-  if (process.platform === 'linux') {
-    try {
-      const command = await fs.readFile(`/proc/${pid}/cmdline`, 'utf8');
-      const normalized = command.split(String.fromCharCode(0)).join(' ').trim();
-      if (normalized) {
-        return normalized;
-      }
-    } catch {
-      return null;
-    }
-  }
-
-  if (process.platform === 'win32') {
-    return runCommand('powershell.exe', [
-      '-NoProfile',
-      '-Command',
-      `(Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}").CommandLine`,
-    ]).catch(() => null);
-  }
-
-  return runCommand('ps', ['-p', String(pid), '-o', 'command=']).catch(() => null);
 }
 
 function pickReleaseAsset(
@@ -919,47 +532,4 @@ function installInProgressError(): Error {
   const error = new Error('llama.cpp is already being installed. Watch the running install.');
   Object.assign(error, {code: NELLE_ERROR_CODES.runtimeInstallInProgress, retryable: false});
   return error;
-}
-
-/**
- * The four variables llama.cpp resolves its Hugging Face hub cache from, in the order
- * `common/hf-cache.cpp` reads them. `LLAMA_CACHE` wins outright and is used as the hub
- * root verbatim; the rest append their own suffix.
- */
-const MODEL_CACHE_ENV_VARS = ['LLAMA_CACHE', 'HF_HUB_CACHE', 'HUGGINGFACE_HUB_CACHE', 'HF_HOME'];
-
-/**
- * Nelle keeps model weights **inside its data directory**, not in the user's global
- * `~/.cache/huggingface/hub`.
- *
- * The weights are the largest thing Nelle owns by two orders of magnitude, and they were
- * the last of its data living somewhere it did not control. Owning them means it can
- * account for the disk, and it means "what llama.cpp has cached" is "what Nelle
- * downloaded" -- which matters because the router advertises **every** cached GGUF as a
- * loadable model (`load_from_cache()`, and there is no flag to stop it), so a shared cache
- * hands it whatever any other tool ever pulled. It also isolates a throwaway
- * `NELLE_DATA_DIR`, which until now still reached into the developer's real weights: the
- * same class of surprise as an e2e run adopting a developer's llama-server.
- *
- * **An explicit choice wins.** A user who has set any of these -- to share a cache with
- * llama.cpp on the command line, or to put 50 GB on another disk -- has said what they
- * want, and `LLAMA_CACHE` outranks all of them, so setting it would silently overrule
- * them.
- */
-export function modelCacheEnv(modelsDir: string): Record<string, string> {
-  if (!ownsModelCache()) {
-    return {};
-  }
-  return {LLAMA_CACHE: modelsDir};
-}
-
-/**
- * Whether the weights live in a directory Nelle owns.
- *
- * `false` when the user pointed llama.cpp at a cache of their own. Nelle will then neither
- * report on that directory's size nor delete anything from it: it may be shared with the
- * `hf` CLI, with a standalone llama.cpp, or with 50 GB of somebody else's models.
- */
-export function ownsModelCache(): boolean {
-  return !MODEL_CACHE_ENV_VARS.some(name => process.env[name]);
 }

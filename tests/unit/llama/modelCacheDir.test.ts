@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {afterEach, test} from 'bun:test';
 
-import {modelCacheEnv} from '../../../apps/server/src/llama/manager.ts';
+import {modelCacheEnv} from '../../../apps/server/src/llama/weights.ts';
 import {createAppPaths} from '../../../apps/server/src/lib/paths.ts';
 
 /**

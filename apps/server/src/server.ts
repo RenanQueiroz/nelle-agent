@@ -11,13 +11,13 @@ import {
   forkConversationRequestSchema,
 } from './contracts/conversations.ts';
 import {HuggingFaceService} from './models/huggingface';
-import {LlamaCppManager, ownsModelCache} from './llama/manager';
+import {LlamaCppManager} from './llama/manager';
 import {registerLlamaProxy} from './llama/proxy';
 import {PiHarness, isConversationNotFoundError} from './pi/harness';
 import {createErrorEvent, normalizeNelleError} from './http/errors';
 import {Router, applyCors, json, preflightResponse, type Ctx} from './http/router';
 import {AppStore} from './models/store';
-import {removeRepoWeights, repoDiskBytes} from './llama/weights';
+import {ownsModelCache, removeRepoWeights, repoDiskBytes} from './llama/weights';
 import {AppDatabase} from './db/database';
 import {exportConversationArchive, importConversationArchive} from './conversations/archive';
 import {HostToolRepository} from './pi/hostTools';
