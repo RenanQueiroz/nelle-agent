@@ -3,7 +3,6 @@ import path from 'node:path';
 import {z} from 'zod';
 
 import type {ModelCatalogContract} from './contracts/modelCatalog.ts';
-import type {RuntimeInstallEvent} from './contracts/runtime.ts';
 import {reasoningLevelSchema} from './contracts/reasoning.ts';
 import {
   cloneConversationRequestSchema,
@@ -54,10 +53,8 @@ import type {ChatAttachmentInput, ChatStreamEvent, ConfiguredModel} from './lib/
 import type {NelleError, UploadResponse} from './contracts/contracts.ts';
 import {
   chatRequestSchema,
-  createEventEnvelope,
   pairRequestSchema,
   refreshRequestSchema,
-  serializeSseEnvelope,
   NELLE_ERROR_CODES,
 } from './contracts/contracts.ts';
 import {SETTINGS_REGISTRY, type SettingsGroup} from './contracts/settings.ts';
@@ -83,6 +80,7 @@ import {
   assertSupportedSlashCommand,
 } from './routes/guards';
 import {registerHealthRoutes} from './routes/health';
+import {registerRuntimeRoutes} from './routes/runtime';
 import {registerSettingsRoutes} from './routes/settings';
 
 const useHuggingFaceModelSchema = z.object({
@@ -256,52 +254,8 @@ export async function createServer(
   registerLlamaProxy(router, store);
   registerHealthRoutes(router, deps);
   registerSettingsRoutes(router, deps);
+  registerRuntimeRoutes(router, deps);
 
-  router.get('/api/runtime', async ctx => {
-    const checkLatest = ctx.query.latest === '1';
-    return json(await llama.getStatus(checkLatest));
-  });
-
-  /**
-   * Installing is a *build*, not a request, so it is narrated.
-   *
-   * The events carry the build's own output as it happens: without them a client either
-   * shows a ten-minute silent spinner or, worse, times out and reports failure while the
-   * build carries happily on server-side.
-   */
-  const streamRuntimeInstall = () =>
-    sseResponse(async sink => {
-      const write = (event: RuntimeInstallEvent) => {
-        sink.write(serializeSseEnvelope(createEventEnvelope({type: event.type, data: event})));
-      };
-      try {
-        write({type: 'runtime.install.started', mode: (await llama.getStatus()).installMode});
-        const runtime = await llama.installOrUpdate({
-          onOutput: output => write({type: 'runtime.install.output', ...output}),
-        });
-        write({type: 'runtime.install.completed', runtime});
-      } catch (error) {
-        write({
-          type: 'runtime.install.failed',
-          error: normalizeNelleError(error, {
-            fallbackCode: NELLE_ERROR_CODES.runtimeInstallFailed,
-            retryable: true,
-          }),
-        });
-      }
-    });
-
-  router.post('/api/runtime/install/stream', streamRuntimeInstall);
-  router.post('/api/runtime/update/stream', streamRuntimeInstall);
-  router.post('/api/runtime/start', async () => json(await llama.start()));
-  router.post('/api/runtime/stop', async () => json(await llama.stop()));
-  router.get('/api/runtime/logs', async ctx => {
-    const requestedBytes = Number(ctx.query.maxBytes ?? 80_000);
-    const maxBytes = Number.isFinite(requestedBytes)
-      ? Math.min(Math.max(0, requestedBytes), 1_000_000)
-      : 80_000;
-    return json(await llama.readLogTail(maxBytes));
-  });
   router.get('/api/llama/props', async () => handleLlamaRoute(() => llama.getRouterProps()));
 
   router.get('/api/llama/models', async () =>
