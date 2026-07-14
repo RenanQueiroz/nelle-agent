@@ -9,14 +9,21 @@ coverage/
 # Local planning / scratch docs (not shared; AGENTS.md is the committed source of truth)
 plans/
 
-# Local app/runtime data. Anchored to the repo root so an unanchored name like
-# `models/` doesn't also swallow nested dirs -- e.g. the Flutter client's
-# generated `apps/client/lib/src/api/generated/models/`.
-.nelle/
+# Local app/runtime data.
+#
+# `.nelle*/` is ONE rule on purpose. Listing each data directory by name is what let
+# `.nelle-e2e/` be committed -- 459 KB of generated app data (a SQLite database with its WAL,
+# uploads, PDFs) that sat in the history unnoticed, because `.gitignore` never untracks what is
+# already tracked. `.nelle/`, `.nelle-device/`, `.nelle-e2e/` and whatever the next harness calls
+# its throwaway directory are all covered by the pattern.
+.nelle*/
+
+# The old pre-`.nelle/` layout. Anchored to the repo root so an unanchored `models/` does not also
+# swallow nested dirs -- e.g. the Flutter client's generated `lib/src/api/generated/models/`.
+# Nothing writes here any more (app data goes to `.nelle/`), but a misconfigured `NELLE_DATA_DIR`
+# could, and committing app data is the one mistake this file has already failed to prevent once.
 /data/
 /logs/
-/llamacpp/
-/llamacpp-src/
 /models/
 
 # Environment and secrets
@@ -29,4 +36,3 @@ plans/
 Thumbs.db
 .idea/
 .vscode/
-.nelle-device/
