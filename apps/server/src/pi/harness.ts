@@ -23,11 +23,7 @@ import {createErrorEvent} from '../http/errors';
 import type {AppPaths} from '../lib/paths';
 import {AppStore} from '../models/store';
 import {resolveConversationModel} from '../conversations/model';
-import {
-  createLiveContextTracker,
-  type ConversationRepository,
-  type SyncConversationEntry,
-} from '../conversations/repository';
+import {type ConversationRepository, type SyncConversationEntry} from '../conversations/repository';
 import type {HostToolRepository} from './hostTools';
 import type {ModelCacheRepository} from '../models/cache';
 import type {SettingsRepository} from '../settings/repository';
@@ -85,6 +81,7 @@ import type {
 } from '../lib/types';
 import type {NelleError} from '../contracts/contracts.ts';
 import {NELLE_ERROR_CODES, NELLE_WARNING_CODES} from '../contracts/contracts.ts';
+import {createLiveContextTracker} from '../conversations/context';
 
 const PROVIDER_ID = 'nelle-llamacpp';
 const TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
