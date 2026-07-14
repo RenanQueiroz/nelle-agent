@@ -17,8 +17,8 @@ import {
   settingsPatchSchema,
   type SettingsGroup,
   runtimeLimitsFromSettings,
-} from '../../packages/shared/src/settings.ts';
-import {RUNTIME_SETTINGS_SLUG} from '../../packages/shared/src/settingsKeys.ts';
+} from '../../apps/server/src/contracts/settings.ts';
+import {RUNTIME_SETTINGS_SLUG} from '../../apps/server/src/contracts/settingsKeys.ts';
 
 /**
  * The real registry is empty in this phase: it lands the machinery, and every

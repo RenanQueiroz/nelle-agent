@@ -1,7 +1,7 @@
 import {createServer} from '../../../apps/server/src/server.ts';
 import type {NelleServer} from '../../../apps/server/src/server.ts';
 import type {AppPaths} from '../../../apps/server/src/paths.ts';
-import type {SettingsGroup} from '../../../packages/shared/src/settings.ts';
+import type {SettingsGroup} from '../../../apps/server/src/contracts/settings.ts';
 
 /**
  * Adapts the native `Bun.serve` fetch handler to the slice of Fastify's `inject`

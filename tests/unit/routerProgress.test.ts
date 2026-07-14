@@ -1,6 +1,6 @@
 import {describe, expect, test} from 'bun:test';
 
-import {routerLoadProgress} from '../../packages/shared/src/routerProgress.ts';
+import {routerLoadProgress} from '../../apps/server/src/contracts/routerProgress.ts';
 
 describe('routerLoadProgress', () => {
   test('collapses a staged load into a fraction of the whole load', () => {

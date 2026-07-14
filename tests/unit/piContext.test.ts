@@ -18,7 +18,7 @@ import {
   PI_ESTIMATED_IMAGE_TOKENS,
   PI_MIN_MAX_TOKENS,
   replyTokenBudget,
-} from '../../packages/shared/src/piContext.ts';
+} from '../../apps/server/src/contracts/piContext.ts';
 
 // Pi's agent system prompt measured ~4.2k tokens against Qwen3.6 with tools off.
 const AGENT_PROMPT_TOKENS = 4300;

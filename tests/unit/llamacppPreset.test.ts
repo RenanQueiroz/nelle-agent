@@ -10,8 +10,8 @@ import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {SettingsRepository} from '../../apps/server/src/settings.ts';
-import {SETTINGS_REGISTRY} from '../../packages/shared/src/settings.ts';
-import {RUNTIME_SETTINGS_SLUG} from '../../packages/shared/src/settingsKeys.ts';
+import {SETTINGS_REGISTRY} from '../../apps/server/src/contracts/settings.ts';
+import {RUNTIME_SETTINGS_SLUG} from '../../apps/server/src/contracts/settingsKeys.ts';
 import {needsPosixShell} from './helpers/platform.ts';
 
 test('new Hugging Face imports use stable canonical section ids', async () => {

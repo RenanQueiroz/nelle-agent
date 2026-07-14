@@ -9,7 +9,7 @@ import {
   contextUsageRatio,
   contextUsageStatus,
   withContextStatus,
-} from '../../packages/shared/src/context.ts';
+} from '../../apps/server/src/contracts/context.ts';
 
 test('the thresholds live in one place, and it is not the browser', () => {
   assert.equal(CONTEXT_WARNING_RATIO, 0.8);

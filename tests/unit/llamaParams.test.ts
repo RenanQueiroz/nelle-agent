@@ -8,7 +8,10 @@ import {LlamaOptionCatalogueCache} from '../../apps/server/src/llamaParams.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
-import {getModelsIniSectionValues, parseModelsIni} from '../../packages/shared/src/modelsIni.ts';
+import {
+  getModelsIniSectionValues,
+  parseModelsIni,
+} from '../../apps/server/src/contracts/modelsIni.ts';
 import {needsPosixShell} from './helpers/platform.ts';
 
 const FIXTURE_HELP = path.resolve('tests/fixtures/llama-server-help.txt');

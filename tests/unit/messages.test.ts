@@ -4,8 +4,8 @@ import {test} from 'bun:test';
 import type {
   AttachmentMetadata,
   ConversationEntryProjection,
-} from '../../packages/shared/src/conversations.ts';
-import {buildConversationMessages} from '../../packages/shared/src/messages.ts';
+} from '../../apps/server/src/contracts/conversations.ts';
+import {buildConversationMessages} from '../../apps/server/src/contracts/messages.ts';
 
 function entry(
   input: Partial<ConversationEntryProjection> & {piEntryId: string},

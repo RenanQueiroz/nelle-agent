@@ -10,7 +10,7 @@ import {
   type UploadReader,
 } from '../../apps/server/src/attachmentIngest.ts';
 import type {Upload} from '../../apps/server/src/uploads.ts';
-import {ATTACHMENT_LIMITS} from '../../packages/shared/src/attachments.ts';
+import {ATTACHMENT_LIMITS} from '../../apps/server/src/contracts/attachments.ts';
 import {imageOnlyPdfBuffer, multiPagePdfBuffer, simplePdfBuffer} from './helpers/pdf.ts';
 
 /**

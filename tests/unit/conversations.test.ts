@@ -24,7 +24,7 @@ import {createErrorEvent} from '../../apps/server/src/errors.ts';
 import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
 import {HostToolRepository} from '../../apps/server/src/hostTools.ts';
 import {SettingsRepository} from '../../apps/server/src/settings.ts';
-import {TITLES_SETTINGS_SLUG} from '../../packages/shared/src/settings.ts';
+import {TITLES_SETTINGS_SLUG} from '../../apps/server/src/contracts/settings.ts';
 import {
   PiHarness,
   ToolsDisabledError,
@@ -44,8 +44,8 @@ import type {ChatMessage, ChatStreamEvent, ConfiguredModel} from '../../apps/ser
 import {
   assertConversationTransition,
   canTransitionConversation,
-} from '../../packages/shared/src/conversations.ts';
-import {unsupportedSlashCommandMessage} from '../../packages/shared/src/commands.ts';
+} from '../../apps/server/src/contracts/conversations.ts';
+import {unsupportedSlashCommandMessage} from '../../apps/server/src/contracts/commands.ts';
 
 process.env.LOG_LEVEL = 'silent';
 

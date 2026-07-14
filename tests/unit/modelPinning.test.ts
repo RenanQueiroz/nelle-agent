@@ -4,7 +4,10 @@ import {test} from 'bun:test';
 
 import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
-import {getModelsIniSectionValues, parseModelsIni} from '../../packages/shared/src/modelsIni.ts';
+import {
+  getModelsIniSectionValues,
+  parseModelsIni,
+} from '../../apps/server/src/contracts/modelsIni.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {createTempPaths} from './helpers/paths.ts';
 

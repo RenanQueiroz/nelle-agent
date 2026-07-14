@@ -11,7 +11,7 @@ import {
   suggestModelParamKey,
   validateModelParams,
   type LlamaOption,
-} from '../../packages/shared/src/modelParams.ts';
+} from '../../apps/server/src/contracts/modelParams.ts';
 
 /** 647 lines captured from llama.cpp `ee445f9`, so the test never needs a binary. */
 const HELP_TEXT = fs.readFileSync('tests/fixtures/llama-server-help.txt', 'utf8');

@@ -9,7 +9,7 @@ import {ConversationRepository} from '../../apps/server/src/conversations.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {createTempPaths} from './helpers/paths.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
-import {ATTACHMENT_LIMITS} from '../../packages/shared/src/attachments.ts';
+import {ATTACHMENT_LIMITS} from '../../apps/server/src/contracts/attachments.ts';
 import {imageOnlyPdfBuffer, simplePdfBuffer} from './helpers/pdf.ts';
 
 const BOUNDARY = 'nelleboundary';

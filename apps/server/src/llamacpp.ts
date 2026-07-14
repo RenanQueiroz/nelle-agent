@@ -5,11 +5,8 @@ import os from 'node:os';
 
 import type {AppPaths} from './paths';
 import type {SettingsRepository} from './settings';
-import {
-  runtimeLimitsFromSettings,
-  type RuntimeLimits,
-} from '../../../packages/shared/src/settings.ts';
-import {RUNTIME_SETTINGS_SLUG} from '../../../packages/shared/src/settingsKeys.ts';
+import {runtimeLimitsFromSettings, type RuntimeLimits} from './contracts/settings.ts';
+import {RUNTIME_SETTINGS_SLUG} from './contracts/settingsKeys.ts';
 import type {
   ConfiguredModel,
   LlamaAbortVerificationResult,
@@ -22,16 +19,16 @@ import type {
 import {AppStore, modelSourceValues} from './store';
 import {llamaRuntimeModelId} from './modelCompat';
 import {commandExists, runCommand, runCommandStreaming, type CommandOutputLine} from './process';
-import {NELLE_ERROR_CODES} from '../../../packages/shared/src/contracts.ts';
-import type {RuntimeLogTail} from '../../../packages/shared/src/runtime.ts';
-import {templateSupportsThinking} from '../../../packages/shared/src/reasoning.ts';
-import {routerLoadProgress} from '../../../packages/shared/src/routerProgress.ts';
+import {NELLE_ERROR_CODES} from './contracts/contracts.ts';
+import type {RuntimeLogTail} from './contracts/runtime.ts';
+import {templateSupportsThinking} from './contracts/reasoning.ts';
+import {routerLoadProgress} from './contracts/routerProgress.ts';
 import {
   MODEL_LOAD_POLL_MS,
   MODEL_LOAD_START_GRACE_MS,
   MODEL_LOAD_TIMEOUT_MS,
   isRunnableRouterStatus,
-} from '../../../packages/shared/src/router.ts';
+} from './contracts/router.ts';
 import {
   getModelsIniSectionValues,
   listModelsIniSections,
@@ -40,7 +37,7 @@ import {
   removeModelsIniSection,
   upsertModelsIniValues,
   writeModelsIniAtomic,
-} from '../../../packages/shared/src/modelsIni.ts';
+} from './contracts/modelsIni.ts';
 
 const LLAMA_REPO = 'ggml-org/llama.cpp';
 const LLAMA_REPO_URL = `https://github.com/${LLAMA_REPO}.git`;

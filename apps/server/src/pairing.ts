@@ -1,4 +1,4 @@
-import type {PairingPayload} from '../../../packages/shared/src/contracts.ts';
+import type {PairingPayload} from './contracts/contracts.ts';
 import type {ServerCert} from './tls';
 
 /**

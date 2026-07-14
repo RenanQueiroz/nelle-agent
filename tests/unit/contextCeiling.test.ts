@@ -6,7 +6,7 @@ import {
   MAX_CONTEXT_EXTENSION_FACTOR,
   modelParamWarnings,
   validateModelParams,
-} from '../../packages/shared/src/modelParams.ts';
+} from '../../apps/server/src/contracts/modelParams.ts';
 
 /**
  * **`c` is the one value Nelle checks, and only against a number llama.cpp reported.**

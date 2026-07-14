@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 
 import {createAsyncQueue} from './asyncQueue';
 import {createErrorEvent} from './errors';
-import {NELLE_WARNING_CODES} from '../../../packages/shared/src/contracts.ts';
-import {withContextStatus} from '../../../packages/shared/src/context.ts';
+import {NELLE_WARNING_CODES} from './contracts/contracts.ts';
+import {withContextStatus} from './contracts/context.ts';
 import {createLiveContextTracker} from './conversations';
 import {
   mergeChatPerformance,

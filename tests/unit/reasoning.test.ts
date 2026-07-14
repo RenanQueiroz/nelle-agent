@@ -13,13 +13,13 @@ import {
   reasoningBudgetTokens,
   stripLeadingThinkingEndTag,
   UNLIMITED_REASONING_BUDGET,
-} from '../../packages/shared/src/reasoning.ts';
-import {templateSupportsThinking} from '../../packages/shared/src/reasoning.ts';
+} from '../../apps/server/src/contracts/reasoning.ts';
+import {templateSupportsThinking} from '../../apps/server/src/contracts/reasoning.ts';
 import {
   reasoningBudgetsFromSettings,
   SETTINGS_REGISTRY,
-} from '../../packages/shared/src/settings.ts';
-import {REASONING_SETTINGS_SLUG} from '../../packages/shared/src/settingsKeys.ts';
+} from '../../apps/server/src/contracts/settings.ts';
+import {REASONING_SETTINGS_SLUG} from '../../apps/server/src/contracts/settingsKeys.ts';
 
 test('thinking support is read from the chat template, not the model name', () => {
   // Qwen3 and Gemma 4 both gate their thinking channel on this kwarg.

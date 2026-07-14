@@ -12,8 +12,8 @@ import {
   mimeTypeFromName,
   renderedPdfPageName,
   truncateAttachmentText,
-} from '../../packages/shared/src/attachmentRules.ts';
-import {ATTACHMENT_LIMITS} from '../../packages/shared/src/attachments.ts';
+} from '../../apps/server/src/contracts/attachmentRules.ts';
+import {ATTACHMENT_LIMITS} from '../../apps/server/src/contracts/attachments.ts';
 
 test('a file is classified by its MIME type even when the name says nothing', () => {
   // A pasted screenshot arrives as `image.png` with a type, but a downloaded

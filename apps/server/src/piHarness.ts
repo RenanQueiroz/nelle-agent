@@ -38,8 +38,8 @@ import {
   INSTRUCTIONS_SETTINGS_SLUG,
   REASONING_SETTINGS_SLUG,
   TITLES_SETTINGS_SLUG,
-} from '../../../packages/shared/src/settingsKeys.ts';
-import {reasoningBudgetsFromSettings} from '../../../packages/shared/src/settings.ts';
+} from './contracts/settingsKeys.ts';
+import {reasoningBudgetsFromSettings} from './contracts/settings.ts';
 import {
   TITLE_SYSTEM_PROMPT,
   firstLineTitle,
@@ -47,7 +47,7 @@ import {
   renderTitlePrompt,
   sanitizeGeneratedTitle,
   type TitleSettings,
-} from '../../../packages/shared/src/titles.ts';
+} from './contracts/titles.ts';
 import type {
   AttachmentMetadata,
   ConversationContextUsage,
@@ -56,8 +56,8 @@ import type {
   ConversationStatus,
   RunKind,
   TerminalRunStatus,
-} from '../../../packages/shared/src/conversations.ts';
-import type {ChatAttachmentInput} from '../../../packages/shared/src/contracts.ts';
+} from './contracts/conversations.ts';
+import type {ChatAttachmentInput} from './contracts/contracts.ts';
 import {
   isClampedReplyBudget,
   isReplyBudgetExhausted,
@@ -66,15 +66,15 @@ import {
   PI_CONTEXT_SAFETY_TOKENS,
   PI_ESTIMATED_IMAGE_TOKENS,
   replyTokenBudget,
-} from '../../../packages/shared/src/piContext.ts';
+} from './contracts/piContext.ts';
 import {
   createThinkingEndTagFilter,
   isReasoningEnabled,
   piThinkingLevel,
   reasoningBudgetTokens,
   stripLeadingThinkingEndTag,
-} from '../../../packages/shared/src/reasoning.ts';
-import {withContextStatus} from '../../../packages/shared/src/context.ts';
+} from './contracts/reasoning.ts';
+import {withContextStatus} from './contracts/context.ts';
 import type {
   AbortConversationResult,
   ChatMessage,
@@ -84,8 +84,8 @@ import type {
   LlamaModelProps,
   ToolCallEvent,
 } from './types';
-import type {NelleError} from '../../../packages/shared/src/contracts.ts';
-import {NELLE_ERROR_CODES, NELLE_WARNING_CODES} from '../../../packages/shared/src/contracts.ts';
+import type {NelleError} from './contracts/contracts.ts';
+import {NELLE_ERROR_CODES, NELLE_WARNING_CODES} from './contracts/contracts.ts';
 
 const PROVIDER_ID = 'nelle-llamacpp';
 const TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];

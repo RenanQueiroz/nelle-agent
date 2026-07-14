@@ -5,7 +5,7 @@ import path from 'node:path';
 import {test} from 'bun:test';
 
 import type {AppPaths} from '../../apps/server/src/paths.ts';
-import type {ModelCatalogContract} from '../../packages/shared/src/modelCatalog.ts';
+import type {ModelCatalogContract} from '../../apps/server/src/contracts/modelCatalog.ts';
 import {createTestServer, type TestServer} from './helpers/testServer.ts';
 
 /**

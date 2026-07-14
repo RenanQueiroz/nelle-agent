@@ -11,25 +11,25 @@ import type {
   ConversationSnapshot,
   ConversationStatus,
   ModelListItem,
-} from '../../../packages/shared/src/conversations.ts';
+} from './contracts/conversations.ts';
 import {
   assertConversationTransition,
   conversationContextUsageSchema,
   conversationSnapshotSchema,
-} from '../../../packages/shared/src/conversations.ts';
+} from './contracts/conversations.ts';
 import {
   contextUsageStatus,
   withContextStatus,
   type ContextUsageStatus,
-} from '../../../packages/shared/src/context.ts';
-import type {ChatAttachmentKind} from '../../../packages/shared/src/contracts.ts';
-import type {ReasoningLevel} from '../../../packages/shared/src/reasoning.ts';
+} from './contracts/context.ts';
+import type {ChatAttachmentKind} from './contracts/contracts.ts';
+import type {ReasoningLevel} from './contracts/reasoning.ts';
 import {
   DEFAULT_NEW_CONVERSATION_REASONING_LEVEL,
   normalizeReasoningLevel,
-} from '../../../packages/shared/src/reasoning.ts';
+} from './contracts/reasoning.ts';
 import type {AppDatabase} from './database';
-import {buildConversationMessages} from '../../../packages/shared/src/messages.ts';
+import {buildConversationMessages} from './contracts/messages.ts';
 import {ModelCacheRepository} from './modelCache';
 import {effectiveContextWindow} from './contextWindow';
 import {sanitizeStoredPerformance} from './llamaThroughput';
@@ -91,7 +91,7 @@ type AttachmentRow = {
   created_at: string;
 };
 
-// The list-item and page shapes live in packages/shared as zod schemas
+// The list-item and page shapes live in `contracts/` as zod schemas
 // (conversationListItemSchema / conversationListResponseSchema) so the served
 // OpenAPI can carry them and the Flutter client can codegen them. Re-exported
 // here so existing server call sites keep their import paths.

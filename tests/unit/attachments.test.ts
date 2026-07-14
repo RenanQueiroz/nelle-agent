@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {test} from 'bun:test';
 
-import {ATTACHMENT_LIMITS} from '../../packages/shared/src/attachments.ts';
-import {chatRequestSchema} from '../../packages/shared/src/contracts.ts';
+import {ATTACHMENT_LIMITS} from '../../apps/server/src/contracts/attachments.ts';
+import {chatRequestSchema} from '../../apps/server/src/contracts/contracts.ts';
 
 /**
  * **The attachment contract, which is all that is left here.**

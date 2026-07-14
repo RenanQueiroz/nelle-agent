@@ -4,7 +4,7 @@ import {
   findSettingsGroup,
   type SettingsGroup,
   type SettingsValues,
-} from '../../../packages/shared/src/settings.ts';
+} from './contracts/settings.ts';
 import type {AppDatabase} from './database';
 
 /**

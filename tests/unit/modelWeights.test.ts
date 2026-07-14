@@ -8,7 +8,7 @@ import {AppStore} from '../../apps/server/src/store.ts';
 import type {ConfiguredModel} from '../../apps/server/src/types.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {createTempPaths} from './helpers/paths.ts';
-import type {ModelCatalogContract} from '../../packages/shared/src/modelCatalog.ts';
+import type {ModelCatalogContract} from '../../apps/server/src/contracts/modelCatalog.ts';
 
 /**
  * Deleting a model has always left its weights on disk for ever, invisibly -- which is how a

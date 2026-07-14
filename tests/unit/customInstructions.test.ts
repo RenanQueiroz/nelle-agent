@@ -9,17 +9,17 @@ import {appendedSystemPrompts, nelleOperationalPrompt} from '../../apps/server/s
 import {SettingsRepository} from '../../apps/server/src/settings.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
-import {estimatePromptTokens} from '../../packages/shared/src/piContext.ts';
+import {estimatePromptTokens} from '../../apps/server/src/contracts/piContext.ts';
 import {
   MAX_CUSTOM_INSTRUCTIONS_CHARACTERS,
   SETTINGS_REGISTRY,
   findSettingsGroup,
-} from '../../packages/shared/src/settings.ts';
+} from '../../apps/server/src/contracts/settings.ts';
 import {
   CUSTOM_INSTRUCTIONS_KEY,
   INSTRUCTIONS_SETTINGS_SLUG,
   SESSION_RESETTING_SETTINGS_SLUGS,
-} from '../../packages/shared/src/settingsKeys.ts';
+} from '../../apps/server/src/contracts/settingsKeys.ts';
 
 test('the operational prompt states what host tools are, and survives the append', () => {
   // llama.cpp's web UI calls its equivalent "System Message" and lets it replace

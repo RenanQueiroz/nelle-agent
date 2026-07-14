@@ -12,7 +12,7 @@ import {
   ARCHIVE_FORMAT,
   ARCHIVE_VERSION,
   conversationArchiveManifestSchema,
-} from '../../../packages/shared/src/conversations.ts';
+} from './contracts/conversations.ts';
 import type {
   ConversationRepository,
   ImportedAttachmentInput,
@@ -20,7 +20,7 @@ import type {
 } from './conversations';
 
 /**
- * The manifest is a **contract shape**, so it lives in `packages/shared` and is imported here
+ * The manifest is a **contract shape**, so it lives in `contracts/` and is imported here
  * rather than re-declared. A second copy is a copy that drifts, and this one is what an import
  * validates every archive against -- the two disagreeing would mean Nelle writing archives it
  * would then refuse to read.

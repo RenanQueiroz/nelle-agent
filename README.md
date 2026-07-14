@@ -5,8 +5,9 @@ Bun **API server** that manages a local `llama.cpp` runtime and runs the Pi agen
 harness, plus the **Flutter client** that connects to it — meant to ship as a
 single cross-platform installer.
 
-`apps/server` runs on Bun with `bun:sqlite` and `Bun.serve`, and shared contracts
-live in `packages/shared`. It serves REST + typed SSE and nothing else: no web app,
+`apps/server` runs on Bun with `bun:sqlite` and `Bun.serve`; the wire contract (the zod
+schemas the OpenAPI document is derived from, and the pure helpers over them) lives in
+`apps/server/src/contracts/`. It serves REST + typed SSE and nothing else: no web app,
 no static files, no SPA fallback — an unmatched path is a coded JSON 404. The whole
 surface is published at `GET /api/openapi.json`.
 
@@ -348,7 +349,7 @@ ownership, Pi sessions, settings, streaming, and the rest. (Day-to-day planning 
 `plans/`, which is local scratch and intentionally not committed to git.)
 
 Server settings are declared once, in `SETTINGS_REGISTRY`
-(`packages/shared/src/settings.ts`), and served to every client from
+(`apps/server/src/contracts/settings.ts`), and served to every client from
 `GET /api/settings/schema`. Each group is read and written at
 `GET`/`PATCH /api/settings/<slug>`, which validates against a zod schema derived
 from that same registry.

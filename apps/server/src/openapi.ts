@@ -15,14 +15,14 @@ import {
   preferencesSchema,
   refreshRequestSchema,
   uploadResponseSchema,
-} from '../../../packages/shared/src/contracts.ts';
+} from './contracts/contracts.ts';
 import {AUTH_ALLOWLIST, LOOPBACK_ONLY_PATHS} from './auth';
 import {
   chatMessageSchema,
   chatPerformanceSchema,
   chatStreamEventSchema,
   toolCallEventSchema,
-} from '../../../packages/shared/src/streamEvents.ts';
+} from './contracts/streamEvents.ts';
 import {
   activeRunStatusSchema,
   attachmentMetadataSchema,
@@ -40,17 +40,14 @@ import {
   conversationDiagnosticsSchema,
   forkConversationRequestSchema,
   modelListItemSchema,
-} from '../../../packages/shared/src/conversations.ts';
+} from './contracts/conversations.ts';
 import {
   huggingFaceFileSchema,
   huggingFaceModelResultSchema,
   huggingFaceQuantSchema,
   huggingFaceSearchResponseSchema,
-} from '../../../packages/shared/src/huggingfaceSearch.ts';
-import {
-  llamaModelsResponseSchema,
-  llamaRouterModelSchema,
-} from '../../../packages/shared/src/llamaModels.ts';
+} from './contracts/huggingfaceSearch.ts';
+import {llamaModelsResponseSchema, llamaRouterModelSchema} from './contracts/llamaModels.ts';
 import {
   configuredModelSchema,
   deleteModelResponseSchema,
@@ -60,7 +57,7 @@ import {
   updateModelResponseSchema,
   modelCatalogSchema,
   modelParamsSchema,
-} from '../../../packages/shared/src/modelCatalog.ts';
+} from './contracts/modelCatalog.ts';
 import {
   llamaOptionCatalogueSchema,
   llamaOptionSchema,
@@ -69,14 +66,14 @@ import {
   runtimeInstallEventSchema,
   runtimeLogTailSchema,
   runtimeStatusSchema,
-} from '../../../packages/shared/src/runtime.ts';
-import {conversationMessageSchema} from '../../../packages/shared/src/messages.ts';
-import {reasoningLevelSchema} from '../../../packages/shared/src/reasoning.ts';
+} from './contracts/runtime.ts';
+import {conversationMessageSchema} from './contracts/messages.ts';
+import {reasoningLevelSchema} from './contracts/reasoning.ts';
 import {
   settingsFieldSchema,
   settingsSchemaResponseSchema,
   settingsSectionSchema,
-} from '../../../packages/shared/src/settings.ts';
+} from './contracts/settings.ts';
 
 /**
  * Builds the OpenAPI 3.1 document from the zod contract schemas and the router's

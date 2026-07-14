@@ -1,5 +1,5 @@
-import type {NelleError} from '../../../packages/shared/src/contracts.ts';
-import {NELLE_ERROR_CODES} from '../../../packages/shared/src/contracts.ts';
+import type {NelleError} from './contracts/contracts.ts';
+import {NELLE_ERROR_CODES} from './contracts/contracts.ts';
 import type {ChatStreamEvent} from './types';
 
 type ErrorLike = {

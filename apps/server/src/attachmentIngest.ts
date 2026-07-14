@@ -1,13 +1,10 @@
-import {
-  ATTACHMENT_LIMIT_MESSAGES,
-  ATTACHMENT_LIMITS,
-} from '../../../packages/shared/src/attachments.ts';
+import {ATTACHMENT_LIMIT_MESSAGES, ATTACHMENT_LIMITS} from './contracts/attachments.ts';
 import {
   maxAffordableImages,
   minimumContextSizeForImages,
   PI_AGENT_PROMPT_TOKENS,
   PI_ESTIMATED_IMAGE_TOKENS,
-} from '../../../packages/shared/src/piContext.ts';
+} from './contracts/piContext.ts';
 import {
   ATTACHMENT_MESSAGES,
   classifyAttachment,
@@ -17,12 +14,9 @@ import {
   renderedPdfPageName,
   truncateAttachmentText,
   type AttachmentKind,
-} from '../../../packages/shared/src/attachmentRules.ts';
-import {NELLE_ERROR_CODES} from '../../../packages/shared/src/contracts.ts';
-import type {
-  ChatAttachmentInput,
-  ChatAttachmentReference,
-} from '../../../packages/shared/src/contracts.ts';
+} from './contracts/attachmentRules.ts';
+import {NELLE_ERROR_CODES} from './contracts/contracts.ts';
+import type {ChatAttachmentInput, ChatAttachmentReference} from './contracts/contracts.ts';
 import type {Upload} from './uploads';
 
 /**

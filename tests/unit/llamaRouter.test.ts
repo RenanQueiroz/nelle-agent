@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {test} from 'bun:test';
 
-import {MODEL_LOAD_TIMEOUT_MS} from '../../packages/shared/src/router.ts';
+import {MODEL_LOAD_TIMEOUT_MS} from '../../apps/server/src/contracts/router.ts';
 import {ConversationRepository} from '../../apps/server/src/conversations.ts';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';

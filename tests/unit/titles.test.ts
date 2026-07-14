@@ -10,7 +10,7 @@ import {
   readTitleSettings,
   renderTitlePrompt,
   sanitizeGeneratedTitle,
-} from '../../packages/shared/src/titles.ts';
+} from '../../apps/server/src/contracts/titles.ts';
 
 test('the placeholders are substituted, and the substituted text is not rescanned', () => {
   const rendered = renderTitlePrompt(DEFAULT_TITLE_PROMPT, {

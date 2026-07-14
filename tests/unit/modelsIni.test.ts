@@ -15,7 +15,7 @@ import {
   upsertModelsIniValues,
   validateModelsIniDocument,
   writeModelsIniAtomic,
-} from '../../packages/shared/src/modelsIni.ts';
+} from '../../apps/server/src/contracts/modelsIni.ts';
 
 test('models.ini parser round trips comments, spacing, and malformed lines', () => {
   const source = [

@@ -20,7 +20,8 @@ Project-specific guidance for AI coding agents.
   unmatched path is a coded JSON 404 (`not_found`), never an `index.html`, because
   every client is a native one that speaks the served REST + SSE contract
   (`GET /api/openapi.json`) and a typo'd endpoint answering a web page hides the
-  mistake. `apps/server` is the server, `packages/shared` is the TypeScript it shares
+  mistake. `apps/server` is the server (its `contracts/` folder is the wire contract and the pure
+  helpers over it, and is the TypeScript the server shares
   with itself, `apps/client` is the UI. Nothing else.
 - `apps/client` is the Dart/Flutter client (package `nelle_agent`, bundle id
   `com.renanqueiroz.nelle_agent`) — the desktop + mobile UI, and the only client
@@ -32,7 +33,7 @@ Project-specific guidance for AI coding agents.
   `flutter` is a macOS-only cask, so it cannot install on Linux); developed
   against Flutter 3.44 / Dart 3.12, verified with `flutter doctor`. The client
   speaks only the served REST + SSE contract (`GET /api/openapi.json`) and never
-  imports server or `packages/shared` TypeScript — that boundary is what lets the
+  imports server TypeScript — that boundary is what lets the
   server change its internals without breaking a shipped app. Run it with
   `flutter run -d <chrome|linux>`; build Android with `flutter build apk`.
 - `apps/client` architecture (Milestone 1: loopback chat MVP): Riverpod for state,
@@ -640,7 +641,7 @@ Project-specific guidance for AI coding agents.
   `PI_AGENT_PROMPT_TOKENS` (9,439) is Pi's *own* estimate and a deliberate
   lower bound: it may let a message through that then reports
   `reply_budget_exhausted`, but it must never refuse one that would have worked.
-  Keep the arithmetic in `packages/shared/src/piContext.ts`.
+  Keep the arithmetic in `apps/server/src/contracts/piContext.ts`.
 - What a conversation actually gets is llama.cpp's to report, never Nelle's to
   assume. `effectiveContextWindow()` (`apps/server/src/contextWindow.ts`) is the
   one resolver: `model_cache.context_window` (llama.cpp's `/props` answer, always
@@ -1036,7 +1037,7 @@ Project-specific guidance for AI coding agents.
 - Stream `error` events must carry stable `NelleError` fields (`code`,
   `message`, optional `detail`/`retryable`/`logRef`); do not emit message-only
   errors from new server stream paths. Every code lives in `NELLE_ERROR_CODES`
-  (`packages/shared/src/contracts.ts`); add new ones there so a second client can
+  (`apps/server/src/contracts/contracts.ts`); add new ones there so a second client can
   know what it may see.
 - The chat route enforces the same three guards as the composer, because
   enforcing them only in a client leaves every other client able to bypass
@@ -1098,14 +1099,22 @@ Project-specific guidance for AI coding agents.
   level and a budget of `0` both mean "send no budget".
 - Conversation snapshots carry `messages` as well as `entries`. `messages` is
   what a client renders, built by `buildConversationMessages`
-  (`packages/shared/src/messages.ts`): it hides user turns a regenerate replayed,
+  (`apps/server/src/contracts/messages.ts`): it hides user turns a regenerate replayed,
   drops contentless assistant entries that ran no tools and produced no
   reasoning, groups regenerate variants by
   `displayGroupId ?? regeneratesPiEntryId ?? id` and labels them `variant N/M`,
   and joins attachments by `piEntryId`. `entries` stays for a future branch
   explorer; nothing in a normal client should read it. It is a *shared* helper and
   not a client's, precisely so no client re-derives any of that.
-- `packages/shared/src/attachments.ts` holds the limits and is deliberately
+- **`apps/server/src/contracts/` is the wire contract, and it has ZERO runtime import cycles. Keep
+  it that way.** `attachmentMetadata.ts` exists for exactly one reason, and it is *not* the retired
+  web bundle: `conversations.ts` runtime-imports `messages.ts`, while `messages.ts` imports
+  `conversations.ts` **type-only** (erased). Both — and `streamEvents.ts` — runtime-import the
+  metadata schema. Fold it into `conversations.ts` and `messages.ts` must runtime-import
+  `conversations.ts`, closing a **real** cycle — and zod schemas in a cycle die on TDZ
+  (`Cannot access 'X' before initialization`), at import time, for every consumer. The split is
+  load-bearing. Verify with an import-graph check, not by reading the comment.
+- `apps/server/src/contracts/attachments.ts` holds the limits and happens to be
   zod-free; `attachmentMetadata.ts` exists so `conversations.ts` and `messages.ts`
   can both import the metadata schema at runtime without becoming circular.
 - Preferences that should follow the user live in the `settings` table under the
@@ -1113,7 +1122,7 @@ Project-specific guidance for AI coding agents.
   that is **favourite model ids and nothing else**: a favourite is a *set*, and the
   settings registry has no field type for one, which is exactly why it stays hand-written.
   The six display toggles moved *out* of here and into the `display` settings group, where
-  they render themselves (`packages/shared/src/displayPreferences.ts` still owns their
+  they render themselves (`apps/server/src/contracts/displayPreferences.ts` still owns their
   keys, labels and help, and the group is generated from it). Do not put either back into
   device-local storage: they follow the *user*, and a favourite that lives on one machine
   is not a favourite. A favorite for a model missing from `models.ini`
@@ -1261,7 +1270,7 @@ Project-specific guidance for AI coding agents.
   and then `mmproj_model` -- and `value` restarts at 0 for each, so `value` alone
   is not the load's progress: it fills the bar, snaps back to zero and fills it
   again. Progress is `(stageIndex + value) / stages.length`, which is monotonic,
-  and that collapse is `routerLoadProgress` (`packages/shared/src/routerProgress.ts`).
+  and that collapse is `routerLoadProgress` (`apps/server/src/contracts/routerProgress.ts`).
   llama.cpp also emits a bare `{"stage":"mmproj_model"}` between stages --
   singular `stage`, no `value` -- which announces a stage rather than measuring
   one, so it must leave progress alone rather than reset it. `undefined` means
@@ -1321,7 +1330,7 @@ Project-specific guidance for AI coding agents.
   happens to show. It dropped `reasoning`, and so a regenerate silently destroyed
   the thinking of the answer it branched from, then wrote that loss back over the
   only copy of it. Adding a field to the projection means adding it there too.
-- The slash-command allowlist lives in `packages/shared/src/commands.ts` and is
+- The slash-command allowlist lives in `apps/server/src/contracts/commands.ts` and is
   served by `GET /api/commands`; it currently exposes only `/compact`. The chat
   route's `assertSupportedSlashCommand` and the composer render the same refusal
   through `unsupportedSlashCommandMessage`, so allowlisting a command needs no
@@ -1388,9 +1397,11 @@ Project-specific guidance for AI coding agents.
   `pdfjs-dist` (with `@napi-rs/canvas` supplying the canvas its page renderer needs) and
   `@huggingface/gguf` are `apps/server` dependencies: they parse bytes with Bun/Node APIs
   no client has, which is exactly why `POST /api/uploads` takes the file and answers with
-  a classification rather than asking a client to do any of it. Keep them out of
-  `packages/shared`. (`tests/unit/webBundle.test.ts` used to pin this by failing if either
-  reached the browser bundle; the bundle is gone, the boundary is not.)
+  a classification rather than asking a client to do any of it. **Keep them out of
+  `contracts/`**, which is the wire contract and the pure helpers over it — a schema module that
+  drags in a native canvas is a schema module no one can reason about.
+  (`tests/unit/webBundle.test.ts` used to pin this by failing if either reached the browser bundle;
+  the bundle is gone, the boundary is not.)
 - Draft uploads live under `.nelle/uploads/<uploadId>/` and in the `uploads`
   table, apart from the content-addressed `.nelle/attachments/` tree. An unbound
   upload older than 24h is swept at startup and hourly; a bound one belongs to a
@@ -1474,7 +1485,7 @@ Project-specific guidance for AI coding agents.
 - Show context-window usage in the composer header, as a progress bar with the
   used/total token counts behind it. Send-blocking errors belong above the
   composer, non-blocking warnings below it.
-- The context thresholds live in `packages/shared/src/context.ts`
+- The context thresholds live in `apps/server/src/contracts/context.ts`
   (`CONTEXT_WARNING_RATIO = 0.8`, `CONTEXT_OVERFLOW_RATIO = 1`). The server
   stamps `ConversationContextUsage.status` on every payload it emits, so a client
   picks a colour rather than recomputing a ratio. Both harnesses emit
@@ -1515,7 +1526,7 @@ Project-specific guidance for AI coding agents.
   server, where every client gets it for free. Rendering, drafts, optimistic UI,
   scroll, and live run state stay in the client, as does `canAbort`/`canCompact`,
   which the client tracks more freshly than any payload can carry.
-  `packages/shared` is TypeScript the server shares with *itself* (contracts, zod
+  `apps/server/src/contracts/` is TypeScript the server shares with *itself* (contracts, zod
   schemas, pure helpers); no client imports it.
 - **Settings scope is settled**, so do not reopen it by accident: Pi owns the
   agent loop and the context, `max_tokens` must never be advertised to Pi, and
@@ -1563,7 +1574,7 @@ Project-specific guidance for AI coding agents.
   at the bottom of a nine-field form. Only touched fields are sent: a save must not rewrite
   a value the user never looked at.
 - A server setting exists in exactly one place: `SETTINGS_REGISTRY` in
-  `packages/shared/src/settings.ts`. The served schema and the zod schema
+  `apps/server/src/contracts/settings.ts`. The served schema and the zod schema
   `PATCH /api/settings/<slug>` validates against are both *derived* from it, so
   they cannot drift; do not hand-write a zod object beside a field. Routes are
   registered by iterating the registry, which is why `schema`, `preferences` and
@@ -1584,11 +1595,11 @@ Project-specific guidance for AI coding agents.
   carry a copy of the default.
 - Settings a client *acts* on are the **saved values**, never the drafts: a
   half-typed threshold is not in force until it is saved.
-- `packages/shared/src/settingsKeys.ts` holds the group slugs and the field keys
+- `apps/server/src/contracts/settingsKeys.ts` holds the group slugs and the field keys
   that are branched on. It is zod-free, and `settings.ts` imports it too, so the
   names exist once. It holds names, never defaults.
 - Conversation titles are a setting (`GET`/`PATCH /api/settings/titles`), and the
-  pure helpers live in `packages/shared/src/titles.ts`.
+  pure helpers live in `apps/server/src/contracts/titles.ts`.
   `streamConversationTitleIfNeeded` is the only path that runs; it fires once per
   conversation, on the first exchange of a chat still at `titleSource:
 'fallback'`. `maxWords` is *enforced* by truncation, not merely requested in the

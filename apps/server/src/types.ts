@@ -1,21 +1,18 @@
 import type {z} from 'zod';
 
-import type {ChatAttachmentInput, NelleError} from '../../../packages/shared/src/contracts.ts';
+import type {ChatAttachmentInput, NelleError} from './contracts/contracts.ts';
 import type {
   huggingFaceFileSchema,
   huggingFaceQuantSchema,
   HuggingFaceModelResultContract,
-} from '../../../packages/shared/src/huggingfaceSearch.ts';
-import type {LlamaRouterModelContract} from '../../../packages/shared/src/llamaModels.ts';
-import type {
-  ConfiguredModelContract,
-  ModelParamsContract,
-} from '../../../packages/shared/src/modelCatalog.ts';
+} from './contracts/huggingfaceSearch.ts';
+import type {LlamaRouterModelContract} from './contracts/llamaModels.ts';
+import type {ConfiguredModelContract, ModelParamsContract} from './contracts/modelCatalog.ts';
 import type {
   LlamaRouterPropsContract,
   LlamaTokenizeResultContract,
   RuntimeStatusContract,
-} from '../../../packages/shared/src/runtime.ts';
+} from './contracts/runtime.ts';
 import type {
   ChatMessage,
   ChatPerformance,
@@ -23,7 +20,7 @@ import type {
   ChatRole,
   ChatStreamEvent,
   ToolCallEvent,
-} from '../../../packages/shared/src/streamEvents.ts';
+} from './contracts/streamEvents.ts';
 
 export type {ChatAttachmentInput};
 

@@ -8,7 +8,7 @@ import {
   parseSlashCommandName,
   SLASH_COMMAND_REGISTRY,
   unsupportedSlashCommandMessage,
-} from '../../packages/shared/src/commands.ts';
+} from '../../apps/server/src/contracts/commands.ts';
 
 test('only /compact is allowlisted today', () => {
   assert.deepEqual(

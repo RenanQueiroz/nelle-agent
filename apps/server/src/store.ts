@@ -14,8 +14,8 @@ import {
   upsertModelsIniValues,
   writeModelsIniAtomic,
   type ModelsIniDocument,
-} from '../../../packages/shared/src/modelsIni.ts';
-import {PI_MINIMUM_CONTEXT_TOKENS} from '../../../packages/shared/src/piContext.ts';
+} from './contracts/modelsIni.ts';
+import {PI_MINIMUM_CONTEXT_TOKENS} from './contracts/piContext.ts';
 
 /**
  * The `models.ini` keys that cap a model's context window.

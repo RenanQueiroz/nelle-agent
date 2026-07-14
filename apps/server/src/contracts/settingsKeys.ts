@@ -1,10 +1,12 @@
 /**
  * Settings group slugs and the field keys clients act on.
  *
- * Zod-free, and separate from `settings.ts` for exactly one reason: the web
- * bundle imports these and carries no zod. It holds names, never defaults --
- * a client asks the server what a setting is set to, and renders the served
- * schema for what it means.
+ * It holds names, never defaults -- a client asks the server what a setting is set to,
+ * and renders the served schema for what it means.
+ *
+ * It is separate from `settings.ts` and zod-free. That split was once *required* (the web
+ * bundle imported these and carried no zod); the bundle is gone, so it is now just a small
+ * names-only module, which is a fine thing to be. Merging it would buy nothing.
  *
  * These names are a contract, the way `NELLE_ERROR_CODES` is.
  */

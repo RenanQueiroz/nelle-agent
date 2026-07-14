@@ -1,12 +1,14 @@
 /**
  * The one place attachment limits are defined.
  *
- * They used to live twice: `apps/web/src/utils/attachments.ts` allowed 20 files
- * while `chatRequestSchema` capped the array at 10, so an eleventh file passed
- * the composer and came back as an HTTP 500 carrying a serialized zod array.
+ * They used to live twice -- the browser's composer allowed 20 files while
+ * `chatRequestSchema` capped the array at 10, so an eleventh file passed the
+ * composer and came back as an HTTP 500 carrying a serialized zod array. One
+ * definition, imported by both the schema and whatever enforces it.
  *
- * This module holds no zod, so the web bundle can import it directly and stay
- * zod-free.
+ * It carries no zod. That was once a *requirement* (the web bundle imported it and
+ * carried no zod); the bundle is gone, so it is now simply true and costs nothing.
+ * Nothing forces it to stay that way, and nothing requires changing it either.
  */
 export const ATTACHMENT_LIMITS = {
   /** Attachment items per message. Rendered PDF pages count as items. */

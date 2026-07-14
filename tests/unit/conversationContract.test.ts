@@ -17,7 +17,7 @@ import {
   conversationDiagnosticsSchema,
   conversationListResponseSchema,
   forkConversationRequestSchema,
-} from '../../packages/shared/src/conversations.ts';
+} from '../../apps/server/src/contracts/conversations.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {createTempPaths} from './helpers/paths.ts';
 

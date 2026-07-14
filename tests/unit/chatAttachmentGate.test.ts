@@ -4,7 +4,7 @@ import {test} from 'bun:test';
 import {AppDatabase} from '../../apps/server/src/database.ts';
 import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
 import {assertSupportedAttachments} from '../../apps/server/src/server.ts';
-import type {ChatAttachmentInput} from '../../packages/shared/src/contracts.ts';
+import type {ChatAttachmentInput} from '../../apps/server/src/contracts/contracts.ts';
 import {createTempPaths} from './helpers/paths.ts';
 
 /**

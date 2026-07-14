@@ -8,7 +8,7 @@ import {
   nelleErrorSchema,
   serializeSseEnvelope,
   NELLE_ERROR_CODES,
-} from '../../packages/shared/src/contracts.ts';
+} from '../../apps/server/src/contracts/contracts.ts';
 
 test('Nelle error schema accepts stable error payloads', () => {
   const parsed = nelleErrorSchema.parse({

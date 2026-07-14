@@ -3,13 +3,13 @@ import fs from 'node:fs/promises';
 
 import {z} from 'zod';
 
-import type {ModelCatalogContract} from '../../../packages/shared/src/modelCatalog.ts';
-import type {RuntimeInstallEvent} from '../../../packages/shared/src/runtime.ts';
-import {reasoningLevelSchema} from '../../../packages/shared/src/reasoning.ts';
+import type {ModelCatalogContract} from './contracts/modelCatalog.ts';
+import type {RuntimeInstallEvent} from './contracts/runtime.ts';
+import {reasoningLevelSchema} from './contracts/reasoning.ts';
 import {
   cloneConversationRequestSchema,
   forkConversationRequestSchema,
-} from '../../../packages/shared/src/conversations.ts';
+} from './contracts/conversations.ts';
 import {HuggingFaceService} from './huggingface';
 import {LlamaCppManager, ownsModelCache} from './llamacpp';
 import {registerLlamaProxy} from './llamaProxy';
@@ -31,7 +31,7 @@ import {buildPairingPayload} from './pairing';
 import {ensureServerCert, localIPv4s, type ServerCert} from './tls';
 import {buildOpenApiDocument} from './openapi';
 import {ingestUpload, resolveChatAttachments, UnsupportedAttachmentError} from './attachmentIngest';
-import {ATTACHMENT_LIMITS} from '../../../packages/shared/src/attachments.ts';
+import {ATTACHMENT_LIMITS} from './contracts/attachments.ts';
 import {ModelCacheRepository} from './modelCache';
 import {GgufMetadataRepository} from './ggufMetadata';
 import {recordModelProps} from './modelProps';
@@ -44,7 +44,7 @@ import {
 import {resolveConversationModel} from './conversationModel';
 import type {AppPaths} from './paths';
 import type {ChatAttachmentInput, ChatStreamEvent, ConfiguredModel} from './types';
-import type {NelleError, UploadResponse} from '../../../packages/shared/src/contracts.ts';
+import type {NelleError, UploadResponse} from './contracts/contracts.ts';
 import {
   chatRequestSchema,
   createEventEnvelope,
@@ -55,24 +55,21 @@ import {
   refreshRequestSchema,
   serializeSseEnvelope,
   NELLE_ERROR_CODES,
-} from '../../../packages/shared/src/contracts.ts';
-import {
-  SLASH_COMMAND_REGISTRY,
-  unsupportedSlashCommandMessage,
-} from '../../../packages/shared/src/commands.ts';
+} from './contracts/contracts.ts';
+import {SLASH_COMMAND_REGISTRY, unsupportedSlashCommandMessage} from './contracts/commands.ts';
 import {
   SETTINGS_REGISTRY,
   settingsPatchSchema,
   type SettingsGroup,
   type SettingsValues,
-} from '../../../packages/shared/src/settings.ts';
+} from './contracts/settings.ts';
 import {
   ALLOW_LAN_ACCESS_KEY,
   ATTACHMENTS_SETTINGS_SLUG,
   MAX_IMAGE_MEGAPIXELS_KEY,
   NETWORK_SETTINGS_SLUG,
   SESSION_RESETTING_SETTINGS_SLUGS,
-} from '../../../packages/shared/src/settingsKeys.ts';
+} from './contracts/settingsKeys.ts';
 import {
   invalidModelParamsCode,
   invalidModelParamsMessage,
@@ -80,7 +77,7 @@ import {
   modelParamWarnings,
   type ModelParamWarning,
   type InvalidModelParam,
-} from '../../../packages/shared/src/modelParams.ts';
+} from './contracts/modelParams.ts';
 import {LlamaOptionCatalogueCache} from './llamaParams';
 
 const useHuggingFaceModelSchema = z.object({
@@ -125,7 +122,7 @@ const regenerateMessageSchema = z
   })
   .optional();
 
-// Fork and clone live in `packages/shared` now: they are contract shapes, and a client that has
+// Fork and clone live in `contracts/`: they are contract shapes, and a client that has
 // to guess at them is a client that will guess wrong. `.optional()` on the clone body because a
 // bare `POST` with no body is a whole-conversation duplicate.
 const cloneConversationSchema = cloneConversationRequestSchema.optional();

@@ -9,9 +9,9 @@ import {PreferencesRepository} from '../../apps/server/src/preferences.ts';
 import {
   DEFAULT_DISPLAY_PREFERENCES,
   DISPLAY_PREFERENCE_KEYS,
-} from '../../packages/shared/src/displayPreferences.ts';
-import {SETTINGS_REGISTRY} from '../../packages/shared/src/settings.ts';
-import {DISPLAY_SETTINGS_SLUG} from '../../packages/shared/src/settingsKeys.ts';
+} from '../../apps/server/src/contracts/displayPreferences.ts';
+import {SETTINGS_REGISTRY} from '../../apps/server/src/contracts/settings.ts';
+import {DISPLAY_SETTINGS_SLUG} from '../../apps/server/src/contracts/settingsKeys.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';

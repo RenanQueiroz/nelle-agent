@@ -5,7 +5,7 @@ import {
   acceptedModelParamKeys,
   llamaOptionCatalogue,
   type LlamaOptionCatalogue,
-} from '../../../packages/shared/src/modelParams.ts';
+} from './contracts/modelParams.ts';
 
 /**
  * `llama-server --help`, parsed once per binary.

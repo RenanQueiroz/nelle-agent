@@ -5,7 +5,7 @@ import path from 'node:path';
 import {afterEach, test} from 'bun:test';
 
 import {runCommandStreaming, type CommandOutputLine} from '../../apps/server/src/process.ts';
-import type {RuntimeInstallEvent} from '../../packages/shared/src/runtime.ts';
+import type {RuntimeInstallEvent} from '../../apps/server/src/contracts/runtime.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {createTempPaths} from './helpers/paths.ts';
 import {needsPosixShell} from './helpers/platform.ts';

@@ -16,8 +16,11 @@ import {
   maxAffordableImages,
   minimumUsableContextSize,
   replyTokenBudget,
-} from '../../packages/shared/src/piContext.ts';
-import {getModelsIniSectionValues, parseModelsIni} from '../../packages/shared/src/modelsIni.ts';
+} from '../../apps/server/src/contracts/piContext.ts';
+import {
+  getModelsIniSectionValues,
+  parseModelsIni,
+} from '../../apps/server/src/contracts/modelsIni.ts';
 
 const MODEL = {id: 'repo/model:Q4', name: 'Model Q4'};
 

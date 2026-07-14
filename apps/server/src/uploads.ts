@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type {AttachmentKind} from '../../../packages/shared/src/attachmentRules.ts';
+import type {AttachmentKind} from './contracts/attachmentRules.ts';
 import type {AppDatabase} from './database';
 import type {AppPaths} from './paths';
 
