@@ -43,6 +43,16 @@ import {
   upsertModelsIniValues,
   writeModelsIniAtomic,
 } from '../contracts/modelsIni.ts';
+import {
+  booleanOrFalse,
+  delay,
+  getProp,
+  numberOrNull,
+  readSseData,
+  routerExitCode,
+  safeJsonParse,
+  stringOrUndefined,
+} from './wire.ts';
 
 const LLAMA_REPO = 'ggml-org/llama.cpp';
 const LLAMA_REPO_URL = `https://github.com/${LLAMA_REPO}.git`;
@@ -485,7 +495,7 @@ export class LlamaCppManager {
             });
           }
         }
-        await delayMs(pollMs);
+        await delay(pollMs);
       }
       throw modelLoadError(`${modelId} did not finish loading before the router timed out.`);
     } finally {
@@ -1436,22 +1446,6 @@ export function modelLoadFailureMessage(
   );
 }
 
-function routerExitCode(raw: unknown): number | null {
-  if (!raw || typeof raw !== 'object') {
-    return null;
-  }
-  const status = (raw as {status?: unknown}).status;
-  if (!status || typeof status !== 'object') {
-    return null;
-  }
-  const exitCode = (status as {exit_code?: unknown}).exit_code;
-  return typeof exitCode === 'number' ? exitCode : null;
-}
-
-function delayMs(milliseconds: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, milliseconds));
-}
-
 /**
  * The four variables llama.cpp resolves its Hugging Face hub cache from, in the order
  * `common/hf-cache.cpp` reads them. `LLAMA_CACHE` wins outright and is used as the hub
@@ -1524,65 +1518,12 @@ function findProcessingSlot(slots: unknown[]): LlamaSlotSnapshot | null {
   );
 }
 
-function getProp(value: unknown, key: string): unknown {
-  if (value == null || typeof value !== 'object') {
-    return undefined;
-  }
-  return (value as Record<string, unknown>)[key];
-}
-
-/** Yields the payload of each `data:` line in an SSE stream. */
-async function* readSseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  try {
-    for (;;) {
-      const {done, value} = await reader.read();
-      if (done) {
-        break;
-      }
-      buffer += decoder.decode(value, {stream: true});
-      for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
-        const line = buffer.slice(0, end).trim();
-        buffer = buffer.slice(end + 1);
-        if (line.startsWith('data:')) {
-          yield line.slice('data:'.length).trim();
-        }
-      }
-    }
-  } finally {
-    await reader.cancel().catch(() => {});
-  }
-}
-
-/** A frame llama.cpp sent that will not parse is a missing detail, never a thrown run. */
-function safeJsonParse(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-}
-
 function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
-function stringOrUndefined(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
-
-function numberOrNull(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
 function booleanOrNull(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null;
-}
-
-function booleanOrFalse(value: unknown): boolean {
-  return value === true;
 }
 
 function arrayOfStrings(value: unknown): string[] {
@@ -1590,8 +1531,4 @@ function arrayOfStrings(value: unknown): string[] {
     return [];
   }
   return value.filter(item => typeof item === 'string');
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
