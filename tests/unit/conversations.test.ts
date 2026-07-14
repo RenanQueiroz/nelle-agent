@@ -4041,6 +4041,17 @@ test('a run caches the props of a model llama.cpp ALREADY has resident', async (
 
     // The run asked llama.cpp what it was holding, and wrote the answer down.
     assert.ok(propsFetches >= 1, 'the run must fetch /props when it has no context window');
+
+    // **Wait for the write, do not assume it.** `app.inject` on an SSE route returns once the
+    // stream is done, but the props caching is a `await` inside the run rather than something the
+    // response body is gated on -- so reading `model_cache` immediately is a race. It happened to
+    // win on Linux and lost on the slower Windows runner, where `/props` had been fetched (the
+    // assertion above passed) and the row was not yet there. A race that only shows on one platform
+    // is still a race.
+    const deadline = Date.now() + 5_000;
+    while (cache.getModel(model.id)?.contextWindow == null && Date.now() < deadline) {
+      await Bun.sleep(20);
+    }
     assert.equal(cache.getModel(model.id)?.contextWindow, 32_768);
     // ...and the capabilities derived from props came with it, so `canAttachImages` is not
     // silently degraded to "unknown" for a thin client that never calls `/props` itself.

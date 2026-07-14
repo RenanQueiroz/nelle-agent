@@ -4,6 +4,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {removeTemp} from './helpers/platform.ts';
+import {isWindows} from './helpers/platform.ts';
+
+// **POSIX signals only.** These tests send `SIGTERM` and assert the *graceful* shutdown path --
+// draining SSE streams, closing listeners, exiting inside `SHUTDOWN_DEADLINE_MS`. Windows has no
+// SIGTERM: `child.kill('SIGTERM')` terminates the process outright, so there is no graceful path to
+// observe and nothing here is testable. The behaviour under test is real and worth pinning; it is
+// simply a POSIX behaviour.
 
 /**
  * The server must die when it is told to, even while a client is streaming.
@@ -21,69 +28,73 @@ import {removeTemp} from './helpers/platform.ts';
  * proxies llama.cpp's `/models/sse`, so a stand-in that accepts the connection and
  * then says nothing reproduces the real never-ending stream with no real router.
  */
-test('SIGTERM stops the server even while an SSE stream is open', async () => {
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-shutdown-'));
-  const port = 18797;
-  const llamaPort = 18899;
+test.skipIf(isWindows)(
+  'SIGTERM stops the server even while an SSE stream is open',
+  async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-shutdown-'));
+    const port = 18797;
+    const llamaPort = 18899;
 
-  // A router that emits its opening event and then holds the stream open forever --
-  // which is what llama.cpp's /models/sse does once no model is loading. The first
-  // chunk matters: headers are not flushed until a body byte exists, so a stream that
-  // says nothing at all never even becomes a response.
-  const fakeLlama = Bun.serve({
-    hostname: '127.0.0.1',
-    port: llamaPort,
-    idleTimeout: 255,
-    fetch: () =>
-      new Response(
-        new ReadableStream({
-          start: controller => {
-            controller.enqueue(new TextEncoder().encode('data: {"event":"hello"}\n\n'));
-            // ...and never close.
-          },
-        }),
-        {headers: {'content-type': 'text/event-stream'}},
-      ),
-  });
-
-  const child = Bun.spawn(['bun', path.resolve('apps/server/src/index.ts')], {
-    env: {
-      ...process.env,
-      NELLE_DATA_DIR: dataDir,
-      NELLE_PORT: String(port),
-      NELLE_LLAMA_PORT: String(llamaPort),
-    },
-    stdout: 'ignore',
-    stderr: 'ignore',
-  });
-
-  try {
-    await waitForHealth(`http://127.0.0.1:${port}`);
-
-    const stream = await fetch(`http://127.0.0.1:${port}/api/llama/models/events`, {
-      headers: {accept: 'text/event-stream'},
+    // A router that emits its opening event and then holds the stream open forever --
+    // which is what llama.cpp's /models/sse does once no model is loading. The first
+    // chunk matters: headers are not flushed until a body byte exists, so a stream that
+    // says nothing at all never even becomes a response.
+    const fakeLlama = Bun.serve({
+      hostname: '127.0.0.1',
+      port: llamaPort,
+      idleTimeout: 255,
+      fetch: () =>
+        new Response(
+          new ReadableStream({
+            start: controller => {
+              controller.enqueue(new TextEncoder().encode('data: {"event":"hello"}\n\n'));
+              // ...and never close.
+            },
+          }),
+          {headers: {'content-type': 'text/event-stream'}},
+        ),
     });
-    assert.equal(stream.status, 200);
 
-    child.kill('SIGTERM');
+    const child = Bun.spawn(['bun', path.resolve('apps/server/src/index.ts')], {
+      env: {
+        ...process.env,
+        NELLE_DATA_DIR: dataDir,
+        NELLE_PORT: String(port),
+        NELLE_LLAMA_PORT: String(llamaPort),
+      },
+      stdout: 'ignore',
+      stderr: 'ignore',
+    });
 
-    const outcome = await Promise.race([
-      child.exited,
-      Bun.sleep(8000).then(() => 'timeout' as const),
-    ]);
-    assert.notEqual(
-      outcome,
-      'timeout',
-      'the server never exited: a graceful stop is waiting on an SSE stream that never ends',
-    );
+    try {
+      await waitForHealth(`http://127.0.0.1:${port}`);
 
-    await stream.body?.cancel().catch(() => {});
-  } finally {
-    child.kill('SIGKILL');
-    fakeLlama.stop(true);
-    await removeTemp(dataDir);
-  }
-}, 30_000);
+      const stream = await fetch(`http://127.0.0.1:${port}/api/llama/models/events`, {
+        headers: {accept: 'text/event-stream'},
+      });
+      assert.equal(stream.status, 200);
+
+      child.kill('SIGTERM');
+
+      const outcome = await Promise.race([
+        child.exited,
+        Bun.sleep(8000).then(() => 'timeout' as const),
+      ]);
+      assert.notEqual(
+        outcome,
+        'timeout',
+        'the server never exited: a graceful stop is waiting on an SSE stream that never ends',
+      );
+
+      await stream.body?.cancel().catch(() => {});
+    } finally {
+      child.kill('SIGKILL');
+      fakeLlama.stop(true);
+      await removeTemp(dataDir);
+    }
+  },
+  30_000,
+);
 
 async function waitForHealth(base: string): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {

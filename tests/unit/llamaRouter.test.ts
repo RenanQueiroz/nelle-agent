@@ -13,6 +13,7 @@ import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {AppStore} from '../../apps/server/src/store.ts';
+import {slowFactor} from './helpers/platform.ts';
 
 process.env.LOG_LEVEL = 'silent';
 
@@ -500,8 +501,8 @@ test('a load that is merely slow is not mistaken for a dead child', async () => 
     await assert.rejects(
       () =>
         new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {
-          pollMs: 1,
-          timeoutMs: 200,
+          pollMs: 1 * slowFactor,
+          timeoutMs: 200 * slowFactor,
         }),
       // It times out -- which is right, because it never stopped loading. It must NOT be
       // reported as an exited child.
@@ -530,8 +531,8 @@ test('a load that never finishes times out rather than hanging the run', async (
     await assert.rejects(
       () =>
         new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {
-          pollMs: 1,
-          timeoutMs: 5,
+          pollMs: 1 * slowFactor,
+          timeoutMs: 5 * slowFactor,
         }),
       /did not finish loading/,
     );

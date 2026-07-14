@@ -54,3 +54,20 @@ export async function removeTemp(directory: string): Promise<void> {
     }
   }
 }
+
+/**
+ * A multiplier for deadline-sensitive tests.
+ *
+ * Some tests pin *deadline logic* — "a load that never finishes times out", "a slow load is not
+ * mistaken for a dead child" — using very tight windows (a 5ms timeout, 1ms polling). That is fine
+ * against fast localhost HTTP, and it is exactly what Linux and macOS give.
+ *
+ * Windows' loopback stack is slower and its CI runners are slower still, so a 5ms deadline can
+ * elapse before the *first* poll completes — and the test then fails with the wrong error, having
+ * proved nothing about the deadline it meant to test. Scaling the window preserves the semantics
+ * (the deadline is still enforced, and still far below any real load) while letting the request
+ * actually happen.
+ *
+ * **This is not a tolerance for flakiness.** The assertion is unchanged; only the clock is.
+ */
+export const slowFactor = isWindows ? 40 : 1;
