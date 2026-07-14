@@ -455,6 +455,34 @@ Project-specific guidance for AI coding agents.
   stack trace three minutes in. (The **server** binary does cross-compile, but a cross-compiled one
   ships without the target's `@napi-rs/canvas` native binding and cannot read a PDF — build it
   natively per OS, as CI does.)
+- **CI is the only Mac, Windows and iPhone this project has.** The repo is public, so **standard
+  GitHub-hosted runners are free on every OS** (only *larger* runners bill), and `.github/workflows/ci.yml`
+  uses that to verify Nelle where the one development machine — a WSL2 box — cannot:
+  - **The compiled-binary smoke test runs on Linux, macOS and Windows.** It builds the binary,
+    *runs it*, and feeds it a real PDF. This exists because `bun build --compile` once reported
+    success on a binary that could not read a single PDF, and that failure class is per-OS by
+    nature (native bindings, path resolution, `dlopen`). Building **natively on each runner** also
+    removes cross-compilation entirely — no `@napi-rs/canvas` platform-binding juggling, because
+    each OS builds its own. **Never cross-compile a release server binary**: it ships without the
+    target's Skia binding and cannot read a PDF.
+  - **The device suite runs on five platforms**, not one. The fast tier needs *no model* (llama.cpp
+    is deliberately stopped), so it is CI-able as it stands: Linux (under `xvfb`), **Windows**,
+    **macOS**, the **iOS Simulator**, and an Android emulator. Windows, macOS and iOS had never been
+    run at all — they are `continue-on-error` until they go green, because a platform nobody has
+    ever tried should not block a server refactor. **Remove that the moment each passes**; a
+    permanently tolerated failure is not a test.
+  - `pull_request`, never `pull_request_target` — a fork's PR gets no secrets, which is correct
+    because no job needs one. Default `permissions: contents: read`; only the release job may write.
+    **Never a self-hosted runner on a public repo**: a fork's PR would execute arbitrary code on
+    your machine.
+- **The release workflow is tag-only, and that is enforced by a test.** Publishing downloadable
+  binaries under the owner's name is a deliberate human act, not something an automated run does on
+  its way past. `release.yml` triggers on `v*` tags and nothing else; a push to `main` can never cut
+  a release, and `bootstrap.test.ts` fails if that ever changes. Release *assets* go to a GitHub
+  **Release** (free, unlimited, permanent, downloadable without a login) rather than Actions
+  artifacts, which expire, need an account, and are metered even on public repos. Every server
+  binary is smoke-tested before it is attached: a build that cannot read a PDF must never reach a
+  download page.
 - Primary checks are `bun run format:check`, `bun run lint`, `bun run check`,
   `bun run test:unit`, and `bun run test` (the composite: format check, lint,
   `tsc`, unit tests). There is no web build and no browser suite to run; the

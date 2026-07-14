@@ -1,0 +1,115 @@
+name: Release
+
+# **Only a tag fires this, and only a human pushes tags.**
+#
+# Publishing downloadable binaries under the owner's name is a deliberate act, not something an
+# automated run should do on its way past. Nothing here is triggered by a push to `main`.
+#
+# The artifacts are **unsigned**: macOS and Windows will warn users, and a usable `.ipa` needs Apple
+# Developer membership ($99/yr) which is not set up. There is also no installer yet. Ship
+# Linux/Windows/macOS/Android unsigned first; add signing when it earns its keep.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Build the server natively on each OS. **Never cross-compile it**: `bun build --compile
+  # --target=…` produces a foreign binary happily, but `@napi-rs/canvas`'s native Skia binding is
+  # per-platform and only the host's is in `node_modules` -- so a cross-compiled server ships
+  # without the binding the PDF path needs, and cannot read a PDF at all.
+  #
+  # `bun run build --target=server` builds it, **runs it, and feeds it a real PDF**, exiting
+  # non-zero if it refuses. A build that cannot read a PDF must never reach a release page -- that
+  # is not hypothetical, it shipped once.
+  server:
+    name: server (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run build --target=server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.os }}
+          path: dist/
+          retention-days: 7
+
+  client:
+    name: client (${{ matrix.target }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, target: linux}
+          - {os: ubuntu-latest, target: apk}
+          - {os: macos-latest, target: macos}
+          - {os: windows-latest, target: windows}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'apk'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: linux desktop deps
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgtk-3-dev
+      - run: bun install --frozen-lockfile
+      - run: flutter pub get
+        working-directory: apps/client
+      - run: bun run build --target=${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-${{ matrix.target }}
+          path: apps/client/build/
+          retention-days: 7
+
+  # The Release itself. Assets attached here are **free, unlimited, permanent, and downloadable
+  # without a GitHub login** -- unlike Actions artifacts, which expire and require an account.
+  publish:
+    name: publish the release
+    needs: [server, client]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the ONLY job that gets it
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: collect the assets
+        run: |
+          mkdir -p release
+          find artifacts -type f \
+            \( -name 'nelle-server*' -o -name '*.apk' -o -name '*.zip' -o -name '*.dmg' \) \
+            -exec cp {} release/ \;
+          ls -la release/
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          draft: true # a human decides when it goes live
+          generate_release_notes: true

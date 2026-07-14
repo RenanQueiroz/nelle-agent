@@ -1,0 +1,250 @@
+name: CI
+
+# The repository is public, so **standard GitHub-hosted runners are free on every OS** — Linux,
+# Windows and macOS alike. Only "larger" runners bill. That is what makes the matrix below
+# affordable: it verifies Nelle on three operating systems and five device targets, none of which
+# this project's only development machine (a WSL2 box) can reach.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A rapid series of pushes should not pay for superseded runs. Free minutes are not a reason to
+# waste twenty concurrent slots.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege. Nothing here needs to write to the repository, and a fork's PR must never get a
+# token that could. (`pull_request`, not `pull_request_target`, so a fork gets no secrets at all —
+# which is correct, because no job needs one.)
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------------------------
+  # The server gate. Format, lint, tsc (over apps/ packages/ scripts/ AND tests/), and the unit
+  # suite -- which now includes a test that builds the compiled binary, runs it, and feeds it a PDF.
+  # ---------------------------------------------------------------------------------------------
+  server:
+    name: server (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # Only Linux runs the full gate: format and lint are platform-independent, and running them
+      # three times buys nothing. The other two run the *tests*, which is where a platform
+      # difference could actually hide.
+      - name: gate (format, lint, tsc, unit)
+        if: matrix.os == 'ubuntu-latest'
+        run: bun run test
+      - name: unit tests
+        if: matrix.os != 'ubuntu-latest'
+        run: bun run test:unit
+
+  # ---------------------------------------------------------------------------------------------
+  # **The binary smoke test, on all three OSes.** This is the point of the matrix.
+  #
+  # `bun build --compile` once reported success on a binary that could not read a single PDF: pdfjs
+  # resolves files relative to `import.meta.url`, and inside a compiled binary that path lives in
+  # Bun's virtual filesystem. It was invisible to every test we had, because they all exercise the
+  # server *in process* where `node_modules` is on disk. It is also exactly the class of bug that
+  # differs per OS -- native bindings, path resolution, dlopen.
+  #
+  # Building **natively on each runner** also sidesteps cross-compilation entirely: no
+  # `@napi-rs/canvas` platform-binding juggling, because each OS builds its own.
+  # ---------------------------------------------------------------------------------------------
+  binary:
+    name: binary smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # `bun run build --target=server` builds it, runs it, and POSTs a real PDF to /api/uploads.
+      # It exits non-zero if the binary refuses the PDF -- which is the whole reason it exists.
+      - run: bun run build --target=server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nelle-server-${{ matrix.os }}
+          path: dist/
+          # Short, because Actions artifact storage is metered even on public repos (the docs never
+          # exempt them, and the Free plan shows a 500 MB quota). Real downloadable builds go to a
+          # GitHub Release, which is free, unlimited, permanent, and needs no login to fetch.
+          retention-days: 3
+
+  # ---------------------------------------------------------------------------------------------
+  # The Flutter client: analyze + the 313 widget tests. Host Dart VM, so one runner is enough.
+  # ---------------------------------------------------------------------------------------------
+  client:
+    name: client (analyze + widget tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+        working-directory: apps/client
+      - run: flutter analyze
+        working-directory: apps/client
+      - run: flutter test
+        working-directory: apps/client
+
+  # ---------------------------------------------------------------------------------------------
+  # **The device suite, on platforms that have never run it.**
+  #
+  # The fast tier needs **no model** -- llama.cpp is deliberately stopped, which is what a fresh
+  # install is and where most error paths live. So it is CI-able as it stands.
+  #
+  # Today it runs on Linux and an Android emulator, on one WSL2 box. Windows, macOS and iOS have
+  # **never been run at all**. Ten minutes on Android found two real bugs (a 91px composer overflow
+  # and a conversation list that never reloaded after pairing); there is no reason to expect these
+  # to be kinder. Finding that out is the point.
+  #
+  # `continue-on-error` on the three new platforms: they are expected to surface real bugs on their
+  # first run, and a red X on a platform nobody has ever tried should not block a server refactor.
+  # Remove it once each is green -- a permanently-tolerated failure is not a test.
+  # ---------------------------------------------------------------------------------------------
+  device-linux:
+    name: device suite (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: bun install --frozen-lockfile
+      # Flutter's Linux desktop target needs the GTK toolchain, and a headless runner needs a
+      # display for the app window.
+      - name: linux desktop deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgtk-3-dev xvfb
+      - run: flutter pub get
+        working-directory: apps/client
+      - name: bun run test:device (under xvfb)
+        run: xvfb-run -a bun run test:device
+
+  device-macos:
+    name: device suite (macos)
+    runs-on: macos-latest
+    continue-on-error: true # never run before; expected to find real bugs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: bun install --frozen-lockfile
+      - run: flutter pub get
+        working-directory: apps/client
+      - run: bun run test:device -- -d macos
+
+  device-windows:
+    name: device suite (windows)
+    runs-on: windows-latest
+    continue-on-error: true # never run before; expected to find real bugs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: bun install --frozen-lockfile
+      - run: flutter pub get
+        working-directory: apps/client
+      - run: bun run test:device -- -d windows
+
+  # ---------------------------------------------------------------------------------------------
+  # The client has **never been built for iOS**, let alone run on a simulator. This is the first
+  # time. Signing is not set up (a usable `.ipa` needs Apple Developer membership), so this builds
+  # and drives the **Simulator**, which needs none.
+  # ---------------------------------------------------------------------------------------------
+  device-ios:
+    name: device suite (iOS Simulator)
+    runs-on: macos-latest
+    continue-on-error: true # never built for iOS at all
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: bun install --frozen-lockfile
+      - run: flutter pub get
+        working-directory: apps/client
+      - name: boot an iOS simulator
+        run: |
+          xcrun simctl list devices available
+          UDID=$(xcrun simctl list devices available -j \
+            | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(x['udid'] for v in d.values() for x in v if x['isAvailable'] and 'iPhone' in x['name']))")
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+      - run: bun run test:device -- -d "$SIM_UDID"
+
+  device-android:
+    name: device suite (Android emulator)
+    runs-on: ubuntu-latest
+    continue-on-error: true # the emulator in CI is its own adventure
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: bun install --frozen-lockfile
+      - run: flutter pub get
+        working-directory: apps/client
+      # KVM is available on GitHub's Linux runners, but only after the udev rule is relaxed.
+      - name: enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          # `bun run test:device` runs `adb reverse` itself, mapping the emulator's own loopback to
+          # the host's port -- so the emulator reaches the fixture with no TLS, no pin and no
+          # pairing, exactly as it does locally.
+          script: bun run test:device -- -d emulator-5554

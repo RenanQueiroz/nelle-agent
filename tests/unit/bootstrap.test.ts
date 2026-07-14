@@ -93,3 +93,37 @@ test('the hook scopes itself to what changed, and skips a docs-only push', async
   // It must fail loudly rather than silently skipping a half of the gate it cannot run.
   assert.match(hook, /Refusing to push untested Dart/);
 });
+
+test('the release workflow is tag-only: a push to main can never publish binaries', async () => {
+  // **A safety invariant, not a style preference.** Publishing downloadable binaries under the
+  // owner's name on a public repository is a deliberate human act. An automated run -- or an agent
+  // working through a plan -- must not be able to do it on its way past. The release workflow
+  // therefore triggers on a **tag** and on nothing else.
+  const release = await fs.readFile('.github/workflows/release.yml', 'utf8');
+
+  assert.match(release, /tags:\s*\['v\*'\]/, 'the release must be tag-triggered');
+  // The dangerous shape is `push: {branches: [main]}`. If that ever appears here, every commit to
+  // main would cut a release.
+  const pushBlock = /on:\s*\n\s*push:\s*\n((?:\s{4}.*\n)*)/.exec(release)?.[1] ?? '';
+  assert.doesNotMatch(pushBlock, /branches:/, 'the release must NOT trigger on a branch push');
+
+  // Least privilege: only the publishing job may write to the repository.
+  assert.match(release, /^permissions:\n {2}contents: read$/m, 'the default must be read-only');
+  assert.equal(
+    (release.match(/contents: write/g) ?? []).length,
+    1,
+    'exactly one job may hold contents:write',
+  );
+});
+
+test('CI runs the binary smoke test on all three operating systems', async () => {
+  // The bug that shipped once -- a binary that built successfully and could not read a PDF -- is
+  // per-OS by nature (native bindings, path resolution, dlopen). Checking it only on Linux would
+  // leave the other two exactly as exposed as before.
+  const ci = await fs.readFile('.github/workflows/ci.yml', 'utf8');
+  const smoke = /binary:\s*\n[\s\S]*?matrix:\s*\n\s*os:\s*\[([^\]]+)\]/.exec(ci)?.[1] ?? '';
+  for (const os of ['ubuntu-latest', 'macos-latest', 'windows-latest']) {
+    assert.ok(smoke.includes(os), `the binary smoke test must run on ${os}`);
+  }
+  assert.match(ci, /bun run build --target=server/, 'and it must go through the build smoke test');
+});
