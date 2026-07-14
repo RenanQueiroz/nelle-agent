@@ -98,6 +98,14 @@ import {
   createRunStartedEvent,
   pushRunAbortedEvents,
 } from './events.ts';
+import {
+  formatDuration,
+  getToolCallId,
+  isToolExecutionEvent,
+  stringifyToolData,
+  summarizeToolTarget,
+  upsertToolCall,
+} from './toolCalls.ts';
 
 // The harness is what `server.ts` and the tests import, so what it used to define it still
 // hands out. Moving a symbol into a neighbouring module is an internal change, and a public
@@ -105,6 +113,7 @@ import {
 export {
   emptyAnswerError,
   isConversationNotFoundError,
+  isToolExecutionEvent,
   squeezedReplyBudgetWarning,
   ToolsDisabledError,
 };
@@ -1865,20 +1874,6 @@ export class PiHarness {
   }
 }
 
-function stringifyMaybe(value: unknown): string | undefined {
-  if (value == null) {
-    return undefined;
-  }
-  if (typeof value === 'string') {
-    return value.slice(0, 160);
-  }
-  try {
-    return JSON.stringify(value).slice(0, 160);
-  } catch {
-    return String(value).slice(0, 160);
-  }
-}
-
 function emptyPreparedAttachments(): PreparedPromptAttachments {
   return {items: [], metadata: [], uploadIds: []};
 }
@@ -2140,88 +2135,6 @@ function isProjectionEntry(
   return 'textPreview' in entry;
 }
 
-function getToolCallId(event: any): string {
-  return String(event.toolCallId ?? `${event.toolName ?? 'tool'}:${stringifyMaybe(event.args)}`);
-}
-
-function upsertToolCall(calls: ToolCallEvent[], next: ToolCallEvent): ToolCallEvent {
-  const index = calls.findIndex(call => call.id === next.id);
-  if (index >= 0) {
-    calls[index] = mergeDefined(calls[index], next);
-    return calls[index];
-  }
-  calls.push(next);
-  return next;
-}
-
-function mergeDefined(base: ToolCallEvent, next: ToolCallEvent): ToolCallEvent {
-  const merged: ToolCallEvent = {...base};
-  for (const [key, value] of Object.entries(next) as Array<
-    [keyof ToolCallEvent, ToolCallEvent[keyof ToolCallEvent]]
-  >) {
-    if (value !== undefined) {
-      (merged as Record<keyof ToolCallEvent, ToolCallEvent[keyof ToolCallEvent]>)[key] = value;
-    }
-  }
-  return merged;
-}
-
-function summarizeToolTarget(toolName: unknown, args: unknown): string | undefined {
-  const data = args && typeof args === 'object' ? (args as Record<string, unknown>) : {};
-  const preferredKeys =
-    toolName === 'bash'
-      ? ['command']
-      : ['path', 'filePath', 'filename', 'query', 'pattern', 'command', 'target'];
-  for (const key of preferredKeys) {
-    const value = data[key];
-    if (typeof value === 'string' && value.trim()) {
-      return value.slice(0, 160);
-    }
-  }
-  return stringifyMaybe(args);
-}
-
-function stringifyToolData(value: unknown): string | undefined {
-  if (value == null) {
-    return undefined;
-  }
-  const text = extractTextContent(value);
-  if (text) {
-    return truncateToolDetail(text);
-  }
-  if (typeof value === 'string') {
-    return truncateToolDetail(value);
-  }
-  try {
-    return truncateToolDetail(JSON.stringify(value, null, 2));
-  } catch {
-    return truncateToolDetail(String(value));
-  }
-}
-
-function extractTextContent(value: unknown): string | undefined {
-  if (!value || typeof value !== 'object') {
-    return undefined;
-  }
-  const data = value as {content?: unknown};
-  if (!Array.isArray(data.content)) {
-    return undefined;
-  }
-  const text = data.content
-    .map(item => {
-      if (typeof item === 'string') {
-        return item;
-      }
-      if (item && typeof item === 'object' && typeof (item as {text?: unknown}).text === 'string') {
-        return (item as {text: string}).text;
-      }
-      return null;
-    })
-    .filter(item => item != null)
-    .join('\n');
-  return text || undefined;
-}
-
 function normalizeChatRole(role: unknown): ChatMessage['role'] | undefined {
   if (role === 'user' || role === 'assistant' || role === 'system') {
     return role;
@@ -2354,22 +2267,6 @@ export function appendedSystemPrompts(customInstructions: string): string[] {
   return text ? [text] : [];
 }
 
-function formatDuration(durationMs: number): string {
-  if (durationMs < 1000) {
-    return `${durationMs}ms`;
-  }
-  return `${(durationMs / 1000).toFixed(1)}s`;
-}
-
-function truncateToolDetail(value: string): string {
-  const limit = 20_000;
-  if (value.length <= limit) {
-    return value;
-  }
-  return `${value.slice(0, limit)}\n\n[truncated ${value.length - limit} chars]`;
-}
-
-/** `tool_execution_start`, `_update` and `_end` are the only tool events Pi emits. */
 /**
  * Cancels a pending Pi retry before aborting the run itself.
  *
@@ -2384,8 +2281,4 @@ export async function abortSessionRetry(session: {abortRetry?: () => unknown}): 
   } catch {
     // Best effort: the caller aborts the session next regardless.
   }
-}
-
-export function isToolExecutionEvent(eventType: unknown): boolean {
-  return typeof eventType === 'string' && eventType.startsWith('tool_execution_');
 }
