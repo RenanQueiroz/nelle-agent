@@ -1,5 +1,4 @@
 import path from 'node:path';
-import fs from 'node:fs/promises';
 
 import {z} from 'zod';
 
@@ -39,8 +38,15 @@ import {ModelCacheRepository} from './models/cache';
 import {GgufMetadataRepository} from './models/gguf';
 import {recordModelProps} from './llama/modelProps';
 import {effectiveContextWindow} from './llama/contextWindow';
-import {ConversationRepository, type ConversationDeleteResources} from './conversations/repository';
+import {ConversationRepository} from './conversations/repository';
 import {resolveConversationModel} from './conversations/model';
+import {
+  deleteConversationResources,
+  isPathWithin,
+  resolveRelativeDataPath,
+  sweepOrphanAttachmentFiles,
+} from './lib/files';
+import {createLogger} from './lib/logger';
 import type {AppPaths} from './lib/paths';
 import type {ChatAttachmentInput, ChatStreamEvent, ConfiguredModel} from './lib/types';
 import type {NelleError, UploadResponse} from './contracts/contracts.ts';
@@ -1478,32 +1484,6 @@ function loopbackOnly(ctx: Ctx): Response {
   );
 }
 
-type Logger = {
-  info: (obj: unknown, msg?: string) => void;
-  warn: (obj: unknown, msg?: string) => void;
-  error: (obj: unknown, msg?: string) => void;
-};
-
-/** A minimal console logger with pino's `(mergingObject, message)` call shape. */
-function createLogger(): Logger {
-  const write = (level: 'info' | 'warn' | 'error', obj: unknown, msg?: string): void => {
-    const message = typeof obj === 'string' ? obj : msg;
-    const detail = typeof obj === 'string' ? undefined : obj;
-    const line = `[nelle] ${level}: ${message ?? ''}`.trimEnd();
-    const sink = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
-    if (detail === undefined) {
-      sink(line);
-    } else {
-      sink(line, detail);
-    }
-  };
-  return {
-    info: (obj, msg) => write('info', obj, msg),
-    warn: (obj, msg) => write('warn', obj, msg),
-    error: (obj, msg) => write('error', obj, msg),
-  };
-}
-
 function conversationNotFound(id: string): Response {
   return json(
     {error: {code: 'conversation_not_found', message: `Conversation ${id} was not found.`}},
@@ -1837,128 +1817,4 @@ function llamaError(error: unknown, code = 'llama_router_request_failed'): Respo
     },
     502,
   );
-}
-
-type FileCleanupResult = {
-  deleted: number;
-  skipped: number;
-  failed: Array<{path: string; message: string}>;
-};
-
-async function deleteConversationResources(
-  paths: AppPaths,
-  resources: ConversationDeleteResources,
-): Promise<FileCleanupResult> {
-  const result: FileCleanupResult = {deleted: 0, skipped: 0, failed: []};
-  for (const sessionPath of resources.piSessionPaths) {
-    await unlinkOwnedPath(paths.piSessionsDir, sessionPath, result);
-  }
-  for (const storagePath of resources.attachmentStoragePaths) {
-    const attachmentPath = resolveRelativeDataPath(paths.dataDir, storagePath);
-    if (!attachmentPath) {
-      result.skipped += 1;
-      continue;
-    }
-    await unlinkOwnedPath(paths.dataDir, attachmentPath, result, paths.attachmentsDir);
-  }
-  return result;
-}
-
-async function sweepOrphanAttachmentFiles(
-  paths: AppPaths,
-  referencedStoragePaths: Set<string>,
-): Promise<FileCleanupResult> {
-  const result: FileCleanupResult = {deleted: 0, skipped: 0, failed: []};
-  const attachmentsRoot = path.resolve(paths.attachmentsDir);
-  const dataRoot = path.resolve(paths.dataDir);
-
-  async function visit(directory: string): Promise<void> {
-    let entries;
-    try {
-      entries = await fs.readdir(directory, {withFileTypes: true});
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return;
-      }
-      result.failed.push({
-        path: path.resolve(directory),
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return;
-    }
-
-    for (const entry of entries) {
-      const absolutePath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await visit(absolutePath);
-        continue;
-      }
-      if (!entry.isFile()) {
-        result.skipped += 1;
-        continue;
-      }
-
-      const storagePath = path
-        .relative(dataRoot, path.resolve(absolutePath))
-        .split(path.sep)
-        .join('/');
-      if (referencedStoragePaths.has(storagePath)) {
-        continue;
-      }
-      await unlinkOwnedPath(attachmentsRoot, absolutePath, result, attachmentsRoot);
-    }
-  }
-
-  await visit(attachmentsRoot);
-  return result;
-}
-
-async function unlinkOwnedPath(
-  root: string,
-  candidatePath: string,
-  result: FileCleanupResult,
-  pruneRoot = root,
-): Promise<void> {
-  const resolvedRoot = path.resolve(root);
-  const resolvedPath = path.resolve(candidatePath);
-  if (!isPathWithin(resolvedPath, resolvedRoot) || resolvedPath === resolvedRoot) {
-    result.skipped += 1;
-    return;
-  }
-  try {
-    await fs.unlink(resolvedPath);
-    result.deleted += 1;
-    await pruneEmptyParents(path.dirname(resolvedPath), pruneRoot);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      result.skipped += 1;
-      return;
-    }
-    result.failed.push({
-      path: resolvedPath,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-function resolveRelativeDataPath(dataDir: string, relativePath: string): string | null {
-  const resolved = path.resolve(dataDir, ...relativePath.split('/'));
-  return isPathWithin(resolved, path.resolve(dataDir)) ? resolved : null;
-}
-
-async function pruneEmptyParents(start: string, root: string): Promise<void> {
-  const resolvedRoot = path.resolve(root);
-  let current = path.resolve(start);
-  while (isPathWithin(current, resolvedRoot) && current !== resolvedRoot) {
-    try {
-      await fs.rmdir(current);
-    } catch {
-      return;
-    }
-    current = path.dirname(current);
-  }
-}
-
-function isPathWithin(candidatePath: string, root: string): boolean {
-  return candidatePath === root || candidatePath.startsWith(`${root}${path.sep}`);
 }
