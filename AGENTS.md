@@ -517,6 +517,12 @@ Project-specific guidance for AI coding agents.
   - **`fs.stat().mode & 0o111` is meaningless on Windows.** To assert a file is executable, assert
     *git's index mode* (`git ls-files -s` → `100755`), which is identical on every platform and is
     what a fresh clone actually restores.
+- **Bun's default 5s test timeout is a Linux assumption.** The macOS and Windows CI runners are
+  slower — the first `pdfjs` load and a Pi session creation both cross it — so tests were failing
+  having proved nothing about what they test. CI runs the suite with `--timeout 30000` on those two
+  and keeps the 5s default on Linux, so a genuine hang is still caught somewhere. If a test does its
+  own waiting (a poll loop, a scaled deadline), it needs an **explicit** timeout larger than its own
+  wait, or it dies before its own assertion runs — that has now happened twice.
 - **`libsecret-1-dev` is a *build* dependency of the Linux client, not an optional one.**
   `flutter_secure_storage_linux` fails CMake outright without it, which is how the Linux device job
   failed on its first CI run. That is a different thing from the **runtime** keyring (something

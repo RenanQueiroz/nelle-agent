@@ -46,9 +46,15 @@ jobs:
       - name: gate (format, lint, tsc, unit)
         if: matrix.os == 'ubuntu-latest'
         run: bun run test
+      # **A longer per-test timeout on the slower runners, and nothing else.**
+      #
+      # Bun's default is 5s. That is plenty on Linux, but the macOS and Windows runners are slower --
+      # the first pdfjs load and a Pi session creation both cross it -- so tests were timing out
+      # having proved nothing about what they test. The assertions are identical; only the clock is
+      # different. Linux keeps the 5s default, so a genuine hang is still caught somewhere.
       - name: unit tests
         if: matrix.os != 'ubuntu-latest'
-        run: bun run test:unit
+        run: bun test tests/unit --timeout 30000
 
   # ---------------------------------------------------------------------------------------------
   # **The binary smoke test, on all three OSes.** This is the point of the matrix.
