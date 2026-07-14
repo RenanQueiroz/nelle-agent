@@ -63,7 +63,6 @@ import {
   serializeSseEnvelope,
   NELLE_ERROR_CODES,
 } from './contracts/contracts.ts';
-import {SLASH_COMMAND_REGISTRY} from './contracts/commands.ts';
 import {
   SETTINGS_REGISTRY,
   settingsPatchSchema,
@@ -86,11 +85,13 @@ import {
   type InvalidModelParam,
 } from './contracts/modelParams.ts';
 import {LlamaOptionCatalogueCache} from './llama/params';
+import type {RouteDeps} from './routes/deps';
 import {
   assertRuntimeRunning,
   assertSupportedAttachments,
   assertSupportedSlashCommand,
 } from './routes/guards';
+import {registerHealthRoutes} from './routes/health';
 
 const useHuggingFaceModelSchema = z.object({
   repoId: z.string().min(1),
@@ -237,26 +238,36 @@ export async function createServer(
   // A timer that keeps the process alive would hang `bun test`.
   uploadSweepTimer.unref();
 
+  const deps: RouteDeps = {
+    paths,
+    store,
+    conversations,
+    hostTools,
+    preferences,
+    settings,
+    modelCache,
+    ggufMetadata,
+    uploads,
+    devices,
+    llama,
+    llamaOptions,
+    hf,
+    pi,
+    log,
+    serverCert,
+    tlsPort,
+  };
+
+  /**
+   * **The order of these calls is the router's match order**, and `Router.dispatch` matches in
+   * insertion order with `:id` compiled to `([^/]+)`. So a literal path segment must be
+   * registered before any `:param` route that would swallow it -- `PATCH /api/models/global-params`
+   * before `PATCH /api/models/:id`, which is the one such pair in the table. It is also the path
+   * order of the served OpenAPI document.
+   */
   const router = new Router();
   registerLlamaProxy(router, store);
-
-  router.get('/api/health', async () =>
-    json({
-      ok: true,
-      app: 'nelle-server',
-      dataDir: paths.dataDir,
-      runtime: await llama.getStatus(),
-    }),
-  );
-
-  // The composer's typeahead and its refusal copy come from here, so
-  // allowlisting a command ships without touching a client.
-  router.get('/api/commands', async () =>
-    json({
-      commands: SLASH_COMMAND_REGISTRY.commands,
-      unsupported: SLASH_COMMAND_REGISTRY.unsupported,
-    }),
-  );
+  registerHealthRoutes(router, deps);
 
   router.get('/api/settings/host-tools', async () =>
     json({
