@@ -461,9 +461,46 @@ let pdfJsPromise: Promise<PdfJsModule> | null = null;
 /**
  * The legacy build is the one that runs without a DOM. Loaded lazily so a server
  * that never sees a PDF never pays for it.
+ *
+ * **The globals are ours to install, and in a compiled binary nobody else can.** pdfjs needs
+ * `DOMMatrix`, and it tries to get it itself, like this (`display/node_utils.js`):
+ *
+ * ```js
+ * const require = process.getBuiltinModule("module").createRequire(import.meta.url);
+ * canvas = require("@napi-rs/canvas");          // <- fails inside `bun build --compile`
+ * if (!globalThis.DOMMatrix) globalThis.DOMMatrix = canvas.DOMMatrix;
+ * ```
+ *
+ * `createRequire(import.meta.url)` resolves against the *module's own path*, and in a compiled
+ * binary that path is inside Bun's virtual bundle — so the require fails, `DOMMatrix` is never
+ * set, and every PDF dies with `DOMMatrix is not defined`. Running from source it works, which
+ * is why no test ever saw it: the unit suite exercises the routes in-process, and only the
+ * artifact we would actually *ship* was broken.
+ *
+ * Bun embeds the native binding perfectly well — a plain `import('@napi-rs/canvas')` works in a
+ * compiled binary (measured). It is pdfjs's *runtime require* that cannot see it. So we import
+ * canvas the way that works and install the globals ourselves, **before** pdfjs loads. It only
+ * assigns them `if (!globalThis.DOMMatrix)`, so ours win and its own failed require becomes a
+ * harmless warning.
  */
 async function loadPdfJs(): Promise<PdfJsModule> {
-  pdfJsPromise ??= import('pdfjs-dist/legacy/build/pdf.mjs');
+  pdfJsPromise ??= (async () => {
+    const canvas = await import('@napi-rs/canvas');
+    const globals = globalThis as Record<string, unknown>;
+    globals.DOMMatrix ??= canvas.DOMMatrix;
+    globals.Path2D ??= canvas.Path2D;
+    globals.ImageData ??= canvas.ImageData;
+
+    // **The worker is the same bug one layer down.** pdfjs runs its parser in a worker, and with
+    // no `workerSrc` it falls back to a "fake worker" that it loads with `await
+    // import('./pdf.worker.mjs')` — a path relative to the module, which in a compiled binary is
+    // `/$bunfs/root/...` and does not exist. But it checks `globalThis.pdfjsWorker` *first*
+    // (`PDFWorker.#mainThreadWorkerMessageHandler`), so handing it the module we imported with a
+    // real specifier — which Bun bundles — means it never looks at the filesystem at all.
+    globals.pdfjsWorker ??= await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
+
+    return import('pdfjs-dist/legacy/build/pdf.mjs');
+  })();
   return pdfJsPromise;
 }
 
