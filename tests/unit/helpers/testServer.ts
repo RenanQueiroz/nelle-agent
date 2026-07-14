@@ -1,6 +1,6 @@
 import {createServer} from '../../../apps/server/src/server.ts';
 import type {NelleServer} from '../../../apps/server/src/server.ts';
-import type {AppPaths} from '../../../apps/server/src/paths.ts';
+import type {AppPaths} from '../../../apps/server/src/lib/paths.ts';
 import type {SettingsGroup} from '../../../apps/server/src/contracts/settings.ts';
 
 /**

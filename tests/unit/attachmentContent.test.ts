@@ -4,8 +4,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import {AppDatabase} from '../../apps/server/src/database.ts';
-import {ConversationRepository} from '../../apps/server/src/conversations.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
+import {ConversationRepository} from '../../apps/server/src/conversations/repository.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {tempPaths} from './helpers/paths.ts';
 import {removeTemp} from './helpers/platform.ts';

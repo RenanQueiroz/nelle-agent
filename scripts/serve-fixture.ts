@@ -4,11 +4,11 @@ import {fileURLToPath} from 'node:url';
 
 import {SessionManager} from '@earendil-works/pi-coding-agent';
 
-import {createAppPaths} from '../apps/server/src/paths';
+import {createAppPaths} from '../apps/server/src/lib/paths';
 import {createServer} from '../apps/server/src/server';
-import {AppDatabase} from '../apps/server/src/database';
-import {ConversationRepository} from '../apps/server/src/conversations';
-import {AppStore} from '../apps/server/src/store';
+import {AppDatabase} from '../apps/server/src/db/database';
+import {ConversationRepository} from '../apps/server/src/conversations/repository';
+import {AppStore} from '../apps/server/src/models/store';
 
 /**
  * The Nelle server the **device tests** drive.

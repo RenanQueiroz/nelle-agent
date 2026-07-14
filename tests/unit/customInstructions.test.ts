@@ -4,11 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import {test} from 'bun:test';
 
-import {AppDatabase} from '../../apps/server/src/database.ts';
-import {appendedSystemPrompts, nelleOperationalPrompt} from '../../apps/server/src/piHarness.ts';
-import {SettingsRepository} from '../../apps/server/src/settings.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
+import {appendedSystemPrompts, nelleOperationalPrompt} from '../../apps/server/src/pi/harness.ts';
+import {SettingsRepository} from '../../apps/server/src/settings/repository.ts';
 import {createTestServer} from './helpers/testServer.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
 import {estimatePromptTokens} from '../../apps/server/src/contracts/piContext.ts';
 import {
   MAX_CUSTOM_INSTRUCTIONS_CHARACTERS,

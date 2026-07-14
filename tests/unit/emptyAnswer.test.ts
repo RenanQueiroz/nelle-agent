@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'bun:test';
 
-import {emptyAnswerError, squeezedReplyBudgetWarning} from '../../apps/server/src/piHarness.ts';
+import {emptyAnswerError, squeezedReplyBudgetWarning} from '../../apps/server/src/pi/harness.ts';
 
 test('a provider error is reported as itself, not reinterpreted', () => {
   const error = emptyAnswerError({

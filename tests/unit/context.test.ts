@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'bun:test';
 
-import {createLiveContextTracker} from '../../apps/server/src/conversations.ts';
+import {createLiveContextTracker} from '../../apps/server/src/conversations/repository.ts';
 
 import {
   CONTEXT_OVERFLOW_RATIO,

@@ -4,15 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import {test, afterEach} from 'bun:test';
 
-import {AppDatabase} from '../../apps/server/src/database.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
 import {
   GgufMetadataRepository,
   blobOidForModelPath,
   parseLocalGguf,
-} from '../../apps/server/src/ggufMetadata.ts';
-import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
-import {recordModelProps} from '../../apps/server/src/modelProps.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
+} from '../../apps/server/src/models/gguf.ts';
+import {ModelCacheRepository} from '../../apps/server/src/models/cache.ts';
+import {recordModelProps} from '../../apps/server/src/llama/modelProps.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
 import {minimalGgufBuffer} from './helpers/gguf.ts';
 
 const originalFetch = globalThis.fetch;
@@ -229,8 +229,8 @@ async function createTempPaths(): Promise<AppPaths> {
 }
 
 test('the search asks for the parsed GGUF, and for the sizes it never got', async () => {
-  const {HuggingFaceService} = await import('../../apps/server/src/huggingface.ts');
-  const {AppStore} = await import('../../apps/server/src/store.ts');
+  const {HuggingFaceService} = await import('../../apps/server/src/models/huggingface.ts');
+  const {AppStore} = await import('../../apps/server/src/models/store.ts');
   const urls: string[] = [];
   globalThis.fetch = (async (input: unknown) => {
     const url = String(input);

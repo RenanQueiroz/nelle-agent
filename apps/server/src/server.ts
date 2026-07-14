@@ -10,40 +10,44 @@ import {
   cloneConversationRequestSchema,
   forkConversationRequestSchema,
 } from './contracts/conversations.ts';
-import {HuggingFaceService} from './huggingface';
-import {LlamaCppManager, ownsModelCache} from './llamacpp';
-import {registerLlamaProxy} from './llamaProxy';
-import {PiHarness, isConversationNotFoundError} from './piHarness';
-import {streamDirectLlama} from './directLlama';
-import {createErrorEvent, normalizeNelleError} from './errors';
-import {Router, applyCors, json, preflightResponse, type Ctx} from './http';
-import {AppStore} from './store';
-import {removeRepoWeights, repoDiskBytes} from './modelWeights';
-import {AppDatabase} from './database';
-import {exportConversationArchive, importConversationArchive} from './conversationArchive';
-import {HostToolRepository} from './hostTools';
-import {PreferencesRepository} from './preferences';
-import {SettingsRepository} from './settings';
-import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './uploads';
-import {DeviceRepository} from './devices';
-import {AUTH_ALLOWLIST, authorizeBearer} from './auth';
-import {buildPairingPayload} from './pairing';
-import {ensureServerCert, localIPv4s, type ServerCert} from './tls';
+import {HuggingFaceService} from './models/huggingface';
+import {LlamaCppManager, ownsModelCache} from './llama/manager';
+import {registerLlamaProxy} from './llama/proxy';
+import {PiHarness, isConversationNotFoundError} from './pi/harness';
+import {streamDirectLlama} from './pi/directLlama';
+import {createErrorEvent, normalizeNelleError} from './http/errors';
+import {Router, applyCors, json, preflightResponse, type Ctx} from './http/router';
+import {AppStore} from './models/store';
+import {removeRepoWeights, repoDiskBytes} from './llama/weights';
+import {AppDatabase} from './db/database';
+import {exportConversationArchive, importConversationArchive} from './conversations/archive';
+import {HostToolRepository} from './pi/hostTools';
+import {PreferencesRepository} from './settings/preferences';
+import {SettingsRepository} from './settings/repository';
+import {UPLOAD_SWEEP_INTERVAL_MS, UploadRepository} from './attachments/uploads';
+import {DeviceRepository} from './auth/devices';
+import {AUTH_ALLOWLIST, authorizeBearer} from './auth/auth';
+import {buildPairingPayload} from './auth/pairing';
+import {ensureServerCert, localIPv4s, type ServerCert} from './auth/tls';
 import {buildOpenApiDocument} from './openapi';
-import {ingestUpload, resolveChatAttachments, UnsupportedAttachmentError} from './attachmentIngest';
+import {
+  ingestUpload,
+  resolveChatAttachments,
+  UnsupportedAttachmentError,
+} from './attachments/ingest';
 import {ATTACHMENT_LIMITS} from './contracts/attachments.ts';
-import {ModelCacheRepository} from './modelCache';
-import {GgufMetadataRepository} from './ggufMetadata';
-import {recordModelProps} from './modelProps';
-import {effectiveContextWindow} from './contextWindow';
+import {ModelCacheRepository} from './models/cache';
+import {GgufMetadataRepository} from './models/gguf';
+import {recordModelProps} from './llama/modelProps';
+import {effectiveContextWindow} from './llama/contextWindow';
 import {
   ConversationRepository,
   LEGACY_DEFAULT_CONVERSATION_ID,
   type ConversationDeleteResources,
-} from './conversations';
-import {resolveConversationModel} from './conversationModel';
-import type {AppPaths} from './paths';
-import type {ChatAttachmentInput, ChatStreamEvent, ConfiguredModel} from './types';
+} from './conversations/repository';
+import {resolveConversationModel} from './conversations/model';
+import type {AppPaths} from './lib/paths';
+import type {ChatAttachmentInput, ChatStreamEvent, ConfiguredModel} from './lib/types';
 import type {NelleError, UploadResponse} from './contracts/contracts.ts';
 import {
   chatRequestSchema,
@@ -78,7 +82,7 @@ import {
   type ModelParamWarning,
   type InvalidModelParam,
 } from './contracts/modelParams.ts';
-import {LlamaOptionCatalogueCache} from './llamaParams';
+import {LlamaOptionCatalogueCache} from './llama/params';
 
 const useHuggingFaceModelSchema = z.object({
   repoId: z.string().min(1),

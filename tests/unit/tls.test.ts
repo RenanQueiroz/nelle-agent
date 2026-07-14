@@ -4,8 +4,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import {ensureServerCert} from '../../apps/server/src/tls.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
+import {ensureServerCert} from '../../apps/server/src/auth/tls.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
 import {removeTemp} from './helpers/platform.ts';
 
 test('ensureServerCert generates, persists, and reuses a stable self-signed cert', async () => {

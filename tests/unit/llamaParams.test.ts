@@ -4,10 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import {test, afterEach} from 'bun:test';
 
-import {LlamaOptionCatalogueCache} from '../../apps/server/src/llamaParams.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
+import {LlamaOptionCatalogueCache} from '../../apps/server/src/llama/params.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
 import {createTestServer} from './helpers/testServer.ts';
-import {AppStore} from '../../apps/server/src/store.ts';
+import {AppStore} from '../../apps/server/src/models/store.ts';
 import {
   getModelsIniSectionValues,
   parseModelsIni,

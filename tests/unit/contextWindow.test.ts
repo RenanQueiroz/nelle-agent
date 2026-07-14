@@ -4,12 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import {test} from 'bun:test';
 
-import {effectiveContextWindow, requireContextWindow} from '../../apps/server/src/contextWindow.ts';
-import {AppDatabase} from '../../apps/server/src/database.ts';
-import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
+import {
+  effectiveContextWindow,
+  requireContextWindow,
+} from '../../apps/server/src/llama/contextWindow.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
+import {ModelCacheRepository} from '../../apps/server/src/models/cache.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
 import {createTestServer} from './helpers/testServer.ts';
-import {AppStore} from '../../apps/server/src/store.ts';
+import {AppStore} from '../../apps/server/src/models/store.ts';
 import {
   MEASURED_AGENT_PROMPT_TOKENS,
   PI_MINIMUM_CONTEXT_TOKENS,
@@ -171,7 +174,8 @@ test('a snapshot without a known window carries usage but no total', async () =>
   const database = new AppDatabase(paths);
   await database.open();
   try {
-    const {ConversationRepository} = await import('../../apps/server/src/conversations.ts');
+    const {ConversationRepository} =
+      await import('../../apps/server/src/conversations/repository.ts');
     const repository = new ConversationRepository(database);
     const conversation = repository.createConversation({title: 'Chat'});
     repository.replaceConversationProjection(conversation.id, {

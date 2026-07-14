@@ -4,9 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import {test} from 'bun:test';
 
-import {AppDatabase} from '../../apps/server/src/database.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
-import {UPLOAD_TTL_MS, UploadRepository} from '../../apps/server/src/uploads.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
+import {UPLOAD_TTL_MS, UploadRepository} from '../../apps/server/src/attachments/uploads.ts';
 
 const HOUR_MS = 60 * 60 * 1000;
 

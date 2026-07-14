@@ -3,9 +3,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {test} from 'bun:test';
 
-import {repoDiskBytes, repoFolderName} from '../../apps/server/src/modelWeights.ts';
-import {AppStore} from '../../apps/server/src/store.ts';
-import type {ConfiguredModel} from '../../apps/server/src/types.ts';
+import {repoDiskBytes, repoFolderName} from '../../apps/server/src/llama/weights.ts';
+import {AppStore} from '../../apps/server/src/models/store.ts';
+import type {ConfiguredModel} from '../../apps/server/src/lib/types.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {createTempPaths} from './helpers/paths.ts';
 import type {ModelCatalogContract} from '../../apps/server/src/contracts/modelCatalog.ts';

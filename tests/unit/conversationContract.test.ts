@@ -5,8 +5,8 @@ import {test} from 'bun:test';
 import {SessionManager} from '@earendil-works/pi-coding-agent';
 import {strFromU8, unzipSync} from 'fflate';
 
-import {AppDatabase} from '../../apps/server/src/database.ts';
-import {ConversationRepository} from '../../apps/server/src/conversations.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
+import {ConversationRepository} from '../../apps/server/src/conversations/repository.ts';
 
 import {
   ARCHIVE_FORMAT,

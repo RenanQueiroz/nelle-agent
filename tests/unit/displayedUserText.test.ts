@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'bun:test';
 
-import {displayedUserText} from '../../apps/server/src/piHarness.ts';
+import {displayedUserText} from '../../apps/server/src/pi/harness.ts';
 
 const typed = 'What colour is the attached image?';
 const enriched = `${typed}\n\nAttached files:\n<attachment name="secret.txt" type="text">\nThe launch code is FALCON-9-BRAVO.\n</attachment>`;

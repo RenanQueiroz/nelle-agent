@@ -5,11 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import {test} from 'bun:test';
 
-import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
-import {AppStore} from '../../apps/server/src/store.ts';
-import {AppDatabase} from '../../apps/server/src/database.ts';
-import {SettingsRepository} from '../../apps/server/src/settings.ts';
+import {LlamaCppManager} from '../../apps/server/src/llama/manager.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
+import {AppStore} from '../../apps/server/src/models/store.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
+import {SettingsRepository} from '../../apps/server/src/settings/repository.ts';
 import {SETTINGS_REGISTRY} from '../../apps/server/src/contracts/settings.ts';
 import {RUNTIME_SETTINGS_SLUG} from '../../apps/server/src/contracts/settingsKeys.ts';
 import {needsPosixShell} from './helpers/platform.ts';

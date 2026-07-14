@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'bun:test';
 
-import {normalizeNelleError} from '../../apps/server/src/errors.ts';
+import {normalizeNelleError} from '../../apps/server/src/http/errors.ts';
 import {
   createEventEnvelope,
   eventEnvelopeSchema,

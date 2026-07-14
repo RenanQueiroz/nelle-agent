@@ -8,31 +8,31 @@ import {Database} from 'bun:sqlite';
 import {SessionManager} from '@earendil-works/pi-coding-agent';
 import {strFromU8, unzipSync} from 'fflate';
 
-import {createAsyncQueue} from '../../apps/server/src/asyncQueue.ts';
+import {createAsyncQueue} from '../../apps/server/src/lib/asyncQueue.ts';
 import {
   ConversationRepository,
   LEGACY_DEFAULT_CONVERSATION_ID,
-} from '../../apps/server/src/conversations.ts';
-import type {SyncConversationEntry} from '../../apps/server/src/conversations.ts';
+} from '../../apps/server/src/conversations/repository.ts';
+import type {SyncConversationEntry} from '../../apps/server/src/conversations/repository.ts';
 import {
   exportConversationArchive,
   importConversationArchive,
-} from '../../apps/server/src/conversationArchive.ts';
-import {beginLlamaRequestCapture} from '../../apps/server/src/llamaProxy.ts';
-import {AppDatabase} from '../../apps/server/src/database.ts';
-import {createErrorEvent} from '../../apps/server/src/errors.ts';
-import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
-import {HostToolRepository} from '../../apps/server/src/hostTools.ts';
-import {SettingsRepository} from '../../apps/server/src/settings.ts';
+} from '../../apps/server/src/conversations/archive.ts';
+import {beginLlamaRequestCapture} from '../../apps/server/src/llama/proxy.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
+import {createErrorEvent} from '../../apps/server/src/http/errors.ts';
+import {ModelCacheRepository} from '../../apps/server/src/models/cache.ts';
+import {HostToolRepository} from '../../apps/server/src/pi/hostTools.ts';
+import {SettingsRepository} from '../../apps/server/src/settings/repository.ts';
 import {TITLES_SETTINGS_SLUG} from '../../apps/server/src/contracts/settings.ts';
 import {
   PiHarness,
   ToolsDisabledError,
   isToolExecutionEvent,
-} from '../../apps/server/src/piHarness.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
+} from '../../apps/server/src/pi/harness.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
 import {createTestServer} from './helpers/testServer.ts';
-import {AppStore} from '../../apps/server/src/store.ts';
+import {AppStore} from '../../apps/server/src/models/store.ts';
 
 /**
  * There is no default context size any more: with no `c`, llama.cpp uses the
@@ -40,7 +40,11 @@ import {AppStore} from '../../apps/server/src/store.ts';
  * because they are about the arithmetic, not about the default.
  */
 const CAPPED_CONTEXT_SIZE = 16_384;
-import type {ChatMessage, ChatStreamEvent, ConfiguredModel} from '../../apps/server/src/types.ts';
+import type {
+  ChatMessage,
+  ChatStreamEvent,
+  ConfiguredModel,
+} from '../../apps/server/src/lib/types.ts';
 import {
   assertConversationTransition,
   canTransitionConversation,

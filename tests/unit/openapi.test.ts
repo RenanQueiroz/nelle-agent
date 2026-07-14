@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {createTestServer} from './helpers/testServer.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
 import {removeTemp} from './helpers/platform.ts';
 
 /**

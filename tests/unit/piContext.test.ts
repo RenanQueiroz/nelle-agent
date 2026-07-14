@@ -4,7 +4,7 @@ import {test} from 'bun:test';
 import {
   performanceFromLlamaTimings,
   sanitizeStoredPerformance,
-} from '../../apps/server/src/llamaThroughput.ts';
+} from '../../apps/server/src/llama/throughput.ts';
 import {
   availableReplyTokens,
   isClampedReplyBudget,

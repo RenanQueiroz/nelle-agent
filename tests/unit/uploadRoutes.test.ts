@@ -3,12 +3,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {test} from 'bun:test';
 
-import {AppDatabase} from '../../apps/server/src/database.ts';
-import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
-import {ConversationRepository} from '../../apps/server/src/conversations.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
+import {ModelCacheRepository} from '../../apps/server/src/models/cache.ts';
+import {ConversationRepository} from '../../apps/server/src/conversations/repository.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {createTempPaths} from './helpers/paths.ts';
-import {AppStore} from '../../apps/server/src/store.ts';
+import {AppStore} from '../../apps/server/src/models/store.ts';
 import {ATTACHMENT_LIMITS} from '../../apps/server/src/contracts/attachments.ts';
 import {imageOnlyPdfBuffer, simplePdfBuffer} from './helpers/pdf.ts';
 

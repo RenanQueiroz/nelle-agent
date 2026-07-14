@@ -4,11 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import {test} from 'bun:test';
 
-import {resolveConversationModel} from '../../apps/server/src/conversationModel.ts';
-import {ConversationRepository} from '../../apps/server/src/conversations.ts';
-import {AppDatabase} from '../../apps/server/src/database.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
-import {AppStore} from '../../apps/server/src/store.ts';
+import {resolveConversationModel} from '../../apps/server/src/conversations/model.ts';
+import {ConversationRepository} from '../../apps/server/src/conversations/repository.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
+import {AppStore} from '../../apps/server/src/models/store.ts';
 
 async function createTempPaths(): Promise<AppPaths> {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-convmodel-'));

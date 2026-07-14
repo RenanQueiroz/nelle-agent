@@ -4,9 +4,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import {AppDatabase} from '../../apps/server/src/database.ts';
-import {DeviceRepository} from '../../apps/server/src/devices.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
+import {DeviceRepository} from '../../apps/server/src/auth/devices.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
 import {removeTemp} from './helpers/platform.ts';
 
 async function makeRepo() {

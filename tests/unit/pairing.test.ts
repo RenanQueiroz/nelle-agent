@@ -1,8 +1,8 @@
 import {test} from 'bun:test';
 import assert from 'node:assert/strict';
 
-import {buildPairingPayload} from '../../apps/server/src/pairing.ts';
-import type {ServerCert} from '../../apps/server/src/tls.ts';
+import {buildPairingPayload} from '../../apps/server/src/auth/pairing.ts';
+import type {ServerCert} from '../../apps/server/src/auth/tls.ts';
 
 const cert = {
   certPem: '-----BEGIN CERTIFICATE-----',

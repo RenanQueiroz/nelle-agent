@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {afterEach, test} from 'bun:test';
 
-import {runCommandStreaming, type CommandOutputLine} from '../../apps/server/src/process.ts';
+import {runCommandStreaming, type CommandOutputLine} from '../../apps/server/src/lib/process.ts';
 import type {RuntimeInstallEvent} from '../../apps/server/src/contracts/runtime.ts';
 import {createTestServer} from './helpers/testServer.ts';
 import {createTempPaths} from './helpers/paths.ts';
@@ -244,8 +244,8 @@ test.skipIf(needsPosixShell)('a second install is refused while one is running',
   // exotic race -- it is the obvious thing to do. Two builds would `rm -rf` each other's
   // `build/` directory.
   const paths = await createTempPaths();
-  const {LlamaCppManager} = await import('../../apps/server/src/llamacpp.ts');
-  const {AppStore} = await import('../../apps/server/src/store.ts');
+  const {LlamaCppManager} = await import('../../apps/server/src/llama/manager.ts');
+  const {AppStore} = await import('../../apps/server/src/models/store.ts');
   const llama = new LlamaCppManager(paths, new AppStore(paths));
 
   // A slow "external install", so the second call lands while the first is still in flight.

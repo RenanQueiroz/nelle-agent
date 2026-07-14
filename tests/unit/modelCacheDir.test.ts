@@ -3,8 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {afterEach, test} from 'bun:test';
 
-import {modelCacheEnv} from '../../apps/server/src/llamacpp.ts';
-import {createAppPaths} from '../../apps/server/src/paths.ts';
+import {modelCacheEnv} from '../../apps/server/src/llama/manager.ts';
+import {createAppPaths} from '../../apps/server/src/lib/paths.ts';
 
 /**
  * Model weights live inside Nelle's data directory, not in the user's global

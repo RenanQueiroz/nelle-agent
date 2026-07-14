@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import {createAppPaths} from '../apps/server/src/paths.ts';
+import {createAppPaths} from '../apps/server/src/lib/paths.ts';
 import {createServer} from '../apps/server/src/server.ts';
 
 // A throwaway data dir so generating the spec never touches real .nelle data.

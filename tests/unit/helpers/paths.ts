@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import type {AppPaths} from '../../../apps/server/src/paths.ts';
+import type {AppPaths} from '../../../apps/server/src/lib/paths.ts';
 
 /** An `AppPaths` rooted at [dataDir]. Nothing is created; the repositories do that. */
 export function tempPaths(dataDir: string): AppPaths {

@@ -6,7 +6,7 @@ import {
   extractGgufQuants,
   isModelGguf,
   type HfSibling,
-} from '../../apps/server/src/huggingface.ts';
+} from '../../apps/server/src/models/huggingface.ts';
 
 /**
  * Which GGUF files a repo offers as models is llama.cpp's decision, not Nelle's:

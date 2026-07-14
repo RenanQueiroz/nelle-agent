@@ -1,4 +1,4 @@
-import {createAppPaths} from './paths';
+import {createAppPaths} from './lib/paths';
 import {createServer} from './server';
 
 const paths = createAppPaths();

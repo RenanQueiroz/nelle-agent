@@ -6,8 +6,8 @@ import {test} from 'bun:test';
 // because `tests/` was outside `tsconfig.include` and Bun erases types at runtime. Import it from
 // the module that actually declares it.
 import type {ConversationEntryProjection} from '../../apps/server/src/contracts/conversations.ts';
-import type {SyncConversationEntry} from '../../apps/server/src/conversations.ts';
-import {prependExistingVariantGroup} from '../../apps/server/src/piHarness.ts';
+import type {SyncConversationEntry} from '../../apps/server/src/conversations/repository.ts';
+import {prependExistingVariantGroup} from '../../apps/server/src/pi/harness.ts';
 
 function projectionEntry(
   input: Partial<ConversationEntryProjection> & {piEntryId: string; role: 'user' | 'assistant'},

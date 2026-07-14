@@ -404,6 +404,12 @@ Project-specific guidance for AI coding agents.
   data), not in code: the registry keeps the default at `1` on purpose, because a fresh
   install on memory-constrained hardware must not try to hold two models. Raise it per
   machine with `PATCH /api/settings/runtime`, which needs a llama.cpp restart.
+- **`apps/server/src` has a shape now, and the root holds exactly three files** — `index.ts` (the
+  listeners), `server.ts` (the router wiring and the auth gate) and `openapi.ts` (the document
+  builder, which consumes `router.routes()` and is *not* a route). Everything else lives in
+  `http/ pi/ conversations/ llama/ models/ attachments/ settings/ auth/ db/ lib/ contracts/`.
+  Two names are easy to collide and must not be: `pi/hostTools.ts` is the host file/shell tool
+  repository, and `openapi.ts` is the builder rather than the route that serves it.
 - The HTTP server is `Bun.serve` over a small native router
   (`apps/server/src/http.ts`), not Fastify: handlers return a `Response`, and it
   owns JSON-body parsing, zod→400 mapping, and CORS. It serves no static files:

@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {afterEach, beforeEach, test} from 'bun:test';
 
-import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';
-import {AppStore} from '../../apps/server/src/store.ts';
+import {LlamaCppManager} from '../../apps/server/src/llama/manager.ts';
+import {AppStore} from '../../apps/server/src/models/store.ts';
 import {createTempPaths} from './helpers/paths.ts';
 import {needsPosixShell} from './helpers/platform.ts';
 

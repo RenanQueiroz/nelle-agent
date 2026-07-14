@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {test} from 'bun:test';
 
-import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';
-import {AppStore} from '../../apps/server/src/store.ts';
+import {LlamaCppManager} from '../../apps/server/src/llama/manager.ts';
+import {AppStore} from '../../apps/server/src/models/store.ts';
 import {
   getModelsIniSectionValues,
   parseModelsIni,

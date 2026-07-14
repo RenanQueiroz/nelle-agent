@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'bun:test';
 
-import {abortSessionRetry} from '../../apps/server/src/piHarness.ts';
+import {abortSessionRetry} from '../../apps/server/src/pi/harness.ts';
 
 test('a void abortRetry does not take the abort down with it', async () => {
   // Pi's in-process AgentSession declares `abortRetry(): void`. Treating the

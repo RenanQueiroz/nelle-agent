@@ -6,13 +6,13 @@ import path from 'node:path';
 import {test} from 'bun:test';
 
 import {MODEL_LOAD_TIMEOUT_MS} from '../../apps/server/src/contracts/router.ts';
-import {ConversationRepository} from '../../apps/server/src/conversations.ts';
-import {AppDatabase} from '../../apps/server/src/database.ts';
-import {LlamaCppManager} from '../../apps/server/src/llamacpp.ts';
-import {ModelCacheRepository} from '../../apps/server/src/modelCache.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
+import {ConversationRepository} from '../../apps/server/src/conversations/repository.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
+import {LlamaCppManager} from '../../apps/server/src/llama/manager.ts';
+import {ModelCacheRepository} from '../../apps/server/src/models/cache.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
 import {createTestServer} from './helpers/testServer.ts';
-import {AppStore} from '../../apps/server/src/store.ts';
+import {AppStore} from '../../apps/server/src/models/store.ts';
 import {slowFactor} from './helpers/platform.ts';
 
 process.env.LOG_LEVEL = 'silent';

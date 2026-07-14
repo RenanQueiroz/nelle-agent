@@ -4,7 +4,7 @@ import {test} from 'bun:test';
 import {
   mergeChatPerformance,
   performanceFromLlamaTimings,
-} from '../../apps/server/src/llamaThroughput.ts';
+} from '../../apps/server/src/llama/throughput.ts';
 
 test('a timings reading beats a slots reading, whichever arrives last', () => {
   const slots = {

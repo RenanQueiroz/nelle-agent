@@ -8,8 +8,8 @@ import {
   resolveChatAttachments,
   UnsupportedAttachmentError,
   type UploadReader,
-} from '../../apps/server/src/attachmentIngest.ts';
-import type {Upload} from '../../apps/server/src/uploads.ts';
+} from '../../apps/server/src/attachments/ingest.ts';
+import type {Upload} from '../../apps/server/src/attachments/uploads.ts';
 import {ATTACHMENT_LIMITS} from '../../apps/server/src/contracts/attachments.ts';
 import {imageOnlyPdfBuffer, multiPagePdfBuffer, simplePdfBuffer} from './helpers/pdf.ts';
 

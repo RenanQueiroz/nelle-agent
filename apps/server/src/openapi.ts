@@ -16,7 +16,7 @@ import {
   refreshRequestSchema,
   uploadResponseSchema,
 } from './contracts/contracts.ts';
-import {AUTH_ALLOWLIST, LOOPBACK_ONLY_PATHS} from './auth';
+import {AUTH_ALLOWLIST, LOOPBACK_ONLY_PATHS} from './auth/auth';
 import {
   chatMessageSchema,
   chatPerformanceSchema,

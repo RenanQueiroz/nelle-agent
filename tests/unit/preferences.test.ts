@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {test} from 'bun:test';
 
-import {AppDatabase} from '../../apps/server/src/database.ts';
-import {PreferencesRepository} from '../../apps/server/src/preferences.ts';
+import {AppDatabase} from '../../apps/server/src/db/database.ts';
+import {PreferencesRepository} from '../../apps/server/src/settings/preferences.ts';
 import {
   DEFAULT_DISPLAY_PREFERENCES,
   DISPLAY_PREFERENCE_KEYS,
@@ -13,8 +13,8 @@ import {
 import {SETTINGS_REGISTRY} from '../../apps/server/src/contracts/settings.ts';
 import {DISPLAY_SETTINGS_SLUG} from '../../apps/server/src/contracts/settingsKeys.ts';
 import {createTestServer} from './helpers/testServer.ts';
-import {AppStore} from '../../apps/server/src/store.ts';
-import type {AppPaths} from '../../apps/server/src/paths.ts';
+import {AppStore} from '../../apps/server/src/models/store.ts';
+import type {AppPaths} from '../../apps/server/src/lib/paths.ts';
 
 test('preferences start empty rather than absent', async () => {
   const paths = await createTempPaths();
