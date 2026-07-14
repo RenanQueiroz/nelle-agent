@@ -44,7 +44,6 @@ import {
   type TitleSettings,
 } from '../contracts/titles.ts';
 import type {
-  AttachmentMetadata,
   ConversationContextUsage,
   ConversationEntryProjection,
   ConversationSnapshot,
@@ -98,6 +97,13 @@ import {
   pushRunAbortedEvents,
 } from './events.ts';
 import {
+  buildPiPrompt,
+  emptyPreparedAttachments,
+  PiAttachments,
+  type PreparedPromptAttachments,
+  summarizePreparedAttachments,
+} from './attachments.ts';
+import {
   displayedUserText,
   findPromptUserEntry,
   prependExistingVariantGroup,
@@ -127,8 +133,6 @@ export {
 
 const PROVIDER_ID = 'nelle-llamacpp';
 const TOOL_ALLOWLIST = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
-const ATTACHMENT_TEXT_INLINE_MAX = 200_000;
-
 type ManagedSession = {
   conversationId: string;
   modelId: string;
@@ -150,26 +154,12 @@ type LlamaRuntimeServices = {
   }>;
 };
 
-type PreparedPromptAttachment = {
-  input: ChatAttachmentInput;
-  metadata: AttachmentMetadata;
-  text?: string;
-  image?: {
-    type: 'image';
-    data: string;
-    mimeType: string;
-  };
-};
-
-type PreparedPromptAttachments = {
-  items: PreparedPromptAttachment[];
-  metadata: AttachmentMetadata[];
-  uploadIds: string[];
-};
-
 export class PiHarness {
   #sessions = new Map<string, ManagedSession>();
   #activeRuns = new Map<string, ActiveRun>();
+
+  /** The bytes a prompt carries: where they land, and whether the model can even see them. */
+  readonly #attachments: PiAttachments;
 
   constructor(
     private readonly paths: AppPaths,
@@ -180,7 +170,28 @@ export class PiHarness {
     private readonly modelCache?: ModelCacheRepository,
     /** Absent only in tests that do not touch a setting; they get the defaults. */
     private readonly settings?: SettingsRepository,
-  ) {}
+  ) {
+    this.#attachments = new PiAttachments(paths, conversations, llamaRuntime, modelCache);
+  }
+
+  private async preparePromptAttachments(
+    conversationId: string,
+    attachments: ChatAttachmentInput[],
+    activeModel: ConfiguredModel,
+  ): Promise<PreparedPromptAttachments> {
+    return this.#attachments.preparePromptAttachments(conversationId, attachments, activeModel);
+  }
+
+  private async assertImageAttachmentsSupported(activeModel: ConfiguredModel): Promise<void> {
+    return this.#attachments.assertImageAttachmentsSupported(activeModel);
+  }
+
+  private async loadAttachmentInputsForEntry(
+    conversationId: string,
+    piEntryId: string,
+  ): Promise<ChatAttachmentInput[]> {
+    return this.#attachments.loadAttachmentInputsForEntry(conversationId, piEntryId);
+  }
 
   private titleSettings(): TitleSettings {
     return readTitleSettings(this.settings?.tryGetGroup(TITLES_SETTINGS_SLUG));
@@ -1320,172 +1331,6 @@ export class PiHarness {
     this.conversations.setConversationStatus(conversationId, 'ready');
   }
 
-  private async preparePromptAttachments(
-    conversationId: string,
-    attachments: ChatAttachmentInput[],
-    activeModel: ConfiguredModel,
-  ): Promise<PreparedPromptAttachments> {
-    if (attachments.length === 0) {
-      return emptyPreparedAttachments();
-    }
-    if (attachments.some(attachment => attachment.kind === 'image')) {
-      await this.assertImageAttachmentsSupported(activeModel);
-    }
-
-    await fs.mkdir(this.paths.attachmentsDir, {recursive: true});
-    const records = [];
-    const prepared: Array<Omit<PreparedPromptAttachment, 'metadata'>> = [];
-    for (const attachment of attachments) {
-      if (attachment.kind === 'image') {
-        const image = decodeImageAttachment(attachment);
-        const storagePath = await this.writeAttachmentBlob(image.buffer, image.mimeType);
-        records.push({
-          uploadId: attachment.id,
-          kind: attachment.kind,
-          name: attachment.name,
-          mimeType: image.mimeType,
-          sizeBytes: attachment.sizeBytes ?? image.buffer.byteLength,
-          storagePath,
-          processing: {
-            status: 'ready',
-            source: 'chat-request',
-            sha256: image.sha256,
-          },
-        });
-        prepared.push({
-          input: attachment,
-          image: {
-            type: 'image',
-            data: image.data,
-            mimeType: image.mimeType,
-          },
-        });
-        continue;
-      }
-
-      const text = (attachment.text ?? '').slice(0, ATTACHMENT_TEXT_INLINE_MAX);
-      records.push({
-        uploadId: attachment.id,
-        kind: attachment.kind,
-        name: attachment.name,
-        mimeType: attachment.mimeType,
-        sizeBytes: attachment.sizeBytes,
-        textContent: text,
-        processing: {
-          status: 'ready',
-          source: 'chat-request',
-          truncated: (attachment.text?.length ?? 0) > text.length,
-        },
-      });
-      prepared.push({
-        input: attachment,
-        text,
-      });
-    }
-
-    const metadata = this.conversations.createPendingAttachments(conversationId, records);
-    return {
-      items: prepared.map((item, index) => ({
-        ...item,
-        metadata: metadata[index]!,
-      })),
-      metadata,
-      uploadIds: attachments.map(attachment => attachment.id),
-    };
-  }
-
-  /**
-   * Refuses image attachments for a model that cannot see them.
-   *
-   * This used to `fetch` llama.cpp `/props` directly, behind the back of both the
-   * `/api/llama` facade and `model_cache` -- a third implementation of a question
-   * the cache exists to answer. It now asks the facade and records the answer, so
-   * a later reader does not have to ask llama.cpp again.
-   *
-   * The behavior is unchanged: props that cannot be fetched are still an error,
-   * because llama.cpp only answers for a model it has loaded at least once. Once
-   * the server loads models itself, this whole method gives way to
-   * `modelCache.getVisionSupport()`.
-   */
-  private async assertImageAttachmentsSupported(activeModel: ConfiguredModel): Promise<void> {
-    const llamaRuntime = this.llamaRuntime;
-    if (!llamaRuntime?.getModelProps) {
-      throw new Error(
-        'Could not verify image support for the selected model. Load the model before sending images.',
-      );
-    }
-
-    let props: LlamaModelProps;
-    try {
-      // Called on the manager, not detached from it: `getModelProps` reaches for
-      // `this.fetchRouterJson`, and an unbound call fails as if llama.cpp were
-      // unreachable.
-      props = await llamaRuntime.getModelProps(llamaRuntimeModelId(activeModel));
-    } catch {
-      throw new Error(
-        'Could not verify image support for the selected model. Load the model before sending images.',
-      );
-    }
-
-    this.modelCache?.upsertModelProps(activeModel.id, props);
-    if (!props.modalities.vision) {
-      throw new Error('Image attachments require a selected model with vision support.');
-    }
-  }
-
-  private async writeAttachmentBlob(buffer: Buffer, mimeType: string): Promise<string> {
-    const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
-    const directory = path.join(this.paths.attachmentsDir, sha256.slice(0, 2));
-    await fs.mkdir(directory, {recursive: true});
-    const absolutePath = path.join(directory, `${sha256}${extensionForMimeType(mimeType)}`);
-    try {
-      await fs.writeFile(absolutePath, buffer, {flag: 'wx'});
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-        throw error;
-      }
-    }
-    return relativeDataPath(this.paths.dataDir, absolutePath);
-  }
-
-  private async loadAttachmentInputsForEntry(
-    conversationId: string,
-    piEntryId: string,
-  ): Promise<ChatAttachmentInput[]> {
-    const stored = this.conversations.getStoredAttachmentsForEntry(conversationId, piEntryId);
-    const inputs: ChatAttachmentInput[] = [];
-    for (const attachment of stored) {
-      if (attachment.kind === 'image') {
-        if (!attachment.storagePath || !attachment.mimeType) {
-          continue;
-        }
-        const absolutePath = resolveDataPath(this.paths.dataDir, attachment.storagePath);
-        const buffer = await fs.readFile(absolutePath);
-        inputs.push({
-          id: crypto.randomUUID(),
-          kind: 'image',
-          name: attachment.name,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes ?? buffer.byteLength,
-          data: buffer.toString('base64'),
-        });
-        continue;
-      }
-      if (!attachment.textContent) {
-        continue;
-      }
-      inputs.push({
-        id: crypto.randomUUID(),
-        kind: attachment.kind,
-        name: attachment.name,
-        mimeType: attachment.mimeType,
-        sizeBytes: attachment.sizeBytes,
-        text: attachment.textContent,
-      });
-    }
-    return inputs;
-  }
-
   private async createBranchedConversation(input: {
     conversationId: string;
     entryId?: string;
@@ -1785,10 +1630,6 @@ export class PiHarness {
   }
 }
 
-function emptyPreparedAttachments(): PreparedPromptAttachments {
-  return {items: [], metadata: [], uploadIds: []};
-}
-
 function renderContextEstimateInput(entries: SyncConversationEntry[]): string {
   return entries
     .map(entry => {
@@ -1801,102 +1642,6 @@ function renderContextEstimateInput(entries: SyncConversationEntry[]): string {
     })
     .filter(Boolean)
     .join('\n\n');
-}
-
-function buildPiPrompt(prompt: string, attachments: PreparedPromptAttachment[]): string {
-  const textAttachments = attachments.filter(item => item.text);
-  if (textAttachments.length === 0) {
-    return prompt;
-  }
-  const renderedAttachments = textAttachments
-    .map(
-      attachment =>
-        `<attachment name="${escapeAttachmentAttribute(attachment.metadata.name)}" type="${
-          attachment.metadata.kind
-        }">\n${attachment.text}\n</attachment>`,
-    )
-    .join('\n\n');
-  return `${prompt}\n\nAttached files:\n${renderedAttachments}`;
-}
-
-function summarizePreparedAttachments(attachments: AttachmentMetadata[]): unknown {
-  if (attachments.length === 0) {
-    return undefined;
-  }
-  return {
-    count: attachments.length,
-    items: attachments.map(attachment => ({
-      id: attachment.id,
-      kind: attachment.kind,
-      name: attachment.name,
-      mimeType: attachment.mimeType,
-      sizeBytes: attachment.sizeBytes,
-    })),
-  };
-}
-
-function decodeImageAttachment(attachment: ChatAttachmentInput): {
-  data: string;
-  mimeType: string;
-  buffer: Buffer;
-  sha256: string;
-} {
-  const parsed = parseImageData(attachment.data ?? '', attachment.mimeType);
-  const buffer = Buffer.from(parsed.data, 'base64');
-  const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
-  return {...parsed, buffer, sha256};
-}
-
-function parseImageData(
-  value: string,
-  fallbackMimeType?: string,
-): {data: string; mimeType: string} {
-  const dataUrlMatch = value.match(/^data:([^;]+);base64,(.+)$/);
-  if (dataUrlMatch) {
-    return {mimeType: dataUrlMatch[1]!, data: dataUrlMatch[2]!};
-  }
-  if (!fallbackMimeType?.startsWith('image/')) {
-    throw new Error('Image attachments require an image MIME type.');
-  }
-  return {mimeType: fallbackMimeType, data: value};
-}
-
-function extensionForMimeType(mimeType: string): string {
-  if (mimeType === 'image/png') {
-    return '.png';
-  }
-  if (mimeType === 'image/webp') {
-    return '.webp';
-  }
-  if (mimeType === 'image/gif') {
-    return '.gif';
-  }
-  return '.jpg';
-}
-
-function relativeDataPath(dataDir: string, absolutePath: string): string {
-  return path.relative(dataDir, absolutePath).split(path.sep).join('/');
-}
-
-function resolveDataPath(dataDir: string, relativePath: string): string {
-  const resolved = path.resolve(dataDir, ...relativePath.split('/'));
-  const normalizedDataDir = path.resolve(dataDir);
-  if (resolved !== normalizedDataDir && !resolved.startsWith(`${normalizedDataDir}${path.sep}`)) {
-    throw new Error('Attachment path escaped the Nelle data directory.');
-  }
-  return resolved;
-}
-
-function escapeAttachmentAttribute(value: string): string {
-  return value.replace(/[<&"]/g, character => {
-    if (character === '<') {
-      return '&lt;';
-    }
-    if (character === '&') {
-      return '&amp;';
-    }
-    return '&quot;';
-  });
 }
 
 function isUserMessageEntry(entry: unknown): boolean {
