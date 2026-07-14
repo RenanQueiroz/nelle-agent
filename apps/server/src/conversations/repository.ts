@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
-import type {Database} from 'bun:sqlite';
 
 import type {
   AttachmentMetadata,
@@ -38,6 +37,15 @@ import {
   selectConversationEntries,
   upsertConversationEntryRow,
 } from './rows';
+import {
+  MAX_PINNED_CONVERSATIONS,
+  countConversationRows,
+  decodeCursor,
+  encodeCursor,
+  hasConversationSearch,
+  queryConversationRows,
+  upsertConversationSearch,
+} from './search';
 
 type AttachmentRow = {
   id: string;
@@ -64,44 +72,6 @@ export type ConversationPage = ConversationListResponse;
 // The row shapes and their statements live in `rows.ts`. Re-exported here so the
 // Pi harness, the archive code and the tests keep their import paths.
 export type {ConversationRow, SyncConversationEntry};
-
-/**
- * Keyset cursor over `(updated_at, id)`.
- *
- * An offset cursor would skip rows: answering a chat bumps its `updated_at`,
- * which reorders the very list being paged through. The last row of the previous
- * page is a stable place to resume from, and `id` breaks ties between two
- * conversations updated in the same millisecond.
- */
-type ConversationCursor = {updatedAt: string; id: string};
-
-/** Pinned rows are few by construction, but refuse to unbound the query. */
-const MAX_PINNED_CONVERSATIONS = 200;
-
-function encodeCursor(cursor: ConversationCursor): string {
-  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
-}
-
-function decodeCursor(value: string | undefined): ConversationCursor | null {
-  if (!value) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown;
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      typeof (parsed as ConversationCursor).updatedAt === 'string' &&
-      typeof (parsed as ConversationCursor).id === 'string'
-    ) {
-      return parsed as ConversationCursor;
-    }
-  } catch {
-    // A cursor is opaque to callers, so a malformed one is indistinguishable
-    // from a stale one. Start over rather than failing the list request.
-  }
-  return null;
-}
 
 export type PiSessionBinding = {
   piSessionPath: string;
@@ -245,17 +215,18 @@ export class ConversationRepository {
     const search = input.search?.trim() || undefined;
     const cursor = decodeCursor(input.cursor);
 
+    const db = this.database.connection;
     const pinned = cursor
       ? []
-      : this.queryConversations({search, pinned: true, limit: MAX_PINNED_CONVERSATIONS});
-    const recent = this.queryConversations({search, pinned: false, limit, cursor});
+      : queryConversationRows(db, {search, pinned: true, limit: MAX_PINNED_CONVERSATIONS});
+    const recent = queryConversationRows(db, {search, pinned: false, limit, cursor});
 
     // Only a full page can have more behind it. A short page is the last one.
     const last = recent.length === limit ? recent[recent.length - 1] : undefined;
     return {
       conversations: [...pinned, ...recent].map(mapConversationListItem),
       nextCursor: last ? encodeCursor({updatedAt: last.updated_at, id: last.id}) : undefined,
-      total: this.countConversations(search),
+      total: countConversationRows(db, search),
     };
   }
 
@@ -1145,105 +1116,8 @@ export class ConversationRepository {
     return rows.map(mapAttachmentRow);
   }
 
-  /**
-   * How many conversations match, across every page.
-   *
-   * The sidebar shows a window; "512 conversations stored locally" must count
-   * the ones that were never fetched.
-   */
-  private countConversations(search: string | undefined): number {
-    const db = this.database.connection;
-    if (search && hasConversationSearch(db)) {
-      try {
-        const row = db
-          .prepare(
-            `SELECT COUNT(*) AS total
-             FROM conversation_search
-             JOIN conversations ON conversations.id = conversation_search.conversation_id
-             WHERE conversation_search MATCH ?`,
-          )
-          .get(search) as {total: number};
-        return row.total;
-      } catch {
-        // Same stricter-syntax fallback as the page query below.
-      }
-    }
-    if (search) {
-      const row = db
-        .prepare(
-          `SELECT COUNT(*) AS total FROM conversations
-           WHERE title LIKE ? ESCAPE '\\'`,
-        )
-        .get(`%${escapeLike(search)}%`) as {total: number};
-      return row.total;
-    }
-    const row = db.prepare('SELECT COUNT(*) AS total FROM conversations').get() as {total: number};
-    return row.total;
-  }
-
-  /**
-   * One page of rows from a single pinned group, newest first.
-   *
-   * FTS5 is only ever a filter here; the ordering always comes from
-   * `conversations`. Paginating by FTS `rank` would overlap pages, because rank
-   * shifts as rows are inserted into the index.
-   */
-  private queryConversations(input: {
-    search?: string;
-    pinned: boolean;
-    limit: number;
-    cursor?: ConversationCursor | null;
-  }): ConversationRow[] {
-    const db = this.database.connection;
-    const conditions = ['conversations.pinned = ?'];
-    const params: (string | number)[] = [input.pinned ? 1 : 0];
-
-    if (input.cursor) {
-      conditions.push('(conversations.updated_at, conversations.id) < (?, ?)');
-      params.push(input.cursor.updatedAt, input.cursor.id);
-    }
-
-    const tail = `ORDER BY conversations.updated_at DESC, conversations.id DESC LIMIT ?`;
-
-    if (input.search && hasConversationSearch(db)) {
-      try {
-        return db
-          .prepare(
-            `SELECT conversations.*
-             FROM conversation_search
-             JOIN conversations ON conversations.id = conversation_search.conversation_id
-             WHERE conversation_search MATCH ? AND ${conditions.join(' AND ')}
-             ${tail}`,
-          )
-          .all(input.search, ...params, input.limit) as ConversationRow[];
-      } catch {
-        // FTS query syntax is stricter than ordinary user search input. Fall
-        // back to LIKE rather than failing the list endpoint.
-      }
-    }
-
-    if (input.search) {
-      conditions.push(`conversations.title LIKE ? ESCAPE '\\'`);
-      params.push(`%${escapeLike(input.search)}%`);
-    }
-
-    return db
-      .prepare(
-        `SELECT conversations.* FROM conversations WHERE ${conditions.join(' AND ')} ${tail}`,
-      )
-      .all(...params, input.limit) as ConversationRow[];
-  }
-
   private upsertSearch(conversationId: string, title: string): void {
-    const db = this.database.connection;
-    if (!hasConversationSearch(db)) {
-      return;
-    }
-    db.prepare('DELETE FROM conversation_search WHERE conversation_id = ?').run(conversationId);
-    db.prepare('INSERT INTO conversation_search(conversation_id, title) VALUES (?, ?)').run(
-      conversationId,
-      title,
-    );
+    upsertConversationSearch(this.database.connection, conversationId, title);
   }
 
   private isAttachmentStorageReferencedByOtherConversation(
@@ -1329,13 +1203,6 @@ function buildModelList(models: ConfiguredModel[]): ModelListItem[] {
   }));
 }
 
-function hasConversationSearch(db: Database): boolean {
-  const row = db
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'conversation_search'")
-    .get() as {name: string} | undefined;
-  return row != null;
-}
-
 async function piSessionFileError(sessionPath: string | null): Promise<string | null> {
   if (!sessionPath) {
     return null;
@@ -1385,8 +1252,4 @@ async function readFirstLine(filePath: string): Promise<string> {
   } finally {
     await handle.close();
   }
-}
-
-function escapeLike(value: string): string {
-  return value.replace(/[%_]/g, character => `\\${character}`);
 }
