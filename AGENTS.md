@@ -421,6 +421,16 @@ Project-specific guidance for AI coding agents.
   `tsc`, unit tests). There is no web build and no browser suite to run; the
   client's own checks are `flutter analyze`, `flutter test`, and the device tiers
   (`bun run test:device`, `bun run test:device:slow`).
+- **`tsc` typechecks `tests/` and `scripts/` too, and that is load-bearing.** They were
+  outside `tsconfig.include` until they were added, so **a stale import in a test failed at
+  `bun test` runtime and never at `bun run check`** — which is exactly backwards when a
+  refactor moves a value between modules, because Bun erases types and only *notices* at
+  the moment the test runs. Turning `tsc` on them surfaced 36 real errors, including a test
+  importing `ConversationEntryProjection` from a module that never exported it, a mock
+  returning `null` where its own contract declared `string`, a factory whose spread
+  silently overwrote two keys it had just set, and `.catch(e => e)` idioms that would have
+  passed a *resolved* promise into an error assertion. **Do not narrow the include list
+  again.** If a type is wrong, fix the type — never `any`, never `@ts-expect-error`.
 - Formatting and linting use Oxfmt and Oxlint. Run `bun run format` for
   formatter writes and `bun run lint:fix` for safe lint fixes.
 - **Stopping the dev server: two traps, and together they look exactly like a

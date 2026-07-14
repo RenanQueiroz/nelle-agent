@@ -36,23 +36,26 @@ test('/props beats the configured cap, and the cap beats nothing', () => {
   });
 
   // Never loaded, never capped.
-  assert.equal(effectiveContextWindow({...MODEL, params: {}}), null);
-  assert.equal(effectiveContextWindow({...MODEL, params: {}}, cache()), null);
+  assert.equal(effectiveContextWindow({...MODEL, params: {extra: {}}}), null);
+  assert.equal(effectiveContextWindow({...MODEL, params: {extra: {}}}, cache()), null);
 
   // Capped but never loaded: the cap is the best prediction Nelle has.
-  assert.equal(effectiveContextWindow({...MODEL, params: {contextSize: 8192}}, cache()), 8192);
+  assert.equal(
+    effectiveContextWindow({...MODEL, params: {contextSize: 8192, extra: {}}}, cache()),
+    8192,
+  );
 
   // Loaded: llama.cpp's own answer wins, even against a cap that disagrees.
   assert.equal(
-    effectiveContextWindow({...MODEL, params: {contextSize: 8192}}, cache(262_144)),
+    effectiveContextWindow({...MODEL, params: {contextSize: 8192, extra: {}}}, cache(262_144)),
     262_144,
   );
 });
 
 test('Pi is never handed a window nobody measured', () => {
-  assert.equal(requireContextWindow({...MODEL, params: {contextSize: 4096}}), 4096);
+  assert.equal(requireContextWindow({...MODEL, params: {contextSize: 4096, extra: {}}}), 4096);
   assert.throws(
-    () => requireContextWindow({...MODEL, params: {}}),
+    () => requireContextWindow({...MODEL, params: {extra: {}}}),
     /Model Q4 has no known context window/,
   );
 });
@@ -142,6 +145,8 @@ test('an empty params object clears every global param; an absent one does not',
 
     // The whole point: the cap is removable. `{}` means "the user removed
     // everything", and used to answer `{"c":"16384"}`.
+    // NOTE: this is the API *payload* (a flat `Record<string, string>`), not the `ModelParams`
+    // type. `{}` here means "the user removed every global param" -- it must stay `{}`.
     const cleared = await patch({params: {}});
     assert.equal(cleared.statusCode, 200);
     assert.deepEqual(cleared.json<{globalModelParams: unknown}>().globalModelParams, {});

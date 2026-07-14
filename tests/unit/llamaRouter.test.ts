@@ -688,7 +688,13 @@ test('model settings endpoints edit params, duplicate, and remove sections', asy
       payload: {params: {c: '16384', threads: '6'}},
     });
     assert.equal(globalResponse.statusCode, 200);
-    assert.deepEqual(globalResponse.json().globalModelParams, {c: '16384', threads: '6'});
+    assert.deepEqual(
+      globalResponse.json<{globalModelParams: Record<string, string>}>().globalModelParams,
+      {
+        c: '16384',
+        threads: '6',
+      },
+    );
 
     const invalidResponse = await app.inject({
       method: 'PATCH',
@@ -826,7 +832,9 @@ async function createMockRouter(
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   assert.equal(typeof address, 'object');
-  assert.ok(address);
+  // `server.address()` is `string | AddressInfo | null` -- a string for a unix socket. This helper
+  // only ever listens on TCP, so assert that rather than reaching for `.port` on the union.
+  assert.ok(address && typeof address === 'object', 'expected a TCP address, not a unix socket');
 
   return {
     port: address.port,

@@ -7,10 +7,25 @@ import path from 'node:path';
 import {createTestServer} from './helpers/testServer.ts';
 import type {AppPaths} from '../../apps/server/src/paths.ts';
 
+/**
+ * Just enough of an OpenAPI schema object for what this file inspects.
+ *
+ * It was `{oneOf?: unknown[]}`, which does not describe `.properties` — and the test reads
+ * `.properties?.attachments?.items` anyway. That typechecked nowhere, because `tests/` sat outside
+ * `tsconfig.include`. Declared honestly rather than widened to `any`: if the test starts inspecting
+ * a new field, it should have to say so here.
+ */
+type OpenApiSchema = {
+  oneOf?: unknown[];
+  properties?: Record<string, OpenApiSchema>;
+  items?: unknown;
+  $ref?: string;
+};
+
 type OpenApiDoc = {
   openapi: string;
   components: {
-    schemas: Record<string, {oneOf?: unknown[]}>;
+    schemas: Record<string, OpenApiSchema>;
     securitySchemes: Record<string, unknown>;
   };
   paths: Record<

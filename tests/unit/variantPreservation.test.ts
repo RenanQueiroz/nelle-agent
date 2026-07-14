@@ -1,21 +1,24 @@
 import assert from 'node:assert/strict';
 import {test} from 'bun:test';
 
-import type {
-  ConversationEntryProjection,
-  SyncConversationEntry,
-} from '../../apps/server/src/conversations.ts';
+// `ConversationEntryProjection` belongs to the shared contract; `conversations.ts` imports it but
+// does not re-export it. This test used to take it from there anyway — which typechecked nowhere,
+// because `tests/` was outside `tsconfig.include` and Bun erases types at runtime. Import it from
+// the module that actually declares it.
+import type {ConversationEntryProjection} from '../../packages/shared/src/conversations.ts';
+import type {SyncConversationEntry} from '../../apps/server/src/conversations.ts';
 import {prependExistingVariantGroup} from '../../apps/server/src/piHarness.ts';
 
 function projectionEntry(
   input: Partial<ConversationEntryProjection> & {piEntryId: string; role: 'user' | 'assistant'},
 ): ConversationEntryProjection {
+  // Defaults first, `...input` last so a caller can override any of them. `piEntryId` and `role`
+  // are NOT listed: the signature makes them required, so the spread always supplies them, and
+  // assigning them here as well was dead code that `tsc` flagged the moment it could see this file.
   return {
     conversationId: 'c',
-    piEntryId: input.piEntryId,
     parentPiEntryId: input.parentPiEntryId ?? null,
     entryType: 'message',
-    role: input.role,
     textPreview: input.textPreview ?? '',
     createdAt: input.createdAt ?? '2026-01-01T00:00:00.000Z',
     ...input,

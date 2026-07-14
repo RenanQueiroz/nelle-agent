@@ -13,6 +13,26 @@ import type {Upload} from '../../apps/server/src/uploads.ts';
 import {ATTACHMENT_LIMITS} from '../../packages/shared/src/attachments.ts';
 import {imageOnlyPdfBuffer, multiPagePdfBuffer, simplePdfBuffer} from './helpers/pdf.ts';
 
+/**
+ * Awaits a rejection and hands back the `Error`.
+ *
+ * The `.catch(thrown => thrown)` idiom these tests used types the result as
+ * `Error | <the success value>`, so `.message` does not exist on it — which is what `tsc` finally
+ * caught once `tests/` entered `tsconfig.include`. Worse, it **silently tolerates the call
+ * succeeding**: you would get the success value, and the assertion would fail with something
+ * confusing rather than "this was supposed to be refused". This fails loudly instead.
+ */
+async function rejection(promise: Promise<unknown>): Promise<Error> {
+  try {
+    await promise;
+  } catch (thrown) {
+    return thrown as Error;
+  }
+  throw new assert.AssertionError({
+    message: 'expected the call to be refused, but it resolved',
+  });
+}
+
 test('a text file is classified, read, and kept', async () => {
   const result = await ingestUpload({
     name: 'notes.md',
@@ -276,9 +296,7 @@ test('a scan too long for the context is refused with the arithmetic', async () 
       pageCount: 6,
     },
   ]);
-  const error = await resolveChatAttachments(reader, [{uploadId: 'scan'}], VISION_MODEL).catch(
-    (thrown: Error) => thrown,
-  );
+  const error = await rejection(resolveChatAttachments(reader, [{uploadId: 'scan'}], VISION_MODEL));
   assert.match(error.message, /scan\.pdf has no text layer, so its 6 pages must be read as images/);
   assert.match(error.message, /7,200 tokens/);
   assert.match(error.message, /16,384 token context window fits about 2 images/);
@@ -302,9 +320,7 @@ test('more images than the context can afford are refused before the run', async
   const twoFit = await resolveChatAttachments(reader, references.slice(0, 2), VISION_MODEL);
   assert.equal(twoFit.attachments.length, 2);
 
-  const error = await resolveChatAttachments(reader, references, VISION_MODEL).catch(
-    (thrown: Error) => thrown,
-  );
+  const error = await rejection(resolveChatAttachments(reader, references, VISION_MODEL));
   assert.match(error.message, /3 images need 3,600 tokens/);
   assert.match(error.message, /fits about 2 images/);
 });
@@ -361,10 +377,12 @@ test('the hard page cap still applies when the window is unknown', async () => {
       bytes: simplePdfBuffer('x'),
     },
   ]);
-  const error = await resolveChatAttachments(reader, [{uploadId: 'p1'}], {
-    contextSize: null,
-    visionSupport: true,
-  }).catch((thrown: Error) => thrown);
+  const error = await rejection(
+    resolveChatAttachments(reader, [{uploadId: 'p1'}], {
+      contextSize: null,
+      visionSupport: true,
+    }),
+  );
   assert.match(error.message, /renders at most 20 pages per document/);
   // And it does not name a context window it never measured.
   assert.doesNotMatch(error.message, /token context window/);

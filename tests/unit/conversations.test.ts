@@ -1732,7 +1732,10 @@ test('conversation export and import round trip Pi history and attachments', asy
       payload: Buffer.from(duplicateZipEntry(new Uint8Array(archiveBytes), 'manifest.json')),
     });
     assert.equal(duplicateArchiveResponse.statusCode, 400);
-    assert.match(duplicateArchiveResponse.json().error.message, /duplicate file entry/);
+    assert.match(
+      duplicateArchiveResponse.json<{error: {message: string}}>().error.message,
+      /duplicate file entry/,
+    );
   } finally {
     await app.close();
   }
@@ -1841,7 +1844,7 @@ test('Pi title generation emits title run lifecycle events', async () => {
   const database = new AppDatabase(paths);
   await database.open();
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () =>
+  globalThis.fetch = (async (_input: string | URL | Request, _init?: RequestInit) =>
     new Response(JSON.stringify({choices: [{message: {content: 'Local Model Setup'}}]}), {
       status: 200,
       headers: {'content-type': 'application/json'},
@@ -1961,7 +1964,7 @@ test('a failed llm title falls back to the first line instead of leaving "New ch
   const database = new AppDatabase(paths);
   await database.open();
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () =>
+  globalThis.fetch = (async (_input: string | URL | Request, _init?: RequestInit) =>
     new Response('upstream unavailable', {status: 502})) as typeof fetch;
   try {
     const repository = new ConversationRepository(database);
@@ -2009,7 +2012,7 @@ test('Pi title generation skips non-first-turn and user-named conversations', as
   await database.open();
   const originalFetch = globalThis.fetch;
   let fetchCalls = 0;
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (async (_input: string | URL | Request, _init?: RequestInit) => {
     fetchCalls += 1;
     return new Response(JSON.stringify({choices: [{message: {content: 'Should Not Use'}}]}), {
       status: 200,
@@ -2393,7 +2396,11 @@ test('Pi compact stream reports busy conversations with stable error codes', asy
     const compactGate = new Promise<void>(resolve => {
       releaseCompact = resolve;
     });
-    const fakeSession = {
+    // Typed against the surface `streamCompactConversation` actually uses, so the mock cannot drift
+    // from it silently. It used to return `getLeafId: () => null`, which the contract
+    // (`CompactStreamHarness`) declares as `string` — the mock was lying, and nothing could see it
+    // while `tests/` sat outside `tsconfig.include`.
+    const fakeSession: Awaited<ReturnType<CompactStreamHarness['ensureSession']>> = {
       messages: [{role: 'user', content: 'Keep this context.'}],
       sessionFile: path.join(paths.piSessionsDir, 'busy-compact.jsonl'),
       sessionId: 'pi-busy-compact',
@@ -2402,7 +2409,7 @@ test('Pi compact stream reports busy conversations with stable error codes', asy
       },
       sessionManager: {
         getBranch: () => [],
-        getLeafId: () => null,
+        getLeafId: () => 'pi-busy-compact-leaf',
       },
     };
     const harness = new PiHarness(paths, store, repository, new HostToolRepository(database), {
@@ -2799,7 +2806,11 @@ test('a snapshot refresh after a regenerate does not drop the older answer', asy
       name: 'Model Q4',
       presetName: 'repo/model:UD-Q4_K_M',
       source: 'huggingface',
-      params: {contextSize: 8192},
+      params: {contextSize: 8192, extra: {}},
+      // Required by `ConfiguredModel`. A fixture that has never loaded is not pinned (Nelle
+      // only pins on a successful load) and has nothing on disk.
+      pinned: false,
+      diskBytes: null,
       createdAt: '2026-07-08T12:00:00.000Z',
     };
     // Pi's active branch after a regenerate holds only the replayed turn.
@@ -2921,7 +2932,11 @@ test('Pi sync preserves existing answer variants when regenerating again', async
       source: 'huggingface',
       repoId: 'repo/model',
       quant: 'UD-Q4_K_M',
-      params: {contextSize: 8192},
+      params: {contextSize: 8192, extra: {}},
+      // Required by `ConfiguredModel`. A fixture that has never loaded is not pinned (Nelle
+      // only pins on a successful load) and has nothing on disk.
+      pinned: false,
+      diskBytes: null,
       createdAt: '2026-07-08T12:00:00.000Z',
     };
     const assistantMessage: ChatMessage = {
@@ -3674,7 +3689,11 @@ function createTestModel(): ConfiguredModel {
     source: 'huggingface',
     repoId: 'repo/model',
     quant: 'UD-Q4_K_M',
-    params: {contextSize: 8192},
+    params: {contextSize: 8192, extra: {}},
+    // Required by `ConfiguredModel`. A fixture that has never loaded is not pinned (Nelle
+    // only pins on a successful load) and has nothing on disk.
+    pinned: false,
+    diskBytes: null,
     createdAt: '2026-07-08T12:00:00.000Z',
   };
 }

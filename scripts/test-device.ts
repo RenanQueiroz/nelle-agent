@@ -17,6 +17,11 @@
  * no Keystore.
  */
 
+// This file has no imports, so TypeScript would classify it as a *script* rather than a module —
+// and top-level `await` is illegal in a script (TS1375). It uses top-level `await` throughout
+// (Bun runs it happily), so declare it a module. Bun does not care; `tsc` does.
+export {};
+
 const port = Number(process.env.NELLE_FIXTURE_PORT ?? 8797);
 const args = process.argv.slice(2);
 
