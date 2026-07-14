@@ -69,16 +69,11 @@ import {
   assertSupportedSlashCommand,
 } from './routes/guards';
 import {registerHealthRoutes} from './routes/health';
+import {registerHuggingFaceRoutes} from './routes/huggingface';
 import {registerLlamaRoutes} from './routes/llama';
-import {registerModelRoutes, writePresetAndReloadRouter} from './routes/models';
+import {registerModelRoutes} from './routes/models';
 import {registerRuntimeRoutes} from './routes/runtime';
 import {registerSettingsRoutes} from './routes/settings';
-
-const useHuggingFaceModelSchema = z.object({
-  repoId: z.string().min(1),
-  quant: z.string().min(1),
-  name: z.string().optional(),
-});
 
 const compactConversationSchema = z
   .object({
@@ -224,17 +219,7 @@ export async function createServer(
   registerRuntimeRoutes(router, deps);
   registerLlamaRoutes(router, deps);
   registerModelRoutes(router, deps);
-
-  router.get('/api/huggingface/search', async ctx =>
-    json({results: await hf.searchGgufModels(ctx.query.q ?? '')}),
-  );
-
-  router.post('/api/huggingface/use', async ctx => {
-    const body = useHuggingFaceModelSchema.parse(await ctx.body());
-    const model = await hf.useHuggingFaceGguf(body);
-    await writePresetAndReloadRouter(llama, store, modelCache);
-    return json({model});
-  });
+  registerHuggingFaceRoutes(router, deps);
 
   router.get('/api/conversations', async ctx => {
     const query = listConversationsQuerySchema.parse(ctx.query);
