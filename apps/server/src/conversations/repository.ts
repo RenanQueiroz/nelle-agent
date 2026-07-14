@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
 
 import type {
   AttachmentMetadata,
@@ -46,6 +45,12 @@ import {
   queryConversationRows,
   upsertConversationSearch,
 } from './search';
+import type {ConversationDiagnostics} from './sessionFile';
+import {
+  collectConversationDiagnostics,
+  piSessionFileError,
+  selectConversationsWithPiSession,
+} from './sessionFile';
 
 type AttachmentRow = {
   id: string;
@@ -123,18 +128,8 @@ export type ConversationDeleteResources = {
   attachmentStoragePaths: string[];
 };
 
-export type ConversationDiagnostics = {
-  conversationId: string;
-  status: ConversationStatus;
-  piSessionPath?: string;
-  piSessionId?: string;
-  exists: boolean;
-  reason?: string;
-  sizeBytes?: number;
-  projectionEntryCount: number;
-  attachmentCount: number;
-  toolAuditCount: number;
-};
+// The Pi session file's own checks live in `sessionFile.ts`.
+export type {ConversationDiagnostics};
 
 export class ConversationRepository {
   /** Answers "can this model see images?" without a live router. */
@@ -255,13 +250,7 @@ export class ConversationRepository {
   }
 
   async markInvalidPiSessionsUnavailable(): Promise<number> {
-    const rows = this.database.connection
-      .prepare(
-        `SELECT * FROM conversations
-         WHERE status != 'unavailable'
-           AND pi_session_path IS NOT NULL`,
-      )
-      .all() as ConversationRow[];
+    const rows = selectConversationsWithPiSession(this.database.connection);
     let changed = 0;
     for (const row of rows) {
       if (await piSessionFileError(row.pi_session_path)) {
@@ -295,47 +284,12 @@ export class ConversationRepository {
     return piSessionFileError(row.pi_session_path);
   }
 
-  /**
-   * Everything the user needs to decide between repairing, rebuilding, and
-   * deleting a conversation whose Pi session file went missing.
-   */
   async getConversationDiagnostics(id: string): Promise<ConversationDiagnostics | null> {
     const row = this.getConversation(id);
     if (!row) {
       return null;
     }
-    const db = this.database.connection;
-    const count = (sql: string): number =>
-      (db.prepare(sql).get(id) as {total: number} | undefined)?.total ?? 0;
-
-    const reason = await piSessionFileError(row.pi_session_path);
-    let sizeBytes: number | undefined;
-    if (row.pi_session_path) {
-      try {
-        sizeBytes = (await fs.stat(row.pi_session_path)).size;
-      } catch {
-        sizeBytes = undefined;
-      }
-    }
-
-    return {
-      conversationId: row.id,
-      status: row.status,
-      piSessionPath: row.pi_session_path ?? undefined,
-      piSessionId: row.pi_session_id ?? undefined,
-      exists: reason == null,
-      reason: reason ?? undefined,
-      sizeBytes,
-      projectionEntryCount: count(
-        'SELECT COUNT(*) AS total FROM conversation_entry_projection WHERE conversation_id = ?',
-      ),
-      attachmentCount: count(
-        'SELECT COUNT(*) AS total FROM message_attachments WHERE conversation_id = ?',
-      ),
-      toolAuditCount: count(
-        'SELECT COUNT(*) AS total FROM tool_audit_events WHERE conversation_id = ?',
-      ),
-    };
+    return collectConversationDiagnostics(this.database.connection, row);
   }
 
   /**
@@ -1201,55 +1155,4 @@ function buildModelList(models: ConfiguredModel[]): ModelListItem[] {
     id: model.id,
     alias: model.name,
   }));
-}
-
-async function piSessionFileError(sessionPath: string | null): Promise<string | null> {
-  if (!sessionPath) {
-    return null;
-  }
-  try {
-    const stat = await fs.stat(sessionPath);
-    if (!stat.isFile()) {
-      return 'Pi session path is not a file.';
-    }
-    const firstLine = await readFirstLine(sessionPath);
-    if (!firstLine) {
-      return 'Pi session file is empty.';
-    }
-    // These strings reach the user in the repair dialog, so a raw parser message
-    // like `Unexpected token 'o', "not-json" is not valid JSON` will not do.
-    let header: unknown;
-    try {
-      header = JSON.parse(firstLine) as unknown;
-    } catch {
-      return 'Pi session file is not valid JSON.';
-    }
-    if (
-      !header ||
-      typeof header !== 'object' ||
-      (header as {type?: unknown}).type !== 'session' ||
-      typeof (header as {id?: unknown}).id !== 'string'
-    ) {
-      return 'Pi session file is missing a valid session header.';
-    }
-    return null;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return 'Pi session file is missing.';
-    }
-    return error instanceof Error ? error.message : String(error);
-  }
-}
-
-async function readFirstLine(filePath: string): Promise<string> {
-  const handle = await fs.open(filePath, 'r');
-  try {
-    const buffer = Buffer.alloc(64 * 1024);
-    const {bytesRead} = await handle.read(buffer, 0, buffer.length, 0);
-    const chunk = buffer.subarray(0, bytesRead).toString('utf8');
-    const newlineIndex = chunk.search(/\r?\n/);
-    return (newlineIndex >= 0 ? chunk.slice(0, newlineIndex) : chunk).trim();
-  } finally {
-    await handle.close();
-  }
 }
