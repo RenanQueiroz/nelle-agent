@@ -4,5 +4,21 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!--
+	  REQUIRED, and its absence made the macOS app completely non-functional.
+
+	  Nelle is a *client*: it talks to the Nelle server over loopback (127.0.0.1:8787) and, when
+	  paired, over the LAN. The macOS App Sandbox blocks every outbound connection without this
+	  entitlement, and Flutter's default template does not include it.
+
+	  Without it the app builds, launches, and then fails every request with
+	  `SocketException: Connection failed (OS Error: Operation not permitted, errno = 1)`. Not a
+	  degraded app -- a useless one.
+
+	  Nobody noticed because macOS had never been built or run. CI, on a Mac this project does not
+	  own, failed 14 of 15 device tests on its first attempt and found it.
+	-->
+	<key>com.apple.security.network.client</key>
+	<true/>
 </dict>
 </plist>

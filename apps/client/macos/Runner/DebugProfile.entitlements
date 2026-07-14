@@ -6,7 +6,18 @@
 	<true/>
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
+	<!--
+	  `network.server` is Flutter's default: it lets the Dart VM service listen, so a debugger (and
+	  Marionette) can attach.
+
+	  `network.client` is NOT in Flutter's default template, and Nelle cannot work without it: it is
+	  a *client*, and the App Sandbox blocks every outbound connection. Without it the app launches
+	  and then fails every request with `SocketException: ... Operation not permitted`. See
+	  `Release.entitlements` -- the release build was missing network access entirely.
+	-->
 	<key>com.apple.security.network.server</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>
 </plist>

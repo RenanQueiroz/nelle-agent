@@ -475,6 +475,21 @@ Project-specific guidance for AI coding agents.
     because no job needs one. Default `permissions: contents: read`; only the release job may write.
     **Never a self-hosted runner on a public repo**: a fork's PR would execute arbitrary code on
     your machine.
+- **The macOS app needs `com.apple.security.network.client`, and Flutter's template does not give
+  it to you.** Nelle is a *client*: it talks to the server over loopback and, when paired, the LAN.
+  The macOS **App Sandbox blocks every outbound connection** without that entitlement — so the app
+  builds, launches, and then fails every request with `SocketException: Connection failed (OS Error:
+  Operation not permitted, errno = 1)`. Not degraded: **useless**. The release build had *no*
+  network entitlement at all and the debug build had only `network.server` (the Dart VM service).
+  Nobody noticed because macOS had never been built or run; CI failed 14 of 15 device tests on its
+  first attempt and found it. Both `macos/Runner/{Debug,Release}.entitlements` now carry it.
+- **A lazy `ListView` never builds a row that is far off-screen, so *waiting* for it cannot work.**
+  This is the inverse of the usual trap and it bites on exactly the platforms with a shorter
+  viewport: `tapAt` used to `pumpUntil` first, which sat for 15s waiting for a widget nothing would
+  ever build. It **scrolls first** now (`scrollUntilVisible`), then waits. Invisible on a tall
+  desktop window where the settings list happens to fit; fatal on a phone, on Windows, and on any
+  shorter window — 14 of 15 tests passed on Windows and the one reaching for the Models section
+  below the fold timed out.
 - **The unit suite runs on Windows and macOS in CI, and the first run found only *harness* bugs —
   never a product bug.** Worth knowing, because a red Windows job looks alarming and was not:
   - **POSIX shell fixtures do not run on Windows.** Several tests stand a `#!/bin/sh` script in for a

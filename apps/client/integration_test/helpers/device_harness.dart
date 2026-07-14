@@ -268,15 +268,37 @@ Future<void> typeInto(WidgetTester tester, Finder field, String text) async {
 
 /// Scrolls [finder] into view, then taps it.
 ///
-/// `find.byKey(...)` matches a widget in the *tree*, and a lazy `ListView` builds a little past the
-/// viewport — so a finder can succeed on something the user cannot see, and `tap()` then dispatches
-/// a hit test at coordinates that are off-screen and hits nothing. It fails silently: the tap
-/// simply does not happen, and the next `pumpUntil` times out on a screen that was never opened.
+/// **There are two failures here, and they are opposites.**
 ///
-/// (This is the same thing the Marionette drives have always needed a `scroll_to` for. The settings
-/// list is the usual victim: Models and llama.cpp are below the fold on a 1280px window and far
-/// below it on a phone.)
+/// 1. `find.byKey(...)` matches a widget in the *tree*, and a lazy `ListView` builds a little past
+///    the viewport — so a finder can succeed on something the user cannot see, and `tap()` then
+///    dispatches a hit test at off-screen coordinates and hits nothing, *silently*.
+///
+/// 2. But a lazy `ListView` **never builds a row that is far enough off-screen**, so for those the
+///    finder does not match *at all* — and waiting cannot help, because nothing will build it until
+///    something scrolls. An earlier version of this helper called [pumpUntil] first, which meant it
+///    sat there for 15 seconds waiting for a widget that could not appear.
+///
+/// That difference is invisible on a tall desktop window (where the settings list happens to fit)
+/// and fatal on a phone or a shorter window. It is exactly what CI found the first time this suite
+/// ran on Windows and Android: 14 of 15 tests passed, and the one that reached for the Models
+/// section below the fold timed out.
+///
+/// So: **scroll first, and only then wait.** `scrollUntilVisible` drives the list until the row is
+/// built; if there is no scrollable ancestor it is a no-op and the plain wait below still applies.
 Future<void> tapAt(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isEmpty) {
+    final scrollable = find.byType(Scrollable);
+    if (scrollable.evaluate().isNotEmpty) {
+      await tester.scrollUntilVisible(
+        finder,
+        200,
+        scrollable: scrollable.first,
+        maxScrolls: 60,
+      );
+      await tester.pumpAndSettle();
+    }
+  }
   await pumpUntil(tester, finder);
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
