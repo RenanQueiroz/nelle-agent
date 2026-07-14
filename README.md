@@ -296,7 +296,7 @@ build-config change also builds, and a docs-only push skips entirely.
 ```bash
 bun run format:check
 bun run lint
-bun run check       # tsc, over apps/ packages/ scripts/ AND tests/
+bun run check       # tsc, over apps/ scripts/ AND tests/
 bun run test:unit
 bun run test        # the composite: format check, lint, tsc, unit tests
 ```
