@@ -407,9 +407,30 @@ Project-specific guidance for AI coding agents.
 - **`apps/server/src` has a shape now, and the root holds exactly three files** — `index.ts` (the
   listeners), `server.ts` (the router wiring and the auth gate) and `openapi.ts` (the document
   builder, which consumes `router.routes()` and is *not* a route). Everything else lives in
-  `http/ pi/ conversations/ llama/ models/ attachments/ settings/ auth/ db/ lib/ contracts/`.
+  `routes/ http/ pi/ conversations/ llama/ models/ attachments/ settings/ auth/ db/ lib/ contracts/`.
   Two names are easy to collide and must not be: `pi/hostTools.ts` is the host file/shell tool
   repository, and `openapi.ts` is the builder rather than the route that serves it.
+- **`routes/` is eleven modules, and two things about it are silently breakable.** Each exports
+  `register…(router, deps)` and `server.ts` calls them in **one explicit sequence**. `RouteDeps`
+  (`routes/deps.ts`) is everything `createServer` built; the **router is not in it**, because *when*
+  a module is handed the router is the whole point.
+  - **Registration order is match order.** `Router.dispatch` matches in **insertion order** and `:id`
+    compiles to `([^/]+)`, so a literal segment must be registered before any `:param` route that
+    would swallow it. **`PATCH /api/models/global-params` before `PATCH /api/models/:id`** is the one
+    such pair in the table — checked mechanically, every method against every other route's concrete
+    path, not by eye. Two routes therefore sit outside their resource's block and must stay there:
+    `GET /api/llama/params` is registered by `routes/models.ts` (it is the accept-set those routes
+    validate keys against), and chat/regenerate are **two register calls** with the uploads routes
+    between them. The settings routes are registered per-slug from `SETTINGS_REGISTRY` rather than
+    behind a `/api/settings/:group`, which is what keeps `schema`, `preferences` and `host-tools`
+    from being swallowed by it. **`openapi.json`'s `paths` keys are emitted in registration order**,
+    so `bun run build:openapi && git diff --exit-code openapi.json` is a total proof that no route
+    moved — use it on any change that touches route registration.
+  - **The auth gate lives in `handle()` in `server.ts`, and runs *before* `dispatch`.** Moving it
+    into a route module, or after dispatch, is a security regression no test would necessarily
+    catch: running it first is what makes an unauthenticated LAN request `401` *whether or not the
+    route exists* (no route-existence leak), and what makes it impossible for a route module to
+    forget to apply it.
 - **`pi/` is eight modules and a harness, and three of its names sit next to a name they are not.**
   `harness.ts` keeps what the run map welds together — `runPiPrompt` and the nine methods that touch
   `#activeRuns` — and everything that came out of it takes its dependencies as arguments, so none of
