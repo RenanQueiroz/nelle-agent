@@ -13,8 +13,9 @@ import {HuggingFaceService} from './models/huggingface';
 import {LlamaCppManager} from './llama/manager';
 import {registerLlamaProxy} from './llama/proxy';
 import {PiHarness, isConversationNotFoundError} from './pi/harness';
-import {createErrorEvent, normalizeNelleError} from './http/errors';
+import {normalizeNelleError} from './http/errors';
 import {Router, applyCors, json, preflightResponse, type Ctx} from './http/router';
+import {sseResponse, writeChatError, writeChatEvent, writeChatStream} from './http/sse';
 import {AppStore} from './models/store';
 import {ownsModelCache, removeRepoWeights, repoDiskBytes} from './llama/weights';
 import {AppDatabase} from './db/database';
@@ -1491,36 +1492,6 @@ function conversationNotFound(id: string): Response {
   );
 }
 
-const SSE_HEADERS: Record<string, string> = {
-  'content-type': 'text/event-stream; charset=utf-8',
-  'cache-control': 'no-cache, no-transform',
-  'x-accel-buffering': 'no',
-};
-
-/**
- * Runs an SSE producer against a `{write}` sink backed by a `ReadableStream`
- * controller -- the same sink shape `reply.raw` gave the stream writers, so they
- * are unchanged.
- */
-function sseResponse(run: (sink: {write: (chunk: string) => void}) => Promise<void>): Response {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const sink = {write: (chunk: string) => controller.enqueue(encoder.encode(chunk))};
-      try {
-        await run(sink);
-      } finally {
-        try {
-          controller.close();
-        } catch {
-          // Already closed (e.g. the client went away).
-        }
-      }
-    },
-  });
-  return new Response(stream, {status: 200, headers: SSE_HEADERS});
-}
-
 /**
  * The chat stream. **Pi is the only path.**
  *
@@ -1541,59 +1512,6 @@ async function createChatStream(input: {
   attachments: ChatAttachmentInput[];
 }): Promise<AsyncIterable<ChatStreamEvent>> {
   return input.pi.streamPrompt(input.message, input.conversationId, input.attachments);
-}
-
-async function writeChatStream(
-  raw: {write: (chunk: string) => void},
-  stream: AsyncIterable<ChatStreamEvent>,
-  conversationId: string,
-): Promise<void> {
-  for await (const event of stream) {
-    writeChatEvent(raw, event, conversationId);
-  }
-}
-
-function writeChatEvent(
-  raw: {write: (chunk: string) => void},
-  event: ChatStreamEvent,
-  conversationId: string,
-): void {
-  raw.write(
-    serializeSseEnvelope(
-      createEventEnvelope({
-        type: event.type,
-        conversationId: eventConversationId(event, conversationId),
-        runId: eventRunId(event),
-        data: event,
-      }),
-    ),
-  );
-}
-
-function writeChatError(raw: {write: (chunk: string) => void}, error: unknown): void {
-  const event: ChatStreamEvent = createErrorEvent(error, {fallbackCode: 'stream_failed'});
-  raw.write(
-    serializeSseEnvelope(
-      createEventEnvelope({
-        type: event.type,
-        data: event,
-      }),
-    ),
-  );
-}
-
-function eventConversationId(event: ChatStreamEvent, fallback: string): string {
-  if ('conversationId' in event && typeof event.conversationId === 'string') {
-    return event.conversationId;
-  }
-  return fallback;
-}
-
-function eventRunId(event: ChatStreamEvent): string | undefined {
-  if ('runId' in event && typeof event.runId === 'string') {
-    return event.runId;
-  }
-  return undefined;
 }
 
 async function handleLlamaRoute<T>(
