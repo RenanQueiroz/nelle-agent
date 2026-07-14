@@ -16,6 +16,8 @@ import {
   type AttachmentKind,
 } from '../contracts/attachmentRules.ts';
 import {NELLE_ERROR_CODES} from '../contracts/contracts.ts';
+import {ATTACHMENTS_SETTINGS_SLUG} from '../contracts/settingsKeys.ts';
+import type {SettingsRepository} from '../settings/repository';
 import type {ChatAttachmentInput, ChatAttachmentReference} from '../contracts/contracts.ts';
 import type {Upload} from './uploads';
 
@@ -505,4 +507,10 @@ function toUint8Array(bytes: Buffer): Uint8Array {
 
 function formatMebibytes(bytes: number): string {
   return `${Math.round(bytes / (1024 * 1024))} MiB`;
+}
+
+/** A numeric attachment setting, or `undefined` when the registry lacks the group. */
+export function attachmentSetting(settings: SettingsRepository, key: string): number | undefined {
+  const value = settings.tryGetGroup(ATTACHMENTS_SETTINGS_SLUG)?.[key];
+  return typeof value === 'number' ? value : undefined;
 }

@@ -1,13 +1,10 @@
 import path from 'node:path';
 
-import {z} from 'zod';
-
 import {HuggingFaceService} from './models/huggingface';
 import {LlamaCppManager} from './llama/manager';
 import {registerLlamaProxy} from './llama/proxy';
 import {PiHarness} from './pi/harness';
 import {Router, applyCors, json, preflightResponse, type Ctx} from './http/router';
-import {sseResponse, writeChatError, writeChatEvent, writeChatStream} from './http/sse';
 import {AppStore} from './models/store';
 import {AppDatabase} from './db/database';
 import {HostToolRepository} from './pi/hostTools';
@@ -19,56 +16,33 @@ import {AUTH_ALLOWLIST, authorizeBearer} from './auth/auth';
 import {buildPairingPayload} from './auth/pairing';
 import {ensureServerCert, localIPv4s, type ServerCert} from './auth/tls';
 import {buildOpenApiDocument} from './openapi';
-import {
-  ingestUpload,
-  resolveChatAttachments,
-  UnsupportedAttachmentError,
-} from './attachments/ingest';
+import {attachmentSetting, ingestUpload, UnsupportedAttachmentError} from './attachments/ingest';
 import {ATTACHMENT_LIMITS} from './contracts/attachments.ts';
 import {ModelCacheRepository} from './models/cache';
 import {GgufMetadataRepository} from './models/gguf';
-import {effectiveContextWindow} from './llama/contextWindow';
-import {ensureModelReadyForRun} from './llama/modelReady';
 import {ConversationRepository} from './conversations/repository';
 import {resolveConversationModel} from './conversations/model';
 import {isPathWithin, resolveRelativeDataPath, sweepOrphanAttachmentFiles} from './lib/files';
 import {createLogger} from './lib/logger';
 import type {AppPaths} from './lib/paths';
-import type {ChatAttachmentInput, ChatStreamEvent} from './lib/types';
 import type {NelleError, UploadResponse} from './contracts/contracts.ts';
-import {
-  chatRequestSchema,
-  pairRequestSchema,
-  refreshRequestSchema,
-  NELLE_ERROR_CODES,
-} from './contracts/contracts.ts';
+import {pairRequestSchema, refreshRequestSchema, NELLE_ERROR_CODES} from './contracts/contracts.ts';
 import {SETTINGS_REGISTRY, type SettingsGroup} from './contracts/settings.ts';
 import {
   ALLOW_LAN_ACCESS_KEY,
-  ATTACHMENTS_SETTINGS_SLUG,
   MAX_IMAGE_MEGAPIXELS_KEY,
   NETWORK_SETTINGS_SLUG,
 } from './contracts/settingsKeys.ts';
 import {LlamaOptionCatalogueCache} from './llama/params';
-import {conversationNotFound, registerConversationRoutes} from './routes/conversations';
+import {registerChatStreamRoute, registerRegenerateRoute} from './routes/chat';
+import {registerConversationRoutes} from './routes/conversations';
 import type {RouteDeps} from './routes/deps';
-import {
-  assertRuntimeRunning,
-  assertSupportedAttachments,
-  assertSupportedSlashCommand,
-} from './routes/guards';
 import {registerHealthRoutes} from './routes/health';
 import {registerHuggingFaceRoutes} from './routes/huggingface';
 import {registerLlamaRoutes} from './routes/llama';
 import {registerModelRoutes} from './routes/models';
 import {registerRuntimeRoutes} from './routes/runtime';
 import {registerSettingsRoutes} from './routes/settings';
-
-const regenerateMessageSchema = z
-  .object({
-    modelId: z.string().min(1).optional(),
-  })
-  .optional();
 
 export type NelleServer = {
   handle: (req: Request, opts: {trusted: boolean}) => Promise<Response>;
@@ -179,73 +153,7 @@ export async function createServer(
   registerHuggingFaceRoutes(router, deps);
   registerConversationRoutes(router, deps);
 
-  router.post('/api/conversations/:id/chat/stream', async ctx => {
-    const id = ctx.params.id;
-    if (!conversations.getConversation(id)) {
-      return conversationNotFound(id);
-    }
-    // Parsed above the stream, so a schema failure is an ordinary 400 rather than
-    // an SSE error event a browser has to special-case.
-    const body = chatRequestSchema.parse(await ctx.body());
-    return sseResponse(async sink => {
-      try {
-        // Enforced in the browser composer too. Enforcing them only there leaves
-        // every non-browser client able to post an image to a text-only model, or
-        // hand Pi `/model` as a literal prompt.
-        assertSupportedSlashCommand(body.message);
-        await assertRuntimeRunning(llama);
-
-        // Load the model this conversation will actually answer with (piHarness
-        // resolves the same way), or the run loads one model and answers with another.
-        const activeModel = await resolveConversationModel(conversations, store, id);
-        if (activeModel) {
-          await ensureModelReadyForRun({
-            llama,
-            modelCache,
-            ggufMetadata,
-            conversationId: id,
-            modelId: activeModel.id,
-            write: event => writeChatEvent(sink, event, id),
-            log,
-          });
-        }
-        // The client references uploads; the server turns them into what the
-        // harness reads, deciding for each PDF whether to send its text or its
-        // pages. The per-message limits are checked after that expansion, because a
-        // six-page scan is six attachments. Runs after the load, so `model_cache`
-        // can answer whether the model sees images.
-        const resolved = await resolveChatAttachments(
-          uploads,
-          body.attachments ?? [],
-          {
-            // llama.cpp's answer if it has one, else the configured cap, else
-            // `null` -- which skips the pre-flight rather than refusing on a guess.
-            contextSize: activeModel ? effectiveContextWindow(activeModel, modelCache) : null,
-            visionSupport: activeModel ? modelCache.getVisionSupport(activeModel.id) : null,
-          },
-          {maxImageMegapixels: attachmentSetting(settings, MAX_IMAGE_MEGAPIXELS_KEY)},
-        );
-        // The model that will *answer* -- the same one `resolveChatAttachments` just
-        // gated against. This used to re-check against `state.activeModelId`, the
-        // global default, so a chat pinned to a vision model had its images refused
-        // whenever some other model happened to be globally active.
-        assertSupportedAttachments(resolved.attachments, modelCache, activeModel?.id ?? null);
-        for (const reference of body.attachments ?? []) {
-          uploads.markBound(reference.uploadId);
-        }
-
-        const stream = await createChatStream({
-          pi,
-          conversationId: id,
-          message: body.message,
-          attachments: resolved.attachments,
-        });
-        await writeChatStream(sink, stream, id);
-      } catch (error) {
-        writeChatError(sink, error);
-      }
-    });
-  });
+  registerChatStreamRoute(router, deps);
 
   /**
    * Draft attachments. The client posts bytes; the server classifies them,
@@ -372,45 +280,7 @@ export async function createServer(
     return json({ok: true});
   });
 
-  router.post('/api/conversations/:id/messages/:messageId/regenerate', async ctx => {
-    const {id, messageId} = ctx.params;
-    if (!conversations.getConversation(id)) {
-      return conversationNotFound(id);
-    }
-    const body = regenerateMessageSchema.parse(await ctx.body()) ?? {};
-    return sseResponse(async sink => {
-      try {
-        if (process.env.NELLE_PI_DISABLED === '1') {
-          throw new Error('Regeneration requires the Pi harness.');
-        }
-        await assertRuntimeRunning(llama);
-        // An explicit override wins (that is what a footer model change is);
-        // otherwise regenerate on the conversation's own model.
-        const regenerateModel = body.modelId
-          ? await store.getModel(body.modelId)
-          : await resolveConversationModel(conversations, store, id);
-        if (regenerateModel) {
-          await ensureModelReadyForRun({
-            llama,
-            modelCache,
-            ggufMetadata,
-            conversationId: id,
-            modelId: regenerateModel.id,
-            write: event => writeChatEvent(sink, event, id),
-            log,
-          });
-        }
-        const stream = await pi.regenerateMessage({
-          conversationId: id,
-          assistantMessageId: messageId,
-          modelId: body.modelId,
-        });
-        await writeChatStream(sink, stream, id);
-      } catch (error) {
-        writeChatError(sink, error);
-      }
-    });
-  });
+  registerRegenerateRoute(router, deps);
 
   /**
    * The bytes of an attachment a message already carries.
@@ -635,34 +505,6 @@ function loopbackOnly(ctx: Ctx): Response {
     },
     404,
   );
-}
-
-/**
- * The chat stream. **Pi is the only path.**
- *
- * There used to be a "direct llama.cpp fallback" here, and it was not one: it ran only when
- * `NELLE_PI_DISABLED=1` (an env var nothing in the server or the scripts ever set -- only a test)
- * *and* the conversation was `legacy-default`, which only the retired migration ever created. It was
- * unreachable in production, untested end to end, and supported no tools, no reasoning, no
- * compaction and no regenerate. `README` promised it as a real capability; that sentence was false.
- *
- * A Pi failure surfaces as a coded stream error the client renders. That **is** the graceful
- * degradation. A second, permanently second-class chat engine that never runs is not a safety net --
- * it is the least-tested code in the repository, waiting to execute at the worst possible moment.
- */
-async function createChatStream(input: {
-  pi: PiHarness;
-  conversationId: string;
-  message: string;
-  attachments: ChatAttachmentInput[];
-}): Promise<AsyncIterable<ChatStreamEvent>> {
-  return input.pi.streamPrompt(input.message, input.conversationId, input.attachments);
-}
-
-/** A numeric attachment setting, or `undefined` when the registry lacks the group. */
-function attachmentSetting(settings: SettingsRepository, key: string): number | undefined {
-  const value = settings.tryGetGroup(ATTACHMENTS_SETTINGS_SLUG)?.[key];
-  return typeof value === 'number' ? value : undefined;
 }
 
 /** Multipart text fields arrive as strings under `req.formData()`. */
