@@ -287,9 +287,19 @@ Future<void> typeInto(WidgetTester tester, Finder field, String text) async {
 /// So: **scroll first, and only then wait.** `scrollUntilVisible` drives the list until the row is
 /// built; if there is no scrollable ancestor it is a no-op and the plain wait below still applies.
 Future<void> tapAt(WidgetTester tester, Finder finder) async {
+  // **Settle first.** A caller usually reaches `tapAt` straight after a `tap()` that navigates, and
+  // a bare `tap()` schedules a frame it does not wait for — so the destination screen may not exist
+  // yet. Scrolling before that lands is worse than useless: `find.byType(Scrollable)` then matches
+  // the *previous* screen's list, and the scroll drives that instead, hunting for a widget that was
+  // never going to be on it. Which is exactly what happened on Windows and macOS while Linux, whose
+  // window is tall enough that the target is already built, sailed past.
+  await tester.pumpAndSettle();
+
   if (finder.evaluate().isEmpty) {
     final scrollable = find.byType(Scrollable);
     if (scrollable.evaluate().isNotEmpty) {
+      // A lazy `ListView` never builds a row far enough off-screen, so *waiting* for it cannot
+      // work — nothing will build it until something scrolls.
       await tester.scrollUntilVisible(
         finder,
         200,
