@@ -416,6 +416,45 @@ Project-specific guidance for AI coding agents.
   `process.kill(-pid)` kills the group, and the child outlives a restart for
   pid-file adoption; verified end-to-end on Linux, macOS/Windows still to
   confirm. `index.ts` runs `Bun.serve`.
+- **A fresh clone runs `bun run setup`, and that is the whole of it.** `setup` does only what this
+  repository *owns* — `bun install`, `flutter pub get`, `dart pub global activate marionette_mcp`,
+  and arming the pre-push hook. **It installs no system toolchain, deliberately**: not Bun, not the
+  Flutter SDK, not the JDK, not the Android SDK, not Xcode, not a keyring. Five reasons, each
+  sufficient alone — they need **sudo**; there is **no single correct way** to install them (Flutter
+  is a git clone here, and picking one for the user fights the one they already chose, giving *two
+  SDKs and a PATH fight*); "install X" is **not idempotent** when X already exists elsewhere;
+  `sdkmanager --licenses` and Xcode need **interactive consent** a script cannot honestly automate;
+  and `setup` runs *under Bun*, so it can never install Bun. `bun run doctor` does the hard half
+  instead — it knows *what* is needed, at what version, and prints the exact command **for the
+  detected OS**, marking each item required or optional *relative to the work this host can do* (a
+  server-only contributor is not failed for lacking the Android SDK).
+- **The pre-push hook is committed; only its activation is not.** `.githooks/pre-push` is an
+  ordinary tracked file and git tracks its **executable bit**, so it arrives with the clone. What
+  cannot be committed is `git config core.hooksPath .githooks` — that lives in `.git/config`, and
+  git deliberately will not arm a hook on clone, because that would mean `git clone` executes
+  arbitrary code from a stranger. `bun run setup` sets it; `bun run hooks on|off|status` toggles it.
+  **`setup` records intent (`nelle.hooks`) separately from the mechanism**, or an `off` would last
+  only until the next `setup` silently re-armed it. It is local config, so each clone decides for
+  itself.
+  - **The hook scopes itself to what changed**, and that is what makes it survivable: the full gate
+    is ~54s, and at ~10 pushes a day an unscoped hook is nine minutes of daily waiting — which is
+    exactly how `--no-verify` becomes muscle memory, and then it protects nothing. Server files run
+    `bun run test`; `apps/client/**` runs `flutter analyze && flutter test`; **only** a build-config
+    change (`package.json`, `bun.lock`, `pubspec.*`, the platform dirs) also builds. A pure Dart/TS
+    edit essentially cannot break a build that `tsc` and `flutter analyze` would not already catch —
+    what breaks builds is *dependencies and platform config*, which is precisely what bit us when
+    `super_clipboard` pulled in cargokit and `flutter build apk` died while `flutter analyze` stayed
+    clean. Docs-only pushes skip entirely.
+  - It **fails loudly** if a tool it needs is missing rather than skipping half the gate — a gate
+    that quietly does nothing is worse than no gate, because you trust it.
+- **`scripts/lib/hostCapabilities.ts` is the single answer to "what can this machine do?"**, shared
+  by `doctor` and `build`. Two consumers, one module, on purpose: worked out separately they would
+  drift, and `build` would offer a target `doctor` calls impossible. **Flutter cannot cross-compile
+  desktop or iOS targets** — a macOS build needs a Mac, Windows needs Windows — so `build` refuses an
+  impossible target *up front, with the reason*, instead of letting the user find out from a CMake
+  stack trace three minutes in. (The **server** binary does cross-compile, but a cross-compiled one
+  ships without the target's `@napi-rs/canvas` native binding and cannot read a PDF — build it
+  natively per OS, as CI does.)
 - Primary checks are `bun run format:check`, `bun run lint`, `bun run check`,
   `bun run test:unit`, and `bun run test` (the composite: format check, lint,
   `tsc`, unit tests). There is no web build and no browser suite to run; the

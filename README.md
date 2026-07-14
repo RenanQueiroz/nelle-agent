@@ -267,12 +267,34 @@ the runtime as controllable. If the configured port already has a healthy llama.
 server but no managed pid, Nelle reports it as running and does not start another
 process.
 
+## Getting set up
+
+```bash
+bun run setup      # bun install, flutter pub get, marionette_mcp, arm the pre-push hook
+bun run doctor     # what this machine has, what it is missing, and the command to fix it
+```
+
+`setup` installs only what this repository owns. It deliberately does **not** install Bun, the
+Flutter SDK, the JDK, the Android SDK, Xcode, or a keyring — those need `sudo`, have no single
+correct install method, are not idempotent if you already have one somewhere else, and in Xcode's
+and the Android licences' case need interactive consent a script cannot honestly give. (Also,
+`setup` runs under Bun, so it could never install Bun.)
+
+`doctor` does the hard half instead: it knows what is needed, at what version, and prints the exact
+command **for your OS**. It marks each item required or optional _relative to what you can actually
+do on this machine_ — you are not failed for lacking the Android SDK if you are only touching the
+server — and it finishes by telling you which targets this host can build and device-test.
+
+`setup` also arms a **pre-push hook** (`bun run hooks on|off|status` to toggle). It scopes itself to
+what changed: server files run the server gate, `apps/client/**` runs the Flutter gate, a
+build-config change also builds, and a docs-only push skips entirely.
+
 ## Checks
 
 ```bash
 bun run format:check
 bun run lint
-bun run check
+bun run check       # tsc, over apps/ packages/ scripts/ AND tests/
 bun run test:unit
 bun run test        # the composite: format check, lint, tsc, unit tests
 ```

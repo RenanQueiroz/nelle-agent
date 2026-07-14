@@ -8,19 +8,22 @@
     "bun": ">=1.3.0"
   },
   "scripts": {
-    "test": "bun run format:check && bun run lint && bun run check && bun run test:unit",
-    "test:unit": "bun test tests/unit",
-    "test:device": "bun run scripts/test-device.ts",
-    "test:device:slow": "bun run scripts/test-device.ts --slow",
     "build:binary": "bun build --compile apps/server/src/index.ts --outfile dist/nelle-server",
     "build:openapi": "bun scripts/build-openapi.ts && oxfmt openapi.json",
     "check": "tsc --noEmit",
     "dev": "bun --watch apps/server/src/index.ts",
-    "serve": "bun apps/server/src/index.ts",
+    "doctor": "bun run scripts/doctor.ts",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
+    "hooks": "bun run scripts/hooks.ts",
     "lint": "oxlint . --deny-warnings",
-    "lint:fix": "oxlint . --fix"
+    "lint:fix": "oxlint . --fix",
+    "serve": "bun apps/server/src/index.ts",
+    "setup": "bun run scripts/setup.ts",
+    "test": "bun run format:check && bun run lint && bun run check && bun run test:unit",
+    "test:device": "bun run scripts/test-device.ts",
+    "test:device:slow": "bun run scripts/test-device.ts --slow",
+    "test:unit": "bun test tests/unit"
   },
   "repository": {
     "type": "git",

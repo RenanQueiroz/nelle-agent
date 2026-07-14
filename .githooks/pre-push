@@ -1,0 +1,107 @@
+#!/bin/sh
+#
+# Nelle's pre-push gate.
+#
+# It guards what reaches the remote, while leaving you free to make scrappy WIP commits locally.
+# Arm it with `bun run hooks on` (or `bun run setup`); disarm with `bun run hooks off`. For a
+# one-off, `git push --no-verify`.
+#
+# **It scopes itself to what changed.** The full gate is ~54s, and at ~10 pushes a day that is nine
+# minutes of daily waiting -- enough to make anyone reach for `--no-verify`, which defeats the point
+# entirely. So:
+#
+#   TS/server files changed      -> bun run test                       (~31s)
+#   apps/client/** changed       -> flutter analyze && flutter test    (~23s)
+#   build config changed         -> + build every host target          (~95s, ~1 push in 7)
+#   only plans/ or *.md          -> nothing
+#
+# The build is triggered by *build config* rather than by every push because a pure Dart/TS edit
+# essentially cannot break a build that `flutter analyze` and `tsc` would not already catch. What
+# does break builds is dependencies and platform config -- and that is exactly what bit us once
+# before: adding `super_clipboard` pulled in cargokit, which calls a Gradle API removed in Gradle 9,
+# and `flutter build apk` died while `flutter analyze` stayed perfectly clean.
+#
+# It fails LOUDLY if a tool it needs is missing. It must not silently skip the Flutter half on a
+# machine without Flutter -- that would let untested Dart reach main, which is what it exists to
+# prevent. Run `bun run doctor` if it complains.
+
+set -e
+
+# A hook does not get the login shell's PATH.
+[ -d "$HOME/development/flutter/bin" ] && PATH="$HOME/development/flutter/bin:$PATH"
+[ -d "$HOME/.pub-cache/bin" ] && PATH="$HOME/.pub-cache/bin:$PATH"
+export PATH
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+# What is actually being pushed? Compare against the upstream if there is one, else against HEAD~1.
+# A brand-new branch with no upstream falls back to "everything that is not on main".
+upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
+if [ -n "$upstream" ]; then
+  base="$upstream"
+elif git rev-parse --verify -q origin/main >/dev/null; then
+  base="origin/main"
+else
+  base="HEAD~1"
+fi
+
+changed=$(git diff --name-only "$base"...HEAD 2>/dev/null || git diff --name-only HEAD~1...HEAD)
+
+if [ -z "$changed" ]; then
+  echo "pre-push: nothing to check."
+  exit 0
+fi
+
+# --- what changed? ---------------------------------------------------------------------------
+
+matches() {
+  echo "$changed" | grep -qE "$1"
+}
+
+# Anything that is not docs or scratch is code as far as this gate is concerned.
+touched_code=$(echo "$changed" | grep -vE '^(plans/|.*\.md$)' || true)
+if [ -z "$touched_code" ]; then
+  echo "pre-push: only docs/plans changed -- skipping the gate."
+  exit 0
+fi
+
+server_changed=false
+client_changed=false
+buildcfg_changed=false
+
+matches '^(apps/server/|packages/|scripts/|tests/|tsconfig\.json|package\.json|\.oxlintrc\.json|\.oxfmtrc\.json)' && server_changed=true
+matches '^apps/client/' && client_changed=true
+matches '^(package\.json|bun\.lock|apps/client/pubspec\.(yaml|lock)|apps/client/(android|ios|linux|macos|windows)/)' && buildcfg_changed=true
+
+# --- the gate --------------------------------------------------------------------------------
+
+if [ "$server_changed" = true ]; then
+  echo "pre-push: server files changed -> bun run test"
+  bun run test
+fi
+
+if [ "$client_changed" = true ]; then
+  if ! command -v flutter >/dev/null 2>&1; then
+    echo "pre-push: apps/client changed but Flutter is not on PATH." >&2
+    echo "          Run 'bun run doctor'. (Refusing to push untested Dart.)" >&2
+    exit 1
+  fi
+  echo "pre-push: client files changed -> flutter analyze && flutter test"
+  (cd apps/client && flutter analyze && flutter test)
+fi
+
+if [ "$buildcfg_changed" = true ]; then
+  # `bun run build` is step 10 of the cleanup plan. Until it lands there is nothing to call, and
+  # this says so out loud rather than skipping in silence -- a gate that quietly does nothing is
+  # worse than no gate, because you trust it.
+  if bun run --silent build --help >/dev/null 2>&1 || grep -q '"build":' package.json; then
+    echo "pre-push: build config changed -> building every host target"
+    bun run build
+  else
+    echo "pre-push: build config changed, but 'bun run build' does not exist yet (plan step 10)."
+    echo "          Not blocking the push. This becomes a real check the moment that script lands."
+  fi
+fi
+
+echo "pre-push: OK"
