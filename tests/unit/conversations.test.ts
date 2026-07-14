@@ -9,10 +9,7 @@ import {SessionManager} from '@earendil-works/pi-coding-agent';
 import {strFromU8, unzipSync} from 'fflate';
 
 import {createAsyncQueue} from '../../apps/server/src/lib/asyncQueue.ts';
-import {
-  ConversationRepository,
-  LEGACY_DEFAULT_CONVERSATION_ID,
-} from '../../apps/server/src/conversations/repository.ts';
+import {ConversationRepository} from '../../apps/server/src/conversations/repository.ts';
 import type {SyncConversationEntry} from '../../apps/server/src/conversations/repository.ts';
 import {
   exportConversationArchive,
@@ -237,105 +234,6 @@ test('conversation state machine accepts planned transitions and rejects invalid
   );
 });
 
-test('repository mirrors the legacy default chat into a conversation snapshot', async () => {
-  const paths = await createTempPaths();
-  const store = new AppStore(paths);
-  const database = new AppDatabase(paths);
-  await database.open();
-  try {
-    await store.addHuggingFaceModel({
-      repoId: 'repo/model',
-      quant: 'UD-Q4_K_M',
-      name: 'Model Q4',
-    });
-    await store.updateGlobalModelParams({c: String(CAPPED_CONTEXT_SIZE)});
-    await store.appendChatMessage({
-      id: 'user-1',
-      role: 'user',
-      content: 'Hello Nelle',
-      createdAt: '2026-07-08T12:00:00.000Z',
-    });
-    await store.appendChatMessage({
-      id: 'assistant-1',
-      role: 'assistant',
-      content: 'Hello back',
-      createdAt: '2026-07-08T12:00:01.000Z',
-    });
-
-    const repository = new ConversationRepository(database);
-    repository.syncLegacyDefaultConversationFromState(await store.getState());
-    const snapshot = repository.getSnapshot('legacy-default', await store.getState());
-
-    assert.equal(snapshot?.conversation.id, 'legacy-default');
-    assert.deepEqual(snapshot?.activePathEntryIds, ['user-1', 'assistant-1']);
-    assert.equal(snapshot?.entries[0]?.textPreview, 'Hello Nelle');
-    assert.equal(snapshot?.models.available[0]?.id, 'repo/model:Q4_K_M');
-    assert.equal(repository.listConversations({search: 'Hello'}).conversations.length, 1);
-  } finally {
-    database.close();
-  }
-});
-
-test('repository does not recreate the legacy default conversation after it is deleted', async () => {
-  const paths = await createTempPaths();
-  const store = new AppStore(paths);
-  const database = new AppDatabase(paths);
-  await database.open();
-  try {
-    await store.appendChatMessage({
-      id: 'user-1',
-      role: 'user',
-      content: 'Hello Nelle',
-      createdAt: '2026-07-08T12:00:00.000Z',
-    });
-
-    const repository = new ConversationRepository(database);
-    await repository.init();
-    repository.syncLegacyDefaultConversationFromState(await store.getState());
-    assert.equal(repository.listConversations({}).conversations.length, 1);
-
-    assert.equal(repository.hardDeleteConversation(LEGACY_DEFAULT_CONVERSATION_ID), true);
-    await store.clearChat();
-
-    // `GET /api/conversations` syncs before listing; that must not resurrect the
-    // conversation the user just deleted.
-    assert.equal(repository.syncLegacyDefaultConversationFromState(await store.getState()), null);
-    assert.equal(repository.listConversations({}).conversations.length, 0);
-    assert.equal(repository.getConversation(LEGACY_DEFAULT_CONVERSATION_ID), null);
-  } finally {
-    database.close();
-  }
-});
-
-test('repository still migrates a non-empty legacy chat into the default conversation', async () => {
-  const paths = await createTempPaths();
-  const store = new AppStore(paths);
-  const database = new AppDatabase(paths);
-  await database.open();
-  try {
-    const repository = new ConversationRepository(database);
-    await repository.init();
-
-    // No legacy chat: nothing to show, nothing to create.
-    assert.equal(repository.syncLegacyDefaultConversationFromState(await store.getState()), null);
-    assert.equal(repository.listConversations({}).conversations.length, 0);
-
-    await store.appendChatMessage({
-      id: 'user-1',
-      role: 'user',
-      content: 'Legacy prompt',
-      createdAt: '2026-07-08T12:00:00.000Z',
-    });
-
-    const migrated = repository.syncLegacyDefaultConversationFromState(await store.getState());
-    assert.equal(migrated?.id, LEGACY_DEFAULT_CONVERSATION_ID);
-    assert.equal(migrated?.title, 'Legacy prompt');
-    assert.equal(repository.listConversations({}).conversations.length, 1);
-  } finally {
-    database.close();
-  }
-});
-
 test('migration 6 drops deleted_at from an existing database without losing rows', async () => {
   const paths = await createTempPaths();
   const first = new AppDatabase(paths);
@@ -501,52 +399,6 @@ test('conversation search falls back to LIKE when FTS5 is unavailable', async ()
       found.conversations.map(conversation => conversation.title),
       ['Findable chat'],
     );
-  } finally {
-    database.close();
-  }
-});
-
-test('repository does not overwrite a Pi-bound legacy projection from state.json', async () => {
-  const paths = await createTempPaths();
-  const store = new AppStore(paths);
-  const database = new AppDatabase(paths);
-  await database.open();
-  try {
-    await store.appendChatMessage({
-      id: 'legacy-user',
-      role: 'user',
-      content: 'Legacy state prompt',
-      createdAt: '2026-07-08T12:00:00.000Z',
-    });
-    const repository = new ConversationRepository(database);
-    repository.createConversation({id: LEGACY_DEFAULT_CONVERSATION_ID, title: 'Pi default'});
-    repository.attachPiSession(LEGACY_DEFAULT_CONVERSATION_ID, {
-      piSessionPath: path.join(paths.piSessionsDir, 'legacy.jsonl'),
-      piSessionId: 'pi-legacy',
-      activeLeafPiEntryId: 'pi-user',
-    });
-    repository.replaceConversationProjection(LEGACY_DEFAULT_CONVERSATION_ID, {
-      piSessionPath: path.join(paths.piSessionsDir, 'legacy.jsonl'),
-      piSessionId: 'pi-legacy',
-      activeLeafPiEntryId: 'pi-user',
-      lastSyncedPiEntryId: 'pi-user',
-      entries: [
-        {
-          piEntryId: 'pi-user',
-          entryType: 'message',
-          role: 'user',
-          text: 'Pi prompt',
-          createdAt: '2026-07-08T12:00:01.000Z',
-        },
-      ],
-    });
-
-    repository.syncLegacyDefaultConversationFromState(await store.getState());
-    const snapshot = repository.getSnapshot(LEGACY_DEFAULT_CONVERSATION_ID, await store.getState());
-
-    assert.equal(snapshot?.conversation.piSessionId, 'pi-legacy');
-    assert.equal(snapshot?.entries[0]?.piEntryId, 'pi-user');
-    assert.equal(snapshot?.entries[0]?.textPreview, 'Pi prompt');
   } finally {
     database.close();
   }
@@ -1828,7 +1680,6 @@ test('Pi title generation stores sanitized first-turn title without adding histo
     assert.equal(snapshot?.conversation.title, 'Local Model Setup');
     assert.equal(snapshot?.conversation.titleSource, 'generated');
     assert.deepEqual(repository.getConversationEntries(conversation.id), []);
-    assert.deepEqual((await store.getState()).chat, []);
     assert.equal(requests.length, 1);
     const request = requests[0] as {messages?: Array<{role: string; content: string}>};
     assert.equal(request.messages?.[0]?.role, 'system');
@@ -2450,7 +2301,7 @@ test('schema failures come back as invalid_request, not a raw 500', async () => 
   const database = new AppDatabase(paths);
   await database.open();
   new ConversationRepository(database).createConversation({
-    id: LEGACY_DEFAULT_CONVERSATION_ID,
+    id: 'a-conversation',
     title: 'Schema guard',
   });
   database.close();
@@ -2458,7 +2309,7 @@ test('schema failures come back as invalid_request, not a raw 500', async () => 
     // Too many attachments: refused by the array cap, with the cap's own words.
     const tooMany = await app.inject({
       method: 'POST',
-      url: `/api/conversations/${LEGACY_DEFAULT_CONVERSATION_ID}/chat/stream`,
+      url: `/api/conversations/${'a-conversation'}/chat/stream`,
       payload: {
         message: 'read these',
         attachments: Array.from({length: 21}, (_, index) => ({uploadId: `upload-${index}`})),
@@ -2473,7 +2324,7 @@ test('schema failures come back as invalid_request, not a raw 500', async () => 
     // A field-level failure names the field.
     const badImage = await app.inject({
       method: 'POST',
-      url: `/api/conversations/${LEGACY_DEFAULT_CONVERSATION_ID}/chat/stream`,
+      url: `/api/conversations/${'a-conversation'}/chat/stream`,
       payload: {
         message: 'look',
         attachments: [{uploadId: ''}],
@@ -3149,32 +3000,38 @@ test('conversation snapshot route rebuilds active projection from Pi after resta
 
 test('conversation API exposes list, snapshot, create, patch, pin, and delete routes', async () => {
   const paths = await createTempPaths();
-  const store = new AppStore(paths);
-  await store.appendChatMessage({
-    id: 'user-1',
-    role: 'user',
-    content: 'API seeded chat',
-    createdAt: '2026-07-08T12:00:00.000Z',
-  });
-
   const app = await createTestServer(paths);
   try {
+    // A fresh server has **no conversations**, and that is correct: the legacy `state.json` ->
+    // `legacy-default` migration is gone (there were never any installs to migrate). Create one
+    // through the API, which is the only way conversations come into existence now.
+    const seeded = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: {title: 'API seeded chat'},
+    });
+    assert.equal(seeded.statusCode, 200);
+    const conversationId = seeded.json<{conversation: {id: string}}>().conversation.id;
+
     const listResponse = await app.inject({method: 'GET', url: '/api/conversations'});
     assert.equal(listResponse.statusCode, 200);
     const listed = listResponse.json<{
       conversations: Array<{id: string; title: string}>;
     }>();
-    assert.equal(listed.conversations[0]?.id, 'legacy-default');
+    assert.equal(listed.conversations[0]?.id, conversationId);
 
     const snapshotResponse = await app.inject({
       method: 'GET',
-      url: '/api/conversations/legacy-default',
+      url: `/api/conversations/${conversationId}`,
     });
     assert.equal(snapshotResponse.statusCode, 200);
     const defaultSnapshot = snapshotResponse.json<{
       snapshot: {conversation: {piSessionId?: string}; entries: unknown[]};
     }>().snapshot;
-    assert.equal(defaultSnapshot.entries.length, 1);
+    // Empty, because a conversation created through the API has no entries yet. It used to have
+    // one, seeded by the legacy `state.json` migration -- which is gone.
+    assert.equal(defaultSnapshot.entries.length, 0);
+    // But it IS bound to a header-only Pi session from the moment it is created.
     assert.ok(defaultSnapshot.conversation.piSessionId);
 
     let sessionHeaders = await readSessionHeaders(paths.piSessionsDir);
@@ -3333,118 +3190,6 @@ test('the server serves the slash command registry it enforces', async () => {
   }
 });
 
-test('chat stream emits SSE envelopes with run lifecycle events', async () => {
-  const paths = await createTempPaths();
-  const store = new AppStore(paths);
-  await store.addHuggingFaceModel({
-    repoId: 'repo/model',
-    quant: 'UD-Q4_K_M',
-    name: 'Model Q4',
-  });
-  await store.updateGlobalModelParams({c: String(CAPPED_CONTEXT_SIZE)});
-  const originalFetch = globalThis.fetch;
-  const previousPiDisabled = process.env.NELLE_PI_DISABLED;
-  process.env.NELLE_PI_DISABLED = '1';
-  globalThis.fetch = (async (url: string | URL | Request) => {
-    const href = String(url);
-    if (href.includes('/slots')) {
-      return new Response('[]', {status: 200, headers: {'content-type': 'application/json'}});
-    }
-    // The run now waits for the model to be runnable before it starts, so the
-    // router has to say that it is.
-    if (href.includes('/models')) {
-      return new Response(JSON.stringify([{id: 'repo/model:Q4_K_M', status: {value: 'loaded'}}]), {
-        status: 200,
-        headers: {'content-type': 'application/json'},
-      });
-    }
-    if (href.includes('/props')) {
-      return new Response(JSON.stringify({modalities: {vision: false}}), {
-        status: 200,
-        headers: {'content-type': 'application/json'},
-      });
-    }
-    return new Response(
-      [
-        'data: {"choices":[{"delta":{"content":"Direct answer."}}]}',
-        '',
-        'data: {"timings":{"prompt_n":4,"prompt_ms":10,"prompt_per_second":400,"predicted_n":2,"predicted_ms":20,"predicted_per_second":100}}',
-        '',
-        'data: [DONE]',
-        '',
-      ].join('\n'),
-      {status: 200, headers: {'content-type': 'text/event-stream'}},
-    );
-  }) as typeof fetch;
-
-  const app = await createTestServer(paths);
-  try {
-    const database = new AppDatabase(paths);
-    await database.open();
-    new ConversationRepository(database).createConversation({
-      id: LEGACY_DEFAULT_CONVERSATION_ID,
-      title: 'Direct fallback',
-    });
-    database.close();
-
-    const response = await app.inject({
-      method: 'POST',
-      url: `/api/conversations/${LEGACY_DEFAULT_CONVERSATION_ID}/chat/stream`,
-      payload: {message: 'hello'},
-    });
-    assert.equal(response.statusCode, 200);
-    assert.match(response.body, /event: run\.started/);
-    assert.match(response.body, /event: run\.completed/);
-    const envelopes = parseSseEnvelopes(response.body);
-    assert.ok(envelopes.every(envelope => envelope.id && envelope.createdAt));
-    assert.deepEqual(
-      envelopes
-        .map(envelope => envelope.data?.type)
-        .filter(
-          type =>
-            type === 'run.started' ||
-            type === 'message.assistant.completed' ||
-            type === 'run.completed',
-        ),
-      ['run.started', 'message.assistant.completed', 'run.completed'],
-    );
-    const runStarted = envelopes.find(envelope => envelope.data?.type === 'run.started');
-    const runCompleted = envelopes.find(envelope => envelope.data?.type === 'run.completed');
-    assert.equal(runStarted?.runId, runCompleted?.runId);
-    assert.equal(runCompleted?.data?.status, 'completed');
-
-    // The server says which phase each delta belongs to, so a client never has
-    // to infer it from the order the events arrived in.
-    const deltas = envelopes.filter(envelope => envelope.data?.type === 'message.assistant.delta');
-    assert.ok(deltas.length > 0);
-    assert.ok(
-      deltas.every(envelope => (envelope.data as {isReasoning?: unknown}).isReasoning === false),
-    );
-
-    // The context bar follows the run: the server reads llama.cpp's timings and
-    // emits the usage itself, rather than shipping the arithmetic to a client.
-    const contextUpdated = envelopes.filter(envelope => envelope.data?.type === 'context.updated');
-    assert.ok(contextUpdated.length > 0, 'the run streams a live context reading');
-    const context = contextUpdated.at(-1)?.data as {
-      usedTokens?: number;
-      totalTokens?: number;
-      status?: string;
-    };
-    // 4 prompt tokens + 2 predicted, from the mocked `timings` chunk.
-    assert.equal(context.usedTokens, 6);
-    assert.equal(context.totalTokens, CAPPED_CONTEXT_SIZE);
-    assert.equal(context.status, 'ok');
-  } finally {
-    await app.close();
-    globalThis.fetch = originalFetch;
-    if (previousPiDisabled == null) {
-      delete process.env.NELLE_PI_DISABLED;
-    } else {
-      process.env.NELLE_PI_DISABLED = previousPiDisabled;
-    }
-  }
-});
-
 test('the chat route enforces the guards the composer enforces', async () => {
   const paths = await createTempPaths();
   const store = new AppStore(paths);
@@ -3476,7 +3221,7 @@ test('the chat route enforces the guards the composer enforces', async () => {
   const database = new AppDatabase(paths);
   await database.open();
   try {
-    const conversationId = LEGACY_DEFAULT_CONVERSATION_ID;
+    const conversationId = 'a-conversation';
     const streamError = async (payload: unknown): Promise<{code?: string; message?: string}> => {
       const response = await app.inject({
         method: 'POST',
@@ -3523,7 +3268,15 @@ test('the chat route enforces the guards the composer enforces', async () => {
     const refused = await streamError({message: '/model gemma'});
     assert.equal(refused.code, 'unsupported_slash_command');
     assert.equal(refused.message, unsupportedSlashCommandMessage('/model gemma'));
-    assert.equal((await streamError({message: '/compact'})).code, undefined);
+    // `/compact` is on the server's allowlist, so the slash-command guard must NOT refuse it.
+    // It cannot be asserted by "the stream produced no error": with the directLlama test affordance
+    // gone, an allowed message reaches Pi, and Pi has no llama.cpp in a unit test. What matters is
+    // *which* error -- it must not be the slash-command refusal.
+    assert.notEqual(
+      (await streamError({message: '/compact'})).code,
+      'unsupported_slash_command',
+      '/compact is allowlisted and must reach the compaction path, not be refused',
+    );
 
     new ModelCacheRepository(database).upsertModelProps(model.id, {
       modelId: model.id,
@@ -4028,7 +3781,7 @@ test('a run caches the props of a model llama.cpp ALREADY has resident', async (
   await database.open();
   try {
     const cache = new ModelCacheRepository(database);
-    const conversationId = LEGACY_DEFAULT_CONVERSATION_ID;
+    const conversationId = 'a-conversation';
     new ConversationRepository(database).createConversation({
       id: conversationId,
       title: 'Resident',
@@ -4070,4 +3823,4 @@ test('a run caches the props of a model llama.cpp ALREADY has resident', async (
       process.env.NELLE_PI_DISABLED = previousPiDisabled;
     }
   }
-});
+}, 30_000);

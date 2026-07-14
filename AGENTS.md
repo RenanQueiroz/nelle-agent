@@ -603,6 +603,23 @@ Project-specific guidance for AI coding agents.
   as `unloaded` -- the filter only removes models Nelle never configured, never hides one it
   did. A Nelle-owned cache narrows the problem but does not remove it: delete a model from
   `models.ini` and its blobs remain, so it would return as a cached stranger.
+- **Pi is the only chat path, and there is no fallback.** There used to be a "direct llama.cpp
+  fallback", and it was not one: it ran only when `NELLE_PI_DISABLED=1` — an env var nothing in the
+  server or the scripts ever set, only a test — **and** the conversation was `legacy-default`, which
+  only the retired migration ever created. Unreachable in production, untested end to end, and it
+  supported no tools, no reasoning, no compaction and no regenerate. The README advertised it as a
+  real capability; that sentence was false. A Pi failure surfaces as a coded stream error the client
+  renders, and **that is** the graceful degradation. Do not reintroduce a second, permanently
+  second-class chat engine: an emergency path that never runs is the least-tested code in the
+  repository, waiting to execute at the worst possible moment. If resilience is ever a real
+  requirement, build it properly — triggered by an actual Pi failure, working for *any* conversation,
+  writing through the conversation repository so the client can see it, and tested.
+- **`legacy-default` is gone, and `state.json` no longer holds a chat.** The migration that lifted a
+  chat out of `.nelle/state.json` into a Pi session existed for installs that do not exist, which is
+  exactly what the rule below forbids. `AppState` now carries the `models.ini` catalog mirror and
+  llama.cpp's address, and nothing else. Conversations come into existence **only** through
+  `POST /api/conversations`, so a fresh server has none — and that is correct, not a bug to paper
+  over with a placeholder.
 - Nelle has no users yet. Do not write code to migrate old installs: when a
   change makes existing app data wrong, edit this repository's `.nelle/` by hand
   and move on. SQLite `schema_migrations` stays, because it is also how a fresh

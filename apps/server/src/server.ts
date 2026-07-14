@@ -14,7 +14,6 @@ import {HuggingFaceService} from './models/huggingface';
 import {LlamaCppManager, ownsModelCache} from './llama/manager';
 import {registerLlamaProxy} from './llama/proxy';
 import {PiHarness, isConversationNotFoundError} from './pi/harness';
-import {streamDirectLlama} from './pi/directLlama';
 import {createErrorEvent, normalizeNelleError} from './http/errors';
 import {Router, applyCors, json, preflightResponse, type Ctx} from './http/router';
 import {AppStore} from './models/store';
@@ -40,11 +39,7 @@ import {ModelCacheRepository} from './models/cache';
 import {GgufMetadataRepository} from './models/gguf';
 import {recordModelProps} from './llama/modelProps';
 import {effectiveContextWindow} from './llama/contextWindow';
-import {
-  ConversationRepository,
-  LEGACY_DEFAULT_CONVERSATION_ID,
-  type ConversationDeleteResources,
-} from './conversations/repository';
+import {ConversationRepository, type ConversationDeleteResources} from './conversations/repository';
 import {resolveConversationModel} from './conversations/model';
 import type {AppPaths} from './lib/paths';
 import type {ChatAttachmentInput, ChatStreamEvent, ConfiguredModel} from './lib/types';
@@ -194,8 +189,6 @@ export async function createServer(
   const llamaOptions = new LlamaOptionCatalogueCache(() => llama.getServerBinaryPath());
   const hf = new HuggingFaceService(store);
   const pi = new PiHarness(paths, store, conversations, hostTools, llama, modelCache, settings);
-  conversations.syncLegacyDefaultConversationFromState(await store.getState());
-  await pi.migrateLegacyDefaultConversation();
   await conversations.markInvalidPiSessionsUnavailable();
   const attachmentSweep = await sweepOrphanAttachmentFiles(
     paths,
@@ -727,7 +720,6 @@ export async function createServer(
     conversations.hardDeleteAllConversations();
     hostTools.deleteAllAuditEvents();
     const cleanup = await deleteConversationResources(paths, resources);
-    await store.clearChat();
     pi.resetSession();
     return json({ok: true, cleanup});
   });
@@ -858,9 +850,6 @@ export async function createServer(
       return conversationNotFound(id);
     }
     pi.resetSession(id);
-    if (id === LEGACY_DEFAULT_CONVERSATION_ID) {
-      await store.clearChat();
-    }
     const cleanup = await deleteConversationResources(paths, resources);
     // Uploads the conversation owned, sent or not, go with it.
     await uploads.deleteForConversation(id);
@@ -898,9 +887,6 @@ export async function createServer(
     pi.resetSession(id);
     conversations.clearConversationProjection(id);
     hostTools.deleteAuditEventsForConversation(id);
-    if (id === LEGACY_DEFAULT_CONVERSATION_ID) {
-      await store.clearChat();
-    }
     return json({ok: true});
   });
 
@@ -1089,20 +1075,13 @@ export async function createServer(
           uploads.markBound(reference.uploadId);
         }
 
-        const streamResult = await createChatStream({
-          log,
-          store,
+        const stream = await createChatStream({
           pi,
           conversationId: id,
           message: body.message,
           attachments: resolved.attachments,
         });
-        await writeChatStream(sink, streamResult.stream, id);
-        if (streamResult.syncLegacyState) {
-          conversations.syncLegacyDefaultConversationFromState(await store.getState(), {
-            forceLegacyProjection: true,
-          });
-        }
+        await writeChatStream(sink, stream, id);
       } catch (error) {
         writeChatError(sink, error);
       }
@@ -1562,48 +1541,26 @@ function sseResponse(run: (sink: {write: (chunk: string) => void}) => Promise<vo
   return new Response(stream, {status: 200, headers: SSE_HEADERS});
 }
 
+/**
+ * The chat stream. **Pi is the only path.**
+ *
+ * There used to be a "direct llama.cpp fallback" here, and it was not one: it ran only when
+ * `NELLE_PI_DISABLED=1` (an env var nothing in the server or the scripts ever set -- only a test)
+ * *and* the conversation was `legacy-default`, which only the retired migration ever created. It was
+ * unreachable in production, untested end to end, and supported no tools, no reasoning, no
+ * compaction and no regenerate. `README` promised it as a real capability; that sentence was false.
+ *
+ * A Pi failure surfaces as a coded stream error the client renders. That **is** the graceful
+ * degradation. A second, permanently second-class chat engine that never runs is not a safety net --
+ * it is the least-tested code in the repository, waiting to execute at the worst possible moment.
+ */
 async function createChatStream(input: {
-  log: {warn: (input: unknown, message?: string) => void};
-  store: AppStore;
   pi: PiHarness;
   conversationId: string;
   message: string;
   attachments: ChatAttachmentInput[];
-}): Promise<{stream: AsyncIterable<ChatStreamEvent>; syncLegacyState: boolean}> {
-  if (process.env.NELLE_PI_DISABLED === '1') {
-    if (input.conversationId !== LEGACY_DEFAULT_CONVERSATION_ID) {
-      throw new Error('Direct llama.cpp fallback only supports the default conversation.');
-    }
-    return {
-      stream: await streamDirectLlama(
-        input.store,
-        input.conversationId,
-        input.message,
-        input.attachments,
-      ),
-      syncLegacyState: true,
-    };
-  }
-  try {
-    return {
-      stream: await input.pi.streamPrompt(input.message, input.conversationId, input.attachments),
-      syncLegacyState: false,
-    };
-  } catch (error) {
-    input.log.warn({err: error}, 'Pi harness failed before streaming');
-    if (input.conversationId !== LEGACY_DEFAULT_CONVERSATION_ID) {
-      throw error;
-    }
-    return {
-      stream: await streamDirectLlama(
-        input.store,
-        input.conversationId,
-        input.message,
-        input.attachments,
-      ),
-      syncLegacyState: true,
-    };
-  }
+}): Promise<AsyncIterable<ChatStreamEvent>> {
+  return input.pi.streamPrompt(input.message, input.conversationId, input.attachments);
 }
 
 async function writeChatStream(

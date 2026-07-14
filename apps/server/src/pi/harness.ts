@@ -25,7 +25,6 @@ import {AppStore} from '../models/store';
 import {resolveConversationModel} from '../conversations/model';
 import {
   createLiveContextTracker,
-  LEGACY_DEFAULT_CONVERSATION_ID,
   type ConversationRepository,
   type SyncConversationEntry,
 } from '../conversations/repository';
@@ -206,63 +205,6 @@ export class PiHarness {
     return snapshot;
   }
 
-  async migrateLegacyDefaultConversation(): Promise<void> {
-    if (process.env.NELLE_PI_DISABLED === '1') {
-      return;
-    }
-    const state = await this.store.getState();
-    const existing = this.conversations.syncLegacyDefaultConversationFromState(state);
-    if (
-      state.chat.length === 0 ||
-      this.conversations.getPiSessionBinding(LEGACY_DEFAULT_CONVERSATION_ID)
-    ) {
-      return;
-    }
-    if (!existing) {
-      // Unreachable: a non-empty legacy chat always yields a conversation row.
-      return;
-    }
-
-    const sessionManager = SessionManager.create(this.paths.repoRoot, this.paths.piSessionsDir);
-    const sessionFile = sessionManager.getSessionFile();
-    if (!sessionFile) {
-      throw new Error('Pi did not allocate a session file for the default conversation.');
-    }
-    const entries: SyncConversationEntry[] = [];
-    let previousEntryId: string | null = null;
-    for (const message of state.chat) {
-      const piEntryId = sessionManager.appendMessage({
-        role: message.role,
-        content: message.content,
-      } as any);
-      entries.push({
-        piEntryId,
-        parentPiEntryId: previousEntryId,
-        entryType: 'message',
-        role: message.role,
-        text: message.content,
-        createdAt: message.createdAt,
-        modelId: message.modelId,
-        modelRuntimeId: message.modelRuntimeId,
-        modelAliasSnapshot: message.modelAliasSnapshot,
-        performance: message.performance,
-        toolCalls: message.toolCalls,
-        regeneratesPiEntryId: message.regeneratesPiEntryId,
-        displayGroupId: message.displayGroupId,
-      });
-      previousEntryId = piEntryId;
-    }
-    await ensureSessionFile(sessionFile, sessionManager);
-    this.conversations.replaceConversationProjection(LEGACY_DEFAULT_CONVERSATION_ID, {
-      piSessionPath: sessionFile,
-      piSessionId: sessionManager.getSessionId(),
-      activeLeafPiEntryId: sessionManager.getLeafId(),
-      lastSyncedPiEntryId: previousEntryId,
-      status: existing.status,
-      entries,
-    });
-  }
-
   /**
    * Re-checks an `unavailable` conversation's Pi session file.
    *
@@ -378,9 +320,6 @@ export class PiHarness {
   }
 
   async getConversationSnapshot(conversationId: string): Promise<ConversationSnapshot | null> {
-    if (conversationId === LEGACY_DEFAULT_CONVERSATION_ID) {
-      this.conversations.syncLegacyDefaultConversationFromState(await this.store.getState());
-    }
     const row = this.conversations.getConversation(conversationId);
     if (!row) {
       return null;

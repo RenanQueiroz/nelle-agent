@@ -70,8 +70,9 @@ Implemented, server side:
   (llama.cpp's own 512 / 2048 / 8192 defaults), applied as `thinking_budget_tokens`.
 - Pi SDK chat harness pointed at Nelle's own `/api/llama-proxy/v1` provider, so
   streamed `prompt_progress` and `timings` chunks become `performance.updated` events
-  and an abort closes the upstream llama.cpp fetch. A direct llama.cpp
-  chat-completions fallback runs if Pi initialization fails.
+  and an abort closes the upstream llama.cpp fetch. **Pi is the only chat path**: a
+  failure surfaces as a coded stream error the client renders, which is the graceful
+  degradation.
 - Attachments are **uploaded, not embedded**: bytes go to `POST /api/uploads`
   (multipart), which classifies the file, refuses a binary posing as text, extracts PDF
   text, and answers an `uploadId`. A PDF with a text layer is sent as text on any

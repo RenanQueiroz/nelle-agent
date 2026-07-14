@@ -109,5 +109,4 @@ export type AppState = {
     host: string;
     port: number;
   };
-  chat: ChatMessage[];
 };

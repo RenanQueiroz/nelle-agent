@@ -35,8 +35,6 @@ import {effectiveContextWindow} from '../llama/contextWindow';
 import {sanitizeStoredPerformance} from '../llama/throughput';
 import type {AppState, ChatMessage, ConfiguredModel} from '../lib/types';
 
-export const LEGACY_DEFAULT_CONVERSATION_ID = 'legacy-default';
-
 type ConversationRow = {
   id: string;
   title: string;
@@ -1113,85 +1111,6 @@ export class ConversationRepository {
     if (hasConversationSearch(db)) {
       db.run('DELETE FROM conversation_search;');
     }
-  }
-
-  /**
-   * Mirrors a legacy `state.json` chat into the default conversation.
-   *
-   * Returns null when there is no legacy chat to migrate and the conversation
-   * does not exist. Read paths such as `GET /api/conversations` call this, so
-   * creating a placeholder here would resurrect the conversation immediately
-   * after the user deletes it.
-   */
-  syncLegacyDefaultConversationFromState(
-    state: AppState,
-    options: {forceLegacyProjection?: boolean} = {},
-  ): ConversationListItem | null {
-    const now = new Date().toISOString();
-    const title = state.chat[0]?.content.slice(0, 80) || 'Legacy chat';
-    const existing = this.getConversation(LEGACY_DEFAULT_CONVERSATION_ID);
-    if (!existing && state.chat.length === 0) {
-      return null;
-    }
-    if (existing?.pi_session_id && !options.forceLegacyProjection) {
-      return mapConversationListItem(existing);
-    }
-    const row: ConversationRow = {
-      id: LEGACY_DEFAULT_CONVERSATION_ID,
-      title: existing?.title ?? title,
-      title_source: existing?.title_source ?? 'fallback',
-      pinned: existing?.pinned ?? 0,
-      pi_session_path: existing?.pi_session_path ?? null,
-      pi_session_id: existing?.pi_session_id ?? null,
-      active_leaf_pi_entry_id: state.chat.at(-1)?.id ?? null,
-      last_synced_pi_entry_id: state.chat.at(-1)?.id ?? null,
-      default_model_id: existing?.default_model_id ?? state.activeModelId,
-      parent_conversation_id: existing?.parent_conversation_id ?? null,
-      forked_from_pi_entry_id: existing?.forked_from_pi_entry_id ?? null,
-      fork_kind: existing?.fork_kind ?? null,
-      context_usage_json: existing?.context_usage_json ?? null,
-      reasoning_level: normalizeReasoningLevel(existing?.reasoning_level),
-      status: existing?.status ?? 'ready',
-      created_at: existing?.created_at ?? now,
-      updated_at: now,
-    };
-
-    if (existing) {
-      this.database.connection
-        .prepare(
-          `UPDATE conversations
-           SET title = ?, title_source = ?, pinned = ?, active_leaf_pi_entry_id = ?,
-               last_synced_pi_entry_id = ?, default_model_id = ?, status = ?,
-               updated_at = ?
-           WHERE id = ?`,
-        )
-        .run(
-          row.title,
-          row.title_source,
-          row.pinned,
-          row.active_leaf_pi_entry_id,
-          row.last_synced_pi_entry_id,
-          row.default_model_id,
-          row.status,
-          row.updated_at,
-          row.id,
-        );
-    } else {
-      this.insertConversation(row);
-    }
-
-    this.database.connection
-      .prepare('DELETE FROM conversation_entry_projection WHERE conversation_id = ?')
-      .run(LEGACY_DEFAULT_CONVERSATION_ID);
-    for (let index = 0; index < state.chat.length; index += 1) {
-      this.upsertChatMessage(
-        LEGACY_DEFAULT_CONVERSATION_ID,
-        state.chat[index]!,
-        state.chat[index - 1]?.id,
-      );
-    }
-    this.upsertSearch(row.id, row.title);
-    return mapConversationListItem(row);
   }
 
   private insertConversation(row: ConversationRow): void {

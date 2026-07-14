@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-import type {AppState, ChatMessage, ConfiguredModel, ModelParams} from '../lib/types';
+import type {AppState, ConfiguredModel, ModelParams} from '../lib/types';
 import type {AppPaths} from '../lib/paths';
 import {
   getModelsIniSectionValues,
@@ -70,7 +70,6 @@ const DEFAULT_STATE: AppState = {
     // a developer happens to be running on the usual port.
     port: 8080,
   },
-  chat: [],
 };
 
 const DEFAULT_PARAMS: ModelParams = {
@@ -302,19 +301,6 @@ export class AppStore {
     return removed;
   }
 
-  async appendChatMessage(message: ChatMessage): Promise<void> {
-    const state = await this.load();
-    state.chat.push(message);
-    state.chat = state.chat.slice(-100);
-    await this.save();
-  }
-
-  async clearChat(): Promise<void> {
-    const state = await this.load();
-    state.chat = [];
-    await this.save();
-  }
-
   private async syncModelCatalogFromPreset(state: AppState): Promise<void> {
     const before = modelCatalogSignature(state);
     await this.ensureModelsIniFromState(state);
@@ -414,7 +400,6 @@ function normalizeState(input: Partial<AppState>): AppState {
     models,
     globalModelParams,
     runtime: normalizeRuntime(input.runtime),
-    chat: Array.isArray(input.chat) ? input.chat : [],
   };
 }
 
