@@ -22,6 +22,11 @@ export const runtimeStatusSchema = z.object({
   platform: z.string(),
   arch: z.string(),
   dataDir: z.string(),
+  /**
+   * The agent's working directory -- the `cwd` host tools operate in and Pi loads project
+   * context from. Defaults to the user's home directory; override with `NELLE_WORKSPACE_DIR`.
+   */
+  workspaceDir: z.string(),
   /** `null` when nothing is installed. */
   binaryPath: z.string().nullable(),
   logPath: z.string(),

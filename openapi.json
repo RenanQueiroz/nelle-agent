@@ -1801,6 +1801,9 @@
           "dataDir": {
             "type": "string"
           },
+          "workspaceDir": {
+            "type": "string"
+          },
           "binaryPath": {
             "anyOf": [
               {
@@ -1894,6 +1897,7 @@
           "platform",
           "arch",
           "dataDir",
+          "workspaceDir",
           "binaryPath",
           "logPath",
           "installMode",

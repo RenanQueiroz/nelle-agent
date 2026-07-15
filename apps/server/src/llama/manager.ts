@@ -113,6 +113,7 @@ export class LlamaCppManager {
       platform: process.platform,
       arch: process.arch,
       dataDir: this.paths.dataDir,
+      workspaceDir: this.paths.workspaceDir,
       // **`null` when nothing is installed, which is what the contract has always promised.**
       //
       // `getBinaryPath()` answers where llama-server *would* live -- it has to, because that is

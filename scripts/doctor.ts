@@ -27,6 +27,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {hostCapabilities} from './lib/hostCapabilities.ts';
+import {createAppPaths} from '../apps/server/src/lib/paths.ts';
 
 type Status = 'ok' | 'missing' | 'stale' | 'optional-missing';
 
@@ -324,6 +325,17 @@ export async function doctor(options: {strict?: boolean} = {}): Promise<number> 
   ];
 
   console.log(`\nNelle — doctor\n  host: ${host.os}/${host.arch}${host.isWsl ? ' (WSL)' : ''}\n`);
+
+  // Where this host will read and write. Both are overridable, and the override is worth naming:
+  // "why is it there?" is the first question when either is not where someone expected.
+  const paths = createAppPaths();
+  console.log('Paths');
+  console.log(
+    `  data:      ${paths.dataDir}${process.env.NELLE_DATA_DIR ? '  (NELLE_DATA_DIR)' : ''}`,
+  );
+  console.log(
+    `  workspace: ${paths.workspaceDir}${process.env.NELLE_WORKSPACE_DIR ? '  (NELLE_WORKSPACE_DIR)' : ''}\n`,
+  );
 
   console.log('Required\n');
   const required = checks.filter(c => c.status !== 'optional-missing');

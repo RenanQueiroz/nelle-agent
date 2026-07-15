@@ -18,6 +18,7 @@ export function registerHealthRoutes(router: Router, deps: RouteDeps): void {
       ok: true,
       app: 'nelle-server',
       dataDir: paths.dataDir,
+      workspaceDir: paths.workspaceDir,
       runtime: await llama.getStatus(),
     }),
   );

@@ -130,6 +130,9 @@ async function smokeTestBinary(binary: string): Promise<string | null> {
     env: {
       ...process.env,
       NELLE_DATA_DIR: path.join(workspace, 'data'),
+      // The agent working dir defaults to the user's home; a smoke test must never run host tools
+      // there or load a stray ~/AGENTS.md, so pin it to a throwaway like the data dir.
+      NELLE_WORKSPACE_DIR: path.join(workspace, 'workspace'),
       NELLE_PORT: String(port),
       // A port nothing is on. The runtime probe calls any healthy llama.cpp on the configured port
       // "running", so the default 8080 would adopt the developer's own llama-server.
