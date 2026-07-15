@@ -30,6 +30,10 @@ class NelleApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'Nelle Agent',
       debugShowCheckedModeBanner: false,
+      // Flutter's frame-timing HUD (UI + raster thread graphs), off unless asked for:
+      // `flutter run --dart-define=nelle.perfOverlay=true`. A compile-time constant, so it
+      // costs nothing when off and stays web-safe (no dart:io env read).
+      showPerformanceOverlay: const bool.fromEnvironment('nelle.perfOverlay'),
       routerConfig: router,
       localizationsDelegates: FLocalizations.localizationsDelegates,
       supportedLocales: FLocalizations.supportedLocales,

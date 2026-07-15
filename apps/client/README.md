@@ -21,7 +21,33 @@ Flutter 3.44+. Loopback, no auth in M1.
 flutter run -d linux     # or -d chrome / -d <android device>
 ```
 
-Under WSL the Linux desktop build renders in software (llvmpipe) — fine for dev.
+**GPU rendering under WSL.** By default the Linux desktop build renders in software
+(`llvmpipe`) — fine for dev, and the window still shows. To render on a discrete GPU
+instead, the app must run on **Wayland** (not the X11/XWayland fallback, whose EGL can't
+reach the WSLg GPU) and be pointed at the right adapter:
+
+```bash
+XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir \
+GALLIUM_DRIVER=d3d12 \
+MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA \
+flutter run -d linux
+```
+
+- `XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir` points at where WSLg's Wayland socket actually
+  is (the systemd default `/run/user/1000` often doesn't exist under WSL), so the app runs
+  on Wayland and its EGL context can reach the GPU. This also silences the `dconf` warnings.
+- `GALLIUM_DRIVER=d3d12` selects the GPU's D3D12 driver over `llvmpipe`.
+- `MESA_D3D12_DEFAULT_ADAPTER_NAME` picks a GPU by case-insensitive substring — set it to
+  your discrete GPU's name (Mesa otherwise defaults to the integrated one). See the
+  [WSLg GPU-selection notes](https://github.com/microsoft/wslg/wiki/GPU-selection-in-WSLg).
+
+Confirm with `nvidia-smi` (the `nelle_agent` process appears with a `G`/graphics context),
+or the frame-timing overlay below. Note this is compute-independent: llama.cpp already uses
+the GPU for inference regardless of any of this.
+
+**Frame-timing overlay.** Add `--dart-define=nelle.perfOverlay=true` to any `flutter run`
+to draw Flutter's UI + raster thread graphs. It reads `0.0 ms/frame` at idle — Flutter only
+repaints on change — so scroll a long list or drive an animation to compare software vs GPU.
 
 ## Regenerate API models (after the server contract changes)
 
