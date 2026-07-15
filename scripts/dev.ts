@@ -1,5 +1,9 @@
 /**
- * `bun run dev:all` — the server and the desktop client together, in one terminal, both live.
+ * `bun run dev` — the server and the desktop client together, in one terminal, both live.
+ * `bun run dev:client` — the same client on its own (this script with the `client` argument).
+ *
+ * (`bun run dev:server` is not this script: it is the raw `bun --watch apps/server/src/index.ts`,
+ * so the server-only case stays a single supervised process with no wrapper in front of it.)
  *
  * **Why this is a script and not `concurrently`.** A prefixing multiplexer pipes each child's stdout
  * so it can prepend a label, and `flutter run` checks whether *its* stdout is a real terminal —
@@ -14,13 +18,14 @@
  * choose: you run the desktop app of the machine you are on, and Flutter cannot cross-compile a
  * desktop target anyway.
  *
- * **Quitting.** `q` in the client, or Ctrl-C, tears both down. As with `bun run dev`, a managed
- * llama-server is left running on purpose — it is detached for pid-file adoption, so the next start
- * adopts it rather than orphaning it.
+ * **Quitting.** `q` in the client, or Ctrl-C, tears both down. As with `bun run dev:server`, a
+ * managed llama-server is left running on purpose — it is detached for pid-file adoption, so the
+ * next start adopts it rather than orphaning it.
  */
 
 import {hostCapabilities} from './lib/hostCapabilities.ts';
 
+const clientOnly = process.argv[2] === 'client';
 const host = hostCapabilities();
 
 if (!Bun.which('flutter')) {
@@ -57,15 +62,26 @@ async function forward(stream: ReadableStream<Uint8Array>): Promise<void> {
   }
 }
 
-console.log(dim(`Starting Nelle — server (watch) + ${host.os} client (hot reload)…`));
+// In the combined case the server comes up first, piped and prefixed; client-only skips it.
+const server = clientOnly
+  ? null
+  : Bun.spawn(['bun', '--watch', 'apps/server/src/index.ts'], {
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+if (server) {
+  void forward(server.stdout);
+  void forward(server.stderr);
+}
 
-const server = Bun.spawn(['bun', '--watch', 'apps/server/src/index.ts'], {
-  stdin: 'ignore',
-  stdout: 'pipe',
-  stderr: 'pipe',
-});
-void forward(server.stdout);
-void forward(server.stderr);
+console.log(
+  dim(
+    clientOnly
+      ? `Starting the ${host.os} client (hot reload)…`
+      : `Starting Nelle — server (watch) + ${host.os} client (hot reload)…`,
+  ),
+);
 
 // The client gets the real terminal, so its interactive hot-reload keys keep working.
 const client = Bun.spawn(['flutter', 'run', '-d', host.os], {
@@ -80,9 +96,11 @@ async function shutdown(code: number): Promise<never> {
   if (!shuttingDown) {
     shuttingDown = true;
     client.kill();
-    server.kill();
-    // Let the server print its "Shutting down" line before we go; it is bounded anyway.
-    await Promise.race([server.exited, Bun.sleep(3000)]);
+    if (server) {
+      server.kill();
+      // Let the server print its "Shutting down" line before we go; it is bounded anyway.
+      await Promise.race([server.exited, Bun.sleep(3000)]);
+    }
   }
   process.exit(code);
 }

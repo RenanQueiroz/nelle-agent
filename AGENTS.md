@@ -587,7 +587,7 @@ Project-specific guidance for AI coding agents.
 - Formatting and linting use Oxfmt and Oxlint. Run `bun run format` for
   formatter writes and `bun run lint:fix` for safe lint fixes.
 - **Stopping the dev server: two traps, and together they look exactly like a
-  shutdown hang.** `bun run dev` is **`bun --watch apps/server/src/index.ts`**, which is a
+  shutdown hang.** `bun run dev:server` is **`bun --watch apps/server/src/index.ts`**, which is a
   *supervisor plus a child* -- **two processes with the identical `ps` cmdline**
   (`bun apps/server/src/index.ts`), sharing one port between them. Kill them and the
   supervisor may restart its child, so the port is re-bound a moment later and the
@@ -600,17 +600,19 @@ Project-specific guidance for AI coding agents.
   and it is worse: **`pkill -f "bun.*apps/server"` matches the agent's own shell**,
   which contains that string in its command line -- so it kills the tool call and
   returns **exit code 144** rather than doing anything useful. Kill by pid.
-- **`bun run dev:all` (`scripts/dev.ts`) runs the server and the desktop client together in one
-  terminal, and it is deliberately not `concurrently`.** A prefixing multiplexer *pipes* each
-  child's stdout to prepend its label, and `flutter run` checks whether its stdout is a real
-  terminal -- seeing a pipe, it drops to non-interactive mode and **disables the hot-reload keys**
-  (`r`/`R`), silently costing the live reload the command exists to give. So the script hands the
-  client the **real terminal** (stdio inherited) and pipes only the *server* through a `[server]`
-  prefix. The client target follows the host OS via `hostCapabilities().os` (`macos`/`windows`/
-  `linux`) -- there is nothing to pick, since Flutter cannot cross-compile a desktop target. The
-  server is `bun --watch` (restart-on-save); quitting the client (`q`) or Ctrl-C tears the server
-  down, and -- exactly as with `bun run dev` -- the managed llama-server is left running on purpose
-  for pid-file adoption. It is dev tooling, not part of the Bun toolchain gate.
+- **`bun run dev` (`scripts/dev.ts`) runs the server and the desktop client together in one
+  terminal, and it is deliberately not `concurrently`.** (`dev:client` is the same script with a
+  `client` argument, running just the client; `dev:server` is the raw `bun --watch` above, so the
+  server-only case stays a single supervised process with no wrapper.) A prefixing multiplexer
+  *pipes* each child's stdout to prepend its label, and `flutter run` checks whether its stdout is a
+  real terminal -- seeing a pipe, it drops to non-interactive mode and **disables the hot-reload
+  keys** (`r`/`R`), silently costing the live reload the command exists to give. So the script hands
+  the client the **real terminal** (stdio inherited) and pipes only the *server* through a
+  `[server]` prefix. The client target follows the host OS via `hostCapabilities().os` (`macos`/
+  `windows`/`linux`) -- there is nothing to pick, since Flutter cannot cross-compile a desktop
+  target. The server is `bun --watch` (restart-on-save); quitting the client (`q`) or Ctrl-C tears
+  the server down, and -- exactly as with `bun run dev:server` -- the managed llama-server is left
+  running on purpose for pid-file adoption. It is dev tooling, not part of the Bun toolchain gate.
 - Unit tests run on `bun:test` with `node:assert/strict`; a `createTestServer`
   helper (`tests/unit/helpers/testServer.ts`) drives the `Bun.serve` `fetch`
   handler through an `inject`/`close` surface, so route tests did not churn.
