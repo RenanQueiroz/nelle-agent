@@ -13,6 +13,7 @@
     "build:openapi": "bun scripts/build-openapi.ts && oxfmt openapi.json",
     "check": "tsc --noEmit",
     "dev": "bun --watch apps/server/src/index.ts",
+    "dev:all": "bun run scripts/dev.ts",
     "doctor": "bun run scripts/doctor.ts",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",

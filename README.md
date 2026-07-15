@@ -147,9 +147,15 @@ bun install
 ## Run
 
 ```bash
-bun run dev     # bun --watch, restarts on change
+bun run dev     # server only: bun --watch, restarts on change
 bun run serve   # a single process; use this when you need to stop it deterministically
+bun run dev:all # server + desktop client together, one terminal, both live-reloading
 ```
+
+`bun run dev:all` runs the server under `--watch` and launches the desktop client for the
+host OS (`macos`/`windows`/`linux`), both in one terminal: the client keeps the terminal so
+its hot-reload keys still work (`r` reload, `R` restart), and the server's output is prefixed
+`[server]`. Quitting the client — `q`, or Ctrl-C — tears the server down with it.
 
 The API server listens on `127.0.0.1:8787`. It serves no UI — run `apps/client` against
 it (below), or drive it with `curl`.
@@ -206,6 +212,9 @@ flutter run -d linux       # Linux desktop
 flutter run -d chrome      # web
 flutter build apk          # Android
 ```
+
+To run the server and this desktop client together in one terminal, use `bun run dev:all`
+from the repo root (see [Run](#run)) instead of starting each half by hand.
 
 ## llama.cpp Flow
 
