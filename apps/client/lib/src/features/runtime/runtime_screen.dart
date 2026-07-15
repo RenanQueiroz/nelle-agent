@@ -132,6 +132,8 @@ class _Body extends ConsumerWidget {
         ),
         _Field(label: 'Log', value: status.logPath, mono: true),
         _Field(label: 'Address', value: '${status.host}:${status.port}'),
+        _Field(label: 'Data dir', value: status.dataDir, mono: true),
+        _Field(label: 'Working dir', value: status.workspaceDir, mono: true),
 
         const SizedBox(height: 20),
         Row(

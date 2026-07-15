@@ -21,6 +21,7 @@ Map<String, dynamic> _status({
   'platform': 'linux',
   'arch': 'x64',
   'dataDir': '/data',
+  'workspaceDir': '/home/user',
   'binaryPath': installed ? '/data/llama/bin/llama-server' : null,
   'logPath': '/data/logs/llama-server.log',
   'installMode': installMode,
@@ -76,6 +77,12 @@ void main() {
 
     expect(find.textContaining('Running on 127.0.0.1:8080'), findsOneWidget);
     expect(find.text('Router capacity: 0/2 loaded'), findsOneWidget);
+
+    // The data dir and the agent's working dir are shown, so "where are my files?" has an answer.
+    expect(find.text('Data dir'), findsOneWidget);
+    expect(find.text('/data'), findsOneWidget);
+    expect(find.text('Working dir'), findsOneWidget);
+    expect(find.text('/home/user'), findsOneWidget);
 
     final stop = tester.widget<FButton>(
       find.byKey(const ValueKey('k-runtime-stop')),

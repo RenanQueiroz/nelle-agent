@@ -14,6 +14,7 @@ class RuntimeStatus {
     required this.platform,
     required this.arch,
     required this.dataDir,
+    required this.workspaceDir,
     required this.binaryPath,
     required this.logPath,
     required this.installMode,
@@ -37,6 +38,7 @@ class RuntimeStatus {
   final String platform;
   final String arch;
   final String dataDir;
+  final String workspaceDir;
   final String? binaryPath;
   final String logPath;
   final RuntimeStatusInstallMode installMode;

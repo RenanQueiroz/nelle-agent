@@ -11,6 +11,7 @@ RuntimeStatus _$RuntimeStatusFromJson(Map<String, dynamic> json) =>
       platform: json['platform'] as String,
       arch: json['arch'] as String,
       dataDir: json['dataDir'] as String,
+      workspaceDir: json['workspaceDir'] as String,
       binaryPath: json['binaryPath'] as String?,
       logPath: json['logPath'] as String,
       installMode: RuntimeStatusInstallMode.fromJson(
@@ -35,6 +36,7 @@ Map<String, dynamic> _$RuntimeStatusToJson(RuntimeStatus instance) =>
       'platform': instance.platform,
       'arch': instance.arch,
       'dataDir': instance.dataDir,
+      'workspaceDir': instance.workspaceDir,
       'binaryPath': instance.binaryPath,
       'logPath': instance.logPath,
       'installMode': instance.installMode,

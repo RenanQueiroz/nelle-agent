@@ -93,6 +93,7 @@ void main() {
             'platform': 'linux',
             'arch': 'x64',
             'dataDir': '/data',
+            'workspaceDir': '/home/user',
             'binaryPath': '/data/llama/bin/llama-server',
             'logPath': '/data/logs/llama-server.log',
             'installMode': 'source-master',
