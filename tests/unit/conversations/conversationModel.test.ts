@@ -12,11 +12,9 @@ import {AppStore} from '../../../apps/server/src/models/store.ts';
 
 async function createTempPaths(): Promise<AppPaths> {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-convmodel-'));
-  const repoRoot = path.resolve('.');
   const llamaDir = path.join(dataDir, 'llama');
   const piDir = path.join(dataDir, 'pi');
   return {
-    repoRoot,
     workspaceDir: dataDir,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),

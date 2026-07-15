@@ -238,12 +238,10 @@ test.skipIf(needsPosixShell)(
 
 async function createTempPaths(): Promise<AppPaths> {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-test-'));
-  const repoRoot = path.resolve('.');
   const llamaDir = path.join(dataDir, 'llama');
   const piDir = path.join(dataDir, 'pi');
 
   return {
-    repoRoot,
     workspaceDir: dataDir,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),

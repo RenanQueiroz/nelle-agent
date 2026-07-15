@@ -9,11 +9,9 @@ import type {AppPaths} from '../../../apps/server/src/lib/paths.ts';
 import {removeTemp} from '../helpers/platform.ts';
 
 function tempPaths(dataDir: string): AppPaths {
-  const repoRoot = path.resolve('.');
   const llamaDir = path.join(dataDir, 'llama');
   const piDir = path.join(dataDir, 'pi');
   return {
-    repoRoot,
     workspaceDir: dataDir,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),

@@ -227,7 +227,7 @@ test('a fork and a clone both answer ConversationCreatedResponse, and leave the 
   const repository = new ConversationRepository(database);
   await repository.init();
   const source = repository.createConversation({title: 'Source'});
-  const manager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+  const manager = SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
   const userEntryId = manager.appendMessage({
     role: 'user',
     content: 'Branch from here',
@@ -293,7 +293,7 @@ test('forking from an ASSISTANT message is refused, not crashed', async () => {
   const repository = new ConversationRepository(database);
   await repository.init();
   const source = repository.createConversation({title: 'Source'});
-  const manager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+  const manager = SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
   manager.appendMessage({role: 'user', content: 'A prompt'} as never);
   const assistantEntryId = manager.appendMessage({
     role: 'assistant',

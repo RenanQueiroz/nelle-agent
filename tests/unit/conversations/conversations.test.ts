@@ -575,7 +575,7 @@ test('repository marks missing or corrupt Pi session files unavailable', async (
   try {
     const repository = new ConversationRepository(database);
     const missingConversation = repository.createConversation({title: 'Missing session'});
-    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const sessionManager = SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
     const userEntryId = sessionManager.appendMessage({
       role: 'user',
       content: 'This session file will disappear',
@@ -710,7 +710,7 @@ test('repair restores a conversation once its Pi session file is back', async ()
     const repository = new ConversationRepository(database);
     await repository.init();
     const conversation = repository.createConversation({title: 'Restorable'});
-    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const sessionManager = SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
     const entryId = sessionManager.appendMessage({role: 'user', content: 'Hello'} as any);
     const sessionPath = await writeSessionFile(sessionManager);
     repository.attachPiSession(conversation.id, {
@@ -755,7 +755,7 @@ test('rebuild reconstructs a Pi session from the stored projection', async () =>
     const repository = new ConversationRepository(database);
     await repository.init();
     const conversation = repository.createConversation({title: 'Rebuildable'});
-    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const sessionManager = SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
     const userEntryId = sessionManager.appendMessage({role: 'user', content: 'Ask'} as any);
     const assistantEntryId = sessionManager.appendMessage({
       role: 'assistant',
@@ -821,7 +821,7 @@ test('rebuild reconstructs a Pi session from the stored projection', async () =>
     const rebuiltPath = repository.getPiSessionBinding(conversation.id)?.piSessionPath;
     assert.ok(rebuiltPath);
     assert.equal(await repository.getPiSessionIssue(conversation.id), null);
-    const reopened = SessionManager.open(rebuiltPath, paths.piSessionsDir, paths.repoRoot);
+    const reopened = SessionManager.open(rebuiltPath, paths.piSessionsDir, paths.workspaceDir);
     assert.equal(reopened.getBranch().length, 2);
   } finally {
     database.close();
@@ -1137,7 +1137,7 @@ test('Pi fork from a user entry creates a durable new session file', async () =>
   try {
     const repository = new ConversationRepository(database);
     const source = repository.createConversation({title: 'Source chat'});
-    const sourceManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const sourceManager = SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
     const userEntryId = sourceManager.appendMessage({
       role: 'user',
       content: 'Fork from this prompt',
@@ -1218,7 +1218,7 @@ test('Pi harness does not recreate a missing bound session file', async () => {
 
     const repository = new ConversationRepository(database);
     const conversation = repository.createConversation({title: 'Missing session'});
-    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const sessionManager = SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
     const userEntryId = sessionManager.appendMessage({
       role: 'user',
       content: 'Original prompt',
@@ -1436,7 +1436,7 @@ test('conversation export and import round trip Pi history and attachments', asy
     const repository = new ConversationRepository(database);
     const source = repository.createConversation({title: 'Archive source'});
     sourceId = source.id;
-    const sourceManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const sourceManager = SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
     const userEntryId = sourceManager.appendMessage({
       role: 'user',
       content: 'Export this chat',
@@ -2869,7 +2869,7 @@ test('Pi sync rebuilds the active projection without dropping inactive session b
   try {
     const repository = new ConversationRepository(database);
     const conversation = repository.createConversation({title: 'Branched session'});
-    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const sessionManager = SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
     const userEntryId = sessionManager.appendMessage({
       role: 'user',
       content: 'Choose an answer',
@@ -2915,7 +2915,7 @@ test('Pi sync rebuilds the active projection without dropping inactive session b
     );
 
     const snapshot = repository.getSnapshot(conversation.id, await store.getState());
-    const reopened = SessionManager.open(sessionPath, paths.piSessionsDir, paths.repoRoot);
+    const reopened = SessionManager.open(sessionPath, paths.piSessionsDir, paths.workspaceDir);
 
     assert.deepEqual(snapshot?.activePathEntryIds, [userEntryId, activeAssistantEntryId]);
     assert.deepEqual(
@@ -2944,7 +2944,7 @@ test('conversation snapshot route rebuilds active projection from Pi after resta
     const repository = new ConversationRepository(database);
     const conversation = repository.createConversation({title: 'Recover from Pi'});
     conversationId = conversation.id;
-    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const sessionManager = SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
     userEntryId = sessionManager.appendMessage({
       role: 'user',
       content: 'Recover this prompt',
@@ -3498,12 +3498,10 @@ async function readSessionHeaders(sessionDir: string): Promise<Array<{type: stri
 
 async function createTempPaths(): Promise<AppPaths> {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-test-'));
-  const repoRoot = path.resolve('.');
   const llamaDir = path.join(dataDir, 'llama');
   const piDir = path.join(dataDir, 'pi');
 
   return {
-    repoRoot,
     workspaceDir: dataDir,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
@@ -3701,7 +3699,7 @@ test('reading a snapshot twice through the harness leaves the sidebar order alon
 
     // A real Pi session on disk, so the read path resolves a real leaf id rather
     // than the one the test would like it to find.
-    const sessionManager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    const sessionManager = SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
     sessionManager.appendMessage({role: 'user', content: 'What is 17 times 23?'} as never);
     const assistantEntryId = sessionManager.appendMessage({
       role: 'assistant',

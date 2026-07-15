@@ -9,7 +9,6 @@ export function tempPaths(dataDir: string): AppPaths {
   const llamaDir = path.join(dataDir, 'llama');
   const piDir = path.join(dataDir, 'pi');
   return {
-    repoRoot: path.resolve('.'),
     workspaceDir: dataDir,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),

@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+
 import {HuggingFaceService} from './models/huggingface';
 import {LlamaCppManager} from './llama/manager';
 import {registerLlamaProxy} from './llama/proxy';
@@ -52,6 +54,12 @@ export async function createServer(
   // still empty.
   options: {settingsRegistry?: readonly SettingsGroup[]} = {},
 ): Promise<NelleServer> {
+  // On a fresh install the data dir (default `~/.nelle`) does not exist yet, and the settings db
+  // and every repository below opens files under it -- `bun:sqlite` creates the file but not its
+  // parent. The workspace (default the user's home) normally exists, but a custom
+  // `NELLE_WORKSPACE_DIR` may not. Create both before anything reads them.
+  await fs.mkdir(paths.dataDir, {recursive: true});
+  await fs.mkdir(paths.workspaceDir, {recursive: true});
   const store = new AppStore(paths);
   const database = new AppDatabase(paths);
   await database.open();

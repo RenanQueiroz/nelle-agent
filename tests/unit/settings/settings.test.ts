@@ -324,12 +324,10 @@ test('a group route round-trips through HTTP and rejects an undeclared key by na
 
 async function createTempPaths(): Promise<AppPaths> {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-test-'));
-  const repoRoot = path.resolve('.');
   const llamaDir = path.join(dataDir, 'llama');
   const piDir = path.join(dataDir, 'pi');
 
   return {
-    repoRoot,
     workspaceDir: dataDir,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
