@@ -164,7 +164,10 @@ it (below), or drive it with `curl`.
 
 Set these environment variables when needed:
 
-- `NELLE_DATA_DIR`: override the default `.nelle/` app data directory.
+- `NELLE_DATA_DIR`: override the app data directory (default `~/.nelle`: models, the
+  llama.cpp build, Pi sessions, the settings db, logs).
+- `NELLE_WORKSPACE_DIR`: override the agent's working directory (default the user's home) —
+  where host tools operate and Pi loads `AGENTS.md`/skills from.
 - `NELLE_PORT`: change the local API port.
 - `NELLE_HOST`: change the bind host.
 - `NELLE_TLS_PORT`: change the LAN (TLS) listener port.

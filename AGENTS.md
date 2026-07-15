@@ -624,9 +624,23 @@ Project-specific guidance for AI coding agents.
   start. Each command exports `PATH` explicitly, because `~/.bashrc` returns early
   for non-interactive shells, so a bare `bash -lc` misses `~/.pub-cache/bin` and
   resolves `dart` to the stale **Windows** Flutter on `/mnt/c`.
-- Nelle stores app data under `.nelle/` by default. Do not commit
-  generated app data, test-harness app data (`.nelle-device/`), downloaded models,
-  llama.cpp builds, test reports, or logs.
+- Nelle stores app data under **`~/.nelle`** by default (override `NELLE_DATA_DIR`),
+  *outside* the repo: a clone stays clean, and a compiled binary does not try to write under
+  its install directory. `AppPaths` computes it from `os.homedir()`, and `createServer`
+  `mkdir`s it (and the workspace) at startup, because `bun:sqlite` creates the settings-db
+  file but not its parent. Do not commit generated app data, test-harness app data
+  (`.nelle-device/`), downloaded models, llama.cpp builds, test reports, or logs.
+- **The agent's working directory is `paths.workspaceDir`, the user's home by default**
+  (override `NELLE_WORKSPACE_DIR`) -- the `cwd` host tools operate in, and the directory Pi's
+  `DefaultResourceLoader` loads project context (`AGENTS.md`/`CLAUDE.md`), skills and
+  instructions from. Home is deliberate: Nelle is a general-purpose local agent, so it must
+  reach `Downloads`/`Documents` directly, and a user's own `~/AGENTS.md` becomes *their* agent
+  instructions. It is emphatically **not** the repo/source tree: pointing the agent's cwd there
+  made Pi's ancestor-walk inject this repo's own ~37k-token `AGENTS.md` into every prompt (a
+  one-line "hi" measured at 36,010 prompt tokens). Every SessionManager `cwd` uses `workspaceDir`
+  too. `RuntimeStatus`/`GET /api/health` report both roots, `bun run doctor` prints them, and the
+  llama.cpp settings screen shows them; the throwaway harnesses (`serve-fixture`, `build`,
+  `build-openapi`) pin `NELLE_WORKSPACE_DIR` so a drive never loads a stray home `AGENTS.md`.
 - **Model weights live in `.nelle/models/`, not in the user's global
   `~/.cache/huggingface/hub`.** Nelle hands llama-server `LLAMA_CACHE=<dataDir>/models`,
   which `common/hf-cache.cpp` uses **verbatim as the Hugging Face hub root** (the layout is
@@ -673,7 +687,7 @@ Project-specific guidance for AI coding agents.
   `POST /api/conversations`, so a fresh server has none — and that is correct, not a bug to paper
   over with a placeholder.
 - Nelle has no users yet. Do not write code to migrate old installs: when a
-  change makes existing app data wrong, edit this repository's `.nelle/` by hand
+  change makes existing app data wrong, edit the data directory (`~/.nelle`) by hand
   and move on. SQLite `schema_migrations` stays, because it is also how a fresh
   database is built, but a *data* migration for the benefit of installs that do
   not exist is dead code with a test suite attached.
