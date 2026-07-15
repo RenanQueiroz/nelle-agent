@@ -215,7 +215,7 @@ export class PiHarness {
     defaultModelId?: string | null;
   }): Promise<ConversationSnapshot> {
     const conversation = this.conversations.createConversation(input);
-    const sessionManager = SessionManager.create(this.paths.repoRoot, this.paths.piSessionsDir);
+    const sessionManager = SessionManager.create(this.paths.workspaceDir, this.paths.piSessionsDir);
     const sessionFile = sessionManager.getSessionFile();
     if (!sessionFile) {
       throw new Error('Pi did not allocate a session file for the new conversation.');
@@ -293,7 +293,7 @@ export class PiHarness {
     this.#activeRuns.delete(conversationId);
 
     await fs.mkdir(this.paths.piSessionsDir, {recursive: true});
-    const sessionManager = SessionManager.create(this.paths.repoRoot, this.paths.piSessionsDir);
+    const sessionManager = SessionManager.create(this.paths.workspaceDir, this.paths.piSessionsDir);
     const sessionFile = sessionManager.getSessionFile();
     if (!sessionFile) {
       throw new Error('Pi did not allocate a session file for the rebuilt conversation.');
@@ -364,7 +364,7 @@ export class PiHarness {
       const sessionManager = SessionManager.open(
         binding.piSessionPath,
         this.paths.piSessionsDir,
-        this.paths.repoRoot,
+        this.paths.workspaceDir,
       );
       const activeModel = await this.getProjectionModel();
       this.syncPiConversation(
@@ -1205,7 +1205,7 @@ export class PiHarness {
     const sourceManager = SessionManager.open(
       binding.piSessionPath,
       this.paths.piSessionsDir,
-      this.paths.repoRoot,
+      this.paths.workspaceDir,
     );
     // These three are the client asking for something impossible, not the server breaking, so
     // they carry a code and become a 4xx. They used to be bare `Error`s and therefore bare 500s
@@ -1233,7 +1233,7 @@ export class PiHarness {
     const branchedManager = SessionManager.open(
       branchedSessionPath,
       this.paths.piSessionsDir,
-      this.paths.repoRoot,
+      this.paths.workspaceDir,
     );
     const conversation = this.conversations.createConversation({
       title: input.title ?? `${source.title}${input.kind === 'fork' ? ' (fork)' : ' (copy)'}`,

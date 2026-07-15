@@ -43,6 +43,11 @@ const port = Number(process.env.NELLE_PORT ?? 8797);
 await fs.rm(dataDir, {recursive: true, force: true});
 
 process.env.NELLE_DATA_DIR = dataDir;
+// Pin the agent working directory to a throwaway too. It now defaults to the user's home
+// (`os.homedir()`), and a device run must never load a stray `~/AGENTS.md` off the runner or
+// operate host tools on a real home -- the same isolation reason `NELLE_DATA_DIR` and
+// `NELLE_LLAMA_PORT` are pinned.
+process.env.NELLE_WORKSPACE_DIR = path.join(dataDir, 'workspace');
 process.env.NELLE_HOST = '127.0.0.1';
 process.env.NELLE_PORT = String(port);
 // Never 8080. See (1) above.
@@ -148,7 +153,7 @@ async function seed(): Promise<void> {
     // The slow tier makes its own conversations through the API.
     for (const title of [FIXTURE.withHistory, FIXTURE.aboutPelicans]) {
       const conversation = conversations.createConversation({title});
-      const manager = SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+      const manager = SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
       manager.appendMessage({role: 'user', content: `Tell me about ${title}.`} as never);
       const leaf = manager.appendMessage({
         role: 'assistant',

@@ -75,7 +75,15 @@ export async function createPiSession(input: {
 
   const toolsEnabled = hostTools.areToolsEnabled();
   const resourceLoader = new DefaultResourceLoader({
-    cwd: paths.repoRoot,
+    // The agent works in the user's home directory (`workspaceDir`), so host tools and Pi's
+    // context-file loader operate where a general-purpose PC agent needs to -- `Downloads`,
+    // `Documents`, the rest of the machine. Context files load on purpose: Pi reads
+    // `AGENTS.md`/`CLAUDE.md` from `cwd` and its ancestors and injects them into the system prompt
+    // (`buildSystemPrompt`, separately from the `systemPromptOverride` below), so a user's own
+    // `~/AGENTS.md` becomes *their* agent instructions. This is deliberately not `repoRoot`: the
+    // ancestor-walk from the source tree found this repo's ~37k-token `AGENTS.md` and prepended
+    // Nelle's build docs to every run (a one-line "hi" measured at 36,010 prompt tokens).
+    cwd: paths.workspaceDir,
     agentDir: paths.piDir,
     systemPromptOverride: () => nelleOperationalPrompt(toolsEnabled),
     // Appended, never substituted. Replacing the operational prompt with user
@@ -89,12 +97,12 @@ export async function createPiSession(input: {
   await input.assertSessionAvailable();
   const binding = conversations.getPiSessionBinding(conversationId);
   const sessionManager = binding?.piSessionPath
-    ? SessionManager.open(binding.piSessionPath, paths.piSessionsDir, paths.repoRoot)
-    : SessionManager.create(paths.repoRoot, paths.piSessionsDir);
+    ? SessionManager.open(binding.piSessionPath, paths.piSessionsDir, paths.workspaceDir)
+    : SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
 
   const {session} = await createAgentSession({
     agentDir: paths.piDir,
-    cwd: paths.repoRoot,
+    cwd: paths.workspaceDir,
     model,
     thinkingLevel: piThinkingLevel(conversations.getReasoningLevel(conversationId)),
     tools: toolsEnabled ? TOOL_ALLOWLIST : [],

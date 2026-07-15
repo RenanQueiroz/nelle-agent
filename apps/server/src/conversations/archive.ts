@@ -205,7 +205,7 @@ export async function importConversationArchive(input: {
   await fs.mkdir(input.paths.piSessionsDir, {recursive: true});
   await fs.writeFile(
     importedSessionPath,
-    rewritePiSessionHeader(piSessionText, importedSessionId, input.paths.repoRoot),
+    rewritePiSessionHeader(piSessionText, importedSessionId, input.paths.workspaceDir),
     {flag: 'wx'},
   );
 

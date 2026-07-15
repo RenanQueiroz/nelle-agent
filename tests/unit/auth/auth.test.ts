@@ -14,6 +14,7 @@ function tempPaths(dataDir: string): AppPaths {
   const piDir = path.join(dataDir, 'pi');
   return {
     repoRoot,
+    workspaceDir: dataDir,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
     modelsDir: path.join(dataDir, 'models'),

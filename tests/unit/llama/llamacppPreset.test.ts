@@ -240,6 +240,7 @@ async function createTempPaths(): Promise<AppPaths> {
 
   return {
     repoRoot,
+    workspaceDir: dataDir,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
     modelsDir: path.join(dataDir, 'models'),

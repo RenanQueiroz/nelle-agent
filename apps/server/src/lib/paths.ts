@@ -1,8 +1,20 @@
 import {fileURLToPath} from 'node:url';
+import os from 'node:os';
 import path from 'node:path';
 
 export type AppPaths = {
   repoRoot: string;
+  /**
+   * The agent's working directory: the `cwd` host tools operate in, and the directory Pi loads
+   * project context (`AGENTS.md`), skills and instructions from. Defaults to the user's home
+   * directory -- Nelle is a general-purpose local agent, so it should reach `Downloads`,
+   * `Documents` and the rest of the machine without ceremony -- and is overridable with
+   * `NELLE_WORKSPACE_DIR`. Deliberately **not** `repoRoot`: pointing the agent's cwd at the source
+   * tree made Pi's ancestor-walk load this repo's ~37k-token `AGENTS.md` into every prompt (a
+   * one-line "hi" became a 36,010-token prompt). `os.homedir()` returns the correct location on
+   * every OS (`%USERPROFILE%` on Windows).
+   */
+  workspaceDir: string;
   dataDir: string;
   downloadsDir: string;
   /**
@@ -30,11 +42,13 @@ export type AppPaths = {
 export function createAppPaths(): AppPaths {
   const repoRoot = path.resolve(fileURLToPath(new URL('../../../', import.meta.url)));
   const dataDir = path.resolve(process.env.NELLE_DATA_DIR ?? path.join(repoRoot, '.nelle'));
+  const workspaceDir = path.resolve(process.env.NELLE_WORKSPACE_DIR ?? os.homedir());
   const llamaDir = path.join(dataDir, 'llama');
   const piDir = path.join(dataDir, 'pi');
 
   return {
     repoRoot,
+    workspaceDir,
     dataDir,
     downloadsDir: path.join(dataDir, 'downloads'),
     modelsDir: path.join(dataDir, 'models'),
