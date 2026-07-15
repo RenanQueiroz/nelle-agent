@@ -1,0 +1,6 @@
+[install]
+# Do not install a package version published less than 3 days ago. A brand-new release is
+# where a compromised or broken publish is caught — waiting the window out lets the ecosystem
+# find it first. 259200 = 3 * 24 * 60 * 60 seconds.
+# https://bun.com/docs/pm/cli/install#minimum-release-age
+minimumReleaseAge = 259200
