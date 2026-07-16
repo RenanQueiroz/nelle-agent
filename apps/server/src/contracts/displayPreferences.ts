@@ -11,7 +11,7 @@
  */
 
 export type DisplayPreferences = {
-  /** Render the Reading/Generation stats widget beneath an assistant turn. */
+  /** Show prompt-processing stats beneath the user turn and generation stats beneath the reply. */
   showGenerationStats: boolean;
   /** Expand a reasoning block while the model is still thinking. */
   showThinkingInProgress: boolean;
@@ -55,8 +55,8 @@ export const DISPLAY_PREFERENCE_FIELDS: ReadonlyArray<{
 }> = [
   {
     key: 'showGenerationStats',
-    label: 'Show generation statistics',
-    help: 'The Reading and Generation widget beneath an assistant reply.',
+    label: 'Show performance statistics',
+    help: 'Prompt-processing speed beneath your message, and generation speed beneath the reply.',
   },
   {
     key: 'showThinkingInProgress',

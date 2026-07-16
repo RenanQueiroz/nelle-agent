@@ -11,7 +11,9 @@ import '../conversations/conversations_repository.dart';
 import 'chat_composer.dart';
 import 'chat_controller.dart';
 import 'context_bar.dart';
+import '../settings/display_settings.dart';
 import 'message_bubble.dart';
+import 'performance_stats.dart';
 import 'unavailable_panel.dart';
 
 /// The chat detail pane for one conversation: header, context bar, transcript,
@@ -179,8 +181,39 @@ class _TranscriptState extends ConsumerState<_Transcript> {
             !widget.state.running &&
             message.role == ConversationMessageRole.user &&
             widget.state.snapshot.capabilities.canFork;
+
+        // Per-message performance stats (llama.cpp UI layout): prompt processing under the user
+        // turn, generation under the assistant. Gated on the served `showGenerationStats`
+        // display preference. The reading row's data lives on the *assistant* message (or the
+        // live run), so a user turn reads it from the answer that follows it.
+        final showStats =
+            ref.watch(displaySettingsProvider).valueOrNull?.showGenerationStats ??
+            true;
+        PerfMetric? readingMetric;
+        PerfMetric? generationMetric;
+        if (showStats) {
+          if (message.role == ConversationMessageRole.assistant) {
+            final live = isStreamingAssistant ? widget.state.livePerformance : null;
+            generationMetric =
+                generationMetricOf(live) ??
+                generationMetricOf(parseMessagePerformance(message.performance));
+          } else if (message.role == ConversationMessageRole.user &&
+              i + 1 < items.length &&
+              items[i + 1].role == ConversationMessageRole.assistant) {
+            final answer = items[i + 1];
+            final answerIsStreaming =
+                (i + 1 == items.length - 1) && widget.state.running;
+            final live = answerIsStreaming ? widget.state.livePerformance : null;
+            readingMetric =
+                promptMetricOf(live) ??
+                promptMetricOf(parseMessagePerformance(answer.performance));
+          }
+        }
+
         return MessageBubble(
           message: message,
+          readingMetric: readingMetric,
+          generationMetric: generationMetric,
           onRegenerate: canRegenerate
               ? () => ref
                     .read(

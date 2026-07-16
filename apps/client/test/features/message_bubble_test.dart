@@ -9,6 +9,7 @@ import 'package:nelle_agent/src/api/generated/models/conversation_message.dart';
 import 'package:nelle_agent/src/api/generated/models/conversation_message_role.dart';
 import 'package:nelle_agent/src/features/chat/message_attachments.dart';
 import 'package:nelle_agent/src/features/chat/message_bubble.dart';
+import 'package:nelle_agent/src/features/chat/performance_stats.dart';
 
 import '../helpers/fake_dio.dart';
 
@@ -192,5 +193,108 @@ void main() {
 
     expect(find.byType(MessageAttachments), findsOneWidget);
     expect(tester.getSize(find.byType(MessageAttachments)), Size.zero);
+  });
+
+  testWidgets('a reading row under a user turn shows tokens, time and speed', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _harness(
+        MessageBubble(
+          message: _message(
+            role: ConversationMessageRole.user,
+            content: 'Hi',
+          ),
+          readingMetric: const PerfMetric(tokens: 22, milliseconds: 200),
+        ),
+      ),
+    );
+
+    expect(find.text('22 tokens'), findsOneWidget);
+    expect(find.text('0.2s'), findsOneWidget);
+    // 22 tokens / 200ms = 110 tokens/s, and the reading row spells the unit "tokens/s".
+    expect(find.text('110.00 tokens/s'), findsOneWidget);
+    expect(find.byKey(const ValueKey('k-msg-reading-x')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a generation row in the assistant footer uses t/s', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _harness(
+        MessageBubble(
+          message: _message(
+            role: ConversationMessageRole.assistant,
+            content: 'Hello!',
+            modelAliasSnapshot: 'gemma',
+          ),
+          generationMetric: const PerfMetric(
+            tokens: 281,
+            tokensPerSecond: 40.25,
+            milliseconds: 7000,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('281 tokens'), findsOneWidget);
+    expect(find.text('7.0s'), findsOneWidget);
+    expect(find.text('40.25 t/s'), findsOneWidget);
+    expect(find.byKey(const ValueKey('k-msg-generation-x')), findsOneWidget);
+    // The model alias still renders beside the stats.
+    expect(find.text('gemma'), findsOneWidget);
+  });
+
+  testWidgets('the speed badge is dropped when the burst was untimeable', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _harness(
+        MessageBubble(
+          message: _message(role: ConversationMessageRole.user, content: 'Hi'),
+          // A frame llama.cpp could not time: bytes but no honest rate.
+          readingMetric: const PerfMetric(tokens: 79, milliseconds: 0.003),
+        ),
+      ),
+    );
+
+    expect(find.text('79 tokens'), findsOneWidget);
+    expect(find.textContaining('tokens/s'), findsNothing);
+    expect(find.textContaining('t/s'), findsNothing);
+  });
+
+  testWidgets('assistant footer with alias, stats and actions wraps, never overflows', (
+    tester,
+  ) async {
+    // A phone-width window: the alias + three stat badges + two action icons must wrap
+    // instead of overflowing (the 91px composer-overflow lesson).
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      _harness(
+        MessageBubble(
+          message: _message(
+            role: ConversationMessageRole.assistant,
+            content: 'Hello!',
+            modelAliasSnapshot: 'unsloth/gemma-4-12B-it-qat-GGUF:UD-Q4_K_XL',
+          ),
+          generationMetric: const PerfMetric(
+            tokens: 281,
+            tokensPerSecond: 40.25,
+            milliseconds: 7000,
+          ),
+          onRegenerate: () {},
+          onFork: () {},
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull, reason: 'no RenderFlex overflow');
+    expect(find.text('40.25 t/s'), findsOneWidget);
+    expect(find.byKey(const ValueKey('k-msg-regenerate-x')), findsOneWidget);
   });
 }

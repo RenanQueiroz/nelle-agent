@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nelle_agent/src/api/api_client.dart';
 import 'package:nelle_agent/src/api/chat_stream_event.dart';
+import 'package:nelle_agent/src/api/generated/models/chat_performance.dart';
 import 'package:nelle_agent/src/api/generated/models/nelle_error.dart';
 import 'package:nelle_agent/src/api/generated/models/nelle_warning.dart';
 import 'package:nelle_agent/src/api/generated/models/reasoning_level.dart';
@@ -165,6 +166,46 @@ void main() {
     expect(load?.downloadedBytes, 750);
     expect(load?.totalBytes, 1500);
     expect(load?.progress, 0.5);
+  });
+
+  test('performance.updated folds into livePerformance, per token', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final c = container(events.stream);
+
+    await c.read(chatControllerProvider('c').future);
+    await c.read(chatControllerProvider('c').notifier).send('hi');
+
+    // Reading phase: prompt metrics tick, no generation yet.
+    events.add(
+      PerformanceUpdatedEvent(
+        id: 'a',
+        performance: ChatPerformance.fromJson(const {
+          'source': 'llamacpp-timings',
+          'prompt': {'tokens': 171, 'milliseconds': 504.4},
+        }),
+      ),
+    );
+    await _settle();
+    var live = c.read(chatControllerProvider('c')).requireValue.livePerformance;
+    expect(live?.prompt?.tokens, 171);
+    expect(live?.generation, isNull);
+
+    // Generation phase: a later frame carries both.
+    events.add(
+      PerformanceUpdatedEvent(
+        id: 'a',
+        performance: ChatPerformance.fromJson(const {
+          'source': 'llamacpp-timings',
+          'prompt': {'tokens': 171, 'milliseconds': 504.4},
+          'generation': {'tokens': 16, 'milliseconds': 246, 'tokensPerSecond': 65.0},
+        }),
+      ),
+    );
+    await _settle();
+    live = c.read(chatControllerProvider('c')).requireValue.livePerformance;
+    expect(live?.generation?.tokens, 16);
+    expect(live?.generation?.tokensPerSecond, 65.0);
   });
 
   test('a runnable status ends the load even before the first token', () async {

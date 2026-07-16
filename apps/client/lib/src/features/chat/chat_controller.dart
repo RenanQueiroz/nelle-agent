@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../api/api_client.dart';
 import '../../api/api_exception.dart';
 import '../../api/chat_stream_event.dart';
+import '../../api/generated/models/chat_performance.dart';
 import '../../api/generated/models/conversation_context_usage.dart';
 import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
@@ -56,6 +57,7 @@ class ChatState {
     this.compacting = false,
     this.compactNote,
     this.runWarning,
+    this.livePerformance,
   });
 
   factory ChatState.fromSnapshot(ConversationSnapshot snapshot) => ChatState(
@@ -94,6 +96,12 @@ class ChatState {
   /// `compaction` entry with no role, and `buildConversationMessages` drops it — so
   /// `snapshot.messages` never contains it and reloading will not make it appear.
   final String? compactNote;
+
+  /// The performance of the run **currently streaming** — prompt metrics while it reads, then
+  /// generation metrics per generated token. Reset to null on the authoritative snapshot reload
+  /// in [ChatController._finish], after which each message carries its own settled
+  /// `performance`. Only one assistant streams per conversation, so one field is enough.
+  final ChatPerformance? livePerformance;
 
   String get title => snapshot.conversation.title;
 
@@ -153,6 +161,7 @@ class ChatState {
     String? compactNote,
     String? runWarning,
     bool clearWarning = false,
+    ChatPerformance? livePerformance,
   }) => ChatState(
     snapshot: snapshot,
     messages: messages ?? this.messages,
@@ -167,6 +176,7 @@ class ChatState {
     compacting: compacting ?? this.compacting,
     compactNote: compactNote ?? this.compactNote,
     runWarning: clearWarning ? null : (runWarning ?? this.runWarning),
+    livePerformance: livePerformance ?? this.livePerformance,
   );
 }
 
@@ -534,9 +544,14 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
           state = AsyncData(s.copyWith(compactNote: 'Compaction stopped.'));
         }
         _finish();
+      case PerformanceUpdatedEvent(:final performance):
+        // Server truth, per generated token: prompt metrics while it reads, generation
+        // metrics as it writes. Rendered live under the messages; cleared by the snapshot
+        // reload in `_finish`, after which each message carries its own settled copy.
+        state = AsyncData(s.copyWith(livePerformance: performance));
       default:
-        // run.started, message.*, performance, tool_call, conversation.updated,
-        // run.warning, unknown — not folded in M1.
+        // run.started, message.*, tool_call, conversation.updated, run.warning,
+        // unknown — not folded in M1.
         break;
     }
   }

@@ -5,6 +5,7 @@ import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
 import 'markdown_message.dart';
 import 'message_attachments.dart';
+import 'performance_stats.dart';
 
 /// One rendered message. User turns align right; assistant turns align left with
 /// an optional collapsible reasoning block and a model/variant footer.
@@ -14,9 +15,20 @@ class MessageBubble extends StatelessWidget {
     required this.message,
     this.onRegenerate,
     this.onFork,
+    this.readingMetric,
+    this.generationMetric,
   });
 
   final ConversationMessage message;
+
+  /// Prompt-processing stats to show **under a user turn** — they belong to the run that
+  /// answered it, so the transcript computes them from the paired assistant message (or the
+  /// live run) and hands them down. Null hides the row.
+  final PerfMetric? readingMetric;
+
+  /// Generation stats to show in an **assistant** footer, from this message's own performance
+  /// or the live run. Null hides them.
+  final PerfMetric? generationMetric;
 
   /// Re-answers this turn, keeping the existing answer as a sibling variant. Null when
   /// regenerating makes no sense: a user turn, a reply still streaming, or a run in
@@ -86,36 +98,54 @@ class MessageBubble extends StatelessWidget {
                     )
                   : MarkdownMessage(text: message.content),
             ),
-            if (footer.isNotEmpty || onRegenerate != null || onFork != null)
+            // Prompt-processing stats sit under the user turn they belong to (llama.cpp's UI
+            // layout): the run that read this prompt reports them, and pairing keeps them here.
+            if (readingMetric != null)
+              PerformanceStatsRow(
+                key: ValueKey('k-msg-reading-${message.id}'),
+                metric: readingMetric!,
+                generation: false,
+                alignEnd: isUser,
+              ),
+            if (footer.isNotEmpty ||
+                generationMetric != null ||
+                onRegenerate != null ||
+                onFork != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                // A Wrap, not a Row: on a narrow window the alias, the three stat badges and
+                // the action icons overflow a single line (the 91px composer-overflow lesson).
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 4,
                   children: [
                     if (footer.isNotEmpty)
                       Text(
                         footer,
                         style: TextStyle(fontSize: 10, color: scheme.outline),
                       ),
-                    if (onFork != null) ...[
-                      if (footer.isNotEmpty) const SizedBox(width: 8),
+                    if (generationMetric != null)
+                      PerformanceStatsRow(
+                        key: ValueKey('k-msg-generation-${message.id}'),
+                        metric: generationMetric!,
+                        generation: true,
+                        alignEnd: false,
+                      ),
+                    if (onFork != null)
                       _FooterAction(
                         actionKey: ValueKey('k-msg-fork-${message.id}'),
                         icon: FLucideIcons.gitBranch,
                         tooltip: 'Branch a new chat from here',
                         onTap: onFork!,
                       ),
-                    ],
-                    if (onRegenerate != null) ...[
-                      if (footer.isNotEmpty || onFork != null)
-                        const SizedBox(width: 8),
+                    if (onRegenerate != null)
                       _FooterAction(
                         actionKey: ValueKey('k-msg-regenerate-${message.id}'),
                         icon: FLucideIcons.refreshCw,
                         tooltip: 'Answer again',
                         onTap: onRegenerate!,
                       ),
-                    ],
                   ],
                 ),
               ),

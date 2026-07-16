@@ -1427,9 +1427,21 @@ Project-specific guidance for AI coding agents.
   bundled one only until that request resolves. Unsupported slash commands must
   be blocked client-side with composer status guidance and must not be sent to Pi
   as prompts.
-- Assistant performance metadata should render as a toggleable Reading
-  (prompt processing) / Generation (token output) stats widget with icon
-  controls, not as a plain text throughput string.
+- Performance metadata renders as **per-message stat rows**, matching llama.cpp's current web
+  UI (there is no toggle -- an earlier design had a switchable Reading/Generation widget; it is
+  gone): prompt-processing stats (`⟨ab⟩ tokens · ⟨clock⟩ time · ⟨gauge⟩ tokens/s`) beneath the
+  **user** turn, generation stats (`… t/s`) in the **assistant** footer beside the model alias.
+  Each datapoint is an icon+value badge whose field name shows on hover/long-press (`FTooltip`,
+  never Material `Tooltip`). The reading row's data lives on the *assistant* message (or the live
+  run), so the transcript pairs each visible assistant with its preceding user turn; the row uses
+  the **visible** regenerate variant. Rates are **derived from tokens ÷ ms**, never read from
+  llama.cpp's rate fields, and shown *only when the burst was long enough to time* (`PerfMetric`
+  in `chat/performance_stats.dart`; a `79 tokens / 0.003ms` frame yields no rate). Live values
+  come from folding `performance.updated` into `ChatState.livePerformance` (per generated token);
+  settled values from each message's own `performance`, with a fallback to the legacy
+  `generatedTokens`/`tokensPerSecond` for messages persisted before the metric objects. The whole
+  feature is gated on the served `showGenerationStats` **display** preference (default on) --
+  `displaySettingsProvider` is the first client consumer of a `display` pref.
 - Tool calls must be correlated by stable `id` / Pi `toolCallId`; stream updates
   should upsert existing calls and preserve expandable input/output detail.
 - Host tools fail closed at runtime, not only at Pi-session construction.
