@@ -37,6 +37,72 @@ type HfModelListItem = {
 
 type HfModelInfo = HfModelListItem;
 
+/**
+ * One file of a repo's tree, with the identifiers the download-progress estimate matches on.
+ *
+ * `lfsOid` is the sha256 of an LFS file's content -- **the exact name llama.cpp gives its blob
+ * on disk** (verified byte-for-byte, and already load-bearing as `model_cache.model_oid`).
+ * `oid` is the plain git object id (40-hex), which is what names the blob of a small non-LFS
+ * file. `sizeBytes` may be null for a file Hugging Face did not size; such a file is simply
+ * unattributable, never zero bytes.
+ *
+ * This comes from the **tree** endpoint. The models endpoint the import uses (`?blobs=true`,
+ * `HfSibling` above) carries sizes but *no oids* -- verified against the live API -- so it
+ * cannot support blob attribution.
+ */
+export type RepoTreeFile = {
+  path: string;
+  sizeBytes: number | null;
+  oid: string | null;
+  lfsOid: string | null;
+};
+
+/**
+ * The repo's file inventory at one exact revision.
+ *
+ * The caller passes the commit sha llama.cpp itself resolved (the HF cache's `refs/main`), so
+ * the inventory is byte-identical to what the downloader is fetching -- a re-uploaded repo
+ * cannot desynchronize it. Throws on a non-OK response; the caller degrades to bytes-only.
+ */
+export async function fetchRepoTree(
+  repoId: string,
+  revision: string,
+  fetcher: typeof fetch = fetch,
+): Promise<RepoTreeFile[]> {
+  const response = await fetcher(
+    `https://huggingface.co/api/models/${repoId}/tree/${encodeURIComponent(revision)}?recursive=true`,
+  );
+  if (!response.ok) {
+    throw new Error(`Hugging Face tree request failed: ${response.status}`);
+  }
+  const body: unknown = await response.json();
+  if (!Array.isArray(body)) {
+    return [];
+  }
+  const files: RepoTreeFile[] = [];
+  for (const entry of body) {
+    if (typeof entry !== 'object' || entry === null) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    if (typeof record.path !== 'string' || record.path.length === 0) {
+      continue;
+    }
+    const lfs =
+      typeof record.lfs === 'object' && record.lfs !== null
+        ? (record.lfs as Record<string, unknown>)
+        : null;
+    files.push({
+      path: record.path,
+      sizeBytes:
+        typeof record.size === 'number' && Number.isFinite(record.size) ? record.size : null,
+      oid: typeof record.oid === 'string' && record.oid.length > 0 ? record.oid : null,
+      lfsOid: typeof lfs?.oid === 'string' && lfs.oid.length > 0 ? (lfs.oid as string) : null,
+    });
+  }
+  return files;
+}
+
 export class HuggingFaceService {
   constructor(private readonly store: AppStore) {}
 

@@ -8,6 +8,9 @@ import {test} from 'bun:test';
 import {ConversationRepository} from '../../../apps/server/src/conversations/repository.ts';
 import {AppDatabase} from '../../../apps/server/src/db/database.ts';
 import {LlamaCppManager} from '../../../apps/server/src/llama/manager.ts';
+import {LlamaModelLoader} from '../../../apps/server/src/llama/load.ts';
+import {LlamaRouterClient} from '../../../apps/server/src/llama/router.ts';
+import type {RepoTreeFile} from '../../../apps/server/src/models/huggingface.ts';
 import {ModelCacheRepository} from '../../../apps/server/src/models/cache.ts';
 import type {AppPaths} from '../../../apps/server/src/lib/paths.ts';
 import {createTestServer} from '../helpers/testServer.ts';
@@ -735,6 +738,232 @@ test('a download the router reports failed ends the run at once', async () => {
     );
   } finally {
     await router.close();
+  }
+}, 60_000);
+
+/**
+ * The harness for the tree-priced download tests: a mock router whose model status is mutable,
+ * an HF cache directory laid down the way llama.cpp lays it (refs/main at resolution, the blob
+ * growing in place under its lfs oid), and a loader whose tree fetcher is a stub -- the network
+ * is stubbed here exactly the way the mock router stubs llama.cpp.
+ */
+async function createDownloadHarness(input: {
+  blobName: string;
+  fetchTree: (repoId: string, revision: string) => Promise<RepoTreeFile[]>;
+  sseFrames?: string[];
+}) {
+  let status = 'loading';
+  const router = await createMockRouter({
+    sseFrames: input.sseFrames,
+    modelsFactory: () => [{id: 'repo/model:Q4_K_M', aliases: [], status: {value: status}}],
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+
+  const repoDir = path.join(paths.modelsDir, 'models--repo--model');
+  await fs.mkdir(path.join(repoDir, 'blobs'), {recursive: true});
+  await fs.mkdir(path.join(repoDir, 'refs'), {recursive: true});
+  await fs.writeFile(path.join(repoDir, 'refs', 'main'), 'a'.repeat(40));
+  const blob = path.join(repoDir, 'blobs', input.blobName);
+  await fs.writeFile(blob, Buffer.alloc(1024));
+
+  const loader = new LlamaModelLoader(
+    paths,
+    store,
+    new LlamaRouterClient(paths, store, () => Promise.resolve({} as never)),
+    input.fetchTree,
+  );
+  return {
+    model,
+    loader,
+    blob,
+    router,
+    finish: () => {
+      status = 'loaded';
+    },
+  };
+}
+
+type DownloadUpdate = {
+  status: string;
+  progress?: number;
+  phase?: string;
+  downloadedBytes?: number;
+  totalBytes?: number;
+};
+
+test('a growing download priced by the repo tree reports an exact total', async () => {
+  const blobOid = 'f'.repeat(64);
+  const revisions: string[] = [];
+  const harness = await createDownloadHarness({
+    blobName: blobOid,
+    fetchTree: async (repoId, revision) => {
+      revisions.push(`${repoId}@${revision}`);
+      return [{path: 'model-UD-Q4_K_M.gguf', sizeBytes: 4096, oid: null, lfsOid: blobOid}];
+    },
+  });
+
+  const stallMs = 150 * slowFactor;
+  const feeder = (async () => {
+    for (let step = 0; step < 3; step += 1) {
+      await new Promise(resolve => setTimeout(resolve, stallMs / 3));
+      await fs.appendFile(harness.blob, Buffer.alloc(1024));
+    }
+    harness.finish();
+  })();
+
+  try {
+    const updates: DownloadUpdate[] = [];
+    const result = await harness.loader.ensureModelRunnable(harness.model.id, {
+      pollMs: 5 * slowFactor,
+      stallMs,
+      onProgress: update => updates.push(update),
+    });
+    assert.equal(result.loaded, true);
+    const priced = updates.filter(
+      update => update.phase === 'downloading' && update.totalBytes !== undefined,
+    );
+    assert.ok(priced.length > 0, 'the tree priced the download');
+    for (const update of priced) {
+      assert.equal(update.totalBytes, 4096);
+      assert.ok((update.downloadedBytes ?? 0) > 0 && (update.downloadedBytes ?? 0) <= 4096);
+      assert.ok((update.progress ?? 0) > 0 && (update.progress ?? 0) <= 1);
+    }
+    assert.deepEqual(
+      revisions,
+      [`repo/model@${'a'.repeat(40)}`],
+      'one tree fetch, at the very commit llama.cpp resolved',
+    );
+  } finally {
+    await feeder;
+    await harness.router.close();
+  }
+}, 60_000);
+
+test('a blob the tree cannot name keeps the bytes and forfeits the total', async () => {
+  // The seed alone would price the quant -- but an alien blob means the tree does not
+  // describe this download, and an understated total shows 100% while bytes keep coming.
+  const harness = await createDownloadHarness({
+    blobName: 'd'.repeat(64),
+    fetchTree: async () => [
+      {path: 'model-UD-Q4_K_M.gguf', sizeBytes: 4096, oid: null, lfsOid: 'f'.repeat(64)},
+    ],
+  });
+
+  const stallMs = 150 * slowFactor;
+  const feeder = (async () => {
+    for (let step = 0; step < 3; step += 1) {
+      await new Promise(resolve => setTimeout(resolve, stallMs / 3));
+      await fs.appendFile(harness.blob, Buffer.alloc(1024));
+    }
+    harness.finish();
+  })();
+
+  try {
+    const updates: DownloadUpdate[] = [];
+    const result = await harness.loader.ensureModelRunnable(harness.model.id, {
+      pollMs: 5 * slowFactor,
+      stallMs,
+      onProgress: update => updates.push(update),
+    });
+    assert.equal(result.loaded, true);
+    assert.ok(
+      updates.every(update => update.totalBytes === undefined),
+      'no update carried a total the evidence does not support',
+    );
+    assert.ok(
+      updates.some(update => update.phase === 'downloading' && (update.downloadedBytes ?? 0) > 0),
+      'the honest byte count still flowed',
+    );
+  } finally {
+    await feeder;
+    await harness.router.close();
+  }
+}, 60_000);
+
+test('a tree fetch that fails degrades to bytes-only and the load still completes', async () => {
+  const harness = await createDownloadHarness({
+    blobName: 'f'.repeat(64),
+    fetchTree: async () => {
+      throw new Error('HF API said no');
+    },
+  });
+
+  const stallMs = 150 * slowFactor;
+  const feeder = (async () => {
+    for (let step = 0; step < 3; step += 1) {
+      await new Promise(resolve => setTimeout(resolve, stallMs / 3));
+      await fs.appendFile(harness.blob, Buffer.alloc(1024));
+    }
+    harness.finish();
+  })();
+
+  try {
+    const updates: DownloadUpdate[] = [];
+    const result = await harness.loader.ensureModelRunnable(harness.model.id, {
+      pollMs: 5 * slowFactor,
+      stallMs,
+      onProgress: update => updates.push(update),
+    });
+    assert.equal(result.loaded, true);
+    assert.ok(updates.every(update => update.totalBytes === undefined));
+    assert.ok(
+      updates.some(update => update.phase === 'downloading' && (update.downloadedBytes ?? 0) > 0),
+    );
+  } finally {
+    await feeder;
+    await harness.router.close();
+  }
+}, 60_000);
+
+test("the router's own download frames outrank the disk estimate", async () => {
+  const blobOid = 'f'.repeat(64);
+  const frame = `data: ${JSON.stringify({
+    model: 'repo/model:Q4_K_M',
+    event: 'download_progress',
+    data: {'https://hf.co/model.gguf': {done: 100, total: 9999}},
+  })}\n\n`;
+  const harness = await createDownloadHarness({
+    blobName: blobOid,
+    sseFrames: [frame],
+    fetchTree: async () => [
+      {path: 'model-UD-Q4_K_M.gguf', sizeBytes: 4096, oid: null, lfsOid: blobOid},
+    ],
+  });
+
+  const stallMs = 150 * slowFactor;
+  const feeder = (async () => {
+    for (let step = 0; step < 3; step += 1) {
+      await new Promise(resolve => setTimeout(resolve, stallMs / 3));
+      await fs.appendFile(harness.blob, Buffer.alloc(1024));
+    }
+    harness.finish();
+  })();
+
+  try {
+    const updates: DownloadUpdate[] = [];
+    const result = await harness.loader.ensureModelRunnable(harness.model.id, {
+      pollMs: 5 * slowFactor,
+      stallMs,
+      onProgress: update => updates.push(update),
+    });
+    assert.equal(result.loaded, true);
+    const priced = updates.filter(update => update.totalBytes !== undefined);
+    assert.ok(priced.length > 0);
+    assert.ok(
+      priced.every(update => update.totalBytes === 9999 && update.downloadedBytes === 100),
+      'the downloader’s own numbers win over the disk estimate',
+    );
+  } finally {
+    await feeder;
+    await harness.router.close();
   }
 }, 60_000);
 

@@ -53,6 +53,63 @@ async function directoryBytes(directory: string): Promise<number> {
   return total;
 }
 
+/**
+ * The commit sha llama.cpp resolved for this repo, or null before it has.
+ *
+ * The HF cache layout writes `refs/main` at resolution time -- before the blobs land
+ * (verified mid-download) -- so it is exactly the revision the running download is fetching.
+ * Querying the tree API at this sha keeps the size inventory byte-identical to the download,
+ * whatever the repo has been re-uploaded to since.
+ */
+export async function readResolvedRevision(
+  modelsDir: string,
+  repoId: string,
+): Promise<string | null> {
+  try {
+    const text = await fs.readFile(
+      path.join(modelsDir, repoFolderName(repoId), 'refs', 'main'),
+      'utf8',
+    );
+    const revision = text.trim();
+    return /^[0-9a-f]{7,64}$/i.test(revision) ? revision : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The blobs llama.cpp has started, with their bytes so far.
+ *
+ * Blob names are content ids -- an LFS file's sha256 (64-hex) or a small file's git oid
+ * (40-hex) -- which is what lets each one be attributed to a tree entry and its full size.
+ * Blobs are written **in place** (the downloader resumes via Range requests, so paths are
+ * stable), so a blob's current size is its downloaded bytes. Unlike `repoDiskBytes` this
+ * excludes `refs/` and the snapshot symlinks, which is what makes the sum exactly comparable
+ * to a total built from file sizes: it reaches 100% and never 100.0004%.
+ */
+export async function listBlobs(
+  modelsDir: string,
+  repoId: string,
+): Promise<Array<{name: string; sizeBytes: number}>> {
+  const directory = path.join(modelsDir, repoFolderName(repoId), 'blobs');
+  try {
+    const entries = await fs.readdir(directory, {withFileTypes: true});
+    const blobs: Array<{name: string; sizeBytes: number}> = [];
+    for (const entry of entries) {
+      if (!entry.isFile()) {
+        continue;
+      }
+      blobs.push({
+        name: entry.name,
+        sizeBytes: (await fs.stat(path.join(directory, entry.name))).size,
+      });
+    }
+    return blobs;
+  } catch {
+    return [];
+  }
+}
+
 /** Deletes a repo's weights. Returns the bytes reclaimed. */
 export async function removeRepoWeights(modelsDir: string, repoId: string): Promise<number> {
   const directory = path.join(modelsDir, repoFolderName(repoId));

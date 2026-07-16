@@ -22,9 +22,11 @@ import {
   MODEL_LOAD_START_GRACE_MS,
   isRunnableRouterStatus,
 } from '../contracts/router.ts';
+import {fetchRepoTree, type RepoTreeFile} from '../models/huggingface.ts';
+import {attributeBlobs, seedPathsForQuant} from './downloadTotal.ts';
 import {writePreset} from './preset.ts';
 import type {LlamaRouterClient} from './router.ts';
-import {repoDiskBytes} from './weights.ts';
+import {listBlobs, readResolvedRevision, repoDiskBytes} from './weights.ts';
 import {
   delay,
   getProp,
@@ -59,6 +61,8 @@ export class LlamaModelLoader {
     private readonly paths: AppPaths,
     private readonly store: AppStore,
     private readonly router: LlamaRouterClient,
+    /** Injectable so tests stub the network the way the mock router stubs llama.cpp. */
+    private readonly fetchTree: typeof fetchRepoTree = fetchRepoTree,
   ) {}
 
   /**
@@ -110,9 +114,43 @@ export class LlamaModelLoader {
     // The repo directory is the download's only build-independent progress signal (see above).
     // `repoId` is null for a model without one, and `repoDiskBytes` is null until the first
     // byte lands — both simply mean "no signal from disk", not zero.
-    const repoId = (await this.store.getModel(modelId))?.repoId ?? null;
+    const configured = await this.store.getModel(modelId);
+    const repoId = configured?.repoId ?? null;
+    const quant = configured?.quant ?? null;
     let dirBytes = repoId ? await repoDiskBytes(this.paths.modelsDir, repoId) : null;
     let sawDownloadGrowth = false;
+    // The exact-total estimate: the repo tree fetched lazily at the commit `refs/main` says this
+    // download resolved, then each observed blob attributed against it (`downloadTotal.ts`). One
+    // fetch per load, fired on the first sign of download growth and never awaited by the poll —
+    // until (unless) it lands, the wait behaves exactly as before: bytes-only. (A mutable object
+    // rather than `let`s: the state moves inside an async closure, which TypeScript's flow
+    // analysis cannot see on a plain variable.)
+    const treeEstimate: {
+      state: 'idle' | 'pending' | 'ready' | 'failed';
+      tree: RepoTreeFile[];
+      seedPaths: string[];
+    } = {state: 'idle', tree: [], seedPaths: []};
+    const startTreeFetch = (forRepoId: string) => {
+      treeEstimate.state = 'pending';
+      void (async () => {
+        try {
+          const revision = await readResolvedRevision(this.paths.modelsDir, forRepoId);
+          if (!revision) {
+            // `refs/main` not written yet; a later tick retries once it is.
+            treeEstimate.state = 'idle';
+            return;
+          }
+          const fetched = await this.fetchTree(forRepoId, revision);
+          treeEstimate.seedPaths = seedPathsForQuant(fetched, quant);
+          treeEstimate.tree = fetched;
+          treeEstimate.state = 'ready';
+        } catch {
+          // Hugging Face's API refused while its CDN serves the download — degrade to
+          // bytes-only rather than guess, and do not hammer the API from a poll loop.
+          treeEstimate.state = 'failed';
+        }
+      })();
+    };
     let lastProgressAt = startedAt;
     let lastStatus: string | undefined = current.status;
     let lastFrameAt = 0;
@@ -145,8 +183,9 @@ export class LlamaModelLoader {
           lastProgressAt = Date.now();
         }
 
-        // -- What to tell the client. Download numbers prefer the SSE frames (they carry
-        // totals); the disk measurement stands in on routers that never emit them. --
+        // -- What to tell the client. Download numbers prefer the SSE frames (they carry the
+        // downloader's own ground truth); the disk estimate — observed blobs priced by the repo
+        // tree — stands in on routers that never emit them, which through b10050 is all of them. --
         const download = watcher.download();
         const stage = watcher.latest() ?? next?.progress;
         const phase: ModelLoadProgressUpdate['phase'] =
@@ -155,15 +194,49 @@ export class LlamaModelLoader {
             : download !== undefined || sawDownloadGrowth
               ? 'downloading'
               : undefined;
+        let downloadedBytes: number | undefined;
+        let totalBytes: number | undefined;
+        let fraction: number | undefined;
+        if (phase === 'downloading') {
+          if (repoId && sawDownloadGrowth && treeEstimate.state === 'idle') {
+            startTreeFetch(repoId);
+          }
+          let blobBytes: number | undefined;
+          let diskTotal: number | undefined;
+          if (repoId && treeEstimate.state === 'ready') {
+            // Blob bytes, not `repoDiskBytes`: excluding `refs/` and the snapshot symlinks is
+            // what makes the sum exactly comparable to the tree's file sizes.
+            const blobs = await listBlobs(this.paths.modelsDir, repoId);
+            blobBytes = blobs.reduce((sum, blob) => sum + blob.sizeBytes, 0);
+            diskTotal = attributeBlobs(
+              blobs.map(blob => blob.name),
+              treeEstimate.tree,
+              treeEstimate.seedPaths,
+            ).totalBytes;
+          }
+          downloadedBytes = download?.downloadedBytes ?? blobBytes ?? dirBytes ?? undefined;
+          totalBytes = download?.totalBytes ?? diskTotal;
+          fraction = download?.fraction;
+          if (fraction === undefined && downloadedBytes !== undefined && totalBytes !== undefined) {
+            fraction = Math.min(1, downloadedBytes / totalBytes);
+          }
+          if (
+            downloadedBytes !== undefined &&
+            totalBytes !== undefined &&
+            downloadedBytes > totalBytes
+          ) {
+            // Honesty: a total the evidence has outrun is no total at all. (The client derives
+            // its own fraction from the pair, so the pair goes together.)
+            totalBytes = undefined;
+            fraction = download?.fraction;
+          }
+        }
         options.onProgress?.({
           status: next?.status ?? 'unknown',
-          progress: phase === 'downloading' ? download?.fraction : stage,
+          progress: phase === 'downloading' ? fraction : stage,
           phase,
-          downloadedBytes:
-            phase === 'downloading'
-              ? (download?.downloadedBytes ?? dirBytes ?? undefined)
-              : undefined,
-          totalBytes: phase === 'downloading' ? download?.totalBytes : undefined,
+          downloadedBytes,
+          totalBytes,
         });
 
         if (isRunnableRouterStatus(next?.status)) {
