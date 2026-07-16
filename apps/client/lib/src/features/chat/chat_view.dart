@@ -155,7 +155,7 @@ class _TranscriptState extends ConsumerState<_Transcript> {
             widget.state.running &&
             message.role == ConversationMessageRole.assistant;
         if (isStreamingAssistant && widget.state.loadingModel) {
-          return _LoadingWeights(progress: widget.state.modelLoadProgress);
+          return _LoadingWeights(load: widget.state.modelLoad);
         }
         if (isStreamingAssistant &&
             message.content.isEmpty &&
@@ -266,16 +266,53 @@ class _BranchedBanner extends StatelessWidget {
   }
 }
 
-class _LoadingWeights extends StatelessWidget {
-  const _LoadingWeights({this.progress});
+/// The one line the transcript shows while a model becomes runnable.
+///
+/// A first load *downloads* the weights — multi-GB blobs, minutes on an ordinary
+/// connection — and used to be indistinguishable from a hung load. The server now says
+/// which phase it is in and how many bytes have landed; older servers (or routers that
+/// report nothing) fall back to the generic "Loading weights…". Public so a test can pin
+/// every wording without pumping the whole transcript.
+String modelLoadLabel(ModelLoad? load) {
+  if (load == null) {
+    return 'Loading weights…';
+  }
+  if (load.downloading) {
+    final done = load.downloadedBytes;
+    final total = load.totalBytes;
+    if (done != null && total != null && total > 0) {
+      final fraction = load.progress ?? (done / total);
+      final pct = (fraction * 100).clamp(0, 100).toStringAsFixed(0);
+      return 'Downloading model… $pct% (${_bytesLabel(done)} / ${_bytesLabel(total)})';
+    }
+    // Routers that emit no download SSE still yield bytes measured off the disk — but no
+    // total, so no percentage: a number the server never sent must not be invented.
+    if (done != null && done > 0) {
+      return 'Downloading model… ${_bytesLabel(done)}';
+    }
+    return 'Downloading model…';
+  }
+  final progress = load.progress;
+  final pct = progress == null
+      ? null
+      : (progress * 100).clamp(0, 100).toStringAsFixed(0);
+  return pct == null ? 'Loading weights…' : 'Loading weights $pct%';
+}
 
-  final double? progress;
+String _bytesLabel(int bytes) {
+  if (bytes >= 1000 * 1000 * 1000) {
+    return '${(bytes / (1000 * 1000 * 1000)).toStringAsFixed(1)} GB';
+  }
+  return '${(bytes / (1000 * 1000)).round()} MB';
+}
+
+class _LoadingWeights extends StatelessWidget {
+  const _LoadingWeights({this.load});
+
+  final ModelLoad? load;
 
   @override
   Widget build(BuildContext context) {
-    final pct = progress == null
-        ? null
-        : (progress! * 100).clamp(0, 100).toStringAsFixed(0);
     return Align(
       alignment: Alignment.centerLeft,
       child: Padding(
@@ -289,7 +326,7 @@ class _LoadingWeights extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             const SizedBox(width: 8),
-            Text(pct == null ? 'Loading weights…' : 'Loading weights $pct%'),
+            Text(modelLoadLabel(load)),
           ],
         ),
       ),

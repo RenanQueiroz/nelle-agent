@@ -34,6 +34,9 @@ export async function ensureModelReadyForRun(input: {
         modelId: input.modelId,
         status: update.status,
         progress: update.progress,
+        phase: update.phase,
+        downloadedBytes: update.downloadedBytes,
+        totalBytes: update.totalBytes,
         createdAt: new Date().toISOString(),
       }),
   });

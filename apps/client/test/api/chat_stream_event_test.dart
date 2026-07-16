@@ -63,6 +63,28 @@ void main() {
         'progress': 0.42,
       });
       expect((event as ModelLoadingEvent).progress, 0.42);
+      // Fields a pre-download-progress server never sends stay null, not zero.
+      expect(event.phase, isNull);
+      expect(event.downloadedBytes, isNull);
+      expect(event.totalBytes, isNull);
+    });
+
+    test('model.loading carries the download phase and its bytes', () {
+      final event = enveloped({
+        'type': 'model.loading',
+        'conversationId': 'c',
+        'modelId': 'm',
+        'status': 'downloading',
+        'phase': 'downloading',
+        'downloadedBytes': 196963406,
+        'totalBytes': 221307424,
+        'progress': 0.89,
+      });
+      final loading = event as ModelLoadingEvent;
+      expect(loading.phase, 'downloading');
+      expect(loading.downloadedBytes, 196963406);
+      expect(loading.totalBytes, 221307424);
+      expect(loading.progress, 0.89);
     });
 
     test('run lifecycle', () {

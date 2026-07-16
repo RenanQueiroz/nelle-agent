@@ -17,7 +17,7 @@ import {AppStore} from '../models/store';
 import type {CommandOutputLine} from '../lib/process';
 import type {RuntimeLogTail} from '../contracts/runtime.ts';
 import {LlamaInstall} from './install.ts';
-import {LlamaModelLoader} from './load.ts';
+import {LlamaModelLoader, type EnsureModelRunnableOptions} from './load.ts';
 import {removeModelSection, writePreset} from './preset.ts';
 import {LlamaProcess} from './process.ts';
 import {LlamaRouterClient} from './router.ts';
@@ -199,11 +199,7 @@ export class LlamaCppManager {
 
   async ensureModelRunnable(
     modelId: string,
-    options: {
-      onProgress?: (update: {status: string; progress?: number}) => void;
-      timeoutMs?: number;
-      pollMs?: number;
-    } = {},
+    options: EnsureModelRunnableOptions = {},
   ): Promise<{loaded: boolean}> {
     return this.#loader.ensureModelRunnable(modelId, options);
   }

@@ -28,9 +28,19 @@ import 'sse_transport.dart';
 /// its first frames carry no value at all. That is "loading, amount unknown", which is
 /// not zero: rendering it as 0% would invent a number the server never sent.
 class ModelLoad {
-  const ModelLoad({this.progress});
+  const ModelLoad({this.progress, this.phase, this.downloadedBytes, this.totalBytes});
 
   final double? progress;
+
+  /// `downloading` while the weights are still arriving, `loading` while llama.cpp reads
+  /// them in, null before the server has evidence of either. A first load downloads
+  /// multi-GB blobs — minutes, not seconds — and the transcript must say so rather than
+  /// look hung.
+  final String? phase;
+  final int? downloadedBytes;
+  final int? totalBytes;
+
+  bool get downloading => phase == 'downloading';
 }
 
 class ChatState {
@@ -464,7 +474,13 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         );
       case CompactFailedEvent(:final error):
         state = AsyncData(s.copyWith(runError: error.message));
-      case ModelLoadingEvent(:final status, :final progress):
+      case ModelLoadingEvent(
+        :final status,
+        :final progress,
+        :final phase,
+        :final downloadedBytes,
+        :final totalBytes,
+      ):
         // The last of these can carry a runnable status: the server polls until the
         // model is up and reports what it saw. Showing "Loading weights" past that
         // would leave the placeholder on screen until the first token arrives.
@@ -472,7 +488,14 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
           isRunnableRouterStatus(status)
               ? s.copyWith(clearModelLoad: true)
               // `progress` is null on llama.cpp's first frames — loading, not 0%.
-              : s.copyWith(modelLoad: ModelLoad(progress: progress)),
+              : s.copyWith(
+                  modelLoad: ModelLoad(
+                    progress: progress,
+                    phase: phase,
+                    downloadedBytes: downloadedBytes,
+                    totalBytes: totalBytes,
+                  ),
+                ),
         );
       case AssistantDeltaEvent(:final delta):
         state = AsyncData(

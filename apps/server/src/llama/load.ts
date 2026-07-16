@@ -14,15 +14,17 @@ import type {AppPaths} from '../lib/paths';
 import type {LlamaRouterModel} from '../lib/types';
 import type {AppStore} from '../models/store';
 import {NELLE_ERROR_CODES} from '../contracts/contracts.ts';
-import {routerLoadProgress} from '../contracts/routerProgress.ts';
+import {routerDownloadProgress, routerLoadProgress} from '../contracts/routerProgress.ts';
 import {
+  MODEL_LOAD_ABSOLUTE_MAX_MS,
   MODEL_LOAD_POLL_MS,
+  MODEL_LOAD_STALL_MS,
   MODEL_LOAD_START_GRACE_MS,
-  MODEL_LOAD_TIMEOUT_MS,
   isRunnableRouterStatus,
 } from '../contracts/router.ts';
 import {writePreset} from './preset.ts';
 import type {LlamaRouterClient} from './router.ts';
+import {repoDiskBytes} from './weights.ts';
 import {
   delay,
   getProp,
@@ -31,6 +33,26 @@ import {
   safeJsonParse,
   stringOrUndefined,
 } from './wire.ts';
+
+/** What the wait reports while it works: the status, and whichever numbers exist yet. */
+export type ModelLoadProgressUpdate = {
+  status: string;
+  /** 0..1 of the current phase — download fraction while downloading (only when the router
+   *  reported totals), load-stage fraction while loading. Absent means "working, amount
+   *  unknown", never zero. */
+  progress?: number;
+  /** Set once there is evidence of which phase this is; absent on the first quiet ticks. */
+  phase?: 'downloading' | 'loading';
+  downloadedBytes?: number;
+  totalBytes?: number;
+};
+
+export type EnsureModelRunnableOptions = {
+  onProgress?: (update: ModelLoadProgressUpdate) => void;
+  pollMs?: number;
+  stallMs?: number;
+  absoluteMaxMs?: number;
+};
 
 export class LlamaModelLoader {
   constructor(
@@ -42,22 +64,32 @@ export class LlamaModelLoader {
   /**
    * Makes a model runnable before a run starts, or explains why it cannot be.
    *
-   * This state machine used to live in the browser, which meant every client had
-   * to reimplement it: post a load, poll `/models`, watch for `failed`, give up
-   * after 30 seconds. The semantics are preserved exactly, including the odd one:
-   * a model the router does not list at all is left alone, and the request goes
-   * through so llama.cpp can answer for itself.
+   * The wait is bounded by a **stall window, not a wall clock**. A first load *downloads* the
+   * weights — multi-GB, minutes on an ordinary connection — and the old fixed 30s deadline
+   * failed every such load while it was quietly succeeding (reproduced live: `model_load_failed`
+   * at 30.0s, model ready at 33s). So the deadline resets on evidence of progress, any of:
+   *
+   * - the model's **repo directory growing on disk** — the one signal every llama.cpp build
+   *   gives, because blobs download in place (the installed b10021 emits no download SSE at
+   *   all, measured across a full 3.6 GB download);
+   * - an SSE frame for this model arriving — status flips, load stages, and on newer routers
+   *   `download_progress` frames with real byte counts;
+   * - the router status changing (`unloaded` → `loading`/`downloading` → …). Statuses this
+   *   build has never seen — master already adds `downloading` — count as in-progress, never
+   *   as failure.
+   *
+   * A genuinely wedged load therefore still dies in ~`MODEL_LOAD_STALL_MS`, while a slow
+   * download runs to completion, with `MODEL_LOAD_ABSOLUTE_MAX_MS` as the backstop against a
+   * download that trickles forever. The dead-child fast-fail (below) is untouched: a child that
+   * exits at startup fails in seconds, on the exit code, not by outlasting any window.
    */
   async ensureModelRunnable(
     modelId: string,
-    options: {
-      onProgress?: (update: {status: string; progress?: number}) => void;
-      timeoutMs?: number;
-      pollMs?: number;
-    } = {},
+    options: EnsureModelRunnableOptions = {},
   ): Promise<{loaded: boolean}> {
     const pollMs = options.pollMs ?? MODEL_LOAD_POLL_MS;
-    const attempts = Math.max(1, Math.ceil((options.timeoutMs ?? MODEL_LOAD_TIMEOUT_MS) / pollMs));
+    const stallMs = options.stallMs ?? MODEL_LOAD_STALL_MS;
+    const absoluteMaxMs = options.absoluteMaxMs ?? MODEL_LOAD_ABSOLUTE_MAX_MS;
     const find = (models: LlamaRouterModel[]) => models.find(model => model.sectionId === modelId);
 
     const current = find((await this.router.getRouterModels()).models);
@@ -73,30 +105,76 @@ export class LlamaModelLoader {
     // reaching a client carries no progress, and the transcript can only say "loading"
     // for the tens of seconds a load takes. Subscribe before asking for the load, so no
     // early frame is missed.
-    const progress = this.watchModelLoadProgress(modelId);
+    const watcher = this.watchModelLoadProgress(modelId);
     const startedAt = Date.now();
+    // The repo directory is the download's only build-independent progress signal (see above).
+    // `repoId` is null for a model without one, and `repoDiskBytes` is null until the first
+    // byte lands — both simply mean "no signal from disk", not zero.
+    const repoId = (await this.store.getModel(modelId))?.repoId ?? null;
+    let dirBytes = repoId ? await repoDiskBytes(this.paths.modelsDir, repoId) : null;
+    let sawDownloadGrowth = false;
+    let lastProgressAt = startedAt;
+    let lastStatus: string | undefined = current.status;
+    let lastFrameAt = 0;
     // Whether the router ever moved the model off `unloaded`. See the dead-child check below:
     // the exit code alone cannot say *which* attempt failed, but "it never even started" can.
     let everStarted = false;
     try {
-      if (current.status !== 'loading') {
+      if (current.status !== 'loading' && current.status !== 'downloading') {
         await this.router.loadRouterModel(modelId);
       }
 
-      for (let attempt = 0; attempt < attempts; attempt += 1) {
+      for (;;) {
         const next = find((await this.router.getRouterModels()).models);
+
+        // -- Progress detection: each signal advances the stall deadline. --
+        if (repoId) {
+          const measured = await repoDiskBytes(this.paths.modelsDir, repoId);
+          if (measured != null && measured > (dirBytes ?? 0)) {
+            dirBytes = measured;
+            sawDownloadGrowth = true;
+            lastProgressAt = Date.now();
+          }
+        }
+        if (watcher.lastFrameAt() > lastFrameAt) {
+          lastFrameAt = watcher.lastFrameAt();
+          lastProgressAt = Date.now();
+        }
+        if (next?.status !== lastStatus) {
+          lastStatus = next?.status;
+          lastProgressAt = Date.now();
+        }
+
+        // -- What to tell the client. Download numbers prefer the SSE frames (they carry
+        // totals); the disk measurement stands in on routers that never emit them. --
+        const download = watcher.download();
+        const stage = watcher.latest() ?? next?.progress;
+        const phase: ModelLoadProgressUpdate['phase'] =
+          stage !== undefined || isRunnableRouterStatus(next?.status)
+            ? 'loading'
+            : download !== undefined || sawDownloadGrowth
+              ? 'downloading'
+              : undefined;
         options.onProgress?.({
           status: next?.status ?? 'unknown',
-          progress: progress.latest() ?? next?.progress,
+          progress: phase === 'downloading' ? download?.fraction : stage,
+          phase,
+          downloadedBytes:
+            phase === 'downloading'
+              ? (download?.downloadedBytes ?? dirBytes ?? undefined)
+              : undefined,
+          totalBytes: phase === 'downloading' ? download?.totalBytes : undefined,
         });
+
         if (isRunnableRouterStatus(next?.status)) {
           await this.pinToDownloadedWeights(modelId);
           return {loaded: true};
         }
-        if (next?.status === 'failed') {
-          throw modelLoadError(modelLoadFailureMessage(modelId, next, this.paths.llamaLogPath), {
-            logRef: this.paths.llamaLogPath,
-          });
+        if (next?.status === 'failed' || watcher.downloadFailed()) {
+          throw modelLoadError(
+            modelLoadFailureMessage(modelId, next ?? {}, this.paths.llamaLogPath),
+            {logRef: this.paths.llamaLogPath},
+          );
         }
         if (next && next.status !== 'unloaded') {
           everStarted = true;
@@ -107,7 +185,7 @@ export class LlamaModelLoader {
         // the router leaves the model at `unloaded` and records the exit code, and nothing
         // else ever happens. Measured: 7s of polling, `unloaded` and `exit_code: 1` on every
         // single tick, no `loading`, no `failed`. Without this the loop grinds out its whole
-        // timeout and reports "did not finish loading", when llama.cpp knew the reason
+        // stall window and reports "did not finish loading", when llama.cpp knew the reason
         // instantly and wrote it down.
         //
         // The exit code cannot say *which* attempt it belongs to -- a previous failure leaves
@@ -125,29 +203,55 @@ export class LlamaModelLoader {
             });
           }
         }
+        if (Date.now() - lastProgressAt > stallMs) {
+          throw modelLoadError(
+            `${modelId} did not finish loading: no download or load progress for ` +
+              `${Math.round(stallMs / 1000)}s.`,
+            {logRef: this.paths.llamaLogPath},
+          );
+        }
+        if (Date.now() - startedAt > absoluteMaxMs) {
+          throw modelLoadError(
+            `${modelId} did not finish loading within ` +
+              `${Math.round(absoluteMaxMs / 60_000)} minutes.`,
+            {logRef: this.paths.llamaLogPath},
+          );
+        }
         await delay(pollMs);
       }
-      throw modelLoadError(`${modelId} did not finish loading before the router timed out.`);
     } finally {
-      progress.close();
+      watcher.close();
     }
   }
 
   /**
-   * Follows llama.cpp's router SSE and keeps the latest load progress for one model.
+   * Follows llama.cpp's router SSE and keeps the latest progress for one model.
    *
-   * A frame with no measurement in it -- llama.cpp's bare `{"stage": ...}` between
-   * stages -- leaves the last number standing rather than erasing it, so the reported
-   * progress only ever moves forward. A stream that never opens (llama.cpp busy
-   * loading, say) is not an error: the poll loop still governs the wait, and the client
-   * simply sees "loading" with no number, which is what it saw before.
+   * Two different frame shapes travel this stream and each gets its own parser: load-stage
+   * frames (`data.progress`, collapsed by `routerLoadProgress`) and — on routers new enough to
+   * relay the child's downloader — `download_progress` frames (`data` is a per-URL byte map,
+   * read by `routerDownloadProgress`). A frame with no measurement in it leaves the last
+   * numbers standing, so the reported progress only ever moves forward; the subscribe-time
+   * snapshot arrives as `event:"model_status"` rather than `status_change`, which is why
+   * nothing here filters on the event name except the two download events.
+   *
+   * `lastFrameAt` records when *any* frame for this model arrived — the stall deadline treats
+   * that as a heartbeat. A stream that never opens (llama.cpp busy loading, say) is not an
+   * error: the poll loop still governs the wait, and the client simply sees "loading" with no
+   * number, which is what it saw before.
    */
   private watchModelLoadProgress(modelId: string): {
     latest: () => number | undefined;
+    download: () => {downloadedBytes: number; totalBytes?: number; fraction?: number} | undefined;
+    downloadFailed: () => boolean;
+    lastFrameAt: () => number;
     close: () => void;
   } {
     const abort = new AbortController();
     let latest: number | undefined;
+    let download: {downloadedBytes: number; totalBytes?: number; fraction?: number} | undefined;
+    let downloadFailed = false;
+    let lastFrameAt = 0;
 
     void (async () => {
       try {
@@ -158,6 +262,19 @@ export class LlamaModelLoader {
         for await (const data of readSseData(response.body)) {
           const frame = safeJsonParse(data);
           if (stringOrUndefined(getProp(frame, 'model')) !== modelId) {
+            continue;
+          }
+          lastFrameAt = Date.now();
+          const event = stringOrUndefined(getProp(frame, 'event'));
+          if (event === 'download_progress') {
+            const parsed = routerDownloadProgress(getProp(frame, 'data'));
+            if (parsed !== undefined) {
+              download = parsed;
+            }
+            continue;
+          }
+          if (event === 'download_failed') {
+            downloadFailed = true;
             continue;
           }
           const value = routerLoadProgress(getProp(getProp(frame, 'data'), 'progress'));
@@ -171,7 +288,13 @@ export class LlamaModelLoader {
       }
     })();
 
-    return {latest: () => latest, close: () => abort.abort()};
+    return {
+      latest: () => latest,
+      download: () => download,
+      downloadFailed: () => downloadFailed,
+      lastFrameAt: () => lastFrameAt,
+      close: () => abort.abort(),
+    };
   }
 
   /**

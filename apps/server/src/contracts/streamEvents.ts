@@ -134,7 +134,18 @@ export const chatStreamEventSchema = z.discriminatedUnion('type', [
     conversationId: z.string(),
     modelId: z.string(),
     status: z.string(),
+    /** 0..1 of the current phase; absent means "working, amount unknown", never zero. */
     progress: z.number().optional(),
+    /**
+     * `downloading` while the weights are still arriving (a first load downloads multi-GB
+     * blobs), `loading` once llama.cpp is reading them in. Absent on the first quiet ticks,
+     * when there is no evidence of either yet — a client keeps its plain placeholder.
+     */
+    phase: z.enum(['downloading', 'loading']).optional(),
+    /** Bytes on the wire so far. On routers that emit no download SSE this is the repo
+     *  directory measured on disk, so it exists even when `totalBytes` does not. */
+    downloadedBytes: z.number().optional(),
+    totalBytes: z.number().optional(),
     createdAt: z.string(),
   }),
   z.object({type: z.literal('message.user.created'), message: chatMessageSchema}),

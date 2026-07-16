@@ -10,8 +10,22 @@ export function isRunnableRouterStatus(status: string | null | undefined): boole
   return RUNNABLE_ROUTER_STATUSES.includes(status as (typeof RUNNABLE_ROUTER_STATUSES)[number]);
 }
 
-/** How long a run waits for a model to finish loading before giving up. */
-export const MODEL_LOAD_TIMEOUT_MS = 30_000;
+/**
+ * How long a load may go without any sign of progress before the run gives up.
+ *
+ * This is a **stall** window, not a wall clock: a first load downloads the weights (measured:
+ * 6.7 GB ≈ 2 min on a fast connection, arbitrarily long on a slow one), and the old fixed 30s
+ * deadline failed every such load while it was working -- reproduced live, `model_load_failed`
+ * at 30.0s with the model ready at 33s. Progress -- the repo directory growing, an SSE frame
+ * arriving, the router status moving -- resets the window, so a slow download runs to completion
+ * while a genuinely wedged load still fails in about a minute.
+ */
+export const MODEL_LOAD_STALL_MS = 60_000;
+/**
+ * The backstop for a pathological load that never stops "progressing" -- e.g. a download whose
+ * bytes trickle forever. Nothing legitimate takes this long without also stalling somewhere.
+ */
+export const MODEL_LOAD_ABSOLUTE_MAX_MS = 30 * 60_000;
 export const MODEL_LOAD_POLL_MS = 500;
 
 /**

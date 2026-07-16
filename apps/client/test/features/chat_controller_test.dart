@@ -138,6 +138,35 @@ void main() {
     expect(state.modelLoadProgress, isNull);
   });
 
+  test('a downloading phase carries its bytes through to the state', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final c = container(events.stream);
+
+    await c.read(chatControllerProvider('c').future);
+    await c.read(chatControllerProvider('c').notifier).send('hi');
+
+    // A first load *downloads* the weights before anything can load; the server names the
+    // phase and counts the bytes, and the state must not flatten that back to a bare spinner.
+    events.add(
+      const ModelLoadingEvent(
+        modelId: 'm',
+        status: 'downloading',
+        phase: 'downloading',
+        downloadedBytes: 750,
+        totalBytes: 1500,
+        progress: 0.5,
+      ),
+    );
+    await _settle();
+
+    final load = c.read(chatControllerProvider('c')).requireValue.modelLoad;
+    expect(load?.downloading, isTrue);
+    expect(load?.downloadedBytes, 750);
+    expect(load?.totalBytes, 1500);
+    expect(load?.progress, 0.5);
+  });
+
   test('a runnable status ends the load even before the first token', () async {
     final events = StreamController<ChatStreamEvent>();
     closeAfterTest(events);

@@ -5,7 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import {test} from 'bun:test';
 
-import {MODEL_LOAD_TIMEOUT_MS} from '../../../apps/server/src/contracts/router.ts';
 import {ConversationRepository} from '../../../apps/server/src/conversations/repository.ts';
 import {AppDatabase} from '../../../apps/server/src/db/database.ts';
 import {LlamaCppManager} from '../../../apps/server/src/llama/manager.ts';
@@ -468,10 +467,10 @@ test('a child that dies at startup fails the run, rather than grinding to the ti
         // ...and the reason itself is llama.cpp's, in the log. Nelle never guesses at it.
         typeof error.logRef === 'string',
     );
-    // It must fail on the *evidence*, not by outlasting the deadline.
+    // It must fail on the *evidence*, not by outlasting the stall window.
     assert.ok(
-      Date.now() - startedAt < MODEL_LOAD_TIMEOUT_MS,
-      'the run must not wait out the full load timeout to report a failure it can already see',
+      Date.now() - startedAt < 30_000,
+      'the run must not wait out the stall window to report a failure it can already see',
     );
   } finally {
     await router.close();
@@ -502,7 +501,7 @@ test('a load that is merely slow is not mistaken for a dead child', async () => 
       () =>
         new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {
           pollMs: 1 * slowFactor,
-          timeoutMs: 200 * slowFactor,
+          stallMs: 200 * slowFactor,
         }),
       // It times out -- which is right, because it never stopped loading. It must NOT be
       // reported as an exited child.
@@ -532,9 +531,207 @@ test('a load that never finishes times out rather than hanging the run', async (
       () =>
         new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {
           pollMs: 1 * slowFactor,
-          timeoutMs: 5 * slowFactor,
+          stallMs: 5 * slowFactor,
         }),
       /did not finish loading/,
+    );
+  } finally {
+    await router.close();
+  }
+}, 60_000);
+
+test('a download that keeps growing is never mistaken for a stall', async () => {
+  // A first load *downloads* the weights -- multi-GB, minutes on an ordinary connection -- and
+  // the installed llama.cpp (b10021) emits no download SSE at all: measured live, a full 3.6 GB
+  // download produced zero frames while `/models` said a bare `loading` throughout. The repo
+  // directory growing on disk is the one build-independent sign the download is alive, so growth
+  // must keep resetting the stall window that would otherwise kill a working load. This is the
+  // regression test for the original bug: `model_load_failed` at 30.0s, model ready at 33s.
+  let status = 'loading';
+  const router = await createMockRouter({
+    modelsFactory: () => [{id: 'repo/model:Q4_K_M', aliases: [], status: {value: status}}],
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+
+  // The HF cache dir for this repo, growing the way llama.cpp's downloader grows it: blobs
+  // written in place.
+  const blobDir = path.join(paths.modelsDir, 'models--repo--model', 'blobs');
+  await fs.mkdir(blobDir, {recursive: true});
+  const blob = path.join(blobDir, 'weights.part');
+  await fs.writeFile(blob, 'x');
+
+  const stallMs = 120 * slowFactor;
+  const feeder = (async () => {
+    // Five growth steps, each half a stall window apart: the load outlives several windows
+    // purely on disk growth, then finishes.
+    for (let step = 0; step < 5; step += 1) {
+      await new Promise(resolve => setTimeout(resolve, stallMs / 2));
+      await fs.appendFile(blob, 'x'.repeat(1024));
+    }
+    status = 'loaded';
+  })();
+
+  try {
+    const updates: Array<{status: string; phase?: string; downloadedBytes?: number}> = [];
+    const startedAt = Date.now();
+    const result = await new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {
+      pollMs: 5 * slowFactor,
+      stallMs,
+      onProgress: update => updates.push(update),
+    });
+    assert.equal(result.loaded, true);
+    assert.ok(
+      Date.now() - startedAt > stallMs * 2,
+      'the load survived well past the stall window because the download kept moving',
+    );
+    const downloading = updates.find(update => update.phase === 'downloading');
+    assert.ok(downloading, 'the wait reported the download phase');
+    assert.ok((downloading?.downloadedBytes ?? 0) > 0, 'with the bytes measured on disk');
+  } finally {
+    await feeder;
+    await router.close();
+  }
+}, 60_000);
+
+test("a 'downloading' status is in-progress, and never provokes a second load", async () => {
+  // llama.cpp master reports `downloading` while the child fetches weights -- a status this
+  // code had never seen when it was written. It must read as forward motion (each status
+  // *change* resets the stall window), never as failure, and must not provoke another
+  // `/models/load`: the router is already busy with exactly this model.
+  let polls = 0;
+  const router = await createMockRouter({
+    modelsFactory: () => {
+      polls += 1;
+      return [
+        {
+          id: 'repo/model:Q4_K_M',
+          aliases: [],
+          status: {value: polls > 3 ? 'loaded' : 'downloading'},
+        },
+      ];
+    },
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+
+  try {
+    const result = await new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {
+      pollMs: 1 * slowFactor,
+    });
+    assert.equal(result.loaded, true);
+    assert.equal(
+      router.calls.some(call => call.url === '/models/load'),
+      false,
+      'no load request: the router was already downloading this model',
+    );
+  } finally {
+    await router.close();
+  }
+}, 60_000);
+
+test('download_progress frames surface bytes, totals and the downloading phase', async () => {
+  // The relay-capable routers put real byte counts on `/models/sse` -- `data` keyed by URL,
+  // several files in parallel. Those numbers must reach the client summed, with the fraction
+  // only when every file declared a total.
+  const frame = `data: ${JSON.stringify({
+    model: 'repo/model:Q4_K_M',
+    event: 'download_progress',
+    data: {
+      'https://hf.co/model.gguf': {done: 600, total: 1000},
+      'https://hf.co/mmproj.gguf': {done: 150, total: 500},
+    },
+  })}\n\n`;
+  let status = 'loading';
+  const router = await createMockRouter({
+    sseFrames: [frame],
+    modelsFactory: () => [{id: 'repo/model:Q4_K_M', aliases: [], status: {value: status}}],
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+
+  const finish = setTimeout(() => {
+    status = 'loaded';
+  }, 80 * slowFactor);
+  try {
+    const updates: Array<{
+      status: string;
+      progress?: number;
+      phase?: string;
+      downloadedBytes?: number;
+      totalBytes?: number;
+    }> = [];
+    const result = await new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {
+      pollMs: 2 * slowFactor,
+      onProgress: update => updates.push(update),
+    });
+    assert.equal(result.loaded, true);
+    const downloading = updates.find(update => update.phase === 'downloading');
+    assert.ok(downloading, 'the SSE frame put the wait into the download phase');
+    assert.equal(downloading?.downloadedBytes, 750, 'bytes are summed across parallel files');
+    assert.equal(downloading?.totalBytes, 1500);
+    assert.equal(downloading?.progress, 0.5);
+  } finally {
+    clearTimeout(finish);
+    await router.close();
+  }
+}, 60_000);
+
+test('a download the router reports failed ends the run at once', async () => {
+  const frame = `data: ${JSON.stringify({
+    model: 'repo/model:Q4_K_M',
+    event: 'download_failed',
+    data: {},
+  })}\n\n`;
+  const router = await createMockRouter({
+    sseFrames: [frame],
+    modelsFactory: () => [{id: 'repo/model:Q4_K_M', aliases: [], status: {value: 'downloading'}}],
+  });
+  const paths = await createTempPaths();
+  const store = new AppStore(paths);
+  await store.updateRuntimeSettings({port: router.port});
+  const model = await store.addHuggingFaceModel({
+    repoId: 'repo/model',
+    quant: 'UD-Q4_K_M',
+    name: 'Model Q4',
+  });
+  await new LlamaCppManager(paths, store).writePreset(model);
+
+  try {
+    const startedAt = Date.now();
+    await assert.rejects(
+      () =>
+        new LlamaCppManager(paths, store).ensureModelRunnable(model.id, {
+          pollMs: 2 * slowFactor,
+          stallMs: 5_000 * slowFactor,
+        }),
+      (error: Error & {code?: string; logRef?: string}) =>
+        error.code === 'model_load_failed' && typeof error.logRef === 'string',
+    );
+    assert.ok(
+      Date.now() - startedAt < 5_000 * slowFactor,
+      'the failure came from the download_failed frame, not from outlasting the stall window',
     );
   } finally {
     await router.close();
@@ -750,6 +947,12 @@ async function createMockRouter(
     /** Called per `/models` request, so a status can change between polls. */
     modelsFactory?: () => unknown[];
     chatTemplate?: string;
+    /**
+     * Complete SSE blocks (`data: {...}\n\n`) served on `/models/sse`, replacing the default
+     * snapshot frame. The stream ends after them -- the real one stays open, but the loader
+     * tolerates a closed stream by design, so ending is fine for a test.
+     */
+    sseFrames?: string[];
   } = {},
 ): Promise<{
   port: number;
@@ -792,7 +995,9 @@ async function createMockRouter(
     }
     if (url === '/models/sse') {
       response.writeHead(200, {'content-type': 'text/event-stream; charset=utf-8'});
-      response.end('event: model_status\ndata: {"id":"repo/model:Q4_K_M"}\n\n');
+      response.end(
+        (input.sseFrames ?? ['event: model_status\ndata: {"id":"repo/model:Q4_K_M"}\n\n']).join(''),
+      );
       return;
     }
     if (url === '/models/load' || url === '/models/unload') {

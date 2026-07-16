@@ -44,6 +44,9 @@ sealed class ChatStreamEvent {
         modelId: str('modelId'),
         status: str('status'),
         progress: (inner['progress'] as num?)?.toDouble(),
+        phase: inner['phase'] as String?,
+        downloadedBytes: (inner['downloadedBytes'] as num?)?.toInt(),
+        totalBytes: (inner['totalBytes'] as num?)?.toInt(),
       ),
       'message.user.created' => UserMessageCreatedEvent(message()),
       'message.assistant.started' => AssistantStartedEvent(message()),
@@ -142,10 +145,21 @@ class ModelLoadingEvent extends ChatStreamEvent {
     required this.modelId,
     required this.status,
     this.progress,
+    this.phase,
+    this.downloadedBytes,
+    this.totalBytes,
   });
   final String modelId;
   final String status;
   final double? progress;
+
+  /// `downloading` while the weights are still arriving (a first load pulls multi-GB blobs),
+  /// `loading` once llama.cpp reads them in, null on the first quiet ticks. Kept a plain
+  /// string so a phase this client has never heard of degrades to the generic placeholder
+  /// instead of failing the parse.
+  final String? phase;
+  final int? downloadedBytes;
+  final int? totalBytes;
 }
 
 class UserMessageCreatedEvent extends ChatStreamEvent {

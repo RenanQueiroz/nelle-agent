@@ -440,6 +440,16 @@
               "progress": {
                 "type": "number"
               },
+              "phase": {
+                "type": "string",
+                "enum": ["downloading", "loading"]
+              },
+              "downloadedBytes": {
+                "type": "number"
+              },
+              "totalBytes": {
+                "type": "number"
+              },
               "createdAt": {
                 "type": "string"
               }
