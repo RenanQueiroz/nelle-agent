@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
 import 'package:nelle_agent/src/api/api_client.dart';
+import 'package:nelle_agent/src/api/generated/models/conversation_list_item_title_source.dart';
 import 'package:nelle_agent/src/features/conversations/conversation_list_panel.dart';
 import 'package:nelle_agent/src/features/conversations/conversations_notifier.dart';
 
@@ -285,6 +286,76 @@ void main() {
       // The sections are *derived* from `pinned`, so the row moves on its own.
       expect(state.pinned.map((c) => c.id), ['1']);
       expect(state.recent.map((c) => c.id), ['2']);
+    });
+  });
+
+  group('a generated title (applyGeneratedTitle)', () {
+    // The reported bug: the sidebar showed "New chat" forever. A title the server generates after
+    // the first exchange arrives as `conversation.updated` (folded by the chat controller), but the
+    // list is loaded once and only mutated by explicit actions, so nothing applied it.
+
+    Map<String, dynamic> fallbackItem(String id) => {
+      'id': id,
+      'title': 'New chat',
+      'titleSource': 'fallback',
+      'pinned': false,
+      'status': 'ready',
+      'updatedAt': '2026-07-13T00:00:00.000Z',
+    };
+
+    ProviderContainer seeded(List<Map<String, dynamic>> items) {
+      final container = ProviderContainer(
+        overrides: [
+          dioProvider.overrideWithValue(
+            stubDio(
+              (o) => jsonResponse({'conversations': items, 'total': items.length}),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    test('replaces a fallback row title in place', () async {
+      final container = seeded([fallbackItem('1')]);
+      final notifier = container.read(conversationsProvider.notifier);
+      await container.read(conversationsProvider.future);
+
+      notifier.applyGeneratedTitle('1', 'One word greeting');
+
+      final row = container.read(conversationsProvider).value!.items.single;
+      expect(row.title, 'One word greeting');
+      expect(row.titleSource, ConversationListItemTitleSource.generated);
+    });
+
+    test('never clobbers a title the user set', () async {
+      // The server refuses to generate over a user title, so the event should not arrive for one —
+      // but if a stale one does, a rename must win.
+      final container = seeded([_item('1', title: 'My name')]); // titleSource: 'user'
+      final notifier = container.read(conversationsProvider.notifier);
+      await container.read(conversationsProvider.future);
+
+      notifier.applyGeneratedTitle('1', 'Something else');
+
+      expect(
+        container.read(conversationsProvider).value!.items.single.title,
+        'My name',
+      );
+    });
+
+    test('ignores an unknown id and an empty title', () async {
+      final container = seeded([fallbackItem('1')]);
+      final notifier = container.read(conversationsProvider.notifier);
+      await container.read(conversationsProvider.future);
+
+      notifier.applyGeneratedTitle('nope', 'x');
+      notifier.applyGeneratedTitle('1', '');
+
+      expect(
+        container.read(conversationsProvider).value!.items.single.title,
+        'New chat',
+      );
     });
   });
 

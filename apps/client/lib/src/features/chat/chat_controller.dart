@@ -16,6 +16,7 @@ import '../../api/generated/models/fork_kind.dart';
 import '../models/active_runs.dart';
 import '../../api/generated/models/reasoning_level.dart';
 import '../attachments/attachment_draft.dart';
+import '../conversations/conversations_notifier.dart';
 import '../models/router_models_notifier.dart';
 import 'chat_repository.dart';
 import 'sse_transport.dart';
@@ -58,6 +59,7 @@ class ChatState {
     this.compactNote,
     this.runWarning,
     this.livePerformance,
+    this.titleOverride,
   });
 
   factory ChatState.fromSnapshot(ConversationSnapshot snapshot) => ChatState(
@@ -103,7 +105,13 @@ class ChatState {
   /// `performance`. Only one assistant streams per conversation, so one field is enough.
   final ChatPerformance? livePerformance;
 
-  String get title => snapshot.conversation.title;
+  /// A title generated **after** the snapshot was loaded, folded live from a
+  /// `conversation.updated` event so the header stops saying "New chat" the moment the
+  /// server names the chat — without waiting for the user to re-open it. Null after the
+  /// next snapshot reload, which carries the real title itself.
+  final String? titleOverride;
+
+  String get title => titleOverride ?? snapshot.conversation.title;
 
   /// This conversation was **branched from another one**, and which way.
   ///
@@ -162,6 +170,7 @@ class ChatState {
     String? runWarning,
     bool clearWarning = false,
     ChatPerformance? livePerformance,
+    String? titleOverride,
   }) => ChatState(
     snapshot: snapshot,
     messages: messages ?? this.messages,
@@ -177,6 +186,7 @@ class ChatState {
     compactNote: compactNote ?? this.compactNote,
     runWarning: clearWarning ? null : (runWarning ?? this.runWarning),
     livePerformance: livePerformance ?? this.livePerformance,
+    titleOverride: titleOverride ?? this.titleOverride,
   );
 }
 
@@ -198,6 +208,21 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
   /// The active run's id, so an abort can use the run-scoped route — the only one that
   /// answers with a `warning` (`/compact/abort` has none).
   String? _runId;
+
+  /// The visible run's terminal state has been applied (snapshot reloaded, model released).
+  /// Guards that finalization from running twice — once on `run.completed`, and again when a
+  /// stream deliberately left open for the title finally ends.
+  bool _runFinalized = false;
+
+  /// The visible run is over, but the SSE stream is being held open on purpose.
+  ///
+  /// On a clean chat/regenerate finish the server generates the conversation's title and streams
+  /// it as `conversation.updated` from a short title sub-run *after* `run.completed`. Cancelling
+  /// the stream there — as this used to — dropped that event, so a fresh chat sat at "New chat"
+  /// for the whole session (its generated title only appearing after a relaunch re-fetched the
+  /// list). While this is true we fold the title and ignore the sub-run's own `run.*` events; the
+  /// stream tears down on its natural end.
+  bool _watchingForTitle = false;
 
   @override
   Future<ChatState> build(String conversationId) async {
@@ -254,6 +279,13 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
 
     _sentMessage = message;
     _runStarted = false;
+    _runFinalized = false;
+    _watchingForTitle = false;
+    // A previous run in this conversation may have left its stream open to catch the generated
+    // title. Drop it before starting a new one, or its trailing events — including its onDone —
+    // would land on this run.
+    _sub?.cancel();
+    _cancel?.cancel();
     _cancel = CancelToken();
     _sub = ref
         .read(sseTransportProvider)
@@ -272,7 +304,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         .listen(
           _onEvent,
           onError: _onStreamError,
-          onDone: _finish,
+          onDone: _onDone,
           cancelOnError: false,
         );
   }
@@ -313,6 +345,13 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     // typed message to hand back to the composer if the server refuses it.
     _sentMessage = null;
     _runStarted = false;
+    _runFinalized = false;
+    _watchingForTitle = false;
+    // A previous run in this conversation may have left its stream open to catch the generated
+    // title. Drop it before starting a new one, or its trailing events — including its onDone —
+    // would land on this run.
+    _sub?.cancel();
+    _cancel?.cancel();
     _cancel = CancelToken();
     _sub = ref
         .read(sseTransportProvider)
@@ -325,7 +364,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         .listen(
           _onEvent,
           onError: _onStreamError,
-          onDone: _finish,
+          onDone: _onDone,
           cancelOnError: false,
         );
   }
@@ -360,6 +399,13 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     // hand back if it is refused.
     _sentMessage = null;
     _runStarted = false;
+    _runFinalized = false;
+    _watchingForTitle = false;
+    // A previous run in this conversation may have left its stream open to catch the generated
+    // title. Drop it before starting a new one, or its trailing events — including its onDone —
+    // would land on this run.
+    _sub?.cancel();
+    _cancel?.cancel();
     _cancel = CancelToken();
     _sub = ref
         .read(sseTransportProvider)
@@ -371,7 +417,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         .listen(
           _onEvent,
           onError: _onStreamError,
-          onDone: _finish,
+          onDone: _onDone,
           cancelOnError: false,
         );
   }
@@ -461,6 +507,15 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     if (s == null) {
       return;
     }
+    if (_watchingForTitle) {
+      // The visible run finished; the server is holding the stream open only to deliver the
+      // generated title. Fold that, and ignore the title sub-run's own run.started/run.completed
+      // — the user's turn is already over.
+      if (event is ConversationUpdatedEvent) {
+        _applyGeneratedTitle(event.title);
+      }
+      return;
+    }
     switch (event) {
       case RunStartedEvent(:final runId):
         // The message became a turn, so it is no longer the composer's to keep — and
@@ -530,15 +585,19 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       case StreamErrorEvent(:final error):
         state = AsyncData(s.copyWith(runError: error.message));
       case RunCompletedEvent(:final status, :final error):
-        _finish(
-          // A specific error already on the state — `compact.failed`, a stream `error` —
-          // is the one the server bothered to write. "The run failed." is what we say
-          // when nobody said anything better.
-          errorMessage:
-              error?.message ??
-              s.runError ??
-              (status == 'failed' ? 'The run failed.' : null),
-        );
+        // A specific error already on the state — `compact.failed`, a stream `error` —
+        // is the one the server bothered to write. "The run failed." is what we say
+        // when nobody said anything better.
+        final errorMessage =
+            error?.message ??
+            s.runError ??
+            (status == 'failed' ? 'The run failed.' : null);
+        // A clean chat/regenerate finish is followed by the generated title on this same
+        // stream; keep listening for it. A failed run or a compaction sends no title, so the
+        // stream is cancelled the moment the run ends, as before.
+        final expectTitle =
+            status == 'completed' && errorMessage == null && !s.compacting;
+        _finish(errorMessage: errorMessage, keepStreamForTitle: expectTitle);
       case RunAbortedEvent():
         if (s.compacting) {
           state = AsyncData(s.copyWith(compactNote: 'Compaction stopped.'));
@@ -550,8 +609,9 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         // reload in `_finish`, after which each message carries its own settled copy.
         state = AsyncData(s.copyWith(livePerformance: performance));
       default:
-        // run.started, message.*, tool_call, conversation.updated, run.warning,
-        // unknown — not folded in M1.
+        // run.started, message.*, tool_call, unknown — not folded here. (conversation.updated
+        // only arrives after run.completed, on the kept-open stream, and is handled by the
+        // _watchingForTitle branch above.)
         break;
     }
   }
@@ -597,11 +657,55 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
   );
 
   void _onStreamError(Object error, StackTrace stackTrace) {
+    if (_runFinalized) {
+      // An error after the visible run already finished — the stream we held open for the
+      // title dropped. There is nothing to report; just tear it down.
+      _teardownStream();
+      return;
+    }
     final s = state.valueOrNull;
     final message = error is NelleApiException
         ? error.message
         : error.toString();
     _finish(errorMessage: s?.runError ?? message);
+  }
+
+  /// The stream ended.
+  ///
+  /// Either it finished without a terminal run event (a message refused before `run.started`, or
+  /// the connection simply closing) — in which case finalize from what we have — or it was the
+  /// stream we deliberately held open for the generated title, now closed by the server. Either
+  /// way, tear it down.
+  void _onDone() {
+    if (!_runFinalized) {
+      _finish();
+    } else {
+      _teardownStream();
+    }
+  }
+
+  /// Drops the subscription without touching state. The visible run is already finalized;
+  /// this only releases the stream we were holding open for a trailing event.
+  void _teardownStream() {
+    _sub = null;
+    _cancel = null;
+    _watchingForTitle = false;
+  }
+
+  /// Folds a server-generated title (`conversation.updated`) into the header and — the bug this
+  /// fixes — the **sidebar**, whose list is loaded once and never re-fetches. The chat header
+  /// updates via [ChatState.titleOverride]; the sidebar row updates through the conversations
+  /// notifier. A conversation the user has since renamed is left alone (the server would not have
+  /// emitted the event, and the notifier guards it too).
+  void _applyGeneratedTitle(String? title) {
+    if (title == null || title.isEmpty) {
+      return;
+    }
+    final s = state.valueOrNull;
+    if (s != null && s.title != title) {
+      state = AsyncData(s.copyWith(titleOverride: title));
+    }
+    ref.read(conversationsProvider.notifier).applyGeneratedTitle(arg, title);
   }
 
   /// Runs once per run: cancels the subscription, then reloads the authoritative
@@ -614,14 +718,25 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     ref.read(activeRunsProvider.notifier).start(arg, state.modelId);
   }
 
-  Future<void> _finish({String? errorMessage}) async {
-    final sub = _sub;
-    if (sub == null) {
+  Future<void> _finish({
+    String? errorMessage,
+    bool keepStreamForTitle = false,
+  }) async {
+    if (_runFinalized) {
       return;
     }
-    _sub = null;
-    await sub.cancel();
-    _cancel = null;
+    _runFinalized = true;
+    if (keepStreamForTitle) {
+      // Leave the subscription open: the server streams the generated title right after this,
+      // and [_onDone] tears the stream down when it ends. Everything below finalizes the
+      // *visible* run — the answer is done, so the spinner stops and the model is freed now.
+      _watchingForTitle = true;
+    } else {
+      final sub = _sub;
+      _sub = null;
+      await sub?.cancel();
+      _cancel = null;
+    }
     // The run is over however it ended, so the model is free. This is the *only* release, and
     // it must stay that way: a claim that outlives its run locks a model out of Settings for
     // the rest of the session, and there is nothing the user could do about it.

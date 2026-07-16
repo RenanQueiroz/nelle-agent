@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/generated/models/conversation_list_item.dart';
+import '../../api/generated/models/conversation_list_item_title_source.dart';
 import 'conversations_repository.dart';
 
 /// The loaded window of the conversation list plus its keyset cursor and the
@@ -246,6 +247,41 @@ class ConversationsNotifier extends AsyncNotifier<ConversationsState> {
       ),
     );
   }
+
+  /// Applies a server-generated title to the matching row.
+  ///
+  /// The list is loaded once and then only mutated by explicit actions, so a title the server
+  /// generates after the first exchange (streamed as `conversation.updated`, folded by the chat
+  /// controller) never reached it — a fresh chat stayed "New chat" for the whole session. Only a
+  /// row still on its **fallback** title is touched: that mirrors the server's own
+  /// `setGeneratedTitle`, which refuses a conversation the user has renamed, so a rename the user
+  /// has since made is never clobbered by a late title event.
+  void applyGeneratedTitle(String id, String title) {
+    final current = state.valueOrNull;
+    if (current == null || title.isEmpty) return;
+    final index = current.items.indexWhere(
+      (c) =>
+          c.id == id &&
+          c.titleSource == ConversationListItemTitleSource.fallback &&
+          c.title != title,
+    );
+    if (index < 0) return;
+    final items = [...current.items];
+    items[index] = _withGeneratedTitle(items[index], title);
+    state = AsyncData(current.copyWith(items: items));
+  }
+
+  /// `ConversationListItem` is generated and has no `copyWith`, so rebuild it with the new title.
+  ConversationListItem _withGeneratedTitle(ConversationListItem c, String title) =>
+      ConversationListItem(
+        id: c.id,
+        title: title,
+        titleSource: ConversationListItemTitleSource.generated,
+        pinned: c.pinned,
+        status: c.status,
+        updatedAt: c.updatedAt,
+        defaultModelId: c.defaultModelId,
+      );
 
   /// Creates a conversation, prepends it optimistically, and returns it so the
   /// caller can select it.

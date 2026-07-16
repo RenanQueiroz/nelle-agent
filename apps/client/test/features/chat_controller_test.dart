@@ -7,12 +7,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nelle_agent/src/api/api_client.dart';
 import 'package:nelle_agent/src/api/chat_stream_event.dart';
 import 'package:nelle_agent/src/api/generated/models/chat_performance.dart';
+import 'package:nelle_agent/src/api/generated/models/conversation_list_item_title_source.dart';
 import 'package:nelle_agent/src/api/generated/models/nelle_error.dart';
 import 'package:nelle_agent/src/api/generated/models/nelle_warning.dart';
 import 'package:nelle_agent/src/api/generated/models/reasoning_level.dart';
 import 'package:nelle_agent/src/features/attachments/attachment_draft.dart';
 import 'package:nelle_agent/src/features/chat/chat_controller.dart';
 import 'package:nelle_agent/src/features/chat/sse_transport.dart';
+import 'package:nelle_agent/src/features/conversations/conversations_notifier.dart';
 
 import '../helpers/fake_dio.dart';
 
@@ -269,6 +271,127 @@ void main() {
       expect(state.running, false);
       expect(state.pending, isEmpty);
       expect(state.messages.map((m) => m.content), contains('Hi there'));
+    },
+  );
+
+  test(
+    'a generated title updates the sidebar row and the chat header live',
+    () async {
+      // The reported bug: a fresh chat sat at "New chat" for the whole session. The server
+      // generates the title *after* run.completed and streams it as `conversation.updated` on the
+      // same stream — which the controller used to cancel on run.completed, dropping the event and
+      // leaving the sidebar (loaded once, never re-fetched) stuck on its creation-time title.
+      final events = StreamController<ChatStreamEvent>();
+      closeAfterTest(events);
+      final dio = stubDio((o) {
+        if (o.method == 'GET' && o.path == '/api/conversations') {
+          return jsonResponse({
+            'conversations': [
+              {
+                'id': 'c',
+                'title': 'New chat',
+                'titleSource': 'fallback',
+                'pinned': false,
+                'status': 'ready',
+                'updatedAt': 't',
+              },
+            ],
+            'total': 1,
+          });
+        }
+        return jsonResponse({'snapshot': snapshotJson()});
+      });
+      final c = container(events.stream, dio: dio);
+
+      // The sidebar has loaded the fresh chat's fallback title.
+      await c.read(conversationsProvider.future);
+      expect(
+        c.read(conversationsProvider).requireValue.items.single.title,
+        'New chat',
+      );
+
+      await c.read(chatControllerProvider('c').future);
+      await c.read(chatControllerProvider('c').notifier).send('hi');
+      // The visible run finishes; crucially the stream is NOT cancelled here.
+      events.add(const RunCompletedEvent(status: 'completed'));
+      await _settle();
+      expect(
+        c.read(chatControllerProvider('c')).requireValue.running,
+        isFalse,
+        reason: 'the visible run is over even though the stream is held open',
+      );
+
+      // The title arrives on that still-open stream, from the title sub-run.
+      events.add(const ConversationUpdatedEvent(title: 'One word greeting'));
+      await _settle();
+
+      final row = c.read(conversationsProvider).requireValue.items.single;
+      expect(row.title, 'One word greeting');
+      expect(row.titleSource, ConversationListItemTitleSource.generated);
+      // The chat header updates live too, without re-opening the conversation.
+      expect(
+        c.read(chatControllerProvider('c')).requireValue.title,
+        'One word greeting',
+      );
+    },
+  );
+
+  test('the title sub-run\'s own run events do not re-finalize the run', () async {
+    // After the visible run completes the server streams a short title sub-run with its OWN
+    // run.started/run.completed. Those must be ignored — folding them would clear the model
+    // claim twice or reload the snapshot again.
+    var gets = 0;
+    final dio = stubDio((o) {
+      if (o.method == 'GET' && o.path == '/api/conversations') {
+        return jsonResponse({'conversations': <Object>[], 'total': 0});
+      }
+      if (o.method == 'GET') gets++;
+      return jsonResponse({'snapshot': snapshotJson()});
+    });
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final c = container(events.stream, dio: dio);
+
+    await c.read(chatControllerProvider('c').future);
+    final getsAfterBuild = gets; // the initial snapshot load
+    await c.read(chatControllerProvider('c').notifier).send('hi');
+    events.add(const RunCompletedEvent(status: 'completed'));
+    await _settle();
+    final getsAfterFinalize = gets; // one reload on the visible completion
+
+    // The title sub-run's frames arrive on the kept-open stream.
+    events.add(const RunStartedEvent(runId: 'title-run'));
+    events.add(const ConversationUpdatedEvent(title: 'Titled'));
+    events.add(const RunCompletedEvent(status: 'completed'));
+    await _settle();
+
+    expect(
+      gets,
+      getsAfterFinalize,
+      reason: 'the title sub-run must not trigger another snapshot reload',
+    );
+    expect(getsAfterFinalize, getsAfterBuild + 1);
+    expect(c.read(chatControllerProvider('c')).requireValue.running, isFalse);
+  });
+
+  test(
+    'a failed run cancels the stream instead of waiting for a title',
+    () async {
+      // A failure sends no title, so keeping the stream open would just hang. The run must end
+      // immediately, exactly as before.
+      final events = StreamController<ChatStreamEvent>();
+      closeAfterTest(events);
+      final c = container(events.stream);
+
+      await c.read(chatControllerProvider('c').future);
+      await c.read(chatControllerProvider('c').notifier).send('hi');
+      events.add(const RunStartedEvent(runId: 'r'));
+      events.add(const RunCompletedEvent(status: 'failed'));
+      await _settle();
+
+      final state = c.read(chatControllerProvider('c')).requireValue;
+      expect(state.running, isFalse);
+      expect(state.runError, 'The run failed.');
     },
   );
 

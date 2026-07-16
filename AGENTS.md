@@ -1715,6 +1715,23 @@ Project-specific guidance for AI coding agents.
   generation sets its own `temperature: 0.2` because it bypasses Pi and so never
   sees `models.ini` sampling; the system message is not user-editable because it
   states the output format Nelle parses.
+- **The generated title is streamed *after* `run.completed`, so a client must not cancel
+  the chat stream when the answer's run ends.** `streamConversationTitleIfNeeded` runs
+  after the chat run's `run.completed` is pushed, as its own short **title sub-run** on the
+  *same* SSE stream, and emits `conversation.updated {title, titleSource:'generated'}` before
+  `queue.end()`. Blocking `run.completed` on title generation would leave the composer
+  "running" for the ~1-2s the title takes, so the ordering is deliberate. The consequence is a
+  client trap: the Flutter chat controller used to `_finish` (cancel the subscription) on the
+  chat run's `run.completed`, which dropped the trailing title event entirely -- so a fresh
+  chat sat at "New chat" in the **sidebar** for the whole session (its real title appearing
+  only after a relaunch re-fetched `GET /api/conversations`), and even the header only caught
+  up on re-selection. It now keeps the stream open on a clean finish (`_watchingForTitle`),
+  folds `conversation.updated` into a live `ChatState.titleOverride` **and** the sidebar
+  (`ConversationsNotifier.applyGeneratedTitle`, fallback-rows-only, mirroring the server's
+  `setGeneratedTitle`), and ignores the title sub-run's own `run.*` frames. The sidebar list
+  is loaded once and only mutated by explicit actions, so nothing else would ever have applied
+  the title to it. A failed run or a compaction sends no title and is cancelled at once, as
+  before.
 - `models.ini` keys are validated against the binary, never against a list Nelle
   carries. `LlamaOptionCatalogueCache` parses `llama-server --help` once per
   binary (keyed by path, size and mtime) and serves it from
