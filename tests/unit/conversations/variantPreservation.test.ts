@@ -83,3 +83,64 @@ test('regenerating an answer preserves the reasoning of the answer it branched f
     'Twenty-three seventeens is 391.',
   );
 });
+
+test('activating the ORIGINAL variant still recovers its regenerated siblings', () => {
+  // The variant switcher can make the *original* answer active. The original has no
+  // `regeneratesPiEntryId` (it regenerates nothing), so keying group rediscovery off that field
+  // alone dropped every sibling the moment the original was activated. The fix anchors on the
+  // group id, which for the original is its own `displayGroupId` — recovered here.
+  const existing = new Map<string, ConversationEntryProjection>([
+    ['u1', projectionEntry({piEntryId: 'u1', role: 'user', textPreview: 'What is 17 x 23?'})],
+    [
+      'a1',
+      projectionEntry({
+        piEntryId: 'a1',
+        parentPiEntryId: 'u1',
+        role: 'assistant',
+        textPreview: '391',
+        displayGroupId: 'a1',
+      }),
+    ],
+    [
+      'a2',
+      projectionEntry({
+        piEntryId: 'a2',
+        role: 'assistant',
+        textPreview: '391 (again)',
+        regeneratesPiEntryId: 'a1',
+        displayGroupId: 'a1',
+        createdAt: '2026-01-01T00:02:00.000Z',
+      }),
+    ],
+  ]);
+
+  // The active branch is just the ORIGINAL answer (a1).
+  const entries: SyncConversationEntry[] = [
+    {
+      piEntryId: 'u1',
+      parentPiEntryId: null,
+      entryType: 'message',
+      role: 'user',
+      text: 'What is 17 x 23?',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      piEntryId: 'a1',
+      parentPiEntryId: 'u1',
+      entryType: 'message',
+      role: 'assistant',
+      text: '391',
+      createdAt: '2026-01-01T00:00:01.000Z',
+      displayGroupId: 'a1',
+    },
+  ];
+
+  // The anchor for the original is its displayGroupId (= its own id), exactly what the
+  // metadata-less rediscovery now passes.
+  prependExistingVariantGroup(entries, existing, 'a1', 'a1');
+
+  const ids = entries.map(entry => entry.piEntryId);
+  assert.ok(ids.includes('a2'), 'the regenerated sibling was dropped when the original was active');
+  // The original is not duplicated.
+  assert.equal(ids.filter(id => id === 'a1').length, 1);
+});

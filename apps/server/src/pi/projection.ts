@@ -120,15 +120,24 @@ export function syncPiConversation(
     // answer and its prompt: the prompt is hidden as a replayed user turn, and
     // the transcript shows a bare reply. The branch entries carry the group ids
     // back from the projection, so the groups can be rediscovered from them.
+    //
+    // The anchor is the group id: a *regenerate* points at it via `regeneratesPiEntryId`,
+    // while the group's **original** answer IS it (its `displayGroupId` is its own id and it
+    // has no `regeneratesPiEntryId`). Keying only off `regeneratesPiEntryId` therefore dropped
+    // every sibling the moment the *original* variant was made active -- which is exactly what
+    // the variant switcher does. A single non-variant answer anchors on itself and finds no
+    // siblings, so this is a no-op for it.
     for (const entry of [...entries]) {
-      if (entry.role === 'assistant' && entry.regeneratesPiEntryId) {
-        prependExistingVariantGroup(
-          entries,
-          existingEntries,
-          entry.regeneratesPiEntryId,
-          entry.displayGroupId ?? undefined,
-        );
+      if (entry.role !== 'assistant') {
+        continue;
       }
+      const anchor = entry.regeneratesPiEntryId ?? entry.displayGroupId ?? entry.piEntryId;
+      prependExistingVariantGroup(
+        entries,
+        existingEntries,
+        anchor,
+        entry.displayGroupId ?? undefined,
+      );
     }
   }
 

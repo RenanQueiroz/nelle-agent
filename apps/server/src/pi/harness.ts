@@ -748,25 +748,25 @@ export class PiHarness {
     assistantMessageId: string;
   }): Promise<ConversationSnapshot> {
     await this.assertConversationSessionAvailable(input.conversationId);
-    // Reuse the regenerate-source lookup for validation: it confirms the target is an assistant
-    // entry (any variant) in this conversation with a user turn behind it.
-    const source = this.conversations.getRegenerationSource(
-      input.conversationId,
-      input.assistantMessageId,
-    );
-    if (!source) {
+    // Validate the target is an assistant entry in this conversation — any variant, including the
+    // *original* one. (`getRegenerationSource` is too strict here: it also requires a live user
+    // parent, which an original answer loses once regenerates branch its user turn off the active
+    // path, so it would refuse activating the very first answer.)
+    const target = this.conversations
+      .getConversationEntries(input.conversationId)
+      .find(entry => entry.piEntryId === input.assistantMessageId);
+    if (!target || target.role !== 'assistant') {
       throw variantNotActivatableError(
         'That message is not an answer that can be made the active variant.',
       );
     }
-    const target = source.assistantEntry.piEntryId;
-    this.conversations.setActiveLeaf(input.conversationId, target);
+    this.conversations.setActiveLeaf(input.conversationId, target.piEntryId);
     // A cached session keeps its own in-memory leaf; move it so the next run branches from the
     // chosen variant. A reopened session is covered by the DB record via restoreActiveLeaf.
     const cached = this.#sessions.get(input.conversationId);
     if (cached) {
       try {
-        cached.session.sessionManager.branch(target);
+        cached.session.sessionManager.branch(target.piEntryId);
       } catch {
         // The cached session does not contain the entry (a stale cache): the reopen path restores
         // it from the DB regardless.
