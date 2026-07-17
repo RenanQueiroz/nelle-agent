@@ -207,6 +207,17 @@ Project-specific guidance for AI coding agents.
   wrap their subject in a Material `Scaffold`, which supplies an ancestor the real screen
   does not have, so a test harness can be more forgiving than the app. Host a screen in
   `FScaffold` if that is what it runs in.
+  - **An icon button is a ghost `FButton.icon`, not a raw `GestureDetector`.** Every small
+    tappable glyph — footer copy/fork/regenerate and the variant arrows, the code-block and
+    pairing-code copy, the param-editor trash, the attachment-chip remove, the favourite star
+    — is `FButton.icon(variant: FButtonVariant.ghost, size: FButtonSizeVariant.xs)` (`.sm`
+    where it sits level with a 36px field, like the param row). Ghost stays flat until hover,
+    so the look is unchanged at rest while press/hover/focus feedback and semantics come for
+    free. Two things to keep: pass the glyph's real `size`/`color` on the child `Icon` (it
+    overrides the button's icon theme — xs defaults to a 14px icon in a 24×24 square, sm to
+    16px in 32×32), and a `null` `onPress` is how an end-of-range arrow disables itself. A
+    raw `GestureDetector` is the fallback only for a **non-button** tap target — a text link
+    (the param editor's "Did you mean …?" suggestion) or a whole structural row.
 - **When working with any forui widget, read forui's own AI docs first — do not guess its
   API from memory.** The index is **https://forui.dev/docs/llms.txt**; it links a
   machine-readable **https://forui.dev/docs/llms-full.txt** and per-component pages
@@ -1435,21 +1446,56 @@ Project-specific guidance for AI coding agents.
   **only when regenerating is allowed** (`canRegenerate`); during a run or on a pending turn
   `MessageBubble` shows the alias as plain text, because `modelControl` is null. No server
   change was needed -- the regenerate endpoint has taken `{modelId}` since the web client.
-- **The message footer lays its sections out with `·` separators inline, and stacks them
-  without separators when they don't fit** (`chat/footer_bar.dart`). The sections are
-  model (dropdown/alias + variant), generation stats, and actions (fork on a user turn,
-  regenerate on an assistant one). A `Wrap` cannot do this -- a separator baked in as a
-  child survives the wrap -- so `FooterBar` is a small custom `MultiChildRenderObjectWidget`
-  (the shape of Material's `OverflowBar` plus painted separators): it measures the sections
-  and, if they fit `constraints.maxWidth`, lays them in a row with a `·` painted in each
-  gap; otherwise it stacks them, no separators. `RenderFooterBar.isRow` is exposed for
-  tests, which pin both the wide (row + gaps) and phone-narrow (stacked, no overflow) cases.
+- **The message footer follows llama.cpp's hierarchy and reflow.** The **body** is a step
+  larger (`_messageBodyStyle`, 15.5px) and the assistant answer is **plain text flush-left** (no
+  bubble) so it lines up with the footer; the **user** turn keeps its right-aligned chip. The
+  footer is **de-emphasised** -- `context.theme.colors.mutedForeground` (forui's muted grey), one
+  shared token for every footer element -- against the bright body, and its items are larger
+  (badges 16/14, action icons 18) so they read next to the model dropdown.
+- **`FooterBar` lays a group of sections in a row with a `•` separator when they fit, and stacks
+  them without separators when they don't** (`chat/footer_bar.dart`, a small custom
+  `MultiChildRenderObjectWidget` in the shape of Material's `OverflowBar` plus a painted bullet;
+  a `Wrap` can't do this because a childed separator survives the wrap). The assistant footer is
+  **two** stacked `FooterBar` row-groups -- **`[model dropdown • generation-metrics]`** then
+  **`[variant switcher • actions]`** -- so a wide window is 2 rows and a phone is 3 (the model
+  group stacks, the variant group stays paired). The user footer is one group,
+  **`[reading-metrics • actions]`**. `RenderFooterBar.isRow` is exposed for tests, which pin the
+  wide (row + `•`) and phone (stacked) cases. Actions are **copy** (both roles;
+  `Clipboard.setData` + toast) then regenerate (assistant) / fork (user).
+- **Reasoning and tool calls render as expandable cards** through one shared `ExpandableCard`
+  (`chat/expandable_card.dart` = forui `FCard.raw` + `FAccordion`; the *only* place the accordion
+  engine lives, like `MarkdownMessage` for markdown). It insets the accordion horizontally --
+  `FCard.raw` adds no padding and `FAccordion`'s title/child padding is vertical-only, so content
+  would sit flush against the border. **Tool-call rendering is folded client-side**: the chat
+  controller upserts `tool_call.updated` into `ChatState.liveToolCalls` by id (running →
+  complete/error), reset per run and cleared by the snapshot reload; `chat_view` passes the live
+  run's calls for a streaming assistant and the settled `message.toolCalls` (parsed by
+  `parseToolCalls`) for a finished one. Each is a `ToolCallCard` above the answer: a status icon +
+  the tool name, expanding to monospace Input/Output. Tool calls only appear when **host tools are
+  enabled** (off by default).
 - Nelle exposes regeneration at
   `/api/conversations/:id/messages/:messageId/regenerate`, branches the Pi
   session before the original user entry, replays that user text, and stores
   `regenerates_pi_entry_id` / `display_group_id` sidecar metadata. The transcript
   preserves existing answer variants, hides replayed duplicate user turns, and
   labels visible assistant variants in the footer.
+- **The variant switcher collapses a prompt's answers to one, and paging makes the shown one the
+  active branch.** The client (`chat_view` `_groupVariants`) groups consecutive same-group answers
+  and renders only the **active** variant (its id in `snapshot.activePathEntryIds`, else the
+  newest) with a `‹ N/M ›` `VariantSwitcher` (ghost `FButton.icon` arrows, a `null` `onPress`
+  disabling each end); it does not stack every variant. Paging calls
+  `POST /api/conversations/:id/messages/:messageId/activate` (`PiHarness.activateVariant`) -- a
+  JSON route, **no run** -- which records the target as the conversation's active leaf and answers
+  the refreshed snapshot. **`SessionManager.branch()` is not persisted** (the leaf is rebuilt from
+  the session file's last line on open), so `restoreActiveLeaf` reapplies the DB
+  `active_leaf_pi_entry_id` after **every** session open (`createPiSession` +
+  `getConversationSnapshot`) -- guarded, so a stale leaf keeps the file's natural one. This also
+  makes a normal regenerate's active answer survive a restart. Two traps the switcher exposed, both
+  when the target is the **original** answer (which has no `regeneratesPiEntryId`): activate must
+  validate the target is simply an assistant entry (not via `getRegenerationSource`, which also
+  demands a live user parent), and the projection's metadata-less variant rediscovery must anchor
+  on the group id (`regeneratesPiEntryId ?? displayGroupId ?? piEntryId`), or activating the
+  original drops every sibling.
 - A regenerated-away answer survives **only** in
   `conversation_entry_projection`. It is off the active branch, so `getBranch()`
   never returns it again, and `replaceConversationProjection` deletes every row
