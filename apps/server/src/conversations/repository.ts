@@ -453,6 +453,19 @@ export class ConversationRepository {
     return this.patchConversation(id, {status});
   }
 
+  /**
+   * Points the conversation's active branch at [piEntryId] — the variant switcher's persistence.
+   *
+   * The Pi `SessionManager` rebuilds its leaf from the session file's last line on every open, so
+   * a bare `branch()` is forgotten; this DB record is what `restoreActiveLeaf` reapplies. It is
+   * **not** activity (the variant already exists), so it does not stamp `updated_at`.
+   */
+  setActiveLeaf(id: string, piEntryId: string): void {
+    this.database.connection
+      .prepare('UPDATE conversations SET active_leaf_pi_entry_id = ? WHERE id = ?')
+      .run(piEntryId, id);
+  }
+
   attachPiSession(id: string, binding: PiSessionBinding): ConversationListItem | null {
     const row = this.getConversation(id);
     if (!row) {

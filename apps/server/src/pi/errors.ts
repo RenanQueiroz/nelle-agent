@@ -64,6 +64,13 @@ export function notBranchableError(message: string): Error {
   return error;
 }
 
+/** A variant-switch target that is not an activatable assistant variant. A 4xx, never a 500. */
+export function variantNotActivatableError(message: string): Error {
+  const error = new Error(message);
+  Object.assign(error, {code: NELLE_ERROR_CODES.variantNotActivatable, retryable: false});
+  return error;
+}
+
 /**
  * A reply budget too small to finish a sentence, but not small enough to end the
  * turn empty. The answer will stop mid-thought, so say why before it does.

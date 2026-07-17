@@ -79,6 +79,8 @@ export const NELLE_ERROR_CODES = {
    */
   conversationNotBranchable: 'conversation_not_branchable',
   sessionUnavailable: 'session_unavailable',
+  /** A variant switch targeting a message that is not an activatable assistant variant. */
+  variantNotActivatable: 'variant_not_activatable',
 
   // Runtime and model.
   llamaServerStopped: 'llama_server_stopped',

@@ -374,6 +374,25 @@ export function registerConversationRoutes(router: Router, deps: RouteDeps): voi
       }),
     );
   });
+
+  // The variant switcher: make an existing answer the active branch. No run, so a plain JSON
+  // route that answers the refreshed snapshot (its `activePathEntryIds` now lead to the choice).
+  router.post('/api/conversations/:id/messages/:messageId/activate', async ctx => {
+    const {id, messageId} = ctx.params;
+    if (!conversations.getConversation(id)) {
+      return conversationNotFound(id);
+    }
+    try {
+      return json({
+        snapshot: await pi.activateVariant({
+          conversationId: id,
+          assistantMessageId: messageId,
+        }),
+      });
+    } catch (error) {
+      return json({error: normalizeNelleError(error)}, 409);
+    }
+  });
 }
 
 /** Shared with the chat routes, which run against a conversation and must refuse the same way. */

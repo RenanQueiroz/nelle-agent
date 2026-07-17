@@ -4417,6 +4417,36 @@
         }
       }
     },
+    "/api/conversations/{id}/messages/{messageId}/activate": {
+      "post": {
+        "summary": "POST /api/conversations/:id/messages/:messageId/activate",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/NelleError"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/conversations/{id}/chat/stream": {
       "post": {
         "summary": "POST /api/conversations/:id/chat/stream",

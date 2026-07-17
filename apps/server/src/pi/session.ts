@@ -99,6 +99,12 @@ export async function createPiSession(input: {
   const sessionManager = binding?.piSessionPath
     ? SessionManager.open(binding.piSessionPath, paths.piSessionsDir, paths.workspaceDir)
     : SessionManager.create(paths.workspaceDir, paths.piSessionsDir);
+  if (binding?.piSessionPath) {
+    // The DB is the source of truth for the active branch (the variant switcher writes it), and
+    // `SessionManager.open` otherwise rebuilds the leaf from the file's last line — so a
+    // regenerated-away or switched-to variant would silently win. Reapply the stored leaf.
+    restoreActiveLeaf(sessionManager, conversations, conversationId);
+  }
 
   const {session} = await createAgentSession({
     agentDir: paths.piDir,
@@ -156,6 +162,31 @@ function attachReasoningBudget(input: {
     }
     return {...(next as Record<string, unknown>), thinking_budget_tokens: budget};
   };
+}
+
+/**
+ * Reapplies the conversation's stored active leaf onto a freshly-opened [sessionManager].
+ *
+ * `SessionManager.branch()` is not persisted — on the next open the leaf is rebuilt from the
+ * session file's last physical line — so the variant switcher's choice (and a normal
+ * regenerate's active answer) would be lost without this. Guarded: a stored leaf that is not an
+ * entry in this session (a rebuilt file, a stale row) leaves the file's natural leaf in place
+ * rather than throwing.
+ */
+export function restoreActiveLeaf(
+  sessionManager: {branch: (id: string) => void; getLeafId: () => string | null},
+  conversations: ConversationRepository,
+  conversationId: string,
+): void {
+  const leaf = conversations.getConversation(conversationId)?.active_leaf_pi_entry_id;
+  if (!leaf || sessionManager.getLeafId() === leaf) {
+    return;
+  }
+  try {
+    sessionManager.branch(leaf);
+  } catch {
+    // The stored leaf is not in this session file; keep the natural leaf.
+  }
 }
 
 export async function ensureSessionFile(sessionPath: string, manager: any): Promise<void> {

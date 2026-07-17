@@ -69,6 +69,7 @@ import {
   SessionUnavailableError,
   squeezedReplyBudgetWarning,
   ToolsDisabledError,
+  variantNotActivatableError,
 } from './errors.ts';
 import {
   type ActiveRun,
@@ -88,6 +89,7 @@ import {
   createPiSession,
   ensureSessionFile,
   nelleOperationalPrompt,
+  restoreActiveLeaf,
 } from './session.ts';
 import {createToolEventSubscriber} from './tools.ts';
 import {
@@ -366,6 +368,10 @@ export class PiHarness {
         this.paths.piSessionsDir,
         this.paths.workspaceDir,
       );
+      // The DB holds the active branch; a fresh open rebuilds the leaf from the file's last line,
+      // so reapply the stored leaf before syncing (or the snapshot would resnap the newest
+      // variant and lose a variant-switch or a regenerated-away choice).
+      restoreActiveLeaf(sessionManager, this.conversations, conversationId);
       const activeModel = await this.getProjectionModel();
       this.syncPiConversation(
         conversationId,
@@ -726,6 +732,51 @@ export class PiHarness {
     });
 
     return queue;
+  }
+
+  /**
+   * Makes an existing assistant variant the **active** branch — the variant switcher's "select".
+   *
+   * No prompt runs. It records the chosen entry as the conversation's active leaf (which
+   * `restoreActiveLeaf` reapplies on every session open, since Pi's `branch()` is not persisted),
+   * moves a live cached session's leaf to match so a subsequent run continues from it, then
+   * refreshes and returns the snapshot — whose `activePathEntryIds` now lead to the chosen variant
+   * while the sibling variants stay off-branch.
+   */
+  async activateVariant(input: {
+    conversationId: string;
+    assistantMessageId: string;
+  }): Promise<ConversationSnapshot> {
+    await this.assertConversationSessionAvailable(input.conversationId);
+    // Reuse the regenerate-source lookup for validation: it confirms the target is an assistant
+    // entry (any variant) in this conversation with a user turn behind it.
+    const source = this.conversations.getRegenerationSource(
+      input.conversationId,
+      input.assistantMessageId,
+    );
+    if (!source) {
+      throw variantNotActivatableError(
+        'That message is not an answer that can be made the active variant.',
+      );
+    }
+    const target = source.assistantEntry.piEntryId;
+    this.conversations.setActiveLeaf(input.conversationId, target);
+    // A cached session keeps its own in-memory leaf; move it so the next run branches from the
+    // chosen variant. A reopened session is covered by the DB record via restoreActiveLeaf.
+    const cached = this.#sessions.get(input.conversationId);
+    if (cached) {
+      try {
+        cached.session.sessionManager.branch(target);
+      } catch {
+        // The cached session does not contain the entry (a stale cache): the reopen path restores
+        // it from the DB regardless.
+      }
+    }
+    const snapshot = await this.getConversationSnapshot(input.conversationId);
+    if (!snapshot) {
+      throw new ConversationNotFoundError();
+    }
+    return snapshot;
   }
 
   async forkConversation(input: {
