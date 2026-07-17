@@ -36,13 +36,29 @@ class AttachButton extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return FButton.icon(
       key: const ValueKey('k-composer-attach'),
-      onPress: () => _pick(ref),
+      onPress: () => _pick(context, ref),
       child: const Icon(FLucideIcons.paperclip),
     );
   }
 
-  Future<void> _pick(WidgetRef ref) async {
-    final files = await openFiles(acceptedTypeGroups: _typeGroups);
+  Future<void> _pick(BuildContext context, WidgetRef ref) async {
+    final List<XFile> files;
+    try {
+      files = await openFiles(acceptedTypeGroups: _typeGroups);
+    } catch (error) {
+      // The picker itself failed — a platform error, or (the case that sent us here) the macOS
+      // App Sandbox refusing the open panel for want of the user-selected-file entitlement.
+      // Without this it is an invisible unhandled async exception: the button appears to do
+      // nothing. Upload failures need no toast here — the draft surfaces those on the chip.
+      if (context.mounted) {
+        showFToast(
+          context: context,
+          icon: const Icon(FLucideIcons.circleX),
+          title: Text('Could not open the file picker: $error'),
+        );
+      }
+      return;
+    }
     final draft = ref.read(attachmentDraftProvider(conversationId).notifier);
     for (final file in files) {
       // Uploaded one at a time, so a refusal names the file that caused it and the
