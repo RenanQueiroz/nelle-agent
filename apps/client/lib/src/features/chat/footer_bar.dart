@@ -67,8 +67,10 @@ class RenderFooterBar extends RenderBox
        _runSpacing = runSpacing,
        _textDirection = textDirection;
 
-  static const _separator = '·';
-  static const _separatorStyle = TextStyle(fontSize: 10);
+  // A bullet, not a middle dot (`·`), and sized up: the middle dot read as too faint next to the
+  // larger footer text.
+  static const _separator = '•';
+  static const _separatorStyle = TextStyle(fontSize: 13);
 
   Color _color;
   Color get color => _color;

@@ -101,12 +101,14 @@ void main() {
     );
 
     expect(find.text('Reasoning'), findsOneWidget);
-    expect(find.text('because reasons'), findsNothing);
+    // The expandable card is a forui FAccordion: it keeps the collapsed child in the tree but
+    // clips it to zero height, so it is *present* but not hit-testable until expanded.
+    expect(find.text('because reasons').hitTestable(), findsNothing);
 
     await tester.tap(find.text('Reasoning'));
-    await tester.pump();
+    await tester.pumpAndSettle(); // the reveal animates
 
-    expect(find.text('because reasons'), findsOneWidget);
+    expect(find.text('because reasons').hitTestable(), findsOneWidget);
   });
 
   testWidgets('shows the model + variant footer', (tester) async {

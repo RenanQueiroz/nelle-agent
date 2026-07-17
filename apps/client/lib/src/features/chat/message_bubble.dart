@@ -4,6 +4,7 @@ import 'package:forui/forui.dart';
 
 import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
+import 'expandable_card.dart';
 import 'footer_bar.dart';
 import 'markdown_message.dart';
 import 'message_attachments.dart';
@@ -89,28 +90,54 @@ class MessageBubble extends StatelessWidget {
             // then typed.
             MessageAttachments(attachments: message.attachments ?? const []),
             if (!isUser && reasoning != null && reasoning.isNotEmpty)
-              _ReasoningBlock(text: reasoning, messageId: message.id),
-            Container(
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: isUser
-                    ? scheme.primary.withValues(alpha: 0.12)
-                    : scheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              // The model answers in markdown; the user types text. Rendering a user's
-              // own `a * b` as italics would put words in their mouth.
-              child: isUser || message.content.isEmpty
-                  ? SelectableText(
-                      message.content.isEmpty ? '…' : message.content,
-                      style: _messageBodyStyle,
-                    )
-                  : MarkdownMessage(
-                      text: message.content,
-                      style: _messageBodyStyle,
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: ExpandableCard(
+                  key: ValueKey('k-msg-reasoning-${message.id}'),
+                  title: Text(
+                    'Reasoning',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: context.theme.colors.mutedForeground,
                     ),
-            ),
+                  ),
+                  // Thinking is model output too — where it writes its lists and arithmetic.
+                  child: MarkdownMessage(
+                    text: reasoning,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: context.theme.colors.mutedForeground,
+                    ),
+                  ),
+                ),
+              ),
+            // The model answers in markdown; the user types text. Rendering a user's own
+            // `a * b` as italics would put words in their mouth.
+            //
+            // The **user** turn is a rounded chip on the right; the **assistant** answer is plain
+            // text flush-left (llama.cpp's layout), with no bubble padding so its left edge lines
+            // up with the footer beneath it.
+            if (isUser)
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: SelectableText(message.content, style: _messageBodyStyle),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: message.content.isEmpty
+                    ? SelectableText('…', style: _messageBodyStyle)
+                    : MarkdownMessage(
+                        text: message.content,
+                        style: _messageBodyStyle,
+                      ),
+              ),
             ..._footerRows(context, isUser),
           ],
         ),
@@ -232,7 +259,6 @@ class MessageBubble extends StatelessWidget {
       );
     }
   }
-
 }
 
 /// One small icon in a message footer.
@@ -270,63 +296,3 @@ class _FooterAction extends StatelessWidget {
   );
 }
 
-class _ReasoningBlock extends StatefulWidget {
-  const _ReasoningBlock({required this.text, required this.messageId});
-
-  final String text;
-  final String messageId;
-
-  @override
-  State<_ReasoningBlock> createState() => _ReasoningBlockState();
-}
-
-class _ReasoningBlockState extends State<_ReasoningBlock> {
-  bool _open = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          GestureDetector(
-            key: ValueKey('k-msg-reasoning-toggle-${widget.messageId}'),
-            behavior: HitTestBehavior.opaque,
-            onTap: () => setState(() => _open = !_open),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _open ? FLucideIcons.chevronDown : FLucideIcons.chevronRight,
-                  size: 14,
-                  color: scheme.outline,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  'Reasoning',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: scheme.outline,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (_open)
-            Padding(
-              padding: const EdgeInsets.only(top: 4, left: 18),
-              // Thinking is model output too, and it is where the model writes its
-              // lists and its arithmetic.
-              child: MarkdownMessage(
-                text: widget.text,
-                style: TextStyle(fontSize: 12, color: scheme.outline),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
