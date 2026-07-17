@@ -5,6 +5,7 @@ import 'package:forui/forui.dart';
 import '../../api/api_exception.dart';
 import '../../api/generated/models/conversation_message_role.dart';
 import '../../api/generated/models/fork_kind.dart';
+import '../../api/generated/models/tool_call_event.dart';
 import '../attachments/drop_target.dart';
 import '../conversations/conversations_notifier.dart';
 import '../conversations/conversations_repository.dart';
@@ -15,6 +16,7 @@ import '../settings/display_settings.dart';
 import 'message_bubble.dart';
 import 'message_model_dropdown.dart';
 import 'performance_stats.dart';
+import 'tool_call_card.dart';
 import 'unavailable_panel.dart';
 
 /// The chat detail pane for one conversation: header, context bar, transcript,
@@ -211,10 +213,18 @@ class _TranscriptState extends ConsumerState<_Transcript> {
           }
         }
 
+        // Tool calls: the live run's for the streaming assistant, else the settled message's.
+        final toolCalls = message.role == ConversationMessageRole.assistant
+            ? (isStreamingAssistant
+                  ? widget.state.liveToolCalls
+                  : parseToolCalls(message.toolCalls))
+            : const <ToolCallEvent>[];
+
         return MessageBubble(
           message: message,
           readingMetric: readingMetric,
           generationMetric: generationMetric,
+          toolCalls: toolCalls,
           onRegenerate: canRegenerate
               ? () => ref
                     .read(

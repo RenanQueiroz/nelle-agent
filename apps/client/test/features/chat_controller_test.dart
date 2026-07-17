@@ -11,6 +11,8 @@ import 'package:nelle_agent/src/api/generated/models/conversation_list_item_titl
 import 'package:nelle_agent/src/api/generated/models/nelle_error.dart';
 import 'package:nelle_agent/src/api/generated/models/nelle_warning.dart';
 import 'package:nelle_agent/src/api/generated/models/reasoning_level.dart';
+import 'package:nelle_agent/src/api/generated/models/tool_call_event.dart';
+import 'package:nelle_agent/src/api/generated/models/tool_call_event_status.dart';
 import 'package:nelle_agent/src/features/attachments/attachment_draft.dart';
 import 'package:nelle_agent/src/features/chat/chat_controller.dart';
 import 'package:nelle_agent/src/features/chat/sse_transport.dart';
@@ -168,6 +170,45 @@ void main() {
     expect(load?.downloadedBytes, 750);
     expect(load?.totalBytes, 1500);
     expect(load?.progress, 0.5);
+  });
+
+  test('tool_call.updated upserts into liveToolCalls by id', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final c = container(events.stream);
+
+    await c.read(chatControllerProvider('c').future);
+    await c.read(chatControllerProvider('c').notifier).send('use a tool');
+
+    events.add(
+      ToolCallUpdatedEvent(
+        ToolCallEvent(
+          id: 't1',
+          name: 'read_file',
+          status: ToolCallEventStatus.running,
+        ),
+      ),
+    );
+    await _settle();
+    var calls = c.read(chatControllerProvider('c')).requireValue.liveToolCalls;
+    expect(calls.single.status, ToolCallEventStatus.running);
+
+    // The same call completes — upserted in place, not appended.
+    events.add(
+      ToolCallUpdatedEvent(
+        ToolCallEvent(
+          id: 't1',
+          name: 'read_file',
+          status: ToolCallEventStatus.complete,
+          output: 'done',
+        ),
+      ),
+    );
+    await _settle();
+    calls = c.read(chatControllerProvider('c')).requireValue.liveToolCalls;
+    expect(calls, hasLength(1));
+    expect(calls.single.status, ToolCallEventStatus.complete);
+    expect(calls.single.output, 'done');
   });
 
   test('performance.updated folds into livePerformance, per token', () async {

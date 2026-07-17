@@ -13,6 +13,7 @@ import '../../api/generated/models/conversation_message_role.dart';
 import '../../api/generated/models/conversation_snapshot.dart';
 import '../../api/generated/models/conversation_status.dart';
 import '../../api/generated/models/fork_kind.dart';
+import '../../api/generated/models/tool_call_event.dart';
 import '../models/active_runs.dart';
 import '../../api/generated/models/reasoning_level.dart';
 import '../attachments/attachment_draft.dart';
@@ -20,6 +21,7 @@ import '../conversations/conversations_notifier.dart';
 import '../models/router_models_notifier.dart';
 import 'chat_repository.dart';
 import 'sse_transport.dart';
+import 'tool_call_card.dart';
 
 /// What the chat pane renders. `messages` is the snapshot's rendered list;
 /// `pending` holds the optimistic user turn + the streaming assistant turn during
@@ -60,6 +62,7 @@ class ChatState {
     this.runWarning,
     this.livePerformance,
     this.titleOverride,
+    this.liveToolCalls = const [],
   });
 
   factory ChatState.fromSnapshot(ConversationSnapshot snapshot) => ChatState(
@@ -110,6 +113,11 @@ class ChatState {
   /// server names the chat — without waiting for the user to re-open it. Null after the
   /// next snapshot reload, which carries the real title itself.
   final String? titleOverride;
+
+  /// Tool calls from the run **currently streaming**, upserted by id as `tool_call.updated`
+  /// events arrive. The streaming assistant renders these; a settled message renders its own
+  /// `toolCalls` off the snapshot. Reset to empty by the reload in [ChatController._finish].
+  final List<ToolCallEvent> liveToolCalls;
 
   String get title => titleOverride ?? snapshot.conversation.title;
 
@@ -171,6 +179,7 @@ class ChatState {
     bool clearWarning = false,
     ChatPerformance? livePerformance,
     String? titleOverride,
+    List<ToolCallEvent>? liveToolCalls,
   }) => ChatState(
     snapshot: snapshot,
     messages: messages ?? this.messages,
@@ -187,6 +196,7 @@ class ChatState {
     runWarning: clearWarning ? null : (runWarning ?? this.runWarning),
     livePerformance: livePerformance ?? this.livePerformance,
     titleOverride: titleOverride ?? this.titleOverride,
+    liveToolCalls: liveToolCalls ?? this.liveToolCalls,
   );
 }
 
@@ -273,6 +283,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         clearModelLoad: true,
         clearRefused: true,
         clearWarning: true,
+        liveToolCalls: const [],
       ),
     );
     _claimModel(current);
@@ -337,6 +348,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         clearError: true,
         clearModelLoad: true,
         clearRefused: true,
+        liveToolCalls: const [],
       ),
     );
     _claimModel(current);
@@ -608,10 +620,16 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         // metrics as it writes. Rendered live under the messages; cleared by the snapshot
         // reload in `_finish`, after which each message carries its own settled copy.
         state = AsyncData(s.copyWith(livePerformance: performance));
+      case ToolCallUpdatedEvent(:final call):
+        // Upsert by id — a call goes running → complete/error over several events. The
+        // streaming assistant renders these; the snapshot reload clears them, after which the
+        // settled message carries its own `toolCalls`.
+        state = AsyncData(
+          s.copyWith(liveToolCalls: upsertToolCall(s.liveToolCalls, call)),
+        );
       default:
-        // run.started, message.*, tool_call, unknown — not folded here. (conversation.updated
-        // only arrives after run.completed, on the kept-open stream, and is handled by the
-        // _watchingForTitle branch above.)
+        // run.started, message.*, unknown — not folded here. (conversation.updated only
+        // arrives after run.completed, on the kept-open stream, handled by _watchingForTitle.)
         break;
     }
   }

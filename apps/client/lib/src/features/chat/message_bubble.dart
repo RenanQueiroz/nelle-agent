@@ -4,11 +4,13 @@ import 'package:forui/forui.dart';
 
 import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
+import '../../api/generated/models/tool_call_event.dart';
 import 'expandable_card.dart';
 import 'footer_bar.dart';
 import 'markdown_message.dart';
 import 'message_attachments.dart';
 import 'performance_stats.dart';
+import 'tool_call_card.dart';
 
 /// The message body is a step larger than the footer so the answer stays dominant over it —
 /// llama.cpp's hierarchy. Both roles share it so user and assistant stay symmetric.
@@ -25,6 +27,7 @@ class MessageBubble extends StatelessWidget {
     this.readingMetric,
     this.generationMetric,
     this.modelControl,
+    this.toolCalls = const [],
   });
 
   final ConversationMessage message;
@@ -43,6 +46,11 @@ class MessageBubble extends StatelessWidget {
   /// Generation stats to show in an **assistant** footer, from this message's own performance
   /// or the live run. Null hides them.
   final PerfMetric? generationMetric;
+
+  /// The tool calls this assistant message made, each rendered as an expandable card above the
+  /// answer. The transcript passes the live run's calls for a streaming turn and the settled
+  /// `message.toolCalls` for a finished one. Empty hides the row.
+  final List<ToolCallEvent> toolCalls;
 
   /// Re-answers this turn, keeping the existing answer as a sibling variant. Null when
   /// regenerating makes no sense: a user turn, a reply still streaming, or a run in
@@ -112,6 +120,9 @@ class MessageBubble extends StatelessWidget {
                   ),
                 ),
               ),
+            // Tool calls (a model calls tools, then answers), each an expandable card. Empty for
+            // a user turn.
+            for (final call in toolCalls) ToolCallCard(call: call),
             // The model answers in markdown; the user types text. Rendering a user's own
             // `a * b` as italics would put words in their mouth.
             //

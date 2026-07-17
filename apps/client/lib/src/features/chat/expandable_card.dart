@@ -25,14 +25,20 @@ class ExpandableCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => FCard.raw(
-    child: FAccordion(
-      children: [
-        FAccordionItem(
-          title: title,
-          initiallyExpanded: initiallyExpanded,
-          child: child,
-        ),
-      ],
+    // FCard.raw adds no padding and FAccordion's title/child padding is vertical-only, so the
+    // header, chevron and content would sit flush against the card border. Inset the whole
+    // accordion to give them horizontal breathing room.
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: FAccordion(
+        children: [
+          FAccordionItem(
+            title: title,
+            initiallyExpanded: initiallyExpanded,
+            child: child,
+          ),
+        ],
+      ),
     ),
   );
 }
