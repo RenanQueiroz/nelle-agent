@@ -3,22 +3,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
 import '../../api/generated/models/llama_router_model.dart';
-import '../../api/generated/models/model_list_item.dart';
 import '../chat/chat_controller.dart';
-import 'favorites.dart';
 import 'llama_repository.dart';
+import 'model_picker.dart';
 import 'router_models_notifier.dart';
 
 /// The composer's model picker.
 ///
-/// Items come from the snapshot's configured catalog (`models.available`), which is
-/// present even when llama.cpp is stopped — you must still be able to pick a model,
-/// because the server loads the conversation's model when the run starts.
-/// Status/progress is overlaid from llama.cpp's live router SSE when it is up.
-///
-/// Picking **pins the conversation** (`PATCH /api/conversations/:id`); it does not
-/// activate a global model. It also warms the weights, fire-and-forget: the run waits
-/// on its own, so a load must never block the send.
+/// A thin wrapper over the shared [ModelPickerSelect] — the same component the message-footer
+/// dropdown uses — that pins the picked model to the conversation (`PATCH
+/// /api/conversations/:id`) and warms its weights, fire-and-forget: the run waits on its own, so
+/// a load must never block the send.
 class ModelSelector extends ConsumerWidget {
   const ModelSelector({super.key, required this.conversationId});
 
@@ -30,97 +25,16 @@ class ModelSelector extends ConsumerWidget {
     if (chat == null) {
       return const SizedBox.shrink();
     }
-    final catalog = chat.snapshot.models.available;
-    if (catalog.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    // llama.cpp may be down; then there is simply no live status to overlay.
-    final router =
-        ref.watch(routerModelsProvider).valueOrNull ??
-        const <LlamaRouterModel>[];
-    // Stored server-side, so they follow the user to their phone.
-    final favorites =
-        ref.watch(favoriteModelsProvider).valueOrNull ?? const <String>[];
-
-    return SizedBox(
-      width: 320,
-      child: FSelect<String>.searchBuilder(
-        key: const ValueKey('k-composer-model'),
-        // The trigger is narrow, so it shows the name alone; status lives in the rows.
-        format: (id) => _name(_itemFor(catalog, id) ?? id, id),
-        // Favourites first. The point of a favourite is to be near the top of a list that
-        // may hold dozens of models, so the sort *is* the feature.
-        filter: (query) => sortByFavorite(_filter(catalog, query), favorites),
-        contentBuilder: (context, query, ids) => [
-          for (final id in ids)
-            FSelectItem<String>.item(
-              key: ValueKey('k-composer-model-item-$id'),
-              value: id,
-              title: Text(
-                _name(_itemFor(catalog, id) ?? id, id),
-                overflow: TextOverflow.ellipsis,
-              ),
-              // The status is its own line: as a suffix it was the first thing the
-              // ellipsis ate, which hid the very thing the router SSE is here to say.
-              subtitle: _StatusLine(status: _routerFor(router, id)),
-              // A star, not a menu: favouriting is a one-tap thing you do while you are
-              // already looking at the list.
-              suffixBuilder: (context, selected) => _FavoriteStar(
-                modelId: id,
-                isFavorite: favorites.contains(id),
-              ),
-            ),
-        ],
-        control: FSelectControl.lifted(
-          value: chat.modelId,
-          onChange: (id) => id == null ? null : _pick(context, ref, id, router),
-        ),
-        hint: 'Model',
-      ),
+    return ModelPickerSelect(
+      conversationId: conversationId,
+      value: chat.modelId,
+      triggerKey: const ValueKey('k-composer-model'),
+      keyPrefix: 'k-composer-model',
+      onSelected: (id) => _pick(context, ref, id),
     );
   }
 
-  Iterable<String> _filter(List<ModelListItem> catalog, String query) {
-    final q = query.trim().toLowerCase();
-    return catalog
-        .where(
-          (m) =>
-              q.isEmpty ||
-              m.id.toLowerCase().contains(q) ||
-              m.alias.toLowerCase().contains(q),
-        )
-        .map((m) => m.id);
-  }
-
-  ModelListItem? _itemFor(List<ModelListItem> catalog, String id) {
-    for (final m in catalog) {
-      if (m.id == id) {
-        return m;
-      }
-    }
-    return null;
-  }
-
-  String _name(Object model, String id) =>
-      model is ModelListItem && model.alias.isNotEmpty ? model.alias : id;
-
-  LlamaRouterModel? _routerFor(List<LlamaRouterModel> router, String modelId) {
-    for (final m in router) {
-      if (m.sectionId == modelId ||
-          m.routerModelId == modelId ||
-          m.aliases.contains(modelId)) {
-        return m;
-      }
-    }
-    return null;
-  }
-
-  Future<void> _pick(
-    BuildContext context,
-    WidgetRef ref,
-    String modelId,
-    List<LlamaRouterModel> router,
-  ) async {
+  Future<void> _pick(BuildContext context, WidgetRef ref, String modelId) async {
     try {
       await ref
           .read(chatControllerProvider(conversationId).notifier)
@@ -139,74 +53,12 @@ class ModelSelector extends ConsumerWidget {
     // Warm the weights while the user types. Deliberately not awaited and its failure
     // is swallowed: the send surfaces a real model_load_failed, and the run waits for
     // the load anyway.
-    final live = _routerFor(router, modelId);
+    final router =
+        ref.read(routerModelsProvider).valueOrNull ??
+        const <LlamaRouterModel>[];
+    final live = routerModelFor(router, modelId);
     if (live != null && !isRunnableRouterStatus(live.status)) {
-      unawaited(ref.read(llamaRepositoryProvider).load(modelId));
+      unawaitedWarm(ref.read(llamaRepositoryProvider).load(modelId));
     }
   }
-}
-
-/// The live router status for one row: loaded / sleeping / loading NN% / not loaded.
-///
-/// Renders nothing when llama.cpp has never mentioned the model, because "unknown" is
-/// not "unloaded" — the server loads it when the run starts either way.
-class _StatusLine extends StatelessWidget {
-  const _StatusLine({required this.status});
-
-  final LlamaRouterModel? status;
-
-  @override
-  Widget build(BuildContext context) {
-    final router = status;
-    if (router == null) {
-      return const SizedBox.shrink();
-    }
-    return Text(_text(router), overflow: TextOverflow.ellipsis);
-  }
-
-  String _text(LlamaRouterModel router) {
-    if (router.status.toLowerCase() == 'loading') {
-      final progress = router.progress;
-      return progress == null
-          ? 'loading…'
-          : 'loading ${(progress * 100).clamp(0, 100).toStringAsFixed(0)}%';
-    }
-    return isRunnableRouterStatus(router.status) ? router.status : 'not loaded';
-  }
-}
-
-/// Local `unawaited` so the fire-and-forget load reads as deliberate.
-void unawaited(Future<void> future) {
-  future.catchError((Object _) {});
-}
-
-/// Toggles a favourite without selecting the model.
-///
-/// It sits inside the select's row, so the tap must not fall through to the row and
-/// switch the conversation's model -- picking a model and starring one are different
-/// intentions, and a user who meant to star would be very surprised.
-class _FavoriteStar extends ConsumerWidget {
-  const _FavoriteStar({required this.modelId, required this.isFavorite});
-
-  final String modelId;
-  final bool isFavorite;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) => GestureDetector(
-    key: ValueKey('k-composer-model-favorite-$modelId'),
-    behavior: HitTestBehavior.opaque,
-    onTap: () => ref.read(favoriteModelsProvider.notifier).toggle(modelId),
-    child: Padding(
-      padding: const EdgeInsets.all(4),
-      // Lucide is an outline set with no filled star, so the state is carried by colour:
-      // the favourite is the accent, the rest are barely there. One icon, two colours.
-      child: Icon(
-        FLucideIcons.star,
-        size: 14,
-        color: isFavorite
-            ? Theme.of(context).colorScheme.primary
-            : Theme.of(context).colorScheme.outline.withValues(alpha: 0.4),
-      ),
-    ),
-  );
 }

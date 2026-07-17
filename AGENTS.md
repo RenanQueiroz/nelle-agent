@@ -1282,7 +1282,9 @@ Project-specific guidance for AI coding agents.
 - The composer model selector is compact but router-aware: it is searchable,
   groups the user's favourites first, shows selected/row router
   status/progress from router SSE updates, and loads unloaded router models
-  before activating them.
+  before activating them. Its row rendering and filter/sort live in
+  `models/model_picker.dart`, shared with the assistant footer's model dropdown so the
+  two lists cannot drift.
 - The **server** loads the model. `POST /api/conversations/:id/chat/stream` and
   `.../regenerate` call `LlamaCppManager.ensureModelRunnable()` before the run
   starts, streaming `model.loading` events while they wait, and failing with
@@ -1402,9 +1404,36 @@ Project-specific guidance for AI coding agents.
   total for context usage; `prompt.tokens` remains the processed-token count
   shown in the Reading stats widget.
 - Assistant messages should persist the generating model id/runtime id and an
-  alias snapshot. Footer model changes should regenerate through Pi-native
+  alias snapshot. Footer model changes regenerate through Pi-native
   branch replay with a model override, then group the new answer as a UI
   variant instead of overwriting the prior answer.
+- **The assistant footer's model indicator is a dropdown** (`MessageModelDropdown`),
+  not plain text -- picking a model **both** repins the conversation default
+  (`setModel` -> `PATCH .../defaultModelId`, the "going forward" half) **and**
+  regenerates *this* message with it as an override (`regenerate(messageId, modelId:)`,
+  order matters: repin first, then the explicit override so the re-answer is
+  deterministic). The old answer survives as a labelled variant -- that is the server's
+  doing. **It is the *same component* as the composer selector**, not a lookalike: both are
+  `ModelPickerSelect` (`models/model_picker.dart`) -- the same `FSelect` trigger, the same
+  favourites-first search, the same hover-reactive rows, `ModelStatusLine` and
+  `ModelFavoriteStar` (with a per-surface `keyPrefix` so a composer selector and one or more
+  footer dropdowns on screen at once don't collide). They differ only in width, the value
+  shown (the conversation's model vs the message's), and what a pick does (pin vs
+  pin + regenerate) -- do not fork them back into two lists. Building a custom
+  `FPopover` + hand-rolled rows for the footer was the first attempt and was wrong: the
+  trigger looked off and the rows didn't react to hover. It is injected by `chat_view`
+  **only when regenerating is allowed** (`canRegenerate`); during a run or on a pending turn
+  `MessageBubble` shows the alias as plain text, because `modelControl` is null. No server
+  change was needed -- the regenerate endpoint has taken `{modelId}` since the web client.
+- **The message footer lays its sections out with `·` separators inline, and stacks them
+  without separators when they don't fit** (`chat/footer_bar.dart`). The sections are
+  model (dropdown/alias + variant), generation stats, and actions (fork on a user turn,
+  regenerate on an assistant one). A `Wrap` cannot do this -- a separator baked in as a
+  child survives the wrap -- so `FooterBar` is a small custom `MultiChildRenderObjectWidget`
+  (the shape of Material's `OverflowBar` plus painted separators): it measures the sections
+  and, if they fit `constraints.maxWidth`, lays them in a row with a `·` painted in each
+  gap; otherwise it stacks them, no separators. `RenderFooterBar.isRow` is exposed for
+  tests, which pin both the wide (row + gaps) and phone-narrow (stacked, no overflow) cases.
 - Nelle exposes regeneration at
   `/api/conversations/:id/messages/:messageId/regenerate`, branches the Pi
   session before the original user entry, replays that user text, and stores

@@ -7,6 +7,7 @@ import 'package:nelle_agent/src/api/generated/models/attachment_metadata.dart';
 import 'package:nelle_agent/src/api/generated/models/attachment_metadata_kind.dart';
 import 'package:nelle_agent/src/api/generated/models/conversation_message.dart';
 import 'package:nelle_agent/src/api/generated/models/conversation_message_role.dart';
+import 'package:nelle_agent/src/features/chat/footer_bar.dart';
 import 'package:nelle_agent/src/features/chat/message_attachments.dart';
 import 'package:nelle_agent/src/features/chat/message_bubble.dart';
 import 'package:nelle_agent/src/features/chat/performance_stats.dart';
@@ -264,11 +265,12 @@ void main() {
     expect(find.textContaining('t/s'), findsNothing);
   });
 
-  testWidgets('assistant footer with alias, stats and actions wraps, never overflows', (
+  testWidgets('assistant footer stacks its sections on a phone, without overflowing', (
     tester,
   ) async {
-    // A phone-width window: the alias + three stat badges + two action icons must wrap
-    // instead of overflowing (the 91px composer-overflow lesson).
+    // A phone-width window: the alias + three stat badges + the action icon must stack
+    // instead of overflowing (the 91px composer-overflow lesson) — and `FooterBar` drops the
+    // `·` separators when it stacks.
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -296,5 +298,73 @@ void main() {
     expect(tester.takeException(), isNull, reason: 'no RenderFlex overflow');
     expect(find.text('40.25 t/s'), findsOneWidget);
     expect(find.byKey(const ValueKey('k-msg-regenerate-x')), findsOneWidget);
+    final footer = tester.renderObject<RenderFooterBar>(
+      find.byKey(const ValueKey('k-msg-footer-x')),
+    );
+    expect(footer.isRow, isFalse, reason: 'a narrow footer stacks, no separators');
+  });
+
+  testWidgets('a wide assistant footer lays its sections in one row', (
+    tester,
+  ) async {
+    // The default 800px test window is wide enough for a short alias + stats + action to share
+    // one line, which is when the `·` separators appear.
+    await tester.pumpWidget(
+      _harness(
+        MessageBubble(
+          message: _message(
+            role: ConversationMessageRole.assistant,
+            content: 'Hi',
+            modelAliasSnapshot: 'gemma',
+          ),
+          generationMetric: const PerfMetric(tokens: 12, milliseconds: 300),
+          onRegenerate: () {},
+        ),
+      ),
+    );
+
+    final footer = tester.renderObject<RenderFooterBar>(
+      find.byKey(const ValueKey('k-msg-footer-x')),
+    );
+    expect(footer.isRow, isTrue);
+  });
+
+  testWidgets('the model section is a dropdown when one is injected, else plain text', (
+    tester,
+  ) async {
+    // Injected control (the transcript passes the real dropdown only when regenerate is
+    // allowed): the footer shows it, not the alias text.
+    await tester.pumpWidget(
+      _harness(
+        MessageBubble(
+          message: _message(
+            role: ConversationMessageRole.assistant,
+            content: 'Hi',
+            modelAliasSnapshot: 'gemma',
+            variantLabel: 'variant 2/2',
+          ),
+          modelControl: const Text('gemma', key: ValueKey('k-test-model-control')),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('k-test-model-control')), findsOneWidget);
+    // The variant label still rides beside the control.
+    expect(find.text('variant 2/2'), findsOneWidget);
+
+    // No control: the alias renders as plain text (a run in flight, or a pending turn).
+    await tester.pumpWidget(
+      _harness(
+        MessageBubble(
+          message: _message(
+            role: ConversationMessageRole.assistant,
+            content: 'Hi',
+            modelAliasSnapshot: 'gemma',
+            variantLabel: 'variant 2/2',
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('k-test-model-control')), findsNothing);
+    expect(find.text('gemma · variant 2/2'), findsOneWidget);
   });
 }

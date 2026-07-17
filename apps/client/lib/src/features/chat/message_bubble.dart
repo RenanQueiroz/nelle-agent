@@ -3,6 +3,7 @@ import 'package:forui/forui.dart';
 
 import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
+import 'footer_bar.dart';
 import 'markdown_message.dart';
 import 'message_attachments.dart';
 import 'performance_stats.dart';
@@ -17,9 +18,16 @@ class MessageBubble extends StatelessWidget {
     this.onFork,
     this.readingMetric,
     this.generationMetric,
+    this.modelControl,
   });
 
   final ConversationMessage message;
+
+  /// The footer's model **dropdown**, injected by the transcript when regenerating this
+  /// message is allowed. When null the footer shows the model alias as plain text — a run in
+  /// flight, a pending turn, or a user turn. Injected as a widget (rather than built here) so
+  /// this bubble stays provider-free and testable.
+  final Widget? modelControl;
 
   /// Prompt-processing stats to show **under a user turn** — they belong to the run that
   /// answered it, so the transcript computes them from the paired assistant message (or the
@@ -62,10 +70,9 @@ class MessageBubble extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final isUser = message.role == ConversationMessageRole.user;
     final reasoning = message.reasoning;
-    final footer = [
-      if (message.modelAliasSnapshot != null) message.modelAliasSnapshot!,
-      if (message.variantLabel != null) message.variantLabel!,
-    ].join(' · ');
+    // The footer is a set of sections — model, generation stats, actions — laid out with `·`
+    // separators when they fit and stacked without them when they don't (`FooterBar`).
+    final sections = _footerSections(context, scheme);
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -107,51 +114,83 @@ class MessageBubble extends StatelessWidget {
                 generation: false,
                 alignEnd: isUser,
               ),
-            if (footer.isNotEmpty ||
-                generationMetric != null ||
-                onRegenerate != null ||
-                onFork != null)
+            if (sections.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
-                // A Wrap, not a Row: on a narrow window the alias, the three stat badges and
-                // the action icons overflow a single line (the 91px composer-overflow lesson).
-                child: Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    if (footer.isNotEmpty)
-                      Text(
-                        footer,
-                        style: TextStyle(fontSize: 10, color: scheme.outline),
-                      ),
-                    if (generationMetric != null)
-                      PerformanceStatsRow(
-                        key: ValueKey('k-msg-generation-${message.id}'),
-                        metric: generationMetric!,
-                        generation: true,
-                        alignEnd: false,
-                      ),
-                    if (onFork != null)
-                      _FooterAction(
-                        actionKey: ValueKey('k-msg-fork-${message.id}'),
-                        icon: FLucideIcons.gitBranch,
-                        tooltip: 'Branch a new chat from here',
-                        onTap: onFork!,
-                      ),
-                    if (onRegenerate != null)
-                      _FooterAction(
-                        actionKey: ValueKey('k-msg-regenerate-${message.id}'),
-                        icon: FLucideIcons.refreshCw,
-                        tooltip: 'Answer again',
-                        onTap: onRegenerate!,
-                      ),
-                  ],
+                child: FooterBar(
+                  key: ValueKey('k-msg-footer-${message.id}'),
+                  color: scheme.outline,
+                  children: sections,
                 ),
               ),
           ],
         ),
       ),
+    );
+  }
+
+  /// The footer sections, in order: model (dropdown or alias + variant), generation stats,
+  /// actions. Only the ones that apply to this message are present; `FooterBar` separates them
+  /// with `·` when they fit on one line and stacks them without separators when they don't.
+  List<Widget> _footerSections(BuildContext context, ColorScheme scheme) {
+    final modelSection = _modelSection(scheme);
+    return [
+      ?modelSection,
+      if (generationMetric != null)
+        PerformanceStatsRow(
+          key: ValueKey('k-msg-generation-${message.id}'),
+          metric: generationMetric!,
+          generation: true,
+          alignEnd: false,
+        ),
+      if (onFork != null || onRegenerate != null)
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (onFork != null)
+              _FooterAction(
+                actionKey: ValueKey('k-msg-fork-${message.id}'),
+                icon: FLucideIcons.gitBranch,
+                tooltip: 'Branch a new chat from here',
+                onTap: onFork!,
+              ),
+            if (onRegenerate != null)
+              _FooterAction(
+                actionKey: ValueKey('k-msg-regenerate-${message.id}'),
+                icon: FLucideIcons.refreshCw,
+                tooltip: 'Answer again',
+                onTap: onRegenerate!,
+              ),
+          ],
+        ),
+    ];
+  }
+
+  /// The model section: the injected dropdown (when regenerating is allowed) or the model
+  /// alias as text, followed by the variant label. Null when the message names neither.
+  Widget? _modelSection(ColorScheme scheme) {
+    final alias = message.modelAliasSnapshot;
+    final variant = message.variantLabel;
+    final control = modelControl;
+    if (control == null && alias == null && variant == null) {
+      return null;
+    }
+    final style = TextStyle(fontSize: 10, color: scheme.outline);
+    if (control == null) {
+      // No dropdown: the current plain-text footer (`alias · variant`).
+      return Text([?alias, ?variant].join(' · '), style: style);
+    }
+    // The dropdown trigger already shows the alias; the variant label rides beside it.
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        control,
+        if (variant != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 6),
+            child: Text(variant, style: style),
+          ),
+      ],
     );
   }
 }

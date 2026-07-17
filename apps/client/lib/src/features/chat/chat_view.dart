@@ -13,6 +13,7 @@ import 'chat_controller.dart';
 import 'context_bar.dart';
 import '../settings/display_settings.dart';
 import 'message_bubble.dart';
+import 'message_model_dropdown.dart';
 import 'performance_stats.dart';
 import 'unavailable_panel.dart';
 
@@ -222,6 +223,16 @@ class _TranscriptState extends ConsumerState<_Transcript> {
                     .regenerate(message.id)
               : null,
           onFork: canFork ? () => _fork(context, ref, message.id) : null,
+          // The model indicator becomes a dropdown only when regenerating this answer is
+          // allowed; otherwise `MessageBubble` shows the alias as plain text. Picking a model
+          // repins the conversation default and re-answers this message with it.
+          modelControl: canRegenerate
+              ? MessageModelDropdown(
+                  conversationId: widget.conversationId,
+                  messageId: message.id,
+                  currentModelId: message.modelId,
+                )
+              : null,
         );
       },
     );
