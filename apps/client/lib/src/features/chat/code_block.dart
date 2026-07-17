@@ -158,10 +158,13 @@ class _Header extends StatelessWidget {
             style: TextStyle(fontSize: 11, color: scheme.outline),
           ),
           const Spacer(),
-          GestureDetector(
+          // A ghost FButton.icon, not a Material IconButton: forui over a bare FScaffold has no
+          // Material ancestor. The explicit icon size/colour keeps the small outline glyph.
+          FButton.icon(
             key: copyKey,
-            behavior: HitTestBehavior.opaque,
-            onTap: () async {
+            size: FButtonSizeVariant.xs,
+            variant: FButtonVariant.ghost,
+            onPress: () async {
               await Clipboard.setData(ClipboardData(text: source));
               if (context.mounted) {
                 showFToast(
@@ -171,10 +174,7 @@ class _Header extends StatelessWidget {
                 );
               }
             },
-            child: Padding(
-              padding: const EdgeInsets.all(6),
-              child: Icon(FLucideIcons.copy, size: 13, color: scheme.outline),
-            ),
+            child: Icon(FLucideIcons.copy, size: 13, color: scheme.outline),
           ),
         ],
       ),

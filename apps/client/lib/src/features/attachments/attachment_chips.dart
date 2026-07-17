@@ -130,14 +130,14 @@ class _Chip extends StatelessWidget {
               ],
             ),
           ),
-          GestureDetector(
+          // A ghost FButton.icon, not a Material IconButton: forui over a bare FScaffold has no
+          // Material ancestor for an ink splash.
+          FButton.icon(
             key: ValueKey('k-composer-chip-remove-${staged.uploadId}'),
-            behavior: HitTestBehavior.opaque,
-            onTap: onRemove,
-            child: Padding(
-              padding: const EdgeInsets.all(6),
-              child: Icon(FLucideIcons.x, size: 12, color: scheme.outline),
-            ),
+            size: FButtonSizeVariant.xs,
+            variant: FButtonVariant.ghost,
+            onPress: onRemove,
+            child: Icon(FLucideIcons.x, size: 12, color: scheme.outline),
           ),
         ],
       ),

@@ -295,19 +295,18 @@ class _Row extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 4),
-              GestureDetector(
+              // A ghost FButton.icon (sm, to sit level with the 36px value field), not a Material
+              // IconButton: forui over a bare FScaffold has no Material ancestor, so an ink-splash
+              // widget throws "No Material widget found".
+              FButton.icon(
                 key: ValueKey('k-param-remove-${row.id}'),
-                onTap: onRemove,
-                // A GestureDetector, not an IconButton: this app is forui over a bare
-                // FScaffold, with no Material ancestor, so a Material-only widget throws
-                // "No Material widget found" and paints a red box.
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Icon(
-                    FLucideIcons.trash2,
-                    size: 16,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
+                size: FButtonSizeVariant.sm,
+                variant: FButtonVariant.ghost,
+                onPress: onRemove,
+                child: Icon(
+                  FLucideIcons.trash2,
+                  size: 16,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
@@ -356,7 +355,9 @@ class _Row extends StatelessWidget {
                 key: ValueKey('k-param-warning-${row.id}'),
                 style: const TextStyle(
                   fontSize: 11,
-                  color: Color(0xFFB45309), // amber-700: legible on light and dark.
+                  color: Color(
+                    0xFFB45309,
+                  ), // amber-700: legible on light and dark.
                 ),
               ),
             ),

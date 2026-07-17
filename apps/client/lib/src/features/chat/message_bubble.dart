@@ -137,12 +137,18 @@ class MessageBubble extends StatelessWidget {
             if (isUser)
               Container(
                 margin: const EdgeInsets.symmetric(vertical: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: scheme.primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: SelectableText(message.content, style: _messageBodyStyle),
+                child: SelectableText(
+                  message.content,
+                  style: _messageBodyStyle,
+                ),
               )
             else
               Padding(
@@ -189,7 +195,10 @@ class MessageBubble extends StatelessWidget {
       if (group.isEmpty) continue;
       rows.add(
         Padding(
-          padding: EdgeInsets.only(top: i == 0 ? 2 : 4, bottom: i == groups.length - 1 ? 6 : 0),
+          padding: EdgeInsets.only(
+            top: i == 0 ? 2 : 4,
+            bottom: i == groups.length - 1 ? 6 : 0,
+          ),
           child: FooterBar(
             key: ValueKey('k-msg-footer${i + 1}-${message.id}'),
             color: muted,
@@ -211,7 +220,9 @@ class MessageBubble extends StatelessWidget {
       return control;
     }
     final alias = message.modelAliasSnapshot;
-    return alias == null ? null : Text(alias, style: TextStyle(fontSize: 14, color: muted));
+    return alias == null
+        ? null
+        : Text(alias, style: TextStyle(fontSize: 14, color: muted));
   }
 
   /// Prompt-processing stats under a user turn, generation stats under an assistant one — a
@@ -237,7 +248,9 @@ class MessageBubble extends StatelessWidget {
       return variantControl;
     }
     final variant = message.variantLabel;
-    return variant == null ? null : Text(variant, style: TextStyle(fontSize: 14, color: muted));
+    return variant == null
+        ? null
+        : Text(variant, style: TextStyle(fontSize: 14, color: muted));
   }
 
   /// The action buttons: copy (both roles), then regenerate (assistant) or fork (user).
@@ -284,9 +297,11 @@ class MessageBubble extends StatelessWidget {
 
 /// One small icon in a message footer.
 ///
-/// A `GestureDetector`, not an `IconButton`: this app is forui over a bare `FScaffold` and has no
-/// `Material` ancestor, so anything wanting an ink splash throws "No Material widget found" and
-/// paints a red box where the control should be.
+/// A ghost `FButton.icon` (forui), not a Material `IconButton`: this app is forui over a bare
+/// `FScaffold` with no `Material` ancestor, so an ink-splash widget throws "No Material widget
+/// found". Ghost keeps it flat until hover — the same treatment as the variant switcher's arrows,
+/// so the whole footer's controls share one look. The explicit `size`/`color` on the `Icon`
+/// override the button's own icon theme, keeping the 18px muted glyph the footer wants.
 class _FooterAction extends StatelessWidget {
   const _FooterAction({
     required this.actionKey,
@@ -305,15 +320,12 @@ class _FooterAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) => FTooltip(
     tipBuilder: (context, _) => Text(tooltip),
-    child: GestureDetector(
+    child: FButton.icon(
       key: actionKey,
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: Icon(icon, size: 18, color: color),
-      ),
+      size: FButtonSizeVariant.xs,
+      variant: FButtonVariant.ghost,
+      onPress: onTap,
+      child: Icon(icon, size: 18, color: color),
     ),
   );
 }
-

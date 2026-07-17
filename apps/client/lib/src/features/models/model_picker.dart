@@ -68,7 +68,8 @@ class ModelPickerSelect extends ConsumerWidget {
         format: (id) => modelDisplayName(catalog, id),
         // Favourites first. The point of a favourite is to be near the top of a list that
         // may hold dozens of models, so the sort *is* the feature.
-        filter: (query) => sortByFavorite(filterModels(catalog, query), favorites),
+        filter: (query) =>
+            sortByFavorite(filterModels(catalog, query), favorites),
         contentBuilder: (context, query, ids) => [
           for (final id in ids)
             FSelectItem<String>.item(
@@ -137,7 +138,10 @@ String modelDisplayName(List<ModelListItem> catalog, String id) {
 
 /// The live router row for a model, matched across the several ids one model answers to
 /// (section id, runtime id, alias).
-LlamaRouterModel? routerModelFor(List<LlamaRouterModel> router, String modelId) {
+LlamaRouterModel? routerModelFor(
+  List<LlamaRouterModel> router,
+  String modelId,
+) {
   for (final m in router) {
     if (m.sectionId == modelId ||
         m.routerModelId == modelId ||
@@ -196,21 +200,21 @@ class ModelFavoriteStar extends ConsumerWidget {
   final String keyPrefix;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => GestureDetector(
+  // A ghost FButton.icon, not a Material IconButton: forui over a bare FScaffold has no Material
+  // ancestor for an ink splash.
+  Widget build(BuildContext context, WidgetRef ref) => FButton.icon(
     key: ValueKey('$keyPrefix-$modelId'),
-    behavior: HitTestBehavior.opaque,
-    onTap: () => ref.read(favoriteModelsProvider.notifier).toggle(modelId),
-    child: Padding(
-      padding: const EdgeInsets.all(4),
-      // Lucide is an outline set with no filled star, so the state is carried by colour:
-      // the favourite is the accent, the rest are barely there. One icon, two colours.
-      child: Icon(
-        FLucideIcons.star,
-        size: 14,
-        color: isFavorite
-            ? Theme.of(context).colorScheme.primary
-            : Theme.of(context).colorScheme.outline.withValues(alpha: 0.4),
-      ),
+    size: FButtonSizeVariant.xs,
+    variant: FButtonVariant.ghost,
+    onPress: () => ref.read(favoriteModelsProvider.notifier).toggle(modelId),
+    // Lucide is an outline set with no filled star, so the state is carried by colour:
+    // the favourite is the accent, the rest are barely there. One icon, two colours.
+    child: Icon(
+      FLucideIcons.star,
+      size: 14,
+      color: isFavorite
+          ? Theme.of(context).colorScheme.primary
+          : Theme.of(context).colorScheme.outline.withValues(alpha: 0.4),
     ),
   );
 }

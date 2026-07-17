@@ -247,19 +247,18 @@ class _PairingCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              // Likewise: IconButton needs a Material ancestor for its ink splash.
-              GestureDetector(
+              // A ghost FButton.icon: IconButton needs a Material ancestor for its ink splash,
+              // which a bare FScaffold does not provide.
+              FButton.icon(
                 key: const ValueKey('k-pairing-code-copy'),
-                behavior: HitTestBehavior.opaque,
-                onTap: () =>
+                size: FButtonSizeVariant.xs,
+                variant: FButtonVariant.ghost,
+                onPress: () =>
                     Clipboard.setData(ClipboardData(text: pairing.code)),
-                child: Padding(
-                  padding: const EdgeInsets.all(6),
-                  child: Icon(
-                    FLucideIcons.copy,
-                    size: 14,
-                    color: theme.colorScheme.outline,
-                  ),
+                child: Icon(
+                  FLucideIcons.copy,
+                  size: 14,
+                  color: theme.colorScheme.outline,
                 ),
               ),
             ],
