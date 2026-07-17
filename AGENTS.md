@@ -637,16 +637,34 @@ Project-specific guidance for AI coding agents.
   - **The client also hot-reloads on save**, and this is *not* injected keystrokes. Flutter has no
     watch flag, and it reads the `r`/`R`/`q` keys **only** when its stdin is a real terminal -- so
     feeding it a pipe to type `r` into would take the manual keys away from the human too (the same
-    stdin/stdout-TTY sensitivity as the piping trap above). Instead the script uses Flutter's own
-    out-of-band trigger: `flutter run --pid-file <tmp>` writes the tool's PID, and **`SIGUSR1` to it
-    is a hot reload** (`SIGUSR2` a hot restart) -- byte-for-byte what `r` does, so the interactive
-    terminal is untouched and both paths coexist. A **debounced** watcher over `apps/client/lib`
-    (recursive, with a per-directory fallback where recursion is unsupported) reads that PID and
-    signals it on any `.dart` save. It is **POSIX-only** -- SIGUSR1 has no Windows equivalent, so on
-    Windows (or with `NELLE_DEV_NO_RELOAD=1`) you fall back to pressing `r`. The PID in the file is
-    Flutter's tool, **not** `client.pid`: the process we spawn is the `flutter` wrapper, and its
-    child is what hooks the signal -- signalling the wrapper would just kill it. A `pubspec.yaml` or
-    native/platform change still needs a manual `R`; hot reload only carries Dart edits.
+    stdin/stdout-TTY sensitivity as the piping trap above). A **debounced** watcher over
+    `apps/client/lib` (recursive, with a per-directory fallback where recursion is unsupported) fires
+    on any `.dart` save; *how* it reloads is the one thing that splits by OS, because the trigger
+    primitive does:
+    - **POSIX (macOS/Linux):** the native `flutter run` above, plus `flutter run --pid-file <tmp>`,
+      which writes the tool's PID. **`SIGUSR1` to it is a hot reload** (`SIGUSR2` a hot restart) --
+      byte-for-byte what `r` does, so the interactive terminal is untouched and both paths coexist.
+      The PID in the file is Flutter's tool, **not** `client.pid`: the process we spawn is the
+      `flutter` wrapper, and its *child* is what hooks the signal -- signalling the wrapper would just
+      kill it.
+    - **Windows:** SIGUSR1 does not exist there (neither Bun's `process.kill` nor Dart's signal
+      handling has it), so the pid-file trick is inert. The script instead runs
+      **`flutter run --machine`** (the daemon JSON-RPC protocol) and drives it: it parses the
+      newline-delimited `[{…}]` event stream (tracking `appId` off `app.start`/`app.started`), prints
+      the app's output under `[client]`, and on save sends **`app.restart {fullRestart:false}`** --
+      which is a *real* hot reload, recompiling through Flutter's own `frontend_server` (unlike a raw
+      VM-service `reloadSources`, which is why embedding `hotreloader` was a dead end). Two
+      consequences the native path does not have: `--machine` has **no interactive keys**, so the
+      script forwards `r`/`R`/`q` from *its own* stdin (raw mode; Ctrl-C arrives as byte `0x03`, not a
+      signal) to daemon commands; and the tool **does not stop its app on a kill**, so shutdown must
+      send **`app.stop`** first (bounded) or the app is orphaned. `NELLE_DEV_MACHINE=1` forces this
+      daemon path on any OS -- both an escape hatch and how the Windows path is exercised on a Mac,
+      since the protocol is platform-independent (only `-d <os>` differs). Verified end-to-end on
+      macOS via that flag: save → `Reloaded … (… reassemble: …ms)` → `[client] hot reloaded`, and
+      SIGTERM → `Application finished.` with no orphan.
+    `NELLE_DEV_NO_RELOAD=1` disables auto reload on any OS and keeps the plain native `flutter run`
+    (press `r` yourself). A `pubspec.yaml` or native/platform change still needs a manual `R`; hot
+    reload only carries Dart edits.
 - Unit tests run on `bun:test` with `node:assert/strict`; a `createTestServer`
   helper (`tests/unit/helpers/testServer.ts`) drives the `Bun.serve` `fetch`
   handler through an `inject`/`close` surface, so route tests did not churn.
