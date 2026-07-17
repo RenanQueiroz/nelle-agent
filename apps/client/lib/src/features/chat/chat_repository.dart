@@ -47,6 +47,18 @@ class ChatRepository {
     ),
   );
 
+  /// Makes an existing answer variant the conversation's **active** branch (the variant
+  /// switcher's select) — no run; the server answers the refreshed snapshot whose
+  /// `activePathEntryIds` now lead to [messageId].
+  Future<ConversationSnapshot> activateVariant(
+    String conversationId,
+    String messageId,
+  ) => _snapshot(
+    () => _dio.post<Map<String, dynamic>>(
+      '${_path(conversationId)}/messages/${Uri.encodeComponent(messageId)}/activate',
+    ),
+  );
+
   String _path(String conversationId) =>
       '/api/conversations/${Uri.encodeComponent(conversationId)}';
 

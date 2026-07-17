@@ -27,6 +27,7 @@ class MessageBubble extends StatelessWidget {
     this.readingMetric,
     this.generationMetric,
     this.modelControl,
+    this.variantControl,
     this.toolCalls = const [],
   });
 
@@ -46,6 +47,10 @@ class MessageBubble extends StatelessWidget {
   /// Generation stats to show in an **assistant** footer, from this message's own performance
   /// or the live run. Null hides them.
   final PerfMetric? generationMetric;
+
+  /// The `‹ N/M ›` variant switcher, injected by the transcript when this answer is one of
+  /// several for its prompt. Null → the plain `variant N/M` label (or nothing).
+  final Widget? variantControl;
 
   /// The tool calls this assistant message made, each rendered as an expandable card above the
   /// answer. The transcript passes the live run's calls for a streaming turn and the settled
@@ -224,8 +229,13 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  /// The variant label (assistant only). Part 1 (variant switcher) turns this into `‹ N/M ›`.
+  /// The variant section (assistant only): the `‹ N/M ›` switcher when injected, else the plain
+  /// `variant N/M` label (a run in flight, or a settled group the transcript did not pass a
+  /// switcher for).
   Widget? _variantSection(Color muted) {
+    if (variantControl != null) {
+      return variantControl;
+    }
     final variant = message.variantLabel;
     return variant == null ? null : Text(variant, style: TextStyle(fontSize: 14, color: muted));
   }

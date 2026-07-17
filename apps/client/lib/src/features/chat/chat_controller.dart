@@ -499,6 +499,22 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     );
   }
 
+  /// Makes an existing answer variant the conversation's active branch (the variant switcher's
+  /// select) and applies the server's snapshot — whose `activePathEntryIds` now lead to it.
+  ///
+  /// Refused mid-run: the transcript is changing under a streaming reply. There is no run to
+  /// preserve, so applying the snapshot is safe.
+  Future<void> activateVariant(String messageId) async {
+    final current = state.valueOrNull;
+    if (current == null || current.running) {
+      return;
+    }
+    _applyPreservingRun(
+      await ref.read(chatRepositoryProvider).activateVariant(arg, messageId),
+      current,
+    );
+  }
+
   /// Applies a server snapshot without disturbing the live run: a snapshot describes
   /// the conversation, and it does not know about the reply currently streaming into
   /// `pending`.

@@ -711,6 +711,59 @@ void main() {
     );
   });
 
+  test('activateVariant posts to the activate route and applies the snapshot', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    String? activatedPath;
+    final dio = stubDio((o) {
+      if (o.method == 'POST' && o.path.contains('/activate')) {
+        activatedPath = o.path;
+        return jsonResponse({
+          'snapshot': snapshotJson(
+            messages: [
+              {
+                'id': 'a2',
+                'role': 'assistant',
+                'content': 'the older variant',
+                'createdAt': 't',
+              },
+            ],
+          ),
+        });
+      }
+      return jsonResponse({'snapshot': snapshotJson()});
+    });
+    final c = container(events.stream, dio: dio);
+    await c.read(chatControllerProvider('c').future);
+
+    await c.read(chatControllerProvider('c').notifier).activateVariant('a2');
+
+    expect(activatedPath, '/api/conversations/c/messages/a2/activate');
+    expect(
+      c.read(chatControllerProvider('c')).requireValue.messages.map((m) => m.content),
+      contains('the older variant'),
+    );
+  });
+
+  test('activateVariant is refused mid-run', () async {
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    var activateCalls = 0;
+    final dio = stubDio((o) {
+      if (o.path.contains('/activate')) {
+        activateCalls++;
+      }
+      return jsonResponse({'snapshot': snapshotJson()});
+    });
+    final c = container(events.stream, dio: dio);
+    await c.read(chatControllerProvider('c').future);
+    await c.read(chatControllerProvider('c').notifier).send('hi'); // now running
+
+    await c.read(chatControllerProvider('c').notifier).activateVariant('a2');
+
+    expect(activateCalls, 0, reason: 'the transcript must not change under a streaming reply');
+  });
+
   test('canReason is a tri-state read straight off the snapshot', () async {
     Future<bool?> canReasonFor(bool? served) async {
       final events = StreamController<ChatStreamEvent>();

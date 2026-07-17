@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
 import '../../api/api_exception.dart';
+import '../../api/generated/models/conversation_message.dart';
 import '../../api/generated/models/conversation_message_role.dart';
 import '../../api/generated/models/fork_kind.dart';
 import '../../api/generated/models/tool_call_event.dart';
@@ -17,6 +18,7 @@ import 'message_bubble.dart';
 import 'message_model_dropdown.dart';
 import 'performance_stats.dart';
 import 'tool_call_card.dart';
+import 'variant_switcher.dart';
 import 'unavailable_panel.dart';
 
 /// The chat detail pane for one conversation: header, context bar, transcript,
@@ -137,27 +139,44 @@ class _TranscriptState extends ConsumerState<_Transcript> {
 
   @override
   Widget build(BuildContext context) {
-    final items = widget.state.rendered;
     final compactNote = widget.state.compactNote;
-    if (items.isEmpty && compactNote == null) {
+    // Each prompt's answer variants collapse into **one** rendered unit (the active one, with a
+    // `‹ N/M ›` switcher), rather than every variant stacked. Pending turns (a streaming reply)
+    // never group — their ids are local and they are not variants of anything yet.
+    final units = <_DisplayUnit>[
+      ..._groupVariants(widget.state.messages, widget.state.snapshot.activePathEntryIds),
+      for (final message in widget.state.pending)
+        _DisplayUnit.single(message, pending: true),
+    ];
+    if (units.isEmpty && compactNote == null) {
       return const Center(child: Text('No messages yet.'));
     }
+    final notifier = ref.read(
+      chatControllerProvider(widget.conversationId).notifier,
+    );
+    final running = widget.state.running;
+    // Gated on the served `showGenerationStats` display preference.
+    final showStats =
+        ref.watch(displaySettingsProvider).valueOrNull?.showGenerationStats ??
+        true;
+
     return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.all(16),
-      itemCount: items.length + (compactNote == null ? 0 : 1),
+      itemCount: units.length + (compactNote == null ? 0 : 1),
       itemBuilder: (context, i) {
-        // The compaction row is synthesized: `buildConversationMessages` drops
-        // compaction entries, so `snapshot.messages` never contains it and reloading
-        // would not bring it back.
-        if (i == items.length) {
+        // The compaction row is synthesized: `buildConversationMessages` drops compaction
+        // entries, so `snapshot.messages` never contains it and reloading would not bring it back.
+        if (i == units.length) {
           return _CompactNote(note: compactNote!);
         }
-        final message = items[i];
-        final isLast = i == items.length - 1;
+        final unit = units[i];
+        final message = unit.message;
+        final isLast = i == units.length - 1;
         final isStreamingAssistant =
+            unit.pending &&
             isLast &&
-            widget.state.running &&
+            running &&
             message.role == ConversationMessageRole.assistant;
         if (isStreamingAssistant && widget.state.loadingModel) {
           return _LoadingWeights(load: widget.state.modelLoad);
@@ -167,31 +186,22 @@ class _TranscriptState extends ConsumerState<_Transcript> {
             (message.reasoning ?? '').isEmpty) {
           return const _Thinking();
         }
-        // `rendered` is messages followed by pending, so anything past the snapshot's
-        // messages is an optimistic turn: it has a local id the server has never seen,
-        // and asking it to regenerate itself would 404.
-        final isPending = i >= widget.state.messages.length;
         final canRegenerate =
-            !isPending &&
-            !widget.state.running &&
+            !unit.pending &&
+            !running &&
             message.role == ConversationMessageRole.assistant;
-        // A fork replays **your** prompt down a new branch, so it hangs off a *user* turn --
-        // the mirror of regenerate, which re-answers in place off an assistant one. `canFork` is
-        // the server's word (an `unavailable` conversation has no session to branch), and it has
-        // been on every snapshot since M1 with nothing reading it.
+        // A fork replays **your** prompt down a new branch, so it hangs off a *user* turn -- the
+        // mirror of regenerate. `canFork` is the server's word (an `unavailable` conversation has
+        // no session to branch).
         final canFork =
-            !isPending &&
-            !widget.state.running &&
+            !unit.pending &&
+            !running &&
             message.role == ConversationMessageRole.user &&
             widget.state.snapshot.capabilities.canFork;
 
-        // Per-message performance stats (llama.cpp UI layout): prompt processing under the user
-        // turn, generation under the assistant. Gated on the served `showGenerationStats`
-        // display preference. The reading row's data lives on the *assistant* message (or the
-        // live run), so a user turn reads it from the answer that follows it.
-        final showStats =
-            ref.watch(displaySettingsProvider).valueOrNull?.showGenerationStats ??
-            true;
+        // Per-message performance stats (llama.cpp layout): prompt processing under the user turn,
+        // generation under the assistant. The reading row's data lives on the answer, so a user
+        // turn reads it from the unit that follows it.
         PerfMetric? readingMetric;
         PerfMetric? generationMetric;
         if (showStats) {
@@ -201,11 +211,11 @@ class _TranscriptState extends ConsumerState<_Transcript> {
                 generationMetricOf(live) ??
                 generationMetricOf(parseMessagePerformance(message.performance));
           } else if (message.role == ConversationMessageRole.user &&
-              i + 1 < items.length &&
-              items[i + 1].role == ConversationMessageRole.assistant) {
-            final answer = items[i + 1];
+              i + 1 < units.length &&
+              units[i + 1].message.role == ConversationMessageRole.assistant) {
+            final answer = units[i + 1].message;
             final answerIsStreaming =
-                (i + 1 == items.length - 1) && widget.state.running;
+                units[i + 1].pending && (i + 1 == units.length - 1) && running;
             final live = answerIsStreaming ? widget.state.livePerformance : null;
             readingMetric =
                 promptMetricOf(live) ??
@@ -225,17 +235,10 @@ class _TranscriptState extends ConsumerState<_Transcript> {
           readingMetric: readingMetric,
           generationMetric: generationMetric,
           toolCalls: toolCalls,
-          onRegenerate: canRegenerate
-              ? () => ref
-                    .read(
-                      chatControllerProvider(widget.conversationId).notifier,
-                    )
-                    .regenerate(message.id)
-              : null,
+          onRegenerate: canRegenerate ? () => notifier.regenerate(message.id) : null,
           onFork: canFork ? () => _fork(context, ref, message.id) : null,
-          // The model indicator becomes a dropdown only when regenerating this answer is
-          // allowed; otherwise `MessageBubble` shows the alias as plain text. Picking a model
-          // repins the conversation default and re-answers this message with it.
+          // The model indicator becomes a dropdown only when regenerating this answer is allowed;
+          // otherwise `MessageBubble` shows the alias as plain text.
           modelControl: canRegenerate
               ? MessageModelDropdown(
                   conversationId: widget.conversationId,
@@ -243,9 +246,72 @@ class _TranscriptState extends ConsumerState<_Transcript> {
                   currentModelId: message.modelId,
                 )
               : null,
+          // The variant switcher, for a prompt with several answers. Paging activates a sibling —
+          // the server makes it the branch the conversation continues from. Disabled at the ends
+          // and mid-run.
+          variantControl: unit.variants.length > 1
+              ? VariantSwitcher(
+                  messageId: message.id,
+                  current: unit.activeIndex + 1,
+                  total: unit.variants.length,
+                  onPrev: !running && unit.activeIndex > 0
+                      ? () => notifier.activateVariant(
+                          unit.variants[unit.activeIndex - 1].id,
+                        )
+                      : null,
+                  onNext: !running && unit.activeIndex < unit.variants.length - 1
+                      ? () => notifier.activateVariant(
+                          unit.variants[unit.activeIndex + 1].id,
+                        )
+                      : null,
+                )
+              : null,
         );
       },
     );
+  }
+
+  /// Groups consecutive same-group assistant answers into one unit each — the **active** variant
+  /// (the one on `activePath`, else the newest) plus its siblings for the switcher. Everything
+  /// else is a single unit.
+  List<_DisplayUnit> _groupVariants(
+    List<ConversationMessage> messages,
+    List<String> activePath,
+  ) {
+    String groupIdOf(ConversationMessage m) =>
+        m.displayGroupId ?? m.regeneratesPiEntryId ?? m.id;
+    final units = <_DisplayUnit>[];
+    var i = 0;
+    while (i < messages.length) {
+      final message = messages[i];
+      if (message.role != ConversationMessageRole.assistant) {
+        units.add(_DisplayUnit.single(message));
+        i++;
+        continue;
+      }
+      final groupId = groupIdOf(message);
+      final variants = <ConversationMessage>[];
+      while (i < messages.length &&
+          messages[i].role == ConversationMessageRole.assistant &&
+          groupIdOf(messages[i]) == groupId) {
+        variants.add(messages[i]);
+        i++;
+      }
+      if (variants.length > 1) {
+        var active = variants.indexWhere((v) => activePath.contains(v.id));
+        if (active < 0) active = variants.length - 1;
+        units.add(
+          _DisplayUnit(
+            message: variants[active],
+            variants: variants,
+            activeIndex: active,
+          ),
+        );
+      } else {
+        units.add(_DisplayUnit.single(variants.first));
+      }
+    }
+    return units;
   }
 
   /// Branches a new conversation from [entryId] and **opens it**.
@@ -276,6 +342,32 @@ class _TranscriptState extends ConsumerState<_Transcript> {
 
   static String _reason(Object error) =>
       error is NelleApiException ? error.message : '$error';
+}
+
+/// One rendered row: a message, plus — for a variant group — all its sibling answers and which is
+/// active. Single turns (a user message, a lone answer, a pending streaming reply) have no variants.
+class _DisplayUnit {
+  const _DisplayUnit({
+    required this.message,
+    required this.variants,
+    required this.activeIndex,
+    this.pending = false,
+  });
+
+  factory _DisplayUnit.single(ConversationMessage message, {bool pending = false}) =>
+      _DisplayUnit(message: message, variants: const [], activeIndex: 0, pending: pending);
+
+  /// The message to render — the active variant for a group.
+  final ConversationMessage message;
+
+  /// The group's answers (empty for a single); `length > 1` is what shows a switcher.
+  final List<ConversationMessage> variants;
+
+  /// Index of [message] within [variants].
+  final int activeIndex;
+
+  /// An optimistic turn (a streaming reply), not a settled snapshot message.
+  final bool pending;
 }
 
 /// Says that this conversation came from another one, and that the other one is still there.

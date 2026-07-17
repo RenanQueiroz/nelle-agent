@@ -384,6 +384,43 @@ void main() {
     expect(find.text('variant 2/2'), findsOneWidget);
   });
 
+  testWidgets('the variant section is the switcher when injected, else the label', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _harness(
+        MessageBubble(
+          message: _message(
+            role: ConversationMessageRole.assistant,
+            content: 'Hi',
+            variantLabel: 'variant 2/3',
+          ),
+          variantControl: const Text(
+            'switcher',
+            key: ValueKey('k-test-variant-control'),
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('k-test-variant-control')), findsOneWidget);
+    // The injected switcher replaces the plain label.
+    expect(find.text('variant 2/3'), findsNothing);
+
+    await tester.pumpWidget(
+      _harness(
+        MessageBubble(
+          message: _message(
+            role: ConversationMessageRole.assistant,
+            content: 'Hi',
+            variantLabel: 'variant 2/3',
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('k-test-variant-control')), findsNothing);
+    expect(find.text('variant 2/3'), findsOneWidget);
+  });
+
   testWidgets('every message has a copy action that copies its content', (
     tester,
   ) async {
