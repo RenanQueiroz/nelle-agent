@@ -544,6 +544,17 @@ Project-specific guidance for AI coding agents.
   network entitlement at all and the debug build had only `network.server` (the Dart VM service).
   Nobody noticed because macOS had never been built or run; CI failed 14 of 15 device tests on its
   first attempt and found it. Both `macos/Runner/{Debug,Release}.entitlements` now carry it.
+- **The macOS app also needs `com.apple.security.files.user-selected.read-write`, or the attach /
+  import / export file dialogs silently do nothing.** Same App-Sandbox class of bug as the network
+  one: `file_selector`'s open/save panels (`NSOpenPanel`/`NSSavePanel`) run in Apple's
+  out-of-process **powerbox**, which only grants access to the chosen file when this entitlement is
+  present — without it every picker **no-ops with no error at all** (clicking Attach/Import/Export
+  does nothing). `read-write`, not `read-only`, because Export (`getSaveLocation`) *writes* the
+  archive; the plugin's own example ships read-write too. It is an entitlement, so it is baked in at
+  **build/sign** time — a hot reload will not pick it up; you must rebuild. Both entitlements files
+  carry it now. Verifying a sandboxed picker without Screen-Recording/Accessibility TCC grants:
+  clicking it spawns **`com.apple.appkit.xpc.openAndSavePanelService`** (`ps -ax | grep openAndSave`),
+  which exists *only* while a panel is up — its presence is proof the dialog opened.
 - **A lazy `ListView` never builds a row that is far off-screen, so *waiting* for it cannot work.**
   This is the inverse of the usual trap and it bites on exactly the platforms with a shorter
   viewport: `tapAt` used to `pumpUntil` first, which sat for 15s waiting for a widget nothing would
