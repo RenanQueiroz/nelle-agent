@@ -20,5 +20,13 @@
 	-->
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!--
+	  REQUIRED for the attach / import / export file dialogs. Under the App Sandbox the open/save
+	  panels grant access to the chosen file only with this entitlement; without it every picker
+	  silently no-ops. `read-write` because Export writes the archive the user picks. See
+	  `DebugProfile.entitlements` for the full note.
+	-->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
 </dict>
 </plist>

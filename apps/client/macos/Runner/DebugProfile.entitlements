@@ -19,5 +19,15 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!--
+	  REQUIRED for the attach / import / export file dialogs. Under the App Sandbox, the open/save
+	  panels (`NSOpenPanel`/`NSSavePanel`, which `file_selector` drives) run in Apple's out-of-process
+	  powerbox, and it grants access to the chosen file ONLY when this entitlement is present. Without
+	  it every picker silently no-ops -- clicking Attach/Import/Export does nothing at all, with no
+	  error -- which is exactly how it was found. `read-write`, not `read-only`, because Export
+	  (`getSaveLocation`) writes the archive the user picks; the plugin's own example ships the same.
+	-->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
 </dict>
 </plist>
