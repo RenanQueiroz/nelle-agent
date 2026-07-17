@@ -207,6 +207,16 @@ Project-specific guidance for AI coding agents.
   wrap their subject in a Material `Scaffold`, which supplies an ancestor the real screen
   does not have, so a test harness can be more forgiving than the app. Host a screen in
   `FScaffold` if that is what it runs in.
+- **When working with any forui widget, read forui's own AI docs first — do not guess its
+  API from memory.** The index is **https://forui.dev/docs/llms.txt**; it links a
+  machine-readable **https://forui.dev/docs/llms-full.txt** and per-component pages
+  (`https://forui.dev/docs/widgets/<group>/<name>.md`, e.g.
+  `.../widgets/form/select.md`, `.../overlay/popover.md`, `.../data/accordion.md`). forui
+  moves fast and its constructors, style deltas and control objects (`FSelectControl`,
+  `FPopoverController`, `FAccordion`, `context.theme.colors.*`) are easy to get subtly wrong —
+  fetch the relevant `.md` (or `llms-full.txt`) and match the current signature rather than
+  inventing one. Muted/de-emphasised footer text uses `context.theme.colors.mutedForeground`;
+  the bright body uses `foreground`.
 - Clipboard and drag-and-drop use **`pasteboard`** and **`desktop_drop`** (plain
   platform-channel plugins, both maintained). **Do not reach for `super_clipboard` /
   `super_drag_and_drop`**, which are the obvious choice and a dead end: they pull in
