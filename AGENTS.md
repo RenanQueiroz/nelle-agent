@@ -1077,6 +1077,26 @@ Project-specific guidance for AI coding agents.
     (the process keeps its inode and carries on with the old code until it is restarted, which
     is also exactly the semantics wanted). `copySharedLibraries` had the same bug and
     **swallowed the error**, which is worse: a new binary beside stale `.so` files.
+  - **An install means different things on different platforms, so its *copy* must too.** Only
+    **Linux** builds from source (`buildLinuxFromMaster`: git clone → `llamaSrcDir`, cmake, minutes);
+    **macOS/Windows** download a prebuilt GitHub release (`installFromGithubRelease` → `llamaBinDir`,
+    seconds, no compiler and **no source tree at all**). The install mode is on every
+    `RuntimeStatus` (`installMode`: `source-master` | `github-release` | `external`), so a client
+    **must choose its language by that field, not hardcode the Linux build**. The Flutter
+    `InstallScreen` did the latter -- telling a Mac user their download was a "full cmake compile"
+    that "takes minutes" -- so its every user-facing string now comes from `_InstallCopy.of(mode)`
+    (title, idle explanation, running banner, and `Rebuild` vs `Reinstall`). `external`
+    (`LLAMA_SERVER_PATH`) says there is nothing to install.
+  - **Uninstall (`POST /api/runtime/uninstall`) deletes what an install *put there*, and nothing
+    else.** It stops the server first (you cannot sensibly delete a running process's binary, and a
+    router left pointing at a deleted one fails its next start), then removes `llamaBinDir` and
+    `llamaSrcDir` plus the stale pid file -- **not** `llamaDir` itself, because `models.ini` (the
+    user's model catalog) lives there, and **not** the downloaded weights (`.nelle/models`, a
+    separate and far larger act). It refuses an `external` binary with `runtime_not_uninstallable`:
+    `LLAMA_SERVER_PATH` is the user's, and Nelle will not delete a file it did not put there. The
+    client gates the button on `installed && installMode != external`, confirms first (destructive,
+    and it names what goes -- the source tree only on Linux), and the controller **rethrows** rather
+    than routing through `AsyncValue.guard`, so a refusal toasts instead of silently doing nothing.
 - A client uses Nelle's `/api/llama/*` router facade for llama.cpp props, models,
   load/unload, reload, model props, and router events. Nothing talks to llama.cpp
   directly: it is Nelle's child process, on a port Nelle chose, and only Nelle knows
