@@ -634,6 +634,19 @@ Project-specific guidance for AI coding agents.
   target. The server is `bun --watch` (restart-on-save); quitting the client (`q`) or Ctrl-C tears
   the server down, and -- exactly as with `bun run dev:server` -- the managed llama-server is left
   running on purpose for pid-file adoption. It is dev tooling, not part of the Bun toolchain gate.
+  - **The client also hot-reloads on save**, and this is *not* injected keystrokes. Flutter has no
+    watch flag, and it reads the `r`/`R`/`q` keys **only** when its stdin is a real terminal -- so
+    feeding it a pipe to type `r` into would take the manual keys away from the human too (the same
+    stdin/stdout-TTY sensitivity as the piping trap above). Instead the script uses Flutter's own
+    out-of-band trigger: `flutter run --pid-file <tmp>` writes the tool's PID, and **`SIGUSR1` to it
+    is a hot reload** (`SIGUSR2` a hot restart) -- byte-for-byte what `r` does, so the interactive
+    terminal is untouched and both paths coexist. A **debounced** watcher over `apps/client/lib`
+    (recursive, with a per-directory fallback where recursion is unsupported) reads that PID and
+    signals it on any `.dart` save. It is **POSIX-only** -- SIGUSR1 has no Windows equivalent, so on
+    Windows (or with `NELLE_DEV_NO_RELOAD=1`) you fall back to pressing `r`. The PID in the file is
+    Flutter's tool, **not** `client.pid`: the process we spawn is the `flutter` wrapper, and its
+    child is what hooks the signal -- signalling the wrapper would just kill it. A `pubspec.yaml` or
+    native/platform change still needs a manual `R`; hot reload only carries Dart edits.
 - Unit tests run on `bun:test` with `node:assert/strict`; a `createTestServer`
   helper (`tests/unit/helpers/testServer.ts`) drives the `Bun.serve` `fetch`
   handler through an `inject`/`close` surface, so route tests did not churn.
