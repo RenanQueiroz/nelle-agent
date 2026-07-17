@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
@@ -48,7 +49,11 @@ Widget _harness(Widget child) => ProviderScope(
     theme: FThemes.neutral.light.desktop.toApproximateMaterialTheme(),
     home: FTheme(
       data: FThemes.neutral.light.desktop,
-      child: Scaffold(body: SingleChildScrollView(child: child)),
+      // The copy action toasts, and `showFToast` needs an `FToaster` ancestor (as the real app
+      // has). A host without one is a tree the app does not have.
+      child: FToaster(
+        child: Scaffold(body: SingleChildScrollView(child: child)),
+      ),
     ),
   ),
 );
@@ -298,17 +303,19 @@ void main() {
     expect(tester.takeException(), isNull, reason: 'no RenderFlex overflow');
     expect(find.text('40.25 t/s'), findsOneWidget);
     expect(find.byKey(const ValueKey('k-msg-regenerate-x')), findsOneWidget);
-    final footer = tester.renderObject<RenderFooterBar>(
-      find.byKey(const ValueKey('k-msg-footer-x')),
+    // Row-group 1 (model + generation metrics) is too wide for a phone, so it stacks — the
+    // 2-row → 3-row reflow. (Row-group 2 — variant + actions — stays paired.)
+    final group1 = tester.renderObject<RenderFooterBar>(
+      find.byKey(const ValueKey('k-msg-footer1-x')),
     );
-    expect(footer.isRow, isFalse, reason: 'a narrow footer stacks, no separators');
+    expect(group1.isRow, isFalse, reason: 'a narrow model group stacks, no separators');
   });
 
-  testWidgets('a wide assistant footer lays its sections in one row', (
+  testWidgets('a wide assistant footer lays each row-group in one row', (
     tester,
   ) async {
-    // The default 800px test window is wide enough for a short alias + stats + action to share
-    // one line, which is when the `·` separators appear.
+    // The default 800px window fits a short alias + metrics on one row (group 1) and the
+    // variant + actions on another (group 2) — llama.cpp's 2-row layout, with `·` separators.
     await tester.pumpWidget(
       _harness(
         MessageBubble(
@@ -316,6 +323,7 @@ void main() {
             role: ConversationMessageRole.assistant,
             content: 'Hi',
             modelAliasSnapshot: 'gemma',
+            variantLabel: 'variant 2/2',
           ),
           generationMetric: const PerfMetric(tokens: 12, milliseconds: 300),
           onRegenerate: () {},
@@ -323,10 +331,14 @@ void main() {
       ),
     );
 
-    final footer = tester.renderObject<RenderFooterBar>(
-      find.byKey(const ValueKey('k-msg-footer-x')),
+    final group1 = tester.renderObject<RenderFooterBar>(
+      find.byKey(const ValueKey('k-msg-footer1-x')),
     );
-    expect(footer.isRow, isTrue);
+    final group2 = tester.renderObject<RenderFooterBar>(
+      find.byKey(const ValueKey('k-msg-footer2-x')),
+    );
+    expect(group1.isRow, isTrue);
+    expect(group2.isRow, isTrue);
   });
 
   testWidgets('the model section is a dropdown when one is injected, else plain text', (
@@ -348,10 +360,11 @@ void main() {
       ),
     );
     expect(find.byKey(const ValueKey('k-test-model-control')), findsOneWidget);
-    // The variant label still rides beside the control.
+    // The variant label lives in its own footer section (row-group 2) now.
     expect(find.text('variant 2/2'), findsOneWidget);
 
-    // No control: the alias renders as plain text (a run in flight, or a pending turn).
+    // No control: the alias renders as plain text (a run in flight, or a pending turn) — and
+    // the variant is still its own separate section, not appended to the alias.
     await tester.pumpWidget(
       _harness(
         MessageBubble(
@@ -365,6 +378,47 @@ void main() {
       ),
     );
     expect(find.byKey(const ValueKey('k-test-model-control')), findsNothing);
-    expect(find.text('gemma · variant 2/2'), findsOneWidget);
+    expect(find.text('gemma'), findsOneWidget);
+    expect(find.text('variant 2/2'), findsOneWidget);
+  });
+
+  testWidgets('every message has a copy action that copies its content', (
+    tester,
+  ) async {
+    final copied = <String>[];
+    // Intercept the clipboard platform channel.
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied.add((call.arguments as Map)['text'] as String);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await tester.pumpWidget(
+      _harness(
+        MessageBubble(
+          message: _message(
+            role: ConversationMessageRole.user,
+            content: 'copy me please',
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('k-msg-copy-x')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('k-msg-copy-x')));
+    await tester.pump(); // let the async copy + toast run
+    expect(copied, ['copy me please']);
+    // Flush the toast's auto-dismiss timer so it does not outlive the test.
+    await tester.pump(const Duration(seconds: 6));
   });
 }

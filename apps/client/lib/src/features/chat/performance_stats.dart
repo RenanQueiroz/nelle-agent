@@ -126,7 +126,9 @@ class PerformanceStatsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    // The footer is deliberately de-emphasised against the bright message body — forui's muted
+    // foreground, matching llama.cpp's hierarchy.
+    final muted = context.theme.colors.mutedForeground;
     final rate = metric.displayRate;
     final ms = metric.milliseconds;
     final badges = <Widget>[
@@ -134,14 +136,14 @@ class PerformanceStatsRow extends StatelessWidget {
         icon: FLucideIcons.wholeWord,
         value: '${formatTokens(metric.tokens)} tokens',
         fieldName: generation ? 'Generated tokens' : 'Prompt tokens',
-        color: scheme.outline,
+        color: muted,
       ),
       if (ms != null)
         _StatBadge(
           icon: FLucideIcons.clock,
           value: formatPerfTime(ms),
           fieldName: generation ? 'Generation time' : 'Prompt processing time',
-          color: scheme.outline,
+          color: muted,
         ),
       if (rate != null)
         _StatBadge(
@@ -150,7 +152,7 @@ class PerformanceStatsRow extends StatelessWidget {
               ? '${rate.toStringAsFixed(2)} t/s'
               : '${rate.toStringAsFixed(2)} tokens/s',
           fieldName: generation ? 'Generation speed' : 'Prompt processing speed',
-          color: scheme.outline,
+          color: muted,
         ),
     ];
     return Padding(
@@ -188,9 +190,9 @@ class _StatBadge extends StatelessWidget {
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 12, color: color),
-        const SizedBox(width: 4),
-        Text(value, style: TextStyle(fontSize: 11, color: color)),
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 6),
+        Text(value, style: TextStyle(fontSize: 14, color: color)),
       ],
     ),
   );

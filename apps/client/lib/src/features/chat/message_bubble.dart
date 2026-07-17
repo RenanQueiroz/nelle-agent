@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
 
 import '../../api/generated/models/conversation_message.dart';
@@ -7,6 +8,10 @@ import 'footer_bar.dart';
 import 'markdown_message.dart';
 import 'message_attachments.dart';
 import 'performance_stats.dart';
+
+/// The message body is a step larger than the footer so the answer stays dominant over it —
+/// llama.cpp's hierarchy. Both roles share it so user and assistant stay symmetric.
+const _messageBodyStyle = TextStyle(fontSize: 15.5, height: 1.4);
 
 /// One rendered message. User turns align right; assistant turns align left with
 /// an optional collapsible reasoning block and a model/variant footer.
@@ -70,9 +75,6 @@ class MessageBubble extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final isUser = message.role == ConversationMessageRole.user;
     final reasoning = message.reasoning;
-    // The footer is a set of sections — model, generation stats, actions — laid out with `·`
-    // separators when they fit and stacked without them when they don't (`FooterBar`).
-    final sections = _footerSections(context, scheme);
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -102,97 +104,135 @@ class MessageBubble extends StatelessWidget {
               child: isUser || message.content.isEmpty
                   ? SelectableText(
                       message.content.isEmpty ? '…' : message.content,
+                      style: _messageBodyStyle,
                     )
-                  : MarkdownMessage(text: message.content),
+                  : MarkdownMessage(
+                      text: message.content,
+                      style: _messageBodyStyle,
+                    ),
             ),
-            // Prompt-processing stats sit under the user turn they belong to (llama.cpp's UI
-            // layout): the run that read this prompt reports them, and pairing keeps them here.
-            if (readingMetric != null)
-              PerformanceStatsRow(
-                key: ValueKey('k-msg-reading-${message.id}'),
-                metric: readingMetric!,
-                generation: false,
-                alignEnd: isUser,
-              ),
-            if (sections.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: FooterBar(
-                  key: ValueKey('k-msg-footer-${message.id}'),
-                  color: scheme.outline,
-                  children: sections,
-                ),
-              ),
+            ..._footerRows(context, isUser),
           ],
         ),
       ),
     );
   }
 
-  /// The footer sections, in order: model (dropdown or alias + variant), generation stats,
-  /// actions. Only the ones that apply to this message are present; `FooterBar` separates them
-  /// with `·` when they fit on one line and stacks them without separators when they don't.
-  List<Widget> _footerSections(BuildContext context, ColorScheme scheme) {
-    final modelSection = _modelSection(scheme);
-    return [
-      ?modelSection,
-      if (generationMetric != null)
-        PerformanceStatsRow(
-          key: ValueKey('k-msg-generation-${message.id}'),
-          metric: generationMetric!,
-          generation: true,
-          alignEnd: false,
+  /// The footer, laid out as llama.cpp does — up to two `FooterBar` **row-groups**, each of which
+  /// sits side-by-side with a `·` when it fits and stacks without separators when it doesn't:
+  ///
+  /// - **assistant:** `[model · generation-metrics]` then `[variant · actions]` — so a wide window
+  ///   is 2 rows and a phone is 3 (the model group stacks, the variant group stays paired).
+  /// - **user:** one group, `[reading-metrics · actions]`.
+  ///
+  /// Every message has at least a copy action, so there is always a footer.
+  List<Widget> _footerRows(BuildContext context, bool isUser) {
+    final muted = context.theme.colors.mutedForeground;
+    final metrics = _metricsSection(isUser);
+    final actions = _actionsSection(context, muted);
+
+    final groups = isUser
+        ? [
+            [?metrics, actions],
+          ]
+        : [
+            [?_modelSection(muted), ?metrics],
+            [?_variantSection(muted), actions],
+          ];
+
+    final rows = <Widget>[];
+    for (var i = 0; i < groups.length; i++) {
+      final group = groups[i].whereType<Widget>().toList();
+      if (group.isEmpty) continue;
+      rows.add(
+        Padding(
+          padding: EdgeInsets.only(top: i == 0 ? 2 : 4, bottom: i == groups.length - 1 ? 6 : 0),
+          child: FooterBar(
+            key: ValueKey('k-msg-footer${i + 1}-${message.id}'),
+            color: muted,
+            children: group,
+          ),
         ),
-      if (onFork != null || onRegenerate != null)
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (onFork != null)
-              _FooterAction(
-                actionKey: ValueKey('k-msg-fork-${message.id}'),
-                icon: FLucideIcons.gitBranch,
-                tooltip: 'Branch a new chat from here',
-                onTap: onFork!,
-              ),
-            if (onRegenerate != null)
-              _FooterAction(
-                actionKey: ValueKey('k-msg-regenerate-${message.id}'),
-                icon: FLucideIcons.refreshCw,
-                tooltip: 'Answer again',
-                onTap: onRegenerate!,
-              ),
-          ],
-        ),
-    ];
+      );
+    }
+    return rows;
   }
 
-  /// The model section: the injected dropdown (when regenerating is allowed) or the model
-  /// alias as text, followed by the variant label. Null when the message names neither.
-  Widget? _modelSection(ColorScheme scheme) {
-    final alias = message.modelAliasSnapshot;
-    final variant = message.variantLabel;
-    final control = modelControl;
-    if (control == null && alias == null && variant == null) {
+  /// The model section (assistant only): the injected dropdown, or the alias as muted text.
+  Widget? _modelSection(Color muted) {
+    if (message.role == ConversationMessageRole.user) {
       return null;
     }
-    final style = TextStyle(fontSize: 10, color: scheme.outline);
-    if (control == null) {
-      // No dropdown: the current plain-text footer (`alias · variant`).
-      return Text([?alias, ?variant].join(' · '), style: style);
+    final control = modelControl;
+    if (control != null) {
+      return control;
     }
-    // The dropdown trigger already shows the alias; the variant label rides beside it.
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        control,
-        if (variant != null)
-          Padding(
-            padding: const EdgeInsets.only(left: 6),
-            child: Text(variant, style: style),
-          ),
-      ],
+    final alias = message.modelAliasSnapshot;
+    return alias == null ? null : Text(alias, style: TextStyle(fontSize: 14, color: muted));
+  }
+
+  /// Prompt-processing stats under a user turn, generation stats under an assistant one — a
+  /// message never has both.
+  Widget? _metricsSection(bool isUser) {
+    final metric = isUser ? readingMetric : generationMetric;
+    if (metric == null) {
+      return null;
+    }
+    return PerformanceStatsRow(
+      key: ValueKey('k-msg-${isUser ? 'reading' : 'generation'}-${message.id}'),
+      metric: metric,
+      generation: !isUser,
+      alignEnd: false,
     );
   }
+
+  /// The variant label (assistant only). Part 1 (variant switcher) turns this into `‹ N/M ›`.
+  Widget? _variantSection(Color muted) {
+    final variant = message.variantLabel;
+    return variant == null ? null : Text(variant, style: TextStyle(fontSize: 14, color: muted));
+  }
+
+  /// The action buttons: copy (both roles), then regenerate (assistant) or fork (user).
+  Widget _actionsSection(BuildContext context, Color muted) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _FooterAction(
+        actionKey: ValueKey('k-msg-copy-${message.id}'),
+        icon: FLucideIcons.copy,
+        tooltip: 'Copy message',
+        color: muted,
+        onTap: () => _copy(context),
+      ),
+      if (onFork != null)
+        _FooterAction(
+          actionKey: ValueKey('k-msg-fork-${message.id}'),
+          icon: FLucideIcons.gitBranch,
+          tooltip: 'Branch a new chat from here',
+          color: muted,
+          onTap: onFork!,
+        ),
+      if (onRegenerate != null)
+        _FooterAction(
+          actionKey: ValueKey('k-msg-regenerate-${message.id}'),
+          icon: FLucideIcons.refreshCw,
+          tooltip: 'Answer again',
+          color: muted,
+          onTap: onRegenerate!,
+        ),
+    ],
+  );
+
+  Future<void> _copy(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: message.content));
+    if (context.mounted) {
+      showFToast(
+        context: context,
+        icon: const Icon(FLucideIcons.check),
+        title: const Text('Copied'),
+      );
+    }
+  }
+
 }
 
 /// One small icon in a message footer.
@@ -205,12 +245,14 @@ class _FooterAction extends StatelessWidget {
     required this.actionKey,
     required this.icon,
     required this.tooltip,
+    required this.color,
     required this.onTap,
   });
 
   final Key actionKey;
   final IconData icon;
   final String tooltip;
+  final Color color;
   final VoidCallback onTap;
 
   @override
@@ -221,12 +263,8 @@ class _FooterAction extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
-        child: Icon(
-          icon,
-          size: 12,
-          color: Theme.of(context).colorScheme.outline,
-        ),
+        padding: const EdgeInsets.all(4),
+        child: Icon(icon, size: 18, color: color),
       ),
     ),
   );
