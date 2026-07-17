@@ -62,6 +62,19 @@ class RuntimeRepository {
     return RuntimeStatus.fromJson(res.data ?? const {});
   }
 
+  /// Deletes the installed binary and, on Linux, the cloned source. The server stops llama.cpp
+  /// first, keeps `models.ini` and the downloaded weights, and refuses
+  /// (`runtime_not_uninstallable`) when the binary is the user's own `LLAMA_SERVER_PATH`.
+  Future<RuntimeStatus> uninstall() async {
+    final res = await sendJson(
+      () => _dio.post<Map<String, dynamic>>(
+        '/api/runtime/uninstall',
+        options: longCall(),
+      ),
+    );
+    return RuntimeStatus.fromJson(res.data ?? const {});
+  }
+
   /// A one-shot tail. There is no log *stream*, so a client that wants live output polls
   /// this — which is why the screen you open to find out why llama-server just died is the
   /// one screen that cannot show you it dying, unless it polls.

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
 import 'package:nelle_agent/src/api/api_client.dart';
+import 'package:nelle_agent/src/api/generated/models/runtime_status_install_mode.dart';
 import 'package:nelle_agent/src/features/runtime/install_screen.dart';
 import 'package:nelle_agent/src/features/runtime/runtime_controller.dart';
 import 'package:nelle_agent/src/features/runtime/runtime_screen.dart';
@@ -111,11 +112,29 @@ void main() {
 
     expect(find.text('Not installed'), findsWidgets);
     expect(find.text('Install llama.cpp'), findsOneWidget);
+    // Nothing is installed, so there is nothing to uninstall.
+    expect(find.byKey(const ValueKey('k-runtime-uninstall')), findsNothing);
 
     final start = tester.widget<FButton>(
       find.byKey(const ValueKey('k-runtime-start')),
     );
     expect(start.onPress, isNull, reason: 'there is nothing to start');
+  });
+
+  testWidgets('an installed runtime offers Uninstall; an external one does not', (
+    tester,
+  ) async {
+    // The default status is an installed source build — Nelle put it there, so it can remove it.
+    await tester.pumpWidget(_host(const RuntimeScreen()));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('k-runtime-uninstall')), findsOneWidget);
+
+    // `external` (LLAMA_SERVER_PATH) is the user's binary — Nelle will not delete it.
+    await tester.pumpWidget(
+      _host(const RuntimeScreen(), status: _status(installMode: 'external')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('k-runtime-uninstall')), findsNothing);
   });
 
   testWidgets('the button says "Update available" only when one IS', (
@@ -211,14 +230,36 @@ void main() {
       expect(state.error, isNull);
     });
 
-    testWidgets('an idle console explains what is about to happen', (
-      tester,
-    ) async {
-      await tester.pumpWidget(_host(const InstallScreen()));
+    testWidgets('a source build explains the compile', (tester) async {
+      await tester.pumpWidget(
+        _host(const InstallScreen(mode: RuntimeStatusInstallMode.sourceMaster)),
+      );
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('k-install-idle')), findsOneWidget);
+      expect(
+        find.textContaining('builds llama.cpp from source'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('cmake'), findsOneWidget);
       expect(find.text('Install'), findsOneWidget);
+    });
+
+    testWidgets('a release download does not talk about compiling', (
+      tester,
+    ) async {
+      // The bug: a Mac downloads a prebuilt binary in seconds, but the screen told *everyone*
+      // it was a "full cmake compile" that "takes minutes". The copy must follow the mode.
+      await tester.pumpWidget(
+        _host(
+          const InstallScreen(mode: RuntimeStatusInstallMode.githubRelease),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('downloads a prebuilt'), findsOneWidget);
+      expect(find.textContaining('cmake'), findsNothing);
+      expect(find.textContaining('from source'), findsNothing);
     });
   });
 }

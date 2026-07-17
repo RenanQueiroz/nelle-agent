@@ -32,6 +32,25 @@ class RuntimeStatusNotifier extends AsyncNotifier<RuntimeStatus> {
   Future<void> start() => _act((repo) => repo.start());
   Future<void> stop() => _act((repo) => repo.stop());
 
+  /// Deletes the installed binary (and, on Linux, the cloned source). Unlike start/stop this is
+  /// **destructive**, so it does not go through `_act`: `AsyncValue.guard` would swallow a refusal
+  /// into the state and the button would silently do nothing. It applies the uninstalled status on
+  /// success and **rethrows** on failure, so the caller can surface it; the state is refetched so
+  /// the screen reflects reality either way.
+  Future<void> uninstall() async {
+    state = const AsyncValue.loading();
+    try {
+      final status = await ref.read(runtimeRepositoryProvider).uninstall();
+      state = AsyncValue.data(status);
+      ref.invalidate(routerPropsProvider);
+    } catch (_) {
+      state = await AsyncValue.guard(
+        () => ref.read(runtimeRepositoryProvider).status(checkLatest: true),
+      );
+      rethrow;
+    }
+  }
+
   /// Applies a status the server already handed us — the install stream's terminal event
   /// carries one, so there is nothing to refetch.
   void apply(RuntimeStatus status) => state = AsyncValue.data(status);

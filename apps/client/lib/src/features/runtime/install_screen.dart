@@ -2,31 +2,36 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
+import '../../api/generated/models/runtime_status_install_mode.dart';
 import 'runtime_controller.dart';
 
-/// Watches a llama.cpp build happen.
+/// Watches llama.cpp get onto the machine — and what "onto the machine" *means* is the whole
+/// reason this screen's copy is not fixed. On **Linux** an install is a `git clone` plus a full
+/// cmake compile (minutes); on **macOS/Windows** it is a prebuilt release download (seconds). The
+/// narration was written for the first and shown to everyone, which is wrong on a Mac — so every
+/// user-facing string here is chosen from [_InstallCopy] by the [RuntimeStatusInstallMode].
 ///
-/// On Linux an install is a `git clone` plus a full cmake compile — minutes, sometimes tens
-/// of them. Awaiting it silently is what the old route did, and it fails three ways at once:
-/// the user has no idea whether it is working, the build's output is discarded, and a client
-/// with a receive timeout reports failure while the build carries happily on. So it is
-/// narrated, and this is where the narration goes.
-///
-/// The stream lives in [installControllerProvider], not in this widget: navigating away must
-/// not kill a build, and there is no way to re-attach to one already in flight.
+/// Either way the work happens server-side and is streamed, because a silent await fails three
+/// ways at once: the user cannot tell whether it is working, the output is discarded, and a client
+/// with a receive timeout reports failure while the work carries on. The stream lives in
+/// [installControllerProvider], not in this widget: navigating away must not kill it, and there is
+/// no way to re-attach to one already in flight.
 class InstallScreen extends ConsumerWidget {
-  const InstallScreen({super.key});
+  const InstallScreen({super.key, required this.mode});
+
+  /// How this platform installs — a source build, a release download, or an external binary.
+  /// Comes from `RuntimeStatus.installMode`, handed down by the runtime screen.
+  final RuntimeStatusInstallMode mode;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final install = ref.watch(installControllerProvider);
     final theme = Theme.of(context);
+    final copy = _InstallCopy.of(mode);
 
     return FScaffold(
       header: FHeader.nested(
-        title: Text(
-          install.running ? 'Building llama.cpp…' : 'Install llama.cpp',
-        ),
+        title: Text(install.running ? copy.runningTitle : copy.idleTitle),
         prefixes: [
           FHeaderAction.back(
             key: const ValueKey('k-install-back'),
@@ -39,15 +44,14 @@ class InstallScreen extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Banner(install: install),
+          _Banner(install: install, copy: copy),
           Expanded(
             child: install.lines.isEmpty && !install.running
                 ? Center(
                     child: Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(
-                        'On Linux this builds llama.cpp from source — a git clone and a full '
-                        'cmake compile. It takes minutes, and every line of it appears here.',
+                        copy.idleText,
                         key: const ValueKey('k-install-idle'),
                         textAlign: TextAlign.center,
                         style: TextStyle(
@@ -67,9 +71,9 @@ class InstallScreen extends ConsumerWidget {
                   : ref.read(installControllerProvider.notifier).start,
               child: Text(
                 install.running
-                    ? 'Building…'
+                    ? copy.runningButton
                     : install.finished
-                    ? 'Build again'
+                    ? copy.againButton
                     : 'Install',
               ),
             ),
@@ -81,9 +85,10 @@ class InstallScreen extends ConsumerWidget {
 }
 
 class _Banner extends StatelessWidget {
-  const _Banner({required this.install});
+  const _Banner({required this.install, required this.copy});
 
   final InstallState install;
+  final _InstallCopy copy;
 
   @override
   Widget build(BuildContext context) {
@@ -134,20 +139,17 @@ class _Banner extends StatelessWidget {
     }
 
     if (install.running) {
-      return const Padding(
-        padding: EdgeInsets.all(12),
+      return Padding(
+        padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            SizedBox(
+            const SizedBox(
               width: 14,
               height: 14,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
-            SizedBox(width: 10),
-            Text(
-              'Compiling. This takes minutes.',
-              style: TextStyle(fontSize: 12),
-            ),
+            const SizedBox(width: 10),
+            Text(copy.runningBanner, style: const TextStyle(fontSize: 12)),
           ],
         ),
       );
@@ -155,6 +157,64 @@ class _Banner extends StatelessWidget {
 
     return const SizedBox.shrink();
   }
+}
+
+/// The user-facing strings for the install flow, chosen by how *this* platform installs. A source
+/// build (Linux) and a release download (macOS/Windows) are different acts with different timings,
+/// and telling a Mac user their download is a "full cmake compile" that "takes minutes" is simply
+/// wrong.
+class _InstallCopy {
+  const _InstallCopy({
+    required this.idleTitle,
+    required this.runningTitle,
+    required this.idleText,
+    required this.runningBanner,
+    required this.runningButton,
+    required this.againButton,
+  });
+
+  final String idleTitle;
+  final String runningTitle;
+  final String idleText;
+  final String runningBanner;
+  final String runningButton;
+  final String againButton;
+
+  static _InstallCopy of(RuntimeStatusInstallMode mode) => switch (mode) {
+    RuntimeStatusInstallMode.sourceMaster => const _InstallCopy(
+      idleTitle: 'Install llama.cpp',
+      runningTitle: 'Building llama.cpp…',
+      idleText:
+          'This builds llama.cpp from source — a git clone and a full cmake compile. It takes '
+          'several minutes, and every line of it appears here.',
+      runningBanner: 'Compiling. This takes minutes.',
+      runningButton: 'Building…',
+      againButton: 'Build again',
+    ),
+    RuntimeStatusInstallMode.githubRelease => const _InstallCopy(
+      idleTitle: 'Install llama.cpp',
+      runningTitle: 'Installing llama.cpp…',
+      idleText:
+          'This downloads a prebuilt llama.cpp release for your platform — no compiler needed. '
+          'It takes a few seconds, and its progress appears here.',
+      runningBanner: 'Downloading the release. This takes a moment.',
+      runningButton: 'Installing…',
+      againButton: 'Reinstall',
+    ),
+    // `external` (LLAMA_SERVER_PATH), and a mode a newer server might invent. There is nothing for
+    // Nelle to install, so say so rather than promise a build that will not happen.
+    RuntimeStatusInstallMode.valueExternal ||
+    RuntimeStatusInstallMode.$unknown => const _InstallCopy(
+      idleTitle: 'llama.cpp',
+      runningTitle: 'Checking llama.cpp…',
+      idleText:
+          'llama.cpp is set by LLAMA_SERVER_PATH — it is yours to manage, so there is nothing '
+          'for Nelle to install here.',
+      runningBanner: 'Working…',
+      runningButton: 'Working…',
+      againButton: 'Recheck',
+    ),
+  };
 }
 
 class _Console extends StatelessWidget {

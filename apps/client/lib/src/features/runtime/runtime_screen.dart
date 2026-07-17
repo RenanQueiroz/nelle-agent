@@ -164,20 +164,31 @@ class _Body extends ConsumerWidget {
         FButton(
           key: const ValueKey('k-runtime-install'),
           onPress: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const InstallScreen()),
+            MaterialPageRoute<void>(
+              builder: (_) => InstallScreen(mode: status.installMode),
+            ),
           ),
           // The label follows `updateAvailable`, not merely `installed`. `apps/web` said
           // "Update" whenever a binary existed, without ever asking whether there was
           // anything to update *to* -- and it never fetched `?latest=1`, so it could not
-          // have known.
-          child: Text(
-            !status.installed
-                ? 'Install llama.cpp'
-                : status.updateAvailable
-                ? 'Update available'
-                : 'Rebuild',
-          ),
+          // have known. "Rebuild"/"Reinstall" follows the install mode: a Mac downloads a
+          // release, it does not build.
+          child: Text(_installLabel(status)),
         ),
+
+        // Uninstall: only when there is something Nelle put here. An `external`
+        // (LLAMA_SERVER_PATH) binary is the user's — Nelle will not delete it, and the server
+        // refuses (`runtime_not_uninstallable`) if asked.
+        if (status.installed &&
+            status.installMode != RuntimeStatusInstallMode.valueExternal) ...[
+          const SizedBox(height: 8),
+          FButton(
+            key: const ValueKey('k-runtime-uninstall'),
+            variant: FButtonVariant.destructive,
+            onPress: () => _uninstall(context, ref, status.installMode),
+            child: const Text('Uninstall'),
+          ),
+        ],
 
         const SizedBox(height: 20),
         FTile(
@@ -220,6 +231,82 @@ class _Body extends ConsumerWidget {
     // crash an older client -- it just has no sentence yet.
     RuntimeStatusInstallMode.$unknown => 'Unknown',
   };
+
+  /// The install button's label. "Rebuild" only makes sense for a source build; a release
+  /// download is a "Reinstall".
+  String _installLabel(RuntimeStatus status) {
+    if (!status.installed) return 'Install llama.cpp';
+    if (status.updateAvailable) return 'Update available';
+    return status.installMode == RuntimeStatusInstallMode.sourceMaster
+        ? 'Rebuild'
+        : 'Reinstall';
+  }
+
+  Future<void> _uninstall(
+    BuildContext context,
+    WidgetRef ref,
+    RuntimeStatusInstallMode mode,
+  ) async {
+    if (!await _confirmUninstall(context, mode) || !context.mounted) return;
+    try {
+      await ref.read(runtimeStatusProvider.notifier).uninstall();
+      if (context.mounted) {
+        showFToast(
+          context: context,
+          icon: const Icon(FLucideIcons.circleCheck),
+          title: const Text('llama.cpp uninstalled'),
+        );
+      }
+    } catch (error) {
+      // Destructive and rare, so a failure must be said out loud, not swallowed. The controller
+      // rethrows for exactly this.
+      if (context.mounted) {
+        showFToast(
+          context: context,
+          icon: const Icon(FLucideIcons.circleX),
+          title: Text('Uninstall failed: $error'),
+        );
+      }
+    }
+  }
+
+  Future<bool> _confirmUninstall(
+    BuildContext context,
+    RuntimeStatusInstallMode mode,
+  ) async {
+    // Name exactly what goes, so the user can weigh it. On Linux that includes the source tree.
+    final removed = mode == RuntimeStatusInstallMode.sourceMaster
+        ? 'the built binary and the cloned source'
+        : 'the downloaded binary';
+    final result = await showFDialog<bool>(
+      context: context,
+      builder: (context, style, animation) => FDialog(
+        style: style,
+        animation: animation,
+        direction: Axis.horizontal,
+        title: const Text('Uninstall llama.cpp?'),
+        body: Text(
+          'This deletes $removed and stops llama.cpp first. Your models, settings and downloaded '
+          'weights are left alone, and you can reinstall anytime.',
+        ),
+        actions: [
+          FButton(
+            key: const ValueKey('k-runtime-uninstall-cancel'),
+            variant: FButtonVariant.outline,
+            onPress: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FButton(
+            key: const ValueKey('k-runtime-uninstall-confirm'),
+            variant: FButtonVariant.destructive,
+            onPress: () => Navigator.of(context).pop(true),
+            child: const Text('Uninstall'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
 }
 
 class _StatusRow extends StatelessWidget {
