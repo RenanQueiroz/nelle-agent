@@ -151,6 +151,20 @@ export class LlamaCppManager {
     return this.#install.installOrUpdate(options);
   }
 
+  /**
+   * Deletes the installed llama.cpp — its binaries and, on Linux, the cloned source — leaving the
+   * model catalog (`models.ini`) and downloaded weights untouched.
+   *
+   * The managed server is stopped **first**: you cannot sensibly delete the binary of a running
+   * process, and a router left reachable but pointing at a deleted binary would fail its next
+   * start. `stop()` is a safe no-op when nothing is running, and a no-op for an `external` binary
+   * (which Nelle did not start), which `#install.uninstall()` then refuses.
+   */
+  async uninstall(): Promise<RuntimeStatus> {
+    await this.stop();
+    return this.#install.uninstall();
+  }
+
   /** Where `llama-server` lives, whether or not anything is installed there. */
   async getServerBinaryPath(): Promise<string | null> {
     return this.#install.getBinaryPath();

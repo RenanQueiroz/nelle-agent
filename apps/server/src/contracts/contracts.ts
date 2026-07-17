@@ -94,6 +94,11 @@ export const NELLE_ERROR_CODES = {
    * it is what a second click does.
    */
   runtimeInstallInProgress: 'runtime_install_in_progress',
+  /**
+   * Uninstall was asked for while `LLAMA_SERVER_PATH` is set. That binary is the user's, not
+   * Nelle's -- Nelle neither built nor downloaded it -- so there is nothing here to delete.
+   */
+  runtimeNotUninstallable: 'runtime_not_uninstallable',
 
   // Request validation.
   invalidRequest: 'invalid_request',

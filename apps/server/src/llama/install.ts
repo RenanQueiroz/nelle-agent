@@ -218,6 +218,34 @@ export class LlamaInstall {
     say(`Installed ${release.tag_name} to ${this.paths.llamaBinDir}`);
   }
 
+  /**
+   * Removes what an install put on disk: the binaries (every platform) and, on Linux, the cloned
+   * source tree that `buildLinuxFromMaster` compiled. The stale pid file goes too — it points at a
+   * binary that is about to be gone.
+   *
+   * It deletes `llamaBinDir` and `llamaSrcDir`, **not** `llamaDir` itself: `models.ini` lives there
+   * and is the user's model catalog, which an uninstall must never touch. Nor are the downloaded
+   * model **weights** (`.nelle/models`, another directory entirely) — deleting those is a separate,
+   * far larger act. Refuses when the binary is `external`: `LLAMA_SERVER_PATH` is the user's, and
+   * Nelle will not delete a file it did not put there.
+   *
+   * Stopping a running llama-server first is the caller's job (`LlamaCppManager.uninstall`); this is
+   * only the file removal, so a running child is not the concern here.
+   */
+  async uninstall(): Promise<RuntimeStatus> {
+    if (this.#installing) {
+      throw installInProgressError();
+    }
+    if (process.env.LLAMA_SERVER_PATH) {
+      throw notUninstallableError();
+    }
+    this.host.reportError(null);
+    await fs.rm(this.paths.llamaBinDir, {recursive: true, force: true});
+    await fs.rm(this.paths.llamaSrcDir, {recursive: true, force: true});
+    await fs.rm(this.paths.llamaPidPath, {force: true});
+    return this.host.status(false);
+  }
+
   async getBinaryPath(): Promise<string | null> {
     const external = process.env.LLAMA_SERVER_PATH;
     if (external) {
@@ -355,5 +383,13 @@ async function replaceRunningFile(source: string, destination: string): Promise<
 function installInProgressError(): Error {
   const error = new Error('llama.cpp is already being installed. Watch the running install.');
   Object.assign(error, {code: NELLE_ERROR_CODES.runtimeInstallInProgress, retryable: false});
+  return error;
+}
+
+function notUninstallableError(): Error {
+  const error = new Error(
+    'llama.cpp is set by LLAMA_SERVER_PATH, so it is yours to manage — Nelle will not delete it.',
+  );
+  Object.assign(error, {code: NELLE_ERROR_CODES.runtimeNotUninstallable, retryable: false});
   return error;
 }

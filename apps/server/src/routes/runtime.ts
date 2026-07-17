@@ -60,6 +60,12 @@ export function registerRuntimeRoutes(router: Router, deps: RouteDeps): void {
   router.post('/api/runtime/update/stream', streamRuntimeInstall);
   router.post('/api/runtime/start', async () => json(await llama.start()));
   router.post('/api/runtime/stop', async () => json(await llama.stop()));
+  /**
+   * Deletes the installed binary (and, on Linux, the cloned source). Stops the server first, keeps
+   * `models.ini` and the downloaded weights, and refuses (`runtime_not_uninstallable`) when the
+   * binary is the user's own `LLAMA_SERVER_PATH`. Answers the refreshed status, now uninstalled.
+   */
+  router.post('/api/runtime/uninstall', async () => json(await llama.uninstall()));
   router.get('/api/runtime/logs', async ctx => {
     const requestedBytes = Number(ctx.query.maxBytes ?? 80_000);
     const maxBytes = Number.isFinite(requestedBytes)
