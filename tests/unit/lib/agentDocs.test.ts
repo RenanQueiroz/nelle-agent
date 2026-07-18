@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import {test} from 'bun:test';
 
 /**
@@ -43,7 +44,10 @@ test('each AGENTS.md exists and stays under the 150k character limit', async () 
 test('.claude/skills points at .agents/skills, the cross-agent source of truth', async () => {
   const stat = await fs.lstat('.claude/skills');
   if (stat.isSymbolicLink()) {
-    assert.equal(await fs.readlink('.claude/skills'), '../.agents/skills');
+    // `readlink` uses the host separator, so Windows returns `..\.agents\skills` for the same
+    // target macOS and Linux spell `../.agents/skills`. Compare the paths, not their spelling.
+    const target = await fs.readlink('.claude/skills');
+    assert.equal(path.resolve('.claude', target), path.resolve('.agents/skills'));
   } else if (stat.isFile()) {
     // A Windows checkout without `core.symlinks` materializes the link as a plain file holding
     // the target path — still one source of truth, so it passes.

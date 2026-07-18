@@ -135,6 +135,9 @@ Project-specific guidance for AI coding agents.
   - **A test that reads a repository file and matches on line structure must normalise
     CRLF** — git checks out with CRLF on Windows, so a `\n` regex matches nothing
     there.
+  - **`fs.readlink` returns host-native separators.** Compare resolved paths, not a
+    raw link-target string: Windows spells `../.agents/skills` as
+    `..\.agents\skills`, and both name the same target.
   - **`fs.stat().mode & 0o111` is meaningless on Windows.** To assert a file is
     executable, assert *git's index mode* (`git ls-files -s` → `100755`), identical on
     every platform and what a fresh clone actually restores.
