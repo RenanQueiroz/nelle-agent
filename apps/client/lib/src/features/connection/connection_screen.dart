@@ -67,7 +67,11 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
     });
 
     return SectionShell(
-      title: 'Server',
+      // "Connection", matching the settings tile that opens it: it is *this device's
+      // relationship to* a server, and the settings screen already has a "This server"
+      // group administering one. A screen that answers to a different name than its
+      // tile reads as a wrong turn.
+      title: 'Connection',
       embedded: widget.embedded,
       maxWidth: 460,
       backKey: const ValueKey('k-connection-back'),
@@ -85,11 +89,6 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Connection',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
             // The manual URL box is hidden while paired. A pairing *is* the
             // connection -- it carries the address, the pinned certificate and the
             // device id together -- so an editable URL beside it is a second,
