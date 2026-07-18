@@ -137,3 +137,23 @@ test('CI runs the binary smoke test on all three operating systems', async () =>
   }
   assert.match(ci, /bun run build --target=server/, 'and it must go through the build smoke test');
 });
+
+test('CI requires the device suite on every supported platform', async () => {
+  // A tolerated device failure is invisible to branch protection. Keep each supported platform as
+  // a real required job, especially iOS: this invariant is why the slower-runner race was fixed
+  // instead of hidden behind `continue-on-error`.
+  const ci = (await fs.readFile('.github/workflows/ci.yml', 'utf8')).replace(/\r\n/g, '\n');
+  for (const job of [
+    'device-linux',
+    'device-macos',
+    'device-windows',
+    'device-ios',
+    'device-android',
+  ]) {
+    const block = new RegExp(`^  ${job}:\\n([\\s\\S]*?)(?=^  [\\w-]+:|(?![\\s\\S]))`, 'm').exec(
+      ci,
+    )?.[1];
+    assert.ok(block, `${job} must remain in CI`);
+    assert.doesNotMatch(block, /continue-on-error:/, `${job} must be required`);
+  }
+});

@@ -62,10 +62,18 @@ void lifecycleSuite() {
       'Renamed without crashing',
     );
     await tester.tap(find.byKey(const ValueKey('k-conv-rename-save')));
-    await pumpUntil(tester, find.text('Renamed without crashing'));
+
+    // Scope the success barrier to the conversation tile. A bare `find.text` also matches the
+    // rename field while its dialog is animating out, so it can return before the PATCH response
+    // lands; that passed locally and failed on the slower iOS CI runner one line later.
+    final renamedTitle = find.descendant(
+      of: find.byKey(ValueKey('k-conv-tile-$id')),
+      matching: find.text('Renamed without crashing'),
+    );
+    await pumpUntil(tester, renamedTitle);
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Renamed without crashing'), findsOneWidget);
+    expect(renamedTitle, findsOneWidget);
   });
 
   testWidgets('duplicating an EMPTY chat is refused with the server sentence', (

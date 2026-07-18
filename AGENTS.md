@@ -107,10 +107,8 @@ Project-specific guidance for AI coding agents.
     read a PDF.
   - **The device suite runs on five platforms**: Linux (under `xvfb`), Windows, macOS,
     the iOS Simulator, and an Android emulator — the fast tier needs no model, so it
-    is CI-able as it stands. Linux, Windows, macOS and Android are required. iOS
-    remains `continue-on-error` only until the cancellation and real-network wait
-    fixes complete their first green run. **Remove that immediately afterward**; a
-    permanently tolerated failure is not a test.
+    is CI-able as it stands. All five jobs are required: a supported platform does
+    not tolerate test failures.
   - Workflow actions track their current supported major tags: `checkout@v7`,
     `upload-artifact@v7`, `download-artifact@v8`, `setup-java@v5`,
     `action-gh-release@v3`, and the still-current v2 majors for setup-bun,

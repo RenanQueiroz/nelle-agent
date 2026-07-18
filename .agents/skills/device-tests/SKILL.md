@@ -45,6 +45,11 @@ original is unchanged" is a fact about the server, so ask the server.
   `pumpUntil`, never a bare `pumpAndSettle`. (Widget tests never meet this:
   `stubDio` answers synchronously.) `launchApp` follows the same rule and waits
   for the server-backed conversation count; startup is not a special case.
+- **A presence barrier is only as honest as its scope.** After a mutation, bare
+  text can still match the editor or an exiting dialog before the server answers.
+  Wait for the text under the authoritative widget instead — for example, the
+  renamed title beneath `k-conv-tile-<id>` — so a slower runner cannot satisfy the
+  barrier with the value the user merely typed.
 - **Cancel provider-owned HTTP as well as SSE on disposal.** The router model
   provider can be torn down while its initial list request is still in flight
   (the device suite replaces the real app between tests). Its list and stream

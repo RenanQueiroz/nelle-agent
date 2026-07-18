@@ -128,10 +128,9 @@ jobs:
   # nobody had ever built for. **Windows failed 1 of 15**, on a `tapAt` that scrolled the screen it
   # had just left. Both are green now and neither tolerates failure any more.
   #
-  # Android is green on its 320x640 CI emulator and is required. iOS builds and runs the suite, but
-  # remains tolerated until the cancellation and network-wait fixes get their first green iOS run.
-  # Remove that tolerance immediately afterward -- a permanently tolerated failure is a decoration,
-  # not a test.
+  # Android is green on its 320x640 CI emulator, and iOS is green with success barriers scoped to
+  # the authoritative widget rather than transient dialog text. All five platforms are required:
+  # a permanently tolerated failure is a decoration, not a test.
   # ---------------------------------------------------------------------------------------------
   device-linux:
     name: device suite (linux)
@@ -202,13 +201,12 @@ jobs:
 
   # ---------------------------------------------------------------------------------------------
   # Signing is not set up (a usable `.ipa` needs Apple Developer membership), so this builds and
-  # drives the **Simulator**, which needs none. It remains tolerated only until the current
-  # cancellation and real-network wait fixes complete their first green iOS run.
+  # drives the **Simulator**, which needs none. This is required just like every desktop and Android
+  # device leg: supported platforms do not get tolerated test failures.
   # ---------------------------------------------------------------------------------------------
   device-ios:
     name: device suite (iOS Simulator)
     runs-on: macos-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
