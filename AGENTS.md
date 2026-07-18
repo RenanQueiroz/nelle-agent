@@ -4,11 +4,11 @@ Project-specific guidance for AI coding agents.
 
 ## Project Rules
 
-- Keep documentation current with every repository change. Update `README.md` and
-  the relevant `AGENTS.md` whenever implementation behavior, setup commands,
-  architecture, or workflow expectations change. Anything under `plans/` is local
-  scratch (git-ignored) — never a shared source of truth, and never cited from
-  committed docs or code.
+- Keep documentation current with every repository change. Update `README.md`, the
+  relevant `AGENTS.md`, and any affected skill under `.agents/skills/` whenever
+  implementation behavior, setup commands, architecture, or workflow expectations
+  change. Anything under `plans/` is local scratch (git-ignored) — never a shared
+  source of truth, and never cited from committed docs or code.
 - Shared agent guidance is split across three directory-scoped `AGENTS.md` files,
   and a rule lives in exactly one of them — the file scoping the code it
   constrains: this root file (repo-wide policy, toolchain, setup/CI/release, dev
@@ -19,18 +19,26 @@ Project-specific guidance for AI coding agents.
   Code loads the per-app files through those stubs when working in that subtree,
   and Codex discovers nested `AGENTS.md` natively. Keep each file well under 150k
   characters — Claude Code's per-file limit, and the reason for the split.
+- Task playbooks live in `.agents/skills/<name>/SKILL.md`
+  (https://agentskills.io format), the cross-agent source of truth; `.claude/skills`
+  is a symlink to it, which is how Claude Code discovers them. Current skills:
+  `driving-the-client` (verify UI changes in the running app, plus this machine's
+  WSL2/emulator quirks), `device-tests` (write, run and debug the
+  `integration_test` suite), `model-testing` (which small models any model-backed
+  test uses, and the `runtime.modelsMax` requirement). Agents without native skill
+  discovery should read the relevant `SKILL.md` when doing those tasks. Keep
+  playbook-style, task-scoped guidance in skills — they load lazily — and standing
+  rules in the always-loaded `AGENTS.md` files.
 - The server, tests, and toolchain run on **Bun** (`engines.bun`, ≥1.3); there
   is no npm/Node runtime dependency. Use `bun install`, `bun run <script>`, and
   `bun test`.
-- **Nelle is an API server, and `apps/client` is its client.** The React web app
-  (`apps/web`) is gone, and with it Vite, Astryx, Zustand, the Playwright suite, the
-  `dist/web` static handler and `GET /api/state`. The server serves **no files**: an
-  unmatched path is a coded JSON 404 (`not_found`), never an `index.html`, because
-  every client is a native one that speaks the served REST + SSE contract
-  (`GET /api/openapi.json`) and a typo'd endpoint answering a web page hides the
-  mistake. `apps/server` is the server (its `contracts/` folder is the wire contract
-  and the pure helpers over it — TypeScript the server shares with itself);
-  `apps/client` is the UI. Nothing else.
+- **Nelle is an API server, and `apps/client` is its client.** There is no web app.
+  The server serves **no files**: an unmatched path is a coded JSON 404
+  (`not_found`), never an `index.html`, because every client is a native one that
+  speaks the served REST + SSE contract (`GET /api/openapi.json`) and a typo'd
+  endpoint answering a web page hides the mistake. `apps/server` is the server (its
+  `contracts/` folder is the wire contract and the pure helpers over it —
+  TypeScript the server shares with itself); `apps/client` is the UI. Nothing else.
 - `apps/client` is the Dart/Flutter client (package `nelle_agent`, bundle id
   `com.renanqueiroz.nelle_agent`) — the desktop + mobile UI, and the only client
   there is. It is *not* part of the Bun toolchain: Oxfmt, Oxlint, and `tsc`
@@ -44,23 +52,10 @@ Project-specific guidance for AI coding agents.
   imports server TypeScript — that boundary is what lets the
   server change its internals without breaking a shipped app. Run it with
   `flutter run -d <chrome|linux>`; build Android with `flutter build apk`.
-- **Test against the small models, not the real ones.** For any model-backed test
-  (agent-driven UI drives, the slow device tier, a real generation), use
-  `unsloth/gemma-4-E4B-it-qat-GGUF:Q4_K_XL` (4.22 GB), plus
-  `unsloth/gemma-4-E2B-it-qat-GGUF:Q4_K_XL` (2.62 GB) whenever a test needs two.
-  `gemma-4-26B` and `Qwen3.6-35B` are the real workloads; loading one costs tens of
-  seconds and a lot of RAM, which makes the drive loop useless. Import with
-  `POST /api/huggingface/use {repoId, quant}` — never hand-roll the section id
-  (`hf-repo` keeps the exact `…:UD-Q4_K_XL` ref; the section id uses llama.cpp's
-  canonical `…:Q4_K_XL`). **Simultaneous multi-model testing needs
-  `runtime.modelsMax >= 2`**: at the default `1` the router evicts the first model
-  when the second loads, so the test exercises eviction and reports a pass — worse
-  than a failure, because it looks green. Before any multi-model run, read
-  `GET /api/runtime` and assert `modelsMax >= 2` rather than assuming it. It lives in
-  `.nelle/settings.sqlite`, not in code — the registry keeps the default at `1` on
-  purpose, because a fresh install on memory-constrained hardware must not try to
-  hold two models. Raise it per machine with `PATCH /api/settings/runtime`, which
-  needs a llama.cpp restart.
+- **Test against the small models, not the real ones.** Any model-backed test or
+  drive uses the small gemma imports, and multi-model tests must assert
+  `runtime.modelsMax >= 2` first — model ids, import command and details in the
+  `model-testing` skill (`.agents/skills/model-testing/SKILL.md`).
 - **A fresh clone runs `bun run setup`, and that is the whole of it.** `setup` does
   only what this repository *owns* — `bun install`, `flutter pub get`, `dart pub
   global activate marionette_mcp`, and arming the pre-push hook. **It installs no
@@ -161,9 +156,9 @@ Project-specific guidance for AI coding agents.
   download page.
 - Primary checks are `bun run format:check`, `bun run lint`, `bun run check`,
   `bun run test:unit`, and `bun run test` (the composite: format check, lint,
-  `tsc`, unit tests). There is no web build and no browser suite to run; the
-  client's own checks are `flutter analyze`, `flutter test`, and the device tiers
-  (`bun run test:device`, `bun run test:device:slow`).
+  `tsc`, unit tests). The client's own checks are `flutter analyze`,
+  `flutter test`, and the device tiers (`bun run test:device`,
+  `bun run test:device:slow`).
 - **`tsc` typechecks `tests/` and `scripts/` too, and that is load-bearing.** Before
   they were in `tsconfig.include`, a stale import in a test failed at `bun test`
   runtime and never at `bun run check` — exactly backwards for refactors, because Bun

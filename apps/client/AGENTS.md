@@ -6,7 +6,7 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
 
 ## Client Rules
 
-- `apps/client` architecture (Milestone 1: loopback chat MVP): Riverpod for state,
+- `apps/client` architecture: Riverpod for state,
   `dio` for HTTP plus a hand-written SSE transport, `go_router` for routing, forui
   over `MaterialApp`. **API models are contract-first codegen**, not hand-written:
   `dart run tool/gen_api.dart` strips `paths` (and the `ChatStreamEvent` oneOf) from
@@ -26,7 +26,7 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   turns, then reloads the authoritative snapshot. The client never re-derives server
   truth: it reads `capabilities`, the server-stamped context `status`, and
   `reasoningLevel` off the snapshot.
-- `apps/client` (Milestone 2: the per-conversation composer). The model selector and
+- The per-conversation composer. The model selector and
   the reasoning control both write the *conversation* -- `PATCH
 /api/conversations/:id {defaultModelId}` and `PUT .../reasoning` -- and apply the
   snapshot the server answers with, so two chats can sit on two models at once
@@ -43,7 +43,7 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   (the model id is top-level, the progress is staged), and `ChatStreamEvent` parses
   Nelle's envelope. **Two different SSE shapes that must never share a parser** —
   feeding a router frame to `ChatStreamEvent.fromEnvelope` mis-parses every event.
-- `apps/client` (Milestone 3: markdown). Models answer in markdown, so assistant
+- Markdown rendering. Models answer in markdown, so assistant
   content *and* reasoning render through **one** widget, `MarkdownMessage` — nothing
   else imports `flutter_markdown_plus` (the engine is a bet; the wrapper makes
   swapping it a one-file change). **User turns are never markdown**: someone who
@@ -90,7 +90,7 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   and half-written, falls back to the plain monospace span. The palette **follows the
   app's brightness** — the app carries a full dark theme (`app.dart:32`), and a light
   palette on a dark code block is dark-on-dark.
-- `apps/client` (Milestone 4: attachments, compaction, slash commands). Attachments are
+- Composer attachments, compaction and slash commands. Attachments are
   **uploaded, not embedded**: the bytes go to `POST /api/uploads` (multipart, carrying the
   `conversationId`) the moment a file is staged, and the chat request references
   `{uploadId}` and nothing else. The draft is **per conversation** -- an image is gated on
@@ -118,7 +118,7 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
     off it. Parsing an error body as a settings or command payload yields silent nonsense
     -- an *empty* registry says "no commands are supported" and would refuse `/compact`
     itself. Check the status before believing the body.
-- `apps/client` (Milestone 5: LAN pairing + auth). A `ServerConnection` is *loopback*
+- LAN pairing + auth. A `ServerConnection` is *loopback*
   (`http://127.0.0.1:8787`, no token, no pin) or *paired* (`https://<lan>:8788`, a
   pinned certificate and a device bearer token). URL, pin and device id travel
   together: pointing at a new URL drops the pin and device id, or one server's
@@ -155,7 +155,7 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
     on exactly the device the route was added for. `storage_path` comes out of the
     database, so it is refused if it escapes the attachments tree: a row is not a
     capability to read any file on the machine.
-- **Three Flutter traps the M7 param editor walked into, each invisible to `flutter analyze`
+- **Three Flutter traps the param editor walked into, each invisible to `flutter analyze`
   and to every unit test.** (1) **`Map.hashCode` is identity-based in Dart.** Keying a widget on
   `params.hashCode` so a save re-seeds it looks right and is a bug: every catalog refresh parses
   a fresh Map, mints a new key, destroys the State and eats what the user was typing. Compare
@@ -163,7 +163,7 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   state**, so a caller awaiting a Riverpod mutation never sees it — a refused params save then
   silently does nothing: no marked rows, no message. Rethrow. (3) **forui's `FButton` lays its
   child out in an unflexed `Row`**, so a long label overflows the button (94px here) — the same
-  shape as M6's 91px composer overflow on Android. Keep button labels short and put the sentence
+  shape as the composer's earlier 91px overflow on Android. Keep button labels short and put the sentence
   beside them.
 - **This app is forui over a bare `FScaffold`, so it has no `Material` ancestor.** A
   Material-only widget (`Switch`, `IconButton`, anything wanting an ink splash) throws
@@ -201,13 +201,6 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   across five platforms. The paste path: an image (`Pasteboard.image`), else a *file*
   (`Pasteboard.files`), else text — a picture or a file is an attachment; only text
   belongs in the message.
-- **WSLg cannot carry an image on the clipboard between processes**, so image paste
-  cannot be driven end-to-end on this machine: the WSLg bridge takes the CLIPBOARD
-  selection and only preserves text, and a GTK image set by any other process (verified
-  with PyGObject, and with the image set on the Windows side) vanishes. *File* paste is
-  drivable and was driven (a real Ctrl+V of a copied file produced its chip), and the
-  bytes-to-chip path below it is the same one the file picker uses. Do not read a failing
-  image-paste drive here as a code fault without first checking `wait_for_targets()`.
 - **Secure storage needs a keyring, and Linux may not have one.**
   `flutter_secure_storage` needs `libsecret` *plus* something answering
   `org.freedesktop.secrets` (gnome-keyring, KWallet, KeePassXC); a bare window manager
@@ -216,130 +209,45 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   and only remote pairing is refused, with a sentence saying why.
   Android/iOS/macOS/Windows are unaffected (Keystore/Keychain/credential store are
   OS-provided).
-- **A drive must never share the developer's keyring.** gnome-keyring pops a GUI
-  dialog whenever a collection must be *created or unlocked*, which blocks an
-  unattended drive exactly as it blocks a human. Give the drive a throwaway keyring
-  where neither is ever true — an isolated `XDG_DATA_HOME`, the `default` alias
-  pre-seeded to `login`, and an empty-password login keyring unlocked on stdin:
-  `printf 'login' > "$XDG_DATA_HOME/keyrings/default"` then
-  `dbus-run-session -- sh -c 'printf "\n" | gnome-keyring-daemon --unlock --components=secrets; flutter run -d linux'`.
-  A real Linux user still sees their OS keyring prompt on first pair, once; that is
-  their desktop asking, and it is correct.
-- **A physical phone on the LAN cannot reach this WSL2 machine.** WSL2 is NAT'd by default,
-  so Nelle binds the VM's `172.31.x.x` while the phone is on the host's `192.168.x.x` — the
-  two do not meet without `networkingMode=mirrored` in `.wslconfig` or a Windows `netsh
-  portproxy`. **An Android emulator needs neither**, because it runs *inside* WSL and shares
-  its network namespace: it dials `https://172.31.x.x:8788` directly. That makes the emulator
-  the way to drive the phone, and a second desktop instance pointed at the TLS listener the
-  way to drive a remote client. Neither is a bug to fix — they are the shape of the machine.
-- **Driving the Android emulator here needs two non-obvious flags.** It aborts with `Unable
-  to create /run/user/1000/avd/running` because WSL has no `XDG_RUNTIME_DIR`, and it hangs at
-  0.1% CPU forever waiting on a WSLg window — so give it a writable `XDG_RUNTIME_DIR` and run
-  it **`-no-window`**. Headless costs nothing: Marionette attaches to the Dart VM over adb and
-  screenshots come from Flutter, not from the emulator's window.
-  `emulator -avd <name> -no-window -gpu swiftshader_indirect -no-snapshot`, then
-  `flutter run -d emulator-5554`. KVM needs the user in the `kvm` group; without it the boot
-  silently falls back to something unusable.
 - **A phone is not a narrow desktop, and the difference finds bugs.** Ten minutes on Android
   found a composer that overflowed by 91px (an unflexed `Row` a 1280px window had always been
   wide enough to hide) and a conversation list that never reloaded after pairing (the notifier
   `read` its repository instead of watching it — invisible on a desktop, where loopback works
   *before* you pair, and the first thing that happens on a phone, where it cannot). Widget
   tests must pin the phone size (`tester.view.physicalSize`) to see either.
-- The Flutter client is instrumented for **agent-driven UI testing**. `lib/main.dart`
-  initializes `MarionetteBinding` **only under `kDebugMode`** (release keeps the plain
-  `WidgetsFlutterBinding`), and the repo registers two stdio MCP servers (`.mcp.json`
-  for Claude Code, `.codex/config.toml` for Codex): `marionette_mcp` (widget
-  inspection plus `tap`, `enter_text`, `swipe`, `scroll_to`, `take_screenshots`,
-  `get_logs`, `hot_reload`) and the official `dart mcp-server` (runtime errors, widget
-  tree, run tests, analyze). Prerequisite: `dart pub global activate marionette_mcp`,
-  with `~/.pub-cache/bin` and the Flutter SDK bin on PATH. Run the app in debug and
-  the agent attaches to its Dart VM Service.
+- The Flutter client is instrumented for **agent-driven UI testing**: `lib/main.dart`
+  initializes `MarionetteBinding` **only under `kDebugMode`** (release keeps the
+  plain `WidgetsFlutterBinding`), and the repo's MCP config registers `marionette`
+  (drives the running app) and the official `dart` server (runtime errors, widget
+  tree, analyze).
 - **A client change is not done until it has been driven in the running app.**
-  `flutter analyze` + `flutter test` green is necessary and not sufficient: 36 passing
-  tests did not catch a refused message silently eating the user's typed text, and one
-  minute of driving did. For every UI-affecting change: run the app in debug,
-  `connect`, `get_interactive_elements`, drive the real flow, `take_screenshots`
-  **and look at them**, and check `get_logs` + `dart`'s `get_runtime_errors` for
-  exceptions and overflows. Assert on what is on screen, not what you believe you
-  built, and never ask the user to eyeball a screen you could have driven yourself.
-  Deliberately drive the edges, where client bugs live and no unit test looks: empty
-  states, error states (`llama_server_stopped`, `model_load_failed`,
-  `context_overflow`), a refusal before `run.started`, mid-stream abort, degenerate
-  content, the narrow/wide layout break, switching conversations mid-run, an unknown
-  event type. Any bug found this way gets a regression test before the fix is
-  committed. Marionette matches by `ValueKey` or visible text, so give every
-  interactive widget a stable `ValueKey` — tapping raw coordinates silently rots.
-- **Two testing tools, and they are not alternatives.** **Marionette is exploratory**
-  — the agent drives the running app while iterating, which is how the bugs above get
-  found. **`integration_test` is the regression tool** — it *pins* what driving
-  discovered. A bug found by driving becomes a device test; a device test is never how
-  you explore. The device suite runs the **real** app (`main()`, real providers, real
-  dio, real HTTP) against a **real Nelle server** — `scripts/serve-fixture.ts`, on a
-  throwaway `.nelle-device`, port 8797, with `NELLE_LLAMA_PORT=18081` so it can never
-  adopt the developer's llama-server. Two tiers:
-  - **`bun run test:device`** (fast, ~7 min) — llama.cpp **stopped**, which is what a
-    fresh install is and where most error paths live. One entrypoint
-    (`integration_test/app_test.dart`) calling suite functions, because **multiple
-    `integration_test` files fail on Linux** ("Unable to start the app on the
-    device").
-  - **`bun run test:device:slow`** (~2 min, on demand) — a **real gemma-4-E2B** really
-    generating: a chat app whose chatting is never tested end to end has a hole in the
-    middle, and stubbing llama.cpp would test nothing.
-
-  **The same fast tier runs on the phone** — `bun run test:device -- -d
-  emulator-5554`, against a headless emulator (flags above). It needs no pairing, no
-  TLS, no pin: `adb reverse tcp:8797 tcp:8797` maps the emulator's loopback to the
-  host's port, so the fixture's *trusted* listener answers — deliberate, because
-  pairing is covered by `devices.test.ts` and three client test files, and a TLS
-  handshake plus a Keystore write in every device test would be testing the harness.
-  Run it on both, because **the phone finds what the desktop hides**: it immediately
-  caught a test asserting a forked-from conversation was "still in the sidebar" —
-  below the 760px breakpoint the chat **replaces** the list (`workbench_screen.dart`),
-  so the check failed on a layout behaving perfectly. **Assert the claim, not a proxy
-  visible on a 1280px window** — "the original is unchanged" is a fact about the
-  server, so ask the server.
-
-  The traps, each of which cost a debugging session:
-  - **`pumpAndSettle` does not wait for network I/O.** It settles *frames*, and an
-    HTTP response schedules none until it lands — so it returns mid-request, and
-    `expect(finder, findsNothing)` then passes **vacuously**. Assert presence with
-    `pumpUntil`, never a bare `pumpAndSettle`. (Widget tests never meet this:
-    `stubDio` answers synchronously.) `launchApp` follows the same rule and waits for
-    the server-backed conversation count; startup is not a special case.
-  - **Cancel provider-owned HTTP as well as SSE on disposal.** The router model
-    provider can be torn down while its initial list request is still in flight (the
-    device suite replaces the real app between tests). Its list and stream each own a
-    `CancelToken`, and cancellation during disposal completes quietly; otherwise a
-    slower platform reports a network exception after the test or screen already ended.
-  - **Image fixtures must survive the real decoder.** A PNG signature is not enough:
-    chunk lengths and CRCs must be valid, and a preview test pumps the codec to completion
-    and checks `takeException()`. Image decoding is asynchronous, so a malformed fixture
-    is often blamed on the following test instead of the test that rendered it.
-  - **A finder matches off-screen widgets**, and `tap()` at off-screen coordinates
-    hits nothing, *silently*. Use `tapAt` (which `ensureVisible`s first).
-    `tester.pageBack()` is useless here: it looks for a Material/Cupertino back button
-    and this app is forui over a bare `FScaffold`.
-  - **`tester.enterText` is a silent no-op on a field that is not focused** — the most
-    expensive trap in the suite. It does not throw or warn; the failure surfaces
-    wherever the *consequence* was expected, nowhere near the line that broke. The
-    first `enterText` usually works (nothing has focus yet); the second often does not
-    (a completed run rebuilds the composer and the text-input connection goes stale).
-    Use `typeInto`, which taps the field first and **verifies the text landed**.
-  - **The seeded fixtures are read-only.** Every test drives the same server, in one
-    process, in order, so a test that renames a seeded conversation breaks the next
-    one that looks for it by name. A mutating test calls `createOwnConversation()` and
-    uses the **id** it answers — never a title lookup, because the server generates a
-    title from the first exchange (fire-and-forget, so it is a race too).
-  - **A hand-seeded Pi session can be READ but not CONTINUED.** Entries written with
-    `SessionManager.appendMessage` replay fine, but Pi's agent then completes with no
-    text. Only a session Pi itself created (`POST /api/conversations`) can be chatted
-    with — the slow tier brings its own conversations, and the "empty" fixture is
-    created through the API too (`SessionManager.create()` allocates a path without
-    writing a file).
-  - Only **one binding** may exist, so `main.dart` guards on
-    `BindingBase.debugBindingType() == null` before initializing `MarionetteBinding` —
-    otherwise it collides with `IntegrationTestWidgetsFlutterBinding`.
+  `flutter analyze` + `flutter test` green is necessary and not sufficient: 36
+  passing tests did not catch a refused message silently eating the user's typed
+  text, and one minute of driving did. Drive the real flow, look at screenshots,
+  check runtime errors, and deliberately drive the edges — empty states, error
+  states, refusals, aborts, layout breaks — where client bugs live and no unit test
+  looks. Any bug found this way gets a regression test before the fix is committed.
+  Give every interactive widget a stable `ValueKey`; Marionette matches by key or
+  visible text, and raw coordinates silently rot. The workflow, edge checklist and
+  this machine's WSL2 quirks (emulator flags, phone networking, WSLg clipboard,
+  drive keyring) are in the `driving-the-client` skill
+  (`.agents/skills/driving-the-client/SKILL.md`).
+- **Two testing tools, and they are not alternatives.** **Marionette is
+  exploratory** — the agent drives the running app while iterating, which is how the
+  bugs above get found. **`integration_test` is the regression tool** — it *pins*
+  what driving discovered. A bug found by driving becomes a device test; a device
+  test is never how you explore. The device suite runs the **real** app against a
+  **real Nelle server** fixture, in two tiers: **`bun run test:device`** (fast,
+  ~7 min, llama.cpp stopped — what a fresh install is, and where most error paths
+  live) and **`bun run test:device:slow`** (~2 min, on demand, a real gemma-4-E2B
+  generating). The same fast tier runs on the Android emulator
+  (`bun run test:device -- -d emulator-5554`); run it on both, because the phone
+  finds what the desktop hides — and **assert the claim, not a proxy visible on a
+  1280px window** ("the original is unchanged" is a fact about the server, so ask
+  the server). Before writing, running or debugging a device test, read the
+  `device-tests` skill (`.agents/skills/device-tests/SKILL.md`): its harness traps
+  (`pumpAndSettle` races, silent `enterText` no-ops, off-screen taps, read-only
+  fixtures, hand-seeded Pi sessions) have each cost a debugging session.
 - **The macOS app needs `com.apple.security.network.client`; Flutter's template does
   not give it to you.** The macOS App Sandbox blocks every outbound connection without
   it — the app builds, launches, and fails every request with `SocketException:
@@ -525,8 +433,8 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
 - A message the server refused before it became a turn (no `run.started`) must
   leave the composer draft intact. The uploads are still on the server, unbound,
   and making the user retype the prompt and pick the files again is not a fix.
-- **`apps/client` (Milestone 8: the conversation lifecycle).** Search, pin, rename,
-  fork, clone, export, import, repair, rebuild, diagnostics.
+- **The conversation lifecycle UI.** Search, pin, rename, fork, clone, export,
+  import, repair, rebuild, diagnostics.
   - **Export cannot save a file on a phone**, and this is what the packages
     implement, not a preference: `file_selector_android` has only `openFile`,
     `openFiles` and `getDirectoryPath`; `getSaveLocation` exists on desktop/web and

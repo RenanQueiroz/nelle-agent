@@ -139,10 +139,10 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
   never runs is the least-tested code in the repository. If resilience ever becomes a
   real requirement, build it properly — triggered by an actual Pi failure, working for
   any conversation, writing through the conversation repository, and tested.
-- **`legacy-default` is gone, and `state.json` no longer holds a chat.** `AppState`
-  carries the `models.ini` catalog mirror and llama.cpp's address, nothing else.
-  Conversations come into existence **only** through `POST /api/conversations`, so a
-  fresh server has none — correct, not a bug to paper over with a placeholder.
+- **`state.json` holds the `models.ini` catalog mirror and llama.cpp's address,
+  nothing else** — never chat content. Conversations come into existence **only**
+  through `POST /api/conversations`, so a fresh server has none — correct, not a bug
+  to paper over with a placeholder.
 - `.nelle/settings.sqlite` is generated app data. It stores conversation rows,
   active-branch projections, and Nelle-only sidecar metadata; do not commit it.
 - `.nelle/backups/` contains generated SQLite migration backups; do not commit
@@ -482,9 +482,8 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
   chat whose answer just landed.
 - API-created conversations should immediately create and bind a header-only Pi
   session JSONL file, before the first prompt.
-- Renaming a conversation id (schema migration 3 renamed `poc-default` to
-  `legacy-default` across every referencing table) must `PRAGMA
-  defer_foreign_keys = ON` inside the migration transaction: the tables declare
+- A migration that renames a conversation id must `PRAGMA defer_foreign_keys = ON`
+  inside its transaction: the tables declare
   foreign keys without `ON UPDATE CASCADE` and the connection runs `PRAGMA
   foreign_keys = ON`, so the rename orphans the children mid-statement without
   it. Deleting every conversation is allowed and leaves an empty sidebar with a
@@ -513,9 +512,6 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
 - Exporting an `unavailable` conversation is allowed and sets
   `manifest.piSessionMissing`; importing such an archive is rejected with
   `archive_session_missing` rather than producing an empty conversation.
-- Chat streaming uses `/api/conversations/:id/chat/stream`; the legacy
-  `/api/chat/stream` and `/api/chat/messages` endpoints are gone, and nothing
-  mirrors messages into `state.json`.
 - Implement conversation fork/duplicate through Pi
   `SessionManager.createBranchedSession()`, creating a new Nelle conversation
   for the new Pi session file, copying retained Nelle sidecar metadata, and
@@ -530,15 +526,15 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
   `run.started`/`run.aborted`/`run.completed`/`run.warning`,
   `message.user.created`, `message.assistant.started`/`.delta`/
   `.reasoning_delta`/`.completed`, `performance.updated`, `tool_call.updated`,
-  `conversation.updated`, `context.updated`, `compact.*`, `error`. The legacy
-  `done` alias is gone. Preserve the envelope reader's backward compatibility
+  `conversation.updated`, `context.updated`, `compact.*`, `error`. Preserve the
+  envelope reader's backward compatibility
   with raw (unwrapped) payloads: that fallback is about envelope shape, not
   names, and the Flutter client's `ChatStreamEvent.fromEnvelope` accepts both.
 - `run.warning` carries `{code, message, detail?}`, not bare prose. The codes live
   in `NELLE_WARNING_CODES`. A UI can render a sentence, but nothing can branch on
   one, localize it, or suppress a warning it already knows about.
-- `conversation.forked` is specified by the router plan but deliberately not in
-  the union: fork and clone are plain JSON routes and Nelle has no
+- `conversation.forked` is deliberately not in the event union: fork and clone are
+  plain JSON routes and Nelle has no
   conversation-level SSE channel, only per-run streams. Add it with that channel,
   not before.
 - Stream `error` events must carry stable `NelleError` fields (`code`,
@@ -568,8 +564,7 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
 - New conversations default to `max` reasoning. `enable_thinking` is an inert
   kwarg on a template that does not declare it, and `max` sends no budget, so
   the default needs no per-model branch: a non-thinking model behaves exactly as
-  it did with `off`. Conversations created before migration 4 keep the `off` it
-  gave them. Forks and clones inherit their source's level.
+  it did with `off`. Forks and clones inherit their source's level.
 - Reasoning is per conversation (`conversations.reasoning_level`, one of `off`,
   `low`, `medium`, `high`, `max`) and drives Pi's thinking level:
   `createAgentSession({thinkingLevel})` at session creation and
@@ -593,8 +588,7 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
   (`GET`/`PATCH /api/settings/reasoning`, three number fields defaulting to llama.cpp's
   own 512/2048/8192). `piHarness` reads them from `SettingsRepository` and they reach
   llama.cpp as the top-level `thinking_budget_tokens` field, injected through Pi's
-  `agent.onPayload` hook. They lived in `state.json` until M6; they render themselves from
-  the served schema now, like every other group.
+  `agent.onPayload` hook.
   Pi's own `thinkingBudgets` setting never reaches an OpenAI-completions
   provider, and neither `reasoning_budget` nor
   `chat_template_kwargs.thinking_budget` has any per-request effect. The `max`
@@ -619,12 +613,12 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
 - `apps/server/src/contracts/attachments.ts` holds the attachment limits and is
   zod-free.
 - Preferences that follow the user live in the `settings` table under the
-  `preferences` key, served by `GET`/`PATCH /api/settings/preferences`. Since M6 that
-  is **favourite model ids and nothing else** — a favourite is a *set*, which the
+  `preferences` key, served by `GET`/`PATCH /api/settings/preferences`. That is
+  **favourite model ids and nothing else** — a favourite is a *set*, which the
   settings registry has no field type for, which is exactly why it stays
-  hand-written. The six display toggles moved into the `display` settings group
-  (`apps/server/src/contracts/displayPreferences.ts` still owns their keys, labels
-  and help). Do not put either back into device-local storage: they follow the
+  hand-written. The six display toggles live in the `display` settings group
+  (`apps/server/src/contracts/displayPreferences.ts` owns their keys, labels and
+  help). Do not put either back into device-local storage: they follow the
   *user*, and a favourite that lives on one machine is not a favourite. A favourite
   for a model missing from `models.ini` is filtered from the response, never deleted
   from storage. `updatePreferences` merges over the *raw* stored row, so a key a
@@ -660,22 +654,17 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
   the normal case** (it means no cap, so llama.cpp auto-fits). `PATCH /api/models/:id`
   takes `params` as a **flat `Record<string,string>`** that *replaces* `extra`
   wholesale. So a client that round-trips the GET object straight back into the PATCH
-  is refused with a 400. Edit `params.extra`; send it flat. (`gpuLayers`, `threads`
-  and `batchSize` used to sit in this type and were **never populated by anything** --
-  a promise the contract made and never kept, which is worse than a missing field
-  because a client renders a control for it. They are gone; a GPU-offload or thread
-  setting is just a key in `extra`, like every other llama.cpp lever.)
+  is refused with a 400. Edit `params.extra`; send it flat. (A GPU-offload or
+  thread setting is just a key in `extra`, like every other llama.cpp lever —
+  never a dedicated typed field, which is a promise the contract cannot keep.)
 - **Every `models.ini` catalog mutation answers with the whole catalog**
   (`ModelCatalog`: `{models, activeModelId, globalModelParams}`, the same shape
   `GET /api/models` serves), and a client **applies it** rather than patching the row
   it touched. It has to: activate, duplicate and delete all move `activeModelId` --
   a duplicate *becomes* the active model and deleting the active one promotes a
   neighbour -- and editing `[*]` rewrites the derived `contextSize` of **every** model
-  at once. This replaced an echo of the server's entire `AppState`, which dragged the
-  legacy 100-message `chat[]` and llama.cpp's host/port along on every response and
-  which no client ever read. **`AppState` is server-internal**: `GET /api/state` is
-  gone with the browser that used it, and `tests/unit/openapi.test.ts` fails if the
-  type reaches the contract again.
+  at once. **`AppState` is server-internal** and must never reach
+  the contract — `tests/unit/openapi.test.ts` fails if it does.
 - The **server** loads the model. `POST /api/conversations/:id/chat/stream` and
   `.../regenerate` call `LlamaCppManager.ensureModelRunnable()` before the run
   starts, streaming `model.loading` events while they wait, and failing with
@@ -827,8 +816,6 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
   a classification rather than asking a client to do any of it. **Keep them out of
   `contracts/`**, which is the wire contract and the pure helpers over it — a schema module that
   drags in a native canvas is a schema module no one can reason about.
-  (`tests/unit/webBundle.test.ts` used to pin this by failing if either reached the browser bundle;
-  the bundle is gone, the boundary is not.)
 - Draft uploads live under `.nelle/uploads/<uploadId>/` and in the `uploads`
   table, apart from the content-addressed `.nelle/attachments/` tree. An unbound
   upload older than 24h is swept at startup and hourly; a bound one belongs to a
