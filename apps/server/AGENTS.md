@@ -249,6 +249,39 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
   A test whose subject *died* will watch its fake binary exit, poll 8080, find the
   live router, and report the doomed start a success — the same trap that makes the
   device fixture pin `18081`.
+- Unit tests live in `apps/server/tests/unit` and run on `bun:test` with
+  `node:assert/strict`; a `createTestServer` helper
+  (`apps/server/tests/unit/helpers/testServer.ts`) drives the `Bun.serve` `fetch`
+  handler through an `inject`/`close` surface, so route tests did not churn.
+- **The unit suite runs on Windows and macOS in CI, and the first run found only
+  *harness* bugs — never a product bug.** A red Windows job looks alarming and was
+  not:
+  - **POSIX shell fixtures do not run on Windows.** Tests that stand a `#!/bin/sh`
+    script in for a real binary (a fake `llama-server` printing a `--help` catalogue;
+    a fake build command) hit `ENOENT: uv_spawn` — no shebang, no `sh`. They are
+    `test.skipIf(needsPosixShell)`: what they verify is platform-independent logic
+    already covered on Linux and macOS, and on Windows the *product* spawns a real
+    `llama-server.exe`. Only the stand-in is POSIX.
+  - **`fs.rm` throws `EBUSY` on Windows** while anything holds a handle, and SQLite
+    does not always release immediately after `close()`. Tests failed in **teardown
+    with their assertions already passed** — the worst kind of red. Use `removeTemp()`
+    (`apps/server/tests/unit/helpers/platform.ts`), which retries and then gives up: a
+    temp directory that will not delete is not a test failure.
+  - **A test that reads a repository file and matches on line structure must normalise
+    CRLF** — git checks out with CRLF on Windows, so a `\n` regex matches nothing
+    there.
+  - **`fs.readlink` returns host-native separators.** Compare resolved paths, not a
+    raw link-target string: Windows spells `../.agents/skills` as
+    `..\.agents\skills`, and both name the same target.
+  - **`fs.stat().mode & 0o111` is meaningless on Windows.** To assert a file is
+    executable, assert *git's index mode* (`git ls-files -s` → `100755`), identical on
+    every platform and what a fresh clone actually restores.
+- **Bun's default 5s test timeout is a Linux assumption.** The macOS and Windows
+  runners are slower — the first `pdfjs` load and a Pi session creation both cross it
+  — so CI runs those two with `--timeout 30000` and keeps 5s on Linux, so a genuine
+  hang is still caught somewhere. A test that does its own waiting (a poll loop, a
+  scaled deadline) needs an **explicit** timeout larger than its own wait, or it dies
+  before its own assertion runs — that has now happened twice.
 - **A model whose child died at startup is `unloaded`, never `failed`, and the exit
   code is the only evidence.** `POST /models/load` answers `{success: true}` — the
   router accepted the *request* — and if the child exits before loading a byte,
@@ -683,7 +716,7 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
   a duplicate *becomes* the active model and deleting the active one promotes a
   neighbour -- and editing `[*]` rewrites the derived `contextSize` of **every** model
   at once. **`AppState` is server-internal** and must never reach
-  the contract — `tests/unit/openapi.test.ts` fails if it does.
+  the contract — `apps/server/tests/unit/http/openapi.test.ts` fails if it does.
 - The **server** loads the model. `POST /api/conversations/:id/chat/stream` and
   `.../regenerate` call `LlamaCppManager.ensureModelRunnable()` before the run
   starts, streaming `model.loading` events while they wait, and failing with

@@ -70,7 +70,7 @@ server_changed=false
 client_changed=false
 buildcfg_changed=false
 
-matches '^(apps/server/|packages/|scripts/|tests/|tsconfig\.json|package\.json|\.oxlintrc\.json|\.oxfmtrc\.json)' && server_changed=true
+matches '^(apps/server/|packages/|scripts/|tsconfig\.json|package\.json|bun\.lock|\.bun-version|\.oxlintrc\.json|\.oxfmtrc\.json)' && server_changed=true
 matches '^apps/client/' && client_changed=true
 matches '^(package\.json|bun\.lock|apps/client/pubspec\.(yaml|lock)|apps/client/(android|ios|linux|macos|windows)/)' && buildcfg_changed=true
 

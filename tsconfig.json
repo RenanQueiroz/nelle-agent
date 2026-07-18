@@ -15,6 +15,6 @@
     "allowSyntheticDefaultImports": true,
     "types": ["node", "bun"]
   },
-  "include": ["apps/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"],
+  "include": ["apps/**/*.ts", "scripts/**/*.ts"],
   "exclude": ["node_modules", "dist", "apps/client"]
 }

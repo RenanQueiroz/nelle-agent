@@ -13,7 +13,7 @@
  * successful build is not a working artifact — `bun build --compile` once reported success on a
  * binary that could not read a single PDF, because pdfjs resolves files relative to
  * `import.meta.url` and that path lives inside Bun's virtual filesystem. A build that cannot read a
- * PDF must never reach a release page. See `tests/unit/compiledBinary.test.ts`.
+ * PDF must never reach a release page. See `apps/server/tests/unit/lib/compiledBinary.test.ts`.
  */
 
 import fs from 'node:fs/promises';
@@ -107,7 +107,7 @@ async function buildServer(): Promise<void> {
   if (failure) {
     console.error(`  the binary REFUSED a PDF: ${failure}`);
     console.error('  (this is the bug that shipped once: a successful build is not a working');
-    console.error('   artifact. See tests/unit/compiledBinary.test.ts.)');
+    console.error('   artifact. See apps/server/tests/unit/lib/compiledBinary.test.ts.)');
     process.exit(1);
   }
   console.log('  ✔ the binary reads a PDF');

@@ -310,9 +310,10 @@ build-config change also builds, and a docs-only push skips entirely.
 ```bash
 bun run format:check
 bun run lint
-bun run check       # tsc, over apps/ scripts/ AND tests/
-bun run test:unit
-bun run test        # the composite: format check, lint, tsc, unit tests
+bun run check          # tsc, over apps/ AND scripts/ (server tests included)
+bun run test:unit      # apps/server/tests/unit
+bun run test           # the composite: format check, lint, tsc, unit tests
+bun run deps:outdated  # what's behind, across bun and pub
 ```
 
 Formatting and linting use Oxfmt and Oxlint with repo-local config files:

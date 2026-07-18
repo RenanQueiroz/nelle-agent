@@ -93,10 +93,10 @@ jobs:
       # per-file-unique ports, never a shared fixed one (see AGENTS).
       - name: unit tests
         if: matrix.os == 'macos-latest'
-        run: bun test tests/unit --timeout 30000
+        run: bun test apps/server/tests/unit --timeout 30000
       - name: unit tests (parallel workers)
         if: matrix.os == 'windows-latest'
-        run: bun test tests/unit --timeout 30000 --parallel=4
+        run: bun test apps/server/tests/unit --timeout 30000 --parallel=4
       # The wire contract is committed (`openapi.json`) and the Dart client models are generated
       # from it, so a route change that skips `bun run build:openapi` must fail here, not in a
       # shipped client. AGENTS calls this diff "a total proof that no route moved" -- this is

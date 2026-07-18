@@ -12,10 +12,10 @@ Project-specific guidance for AI coding agents.
 - Shared agent guidance is split across three directory-scoped `AGENTS.md` files,
   and a rule lives in exactly one of them — the file scoping the code it
   constrains: this root file (repo-wide policy, toolchain, setup/CI/release, dev
-  scripts, and the root-level `scripts/`, `tests/`, `.githooks/`, `.github/`),
-  `apps/server/AGENTS.md` (server internals and the wire contract), and
-  `apps/client/AGENTS.md` (the Flutter client, including driving and device
-  tests). Every `CLAUDE.md` (root and per-app) contains only `@AGENTS.md`: Claude
+  scripts, and the root-level `scripts/`, `.githooks/`, `.github/`),
+  `apps/server/AGENTS.md` (server internals, the wire contract, and the unit tests
+  under `apps/server/tests/`), and `apps/client/AGENTS.md` (the Flutter client,
+  including driving and device tests). Every `CLAUDE.md` (root and per-app) contains only `@AGENTS.md`: Claude
   Code loads the per-app files through those stubs when working in that subtree,
   and Codex discovers nested `AGENTS.md` natively. Keep each file well under 150k
   characters — Claude Code's per-file limit, and the reason for the split.
@@ -31,7 +31,10 @@ Project-specific guidance for AI coding agents.
   rules in the always-loaded `AGENTS.md` files.
 - The server, tests, and toolchain run on **Bun** (`engines.bun`, ≥1.3); there
   is no npm/Node runtime dependency. Use `bun install`, `bun run <script>`, and
-  `bun test`. `.bun-version` is the exact pin: CI reads it (`setup-bun`'s
+  `bun test`. The repo is a **Bun workspace**: `apps/server/package.json` owns the
+  server's runtime dependencies (and `apps/server/tests/` its unit tests), while the
+  root owns the tooling (oxfmt, oxlint, tsc) and `scripts/`; one `bun.lock` at the
+  root covers both. `.bun-version` is the exact pin: CI reads it (`setup-bun`'s
   `bun-version-file`) and `bun run doctor` compares the local install against it —
   upgrade locally, run the gates, then bump the pin; never the other way around.
 - Dependency updates are automated by **Renovate** (`renovate.json`): weekly
@@ -142,35 +145,6 @@ Project-specific guidance for AI coding agents.
     is correct because no job needs one. Default `permissions: contents: read`; only
     the release job may write. **Never a self-hosted runner on a public repo**: a
     fork's PR would execute arbitrary code on your machine.
-- **The unit suite runs on Windows and macOS in CI, and the first run found only
-  *harness* bugs — never a product bug.** A red Windows job looks alarming and was
-  not:
-  - **POSIX shell fixtures do not run on Windows.** Tests that stand a `#!/bin/sh`
-    script in for a real binary (a fake `llama-server` printing a `--help` catalogue;
-    a fake build command) hit `ENOENT: uv_spawn` — no shebang, no `sh`. They are
-    `test.skipIf(needsPosixShell)`: what they verify is platform-independent logic
-    already covered on Linux and macOS, and on Windows the *product* spawns a real
-    `llama-server.exe`. Only the stand-in is POSIX.
-  - **`fs.rm` throws `EBUSY` on Windows** while anything holds a handle, and SQLite
-    does not always release immediately after `close()`. Tests failed in **teardown
-    with their assertions already passed** — the worst kind of red. Use `removeTemp()`
-    (`tests/unit/helpers/platform.ts`), which retries and then gives up: a temp
-    directory that will not delete is not a test failure.
-  - **A test that reads a repository file and matches on line structure must normalise
-    CRLF** — git checks out with CRLF on Windows, so a `\n` regex matches nothing
-    there.
-  - **`fs.readlink` returns host-native separators.** Compare resolved paths, not a
-    raw link-target string: Windows spells `../.agents/skills` as
-    `..\.agents\skills`, and both name the same target.
-  - **`fs.stat().mode & 0o111` is meaningless on Windows.** To assert a file is
-    executable, assert *git's index mode* (`git ls-files -s` → `100755`), identical on
-    every platform and what a fresh clone actually restores.
-- **Bun's default 5s test timeout is a Linux assumption.** The macOS and Windows
-  runners are slower — the first `pdfjs` load and a Pi session creation both cross it
-  — so CI runs those two with `--timeout 30000` and keeps 5s on Linux, so a genuine
-  hang is still caught somewhere. A test that does its own waiting (a poll loop, a
-  scaled deadline) needs an **explicit** timeout larger than its own wait, or it dies
-  before its own assertion runs — that has now happened twice.
 - **The release workflow is tag-only, and that is enforced by a test.** Publishing downloadable
   binaries under the owner's name is a deliberate human act, not something an automated run does on
   its way past. `release.yml` triggers on `v*` tags and nothing else; a push to `main` can never cut
@@ -185,8 +159,9 @@ Project-specific guidance for AI coding agents.
   `tsc`, unit tests). The client's own checks are `flutter analyze`,
   `flutter test`, and the device tiers (`bun run test:device`,
   `bun run test:device:slow`).
-- **`tsc` typechecks `tests/` and `scripts/` too, and that is load-bearing.** Before
-  they were in `tsconfig.include`, a stale import in a test failed at `bun test`
+- **`tsc` typechecks the server's tests and the root `scripts/` too, and that is
+  load-bearing** (`tsconfig.include` is `apps/**` plus `scripts/**`). Before tests were
+  in the include list, a stale import in a test failed at `bun test`
   runtime and never at `bun run check` — exactly backwards for refactors, because Bun
   erases types. Turning `tsc` on them surfaced 36 real errors (imports of
   never-exported values, mocks violating their own contracts, `.catch(e => e)` idioms
@@ -243,9 +218,6 @@ Project-specific guidance for AI coding agents.
     `NELLE_DEV_NO_RELOAD=1` disables auto reload and keeps the plain native `flutter
     run` (press `r` yourself). A `pubspec.yaml` or native/platform change still needs
     a manual `R`; hot reload only carries Dart edits.
-- Unit tests run on `bun:test` with `node:assert/strict`; a `createTestServer`
-  helper (`tests/unit/helpers/testServer.ts`) drives the `Bun.serve` `fetch`
-  handler through an `inject`/`close` surface, so route tests did not churn.
 - MCP servers are configured **per project, in the repo**, not globally: Claude Code
   reads `.mcp.json` and Codex reads `.codex/config.toml` (Codex does not read
   `.mcp.json`). Keep the two in sync — both register `marionette` and `dart`, and

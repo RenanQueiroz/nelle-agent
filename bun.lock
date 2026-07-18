@@ -4,6 +4,18 @@
   "workspaces": {
     "": {
       "name": "nelle-server",
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "@types/node": "^26.1.1",
+        "@types/node-forge": "^1.3.14",
+        "oxfmt": "^0.58.0",
+        "oxlint": "^1.73.0",
+        "typescript": "^7.0.2",
+      },
+    },
+    "apps/server": {
+      "name": "nelle-server",
+      "version": "1.0.0",
       "dependencies": {
         "@earendil-works/pi-coding-agent": "^0.80.6",
         "@huggingface/gguf": "^0.4.2",
@@ -12,14 +24,6 @@
         "node-forge": "^1.4.0",
         "pdfjs-dist": "^6.1.200",
         "zod": "^4.4.3",
-      },
-      "devDependencies": {
-        "@types/bun": "^1.3.14",
-        "@types/node": "^26.1.1",
-        "@types/node-forge": "^1.3.14",
-        "oxfmt": "^0.58.0",
-        "oxlint": "^1.73.0",
-        "typescript": "^7.0.2",
       },
     },
   },
@@ -395,6 +399,8 @@
     "minipass": ["minipass@7.1.3", "", {}, "sha512-tEBHqDnIoM/1rXME1zgka9g6Q2lcoCkxHLuc7ODJ5BxbP5d4c2Z5cGgtXAku59200Cx7diuHTOYfSBD8n6mm8A=="],
 
     "ms": ["ms@2.1.3", "", {}, "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="],
+
+    "nelle-server": ["nelle-server@workspace:apps/server"],
 
     "node-domexception": ["node-domexception@1.0.0", "", {}, "sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ=="],
 
