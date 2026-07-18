@@ -140,7 +140,10 @@ Project-specific guidance for AI coding agents.
     reference runs; unit tests must bind ephemeral or per-file-unique ports, never a
     shared fixed one); iOS boots its simulator in the background while setup runs, with
     the blocking `bootstatus -b` just before the tests; Android caches Gradle
-    (`gradle/actions/setup-gradle`).
+    (`gradle/actions/setup-gradle`), which took the warm job from ~9:20 to ~5:47. An
+    AVD snapshot cache was evaluated and **rejected**: the Gradle cache already puts
+    the repo at ~8 GB of the 10 GB cache allowance, and eviction churn would cost
+    more than the 30-60s a snapshot saves.
   - `pull_request`, never `pull_request_target` — a fork's PR gets no secrets, which
     is correct because no job needs one. Default `permissions: contents: read`; only
     the release job may write. **Never a self-hosted runner on a public repo**: a
