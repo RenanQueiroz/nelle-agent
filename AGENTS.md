@@ -221,6 +221,16 @@ Project-specific guidance for AI coding agents.
     `NELLE_DEV_NO_RELOAD=1` disables auto reload and keeps the plain native `flutter
     run` (press `r` yourself). A `pubspec.yaml` or native/platform change still needs
     a manual `R`; hot reload only carries Dart edits.
+  - **Shutdown signals both children before awaiting either, and that order is
+    load-bearing.** Ctrl-C signals the whole foreground process group, so Flutter and
+    the server are tearing down at the same instant we are. Two consequences, each
+    measured: deleting Flutter's `--pid-file` immediately wins a race the *tool* is
+    also running, and it then warns `Failed to delete pid file (...): Cannot delete
+    file` about a file that is no longer its problem — so the removal waits for the
+    client to exit (bounded) and is only a fallback for a crash. But **delaying
+    `server.kill()` behind that wait orphans the server**: `bun --watch` is a
+    supervisor plus a child, and a late SIGTERM leaves the supervisor reparented to
+    init, where the next `bun run dev` meets it again. Signal both, *then* wait.
 - MCP servers are configured **per project, in the repo**, not globally: Claude Code
   reads `.mcp.json` and Codex reads `.codex/config.toml` (Codex does not read
   `.mcp.json`). Keep the two in sync — both register `marionette` and `dart`, and

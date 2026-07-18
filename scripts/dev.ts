@@ -469,13 +469,23 @@ async function shutdown(code: number): Promise<never> {
     if (daemon) {
       await Promise.race([daemon.stop(), Bun.sleep(3000)]);
     }
+    // **Signal both children before awaiting either.** The server is `bun --watch`, a supervisor
+    // plus a child, and delaying its SIGTERM even a second lets the supervisor outlive the
+    // shutdown: it reparents to init and the next `bun run dev` meets it again. (Measured: moving
+    // `server.kill()` after a wait orphaned it on every run; here it never does.)
     client.kill();
-    // Flutter deletes the pid-file when its signal handlers unhook; clean it up if it crashed instead.
+    server?.kill();
+    // **Only *then* clean up the pid file, and only if Flutter did not.** Flutter deletes the
+    // file itself as its signal handlers unhook, and a Ctrl-C signals the whole foreground
+    // process group — so the tool is tearing down at the same instant we are. Removing it here
+    // immediately won that race on essentially every Ctrl-C, after which Flutter warned "Failed
+    // to delete pid file (...): Cannot delete file" about a file that was no longer its problem.
+    // Bounded: if the tool crashed instead of exiting, the file is ours to remove.
     if (pidFile) {
+      await Promise.race([client.exited, Bun.sleep(3000)]);
       rmSync(pidFile, {force: true});
     }
     if (server) {
-      server.kill();
       // Let the server print its "Shutting down" line before we go; it is bounded anyway.
       await Promise.race([server.exited, Bun.sleep(3000)]);
     }
