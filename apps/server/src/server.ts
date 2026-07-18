@@ -41,6 +41,11 @@ import {registerSettingsRoutes} from './routes/settings';
 export type NelleServer = {
   handle: (req: Request, opts: {trusted: boolean}) => Promise<Response>;
   close: () => Promise<void>;
+  /**
+   * llama.cpp, for the **entrypoint's** shutdown — which stops it, so no router outlives the
+   * server that started it. Not part of `close()`: see the note where this is returned.
+   */
+  llama: LlamaCppManager;
   /** Whether the "allow LAN access" setting is on (read at construction). */
   lanAccessEnabled: boolean;
   /** The self-signed TLS cert for the LAN listener, or `null` when LAN is off. */
@@ -239,6 +244,12 @@ export async function createServer(
       clearInterval(uploadSweepTimer);
       database.close();
     },
+    // Exposed for the **entrypoint's** shutdown, which takes llama.cpp down with the server.
+    // Deliberately not folded into `close()`: every unit test and `serve-fixture` call that,
+    // and the slow device tier *borrows* the developer's running llama-server rather than
+    // spending three minutes and 2.6 GB standing up its own — closing a test server must
+    // never kill it.
+    llama,
     lanAccessEnabled,
     serverCert,
   };

@@ -430,6 +430,18 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
 - Nelle persists managed llama-server ownership in
   `.nelle/llama/llama-server.pid.json` so restarted servers can adopt and stop
   the prior router process.
+- **The entrypoint takes llama.cpp down with it** (`index.ts` shutdown, bounded by
+  `LLAMA_STOP_DEADLINE_MS`). The child is still spawned detached — that is what makes it
+  *stoppable* across a restart via the pid file — but a llama-server nobody owns holds the
+  port and the VRAM after the server that started it is gone, and only `ps` shows it.
+  `NELLE_KEEP_LLAMA=1` restores adoption for a session where reloading weights on every
+  `bun --watch` restart costs more than the stray process does.
+  - **It belongs to the entrypoint, never to `app.close()`.** Every unit test and
+    `serve-fixture` calls `close()`, and the slow device tier deliberately *borrows* the
+    developer's running llama-server rather than building one — a test teardown that killed
+    it would take the developer's router with it. The isolation rule tightens accordingly:
+    a harness on the real data dir no longer merely *adopts* that llama-server, it **kills**
+    it on exit, so pin `NELLE_DATA_DIR` (and `NELLE_LLAMA_PORT`) or leave it alone.
 - **Installing llama.cpp is a *build*, not a request, so it is streamed.**
   `POST /api/runtime/install/stream` (and `/update/stream`, the same handler) answers
   SSE with `RuntimeInstallEvent`: `runtime.install.started` (carrying `installMode`),

@@ -38,9 +38,11 @@
  * choose: you run the desktop app of the machine you are on, and Flutter cannot cross-compile a
  * desktop target anyway.
  *
- * **Quitting.** `q` in the client, or Ctrl-C, tears both down. As with `bun run dev:server`, a
- * managed llama-server is left running on purpose — it is detached for pid-file adoption, so the
- * next start adopts it rather than orphaning it.
+ * **Quitting.** `q` in the client, or Ctrl-C, tears both down — and the server takes its
+ * llama-server with it, so nothing is left holding the port or the VRAM. (`NELLE_KEEP_LLAMA=1`
+ * restores the old behaviour, where llama-server outlived the restart and the next start adopted
+ * it through its pid file; worth it in a session where reloading weights costs more than the
+ * stray process does.)
  */
 
 import {type Dirent, type FSWatcher, readdirSync, readFileSync, rmSync, watch} from 'node:fs';

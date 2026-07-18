@@ -193,7 +193,7 @@ Project-specific guidance for AI coding agents.
   so the script hands the client the real terminal (stdio inherited) and pipes only
   the *server* through a `[server]` prefix. The client target follows the host OS via
   `hostCapabilities().os`; quitting the client (`q`) or Ctrl-C tears the server down,
-  and the managed llama-server is left running on purpose for pid-file adoption. Dev
+  **and the server takes llama.cpp with it** (see `apps/server/AGENTS.md`). Dev
   tooling, not part of the Bun toolchain gate.
   - **The client also hot-reloads on save**, and this is *not* injected keystrokes
     (Flutter reads the keys only from a real-terminal stdin, so piping `r` in would

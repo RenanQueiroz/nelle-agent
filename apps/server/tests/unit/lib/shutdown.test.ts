@@ -109,3 +109,170 @@ async function waitForHealth(base: string): Promise<void> {
   }
   throw new Error('the server never became healthy');
 }
+
+/**
+ * **The server takes llama.cpp down with it.**
+ *
+ * llama-server is spawned detached so it *can* be adopted across a restart, and for a long time
+ * it simply outlived every shutdown. What that leaves behind is a router nobody owns, holding the
+ * port and the VRAM, visible only in `ps`.
+ *
+ * The stand-in is a real process that answers the two questions `isManagedProcess` asks: its
+ * command line carries the recorded binary's basename (`llama-server`) and the preset path. That
+ * is the whole of what makes a process "ours", so a sleep named correctly is indistinguishable
+ * from the real router here — and it needs no 2.6 GB of weights to prove the point.
+ */
+test.skipIf(isWindows)(
+  'SIGTERM takes the managed llama-server down too',
+  async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-llama-stop-'));
+    const port = 18798;
+    const llamaDir = path.join(dataDir, 'llama');
+    const binPath = path.join(llamaDir, 'bin', 'llama-server');
+    const presetPath = path.join(llamaDir, 'models.ini');
+    await fs.mkdir(path.join(llamaDir, 'bin'), {recursive: true});
+    // A "llama-server" that does nothing but stay alive, named and argv'd so the manager
+    // recognises it as the process it owns.
+    await Bun.write(binPath, '#!/bin/sh\nsleep 300\n');
+    await fs.chmod(binPath, 0o755);
+    await Bun.write(presetPath, '');
+
+    const fake = Bun.spawn([binPath, '--models-preset', presetPath], {
+      stdout: 'ignore',
+      stderr: 'ignore',
+    });
+    await Bun.write(
+      path.join(llamaDir, 'llama-server.pid.json'),
+      JSON.stringify({
+        pid: fake.pid,
+        binaryPath: binPath,
+        args: ['--models-preset', presetPath],
+        host: '127.0.0.1',
+        port: 18899,
+        presetPath,
+        startedAt: new Date().toISOString(),
+      }),
+    );
+
+    const child = Bun.spawn(['bun', path.resolve('apps/server/src/index.ts')], {
+      env: {
+        ...process.env,
+        NELLE_DATA_DIR: dataDir,
+        NELLE_PORT: String(port),
+        NELLE_LLAMA_PORT: '18899',
+      },
+      stdout: 'ignore',
+      stderr: 'ignore',
+    });
+
+    try {
+      await waitForHealth(`http://127.0.0.1:${port}`);
+      assert.equal(isAlive(fake.pid), true, 'the stand-in must be running before the shutdown');
+
+      child.kill('SIGTERM');
+      await Promise.race([child.exited, Bun.sleep(8000)]);
+
+      // The signal is what matters and it is sent first thing; give the child a moment to act on it.
+      for (let attempt = 0; attempt < 50 && isAlive(fake.pid); attempt += 1) {
+        await Bun.sleep(100);
+      }
+      assert.equal(
+        isAlive(fake.pid),
+        false,
+        'the llama-server outlived the server that owned it: nobody will ever stop it now',
+      );
+    } finally {
+      child.kill('SIGKILL');
+      try {
+        process.kill(fake.pid, 'SIGKILL');
+      } catch {
+        // Already gone, which is the passing case.
+      }
+      await removeTemp(dataDir);
+    }
+  },
+  30_000,
+);
+
+/**
+ * The escape hatch, pinned: `NELLE_KEEP_LLAMA=1` restores the old adoption behaviour.
+ *
+ * `bun --watch` restarts the server on every save, and reloading multi-GB weights each time
+ * costs minutes — so a session that is editing server code all day can ask for the stray
+ * process instead, and the next start adopts it through the pid file.
+ */
+test.skipIf(isWindows)(
+  'NELLE_KEEP_LLAMA leaves the llama-server running',
+  async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nelle-llama-keep-'));
+    const port = 18799;
+    const llamaDir = path.join(dataDir, 'llama');
+    const binPath = path.join(llamaDir, 'bin', 'llama-server');
+    const presetPath = path.join(llamaDir, 'models.ini');
+    await fs.mkdir(path.join(llamaDir, 'bin'), {recursive: true});
+    await Bun.write(binPath, '#!/bin/sh\nsleep 300\n');
+    await fs.chmod(binPath, 0o755);
+    await Bun.write(presetPath, '');
+
+    const fake = Bun.spawn([binPath, '--models-preset', presetPath], {
+      stdout: 'ignore',
+      stderr: 'ignore',
+    });
+    await Bun.write(
+      path.join(llamaDir, 'llama-server.pid.json'),
+      JSON.stringify({
+        pid: fake.pid,
+        binaryPath: binPath,
+        args: ['--models-preset', presetPath],
+        host: '127.0.0.1',
+        port: 18901,
+        presetPath,
+        startedAt: new Date().toISOString(),
+      }),
+    );
+
+    const child = Bun.spawn(['bun', path.resolve('apps/server/src/index.ts')], {
+      env: {
+        ...process.env,
+        NELLE_DATA_DIR: dataDir,
+        NELLE_PORT: String(port),
+        NELLE_LLAMA_PORT: '18901',
+        NELLE_KEEP_LLAMA: '1',
+      },
+      stdout: 'ignore',
+      stderr: 'ignore',
+    });
+
+    try {
+      await waitForHealth(`http://127.0.0.1:${port}`);
+      child.kill('SIGTERM');
+      await Promise.race([child.exited, Bun.sleep(8000)]);
+      // Long enough that a teardown would have landed: the assertion is that none came.
+      await Bun.sleep(1500);
+      assert.equal(
+        isAlive(fake.pid),
+        true,
+        'NELLE_KEEP_LLAMA asked for the router to be left alone',
+      );
+    } finally {
+      child.kill('SIGKILL');
+      try {
+        process.kill(fake.pid, 'SIGKILL');
+      } catch {
+        // Already gone.
+      }
+      await removeTemp(dataDir);
+    }
+  },
+  30_000,
+);
+
+/** Whether a pid is still running, without caring who owns it. */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}

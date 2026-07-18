@@ -34,6 +34,16 @@ if (app.lanAccessEnabled && app.serverCert) {
   console.log(`Nelle Agent LAN listener on https://0.0.0.0:${lan.port} (paired devices only)`);
 }
 
+/**
+ * How long the llama-server teardown may take before the rest of shutdown goes on without it.
+ *
+ * `LlamaProcessManager.stop()` is SIGTERM, wait up to 5s, then SIGKILL — worst case longer than
+ * this whole process is allowed to live. The signal is what matters and it is sent immediately;
+ * llama-server exits on it in well under a second. Bounding here keeps a wedged child from
+ * eating the shutdown deadline and stranding the port.
+ */
+const LLAMA_STOP_DEADLINE_MS = 3_000;
+
 const shutdown = async (): Promise<void> => {
   console.log('Shutting down Nelle Agent');
   // `stop()` is graceful: it waits for in-flight requests to finish. Nelle's
@@ -45,6 +55,18 @@ const shutdown = async (): Promise<void> => {
   // We are going down; close the sockets. Clients already reattach.
   await loopback.stop(true);
   await lan?.stop(true);
+  // **llama.cpp goes down with us.** It is spawned detached so it *can* outlive a restart, and
+  // for a long time it did — `bun --watch` restarts on every save, and reloading multi-GB
+  // weights each time is minutes the developer does not have. But a llama-server nobody owns is
+  // worse: it holds the port and the VRAM after the thing that started it is gone, and the only
+  // way to notice is `ps`. Set `NELLE_KEEP_LLAMA=1` to get the old adoption behaviour back for a
+  // session where the reload cost dominates.
+  //
+  // It must run **before** `app.close()`: `stop()` finishes by reading status, which reads the
+  // store, which is the database `close()` shuts.
+  if (!process.env.NELLE_KEEP_LLAMA) {
+    await Promise.race([app.llama.stop(), Bun.sleep(LLAMA_STOP_DEADLINE_MS)]);
+  }
   await app.close();
 };
 
@@ -61,10 +83,10 @@ const shutdown = async (): Promise<void> => {
  *
  * So the deadline is the fix, not a workaround for one. We are going down: every byte worth
  * keeping is already on disk (SQLite commits per statement, Pi sessions are append-only), the
- * llama-server child is detached and *meant* to outlive us for pid-file adoption, and a client
- * whose SSE stream dies reattaches on its own. There is nothing here worth hanging for -- and a
- * server that will not die reads as a server that cannot be restarted, which is how the whole
- * `bun --watch` EADDRINUSE confusion starts.
+ * llama-server child has been sent its own SIGTERM by then (bounded separately, see
+ * `LLAMA_STOP_DEADLINE_MS`), and a client whose SSE stream dies reattaches on its own. There is
+ * nothing here worth hanging for -- and a server that will not die reads as a server that cannot
+ * be restarted, which is how the whole `bun --watch` EADDRINUSE confusion starts.
  */
 const SHUTDOWN_DEADLINE_MS = 5_000;
 
