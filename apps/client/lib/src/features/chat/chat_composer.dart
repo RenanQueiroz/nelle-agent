@@ -107,6 +107,11 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
         widget.conversationId,
       ).select((s) => s.valueOrNull?.runWarning),
     );
+    final sendError = ref.watch(
+      chatControllerProvider(
+        widget.conversationId,
+      ).select((s) => s.valueOrNull?.sendError),
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
       child: Column(
@@ -132,6 +137,34 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
                       style: TextStyle(
                         fontSize: 12,
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          // Send-blocking: the server refused before the message became a turn
+          // (llama.cpp stopped, an unsupported attachment). It stays here until the
+          // next attempt — a toast would vanish while the reason still applies.
+          if (sendError != null)
+            Padding(
+              key: const ValueKey('k-composer-send-error'),
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    FLucideIcons.circleX,
+                    size: 14,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      // The server's own sentence, verbatim.
+                      sendError,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.error,
                       ),
                     ),
                   ),

@@ -17,7 +17,10 @@ export async function assertRuntimeRunning(llama: LlamaCppManager): Promise<void
   if ((await llama.getStatus()).running) {
     return;
   }
-  const error = new Error('llama.cpp is not running. Start it in Settings > Runtime.');
+  // The path must match the settings screen verbatim: the destination is titled
+  // "llama.cpp" (under "This server") — the served `runtime` settings group is a
+  // different screen, llama.cpp's launch limits.
+  const error = new Error('llama.cpp is not running. Start it in Settings > llama.cpp.');
   Object.assign(error, {code: NELLE_ERROR_CODES.llamaServerStopped, retryable: true});
   throw error;
 }

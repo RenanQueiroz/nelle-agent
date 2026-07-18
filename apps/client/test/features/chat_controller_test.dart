@@ -241,7 +241,11 @@ void main() {
         performance: ChatPerformance.fromJson(const {
           'source': 'llamacpp-timings',
           'prompt': {'tokens': 171, 'milliseconds': 504.4},
-          'generation': {'tokens': 16, 'milliseconds': 246, 'tokensPerSecond': 65.0},
+          'generation': {
+            'tokens': 16,
+            'milliseconds': 246,
+            'tokensPerSecond': 65.0,
+          },
         }),
       ),
     );
@@ -315,67 +319,64 @@ void main() {
     },
   );
 
-  test(
-    'a generated title updates the sidebar row and the chat header live',
-    () async {
-      // The reported bug: a fresh chat sat at "New chat" for the whole session. The server
-      // generates the title *after* run.completed and streams it as `conversation.updated` on the
-      // same stream — which the controller used to cancel on run.completed, dropping the event and
-      // leaving the sidebar (loaded once, never re-fetched) stuck on its creation-time title.
-      final events = StreamController<ChatStreamEvent>();
-      closeAfterTest(events);
-      final dio = stubDio((o) {
-        if (o.method == 'GET' && o.path == '/api/conversations') {
-          return jsonResponse({
-            'conversations': [
-              {
-                'id': 'c',
-                'title': 'New chat',
-                'titleSource': 'fallback',
-                'pinned': false,
-                'status': 'ready',
-                'updatedAt': 't',
-              },
-            ],
-            'total': 1,
-          });
-        }
-        return jsonResponse({'snapshot': snapshotJson()});
-      });
-      final c = container(events.stream, dio: dio);
+  test('a generated title updates the sidebar row and the chat header live', () async {
+    // The reported bug: a fresh chat sat at "New chat" for the whole session. The server
+    // generates the title *after* run.completed and streams it as `conversation.updated` on the
+    // same stream — which the controller used to cancel on run.completed, dropping the event and
+    // leaving the sidebar (loaded once, never re-fetched) stuck on its creation-time title.
+    final events = StreamController<ChatStreamEvent>();
+    closeAfterTest(events);
+    final dio = stubDio((o) {
+      if (o.method == 'GET' && o.path == '/api/conversations') {
+        return jsonResponse({
+          'conversations': [
+            {
+              'id': 'c',
+              'title': 'New chat',
+              'titleSource': 'fallback',
+              'pinned': false,
+              'status': 'ready',
+              'updatedAt': 't',
+            },
+          ],
+          'total': 1,
+        });
+      }
+      return jsonResponse({'snapshot': snapshotJson()});
+    });
+    final c = container(events.stream, dio: dio);
 
-      // The sidebar has loaded the fresh chat's fallback title.
-      await c.read(conversationsProvider.future);
-      expect(
-        c.read(conversationsProvider).requireValue.items.single.title,
-        'New chat',
-      );
+    // The sidebar has loaded the fresh chat's fallback title.
+    await c.read(conversationsProvider.future);
+    expect(
+      c.read(conversationsProvider).requireValue.items.single.title,
+      'New chat',
+    );
 
-      await c.read(chatControllerProvider('c').future);
-      await c.read(chatControllerProvider('c').notifier).send('hi');
-      // The visible run finishes; crucially the stream is NOT cancelled here.
-      events.add(const RunCompletedEvent(status: 'completed'));
-      await _settle();
-      expect(
-        c.read(chatControllerProvider('c')).requireValue.running,
-        isFalse,
-        reason: 'the visible run is over even though the stream is held open',
-      );
+    await c.read(chatControllerProvider('c').future);
+    await c.read(chatControllerProvider('c').notifier).send('hi');
+    // The visible run finishes; crucially the stream is NOT cancelled here.
+    events.add(const RunCompletedEvent(status: 'completed'));
+    await _settle();
+    expect(
+      c.read(chatControllerProvider('c')).requireValue.running,
+      isFalse,
+      reason: 'the visible run is over even though the stream is held open',
+    );
 
-      // The title arrives on that still-open stream, from the title sub-run.
-      events.add(const ConversationUpdatedEvent(title: 'One word greeting'));
-      await _settle();
+    // The title arrives on that still-open stream, from the title sub-run.
+    events.add(const ConversationUpdatedEvent(title: 'One word greeting'));
+    await _settle();
 
-      final row = c.read(conversationsProvider).requireValue.items.single;
-      expect(row.title, 'One word greeting');
-      expect(row.titleSource, ConversationListItemTitleSource.generated);
-      // The chat header updates live too, without re-opening the conversation.
-      expect(
-        c.read(chatControllerProvider('c')).requireValue.title,
-        'One word greeting',
-      );
-    },
-  );
+    final row = c.read(conversationsProvider).requireValue.items.single;
+    expect(row.title, 'One word greeting');
+    expect(row.titleSource, ConversationListItemTitleSource.generated);
+    // The chat header updates live too, without re-opening the conversation.
+    expect(
+      c.read(chatControllerProvider('c')).requireValue.title,
+      'One word greeting',
+    );
+  });
 
   test('the title sub-run\'s own run events do not re-finalize the run', () async {
     // After the visible run completes the server streams a short title sub-run with its OWN
@@ -458,6 +459,10 @@ void main() {
       // and it is not left in the transcript as if it had been sent
       expect(state.pending, isEmpty);
       expect(state.messages, isEmpty);
+      // Send-blocking: the persistent banner above the composer, never the toast —
+      // a toast vanishes while the reason still applies.
+      expect(state.sendError, 'not running');
+      expect(state.runError, isNull);
     },
   );
 
@@ -479,6 +484,34 @@ void main() {
     final state = c.read(chatControllerProvider('c')).requireValue;
     expect(state.refusedMessage, isNull);
     expect(state.runError, 'too big');
+    // A run that started is a run outcome — the toast, not the composer banner.
+    expect(state.sendError, isNull);
+  });
+
+  test('the next send clears the send-blocking banner', () async {
+    // Broadcast, because this test sends twice and each send subscribes anew — a
+    // single-subscription stream would throw on the second listen.
+    final events = StreamController<ChatStreamEvent>.broadcast();
+    final c = container(events.stream);
+
+    await c.read(chatControllerProvider('c').future);
+    await c.read(chatControllerProvider('c').notifier).send('first');
+    events.add(
+      StreamErrorEvent(
+        NelleError(code: 'llama_server_stopped', message: 'not running'),
+      ),
+    );
+    await events.close();
+    await _settle();
+    expect(
+      c.read(chatControllerProvider('c')).requireValue.sendError,
+      'not running',
+    );
+
+    // The reason may still apply, but the user is retrying: the stale sentence must
+    // not sit beside the new attempt's outcome.
+    await c.read(chatControllerProvider('c').notifier).send('second');
+    expect(c.read(chatControllerProvider('c')).requireValue.sendError, isNull);
   });
 
   test('consumeRefusedMessage clears it', () async {
@@ -597,7 +630,10 @@ void main() {
     final state = c.read(chatControllerProvider('c')).requireValue;
     // There is no typed message to give back: the turn is already in the transcript.
     expect(state.refusedMessage, isNull);
-    expect(state.runError, 'not running');
+    // Refused before anything ran, so it is send-blocking: the persistent banner,
+    // not the toast.
+    expect(state.sendError, 'not running');
+    expect(state.runError, isNull);
   });
 
   test(
@@ -711,39 +747,46 @@ void main() {
     );
   });
 
-  test('activateVariant posts to the activate route and applies the snapshot', () async {
-    final events = StreamController<ChatStreamEvent>();
-    closeAfterTest(events);
-    String? activatedPath;
-    final dio = stubDio((o) {
-      if (o.method == 'POST' && o.path.contains('/activate')) {
-        activatedPath = o.path;
-        return jsonResponse({
-          'snapshot': snapshotJson(
-            messages: [
-              {
-                'id': 'a2',
-                'role': 'assistant',
-                'content': 'the older variant',
-                'createdAt': 't',
-              },
-            ],
-          ),
-        });
-      }
-      return jsonResponse({'snapshot': snapshotJson()});
-    });
-    final c = container(events.stream, dio: dio);
-    await c.read(chatControllerProvider('c').future);
+  test(
+    'activateVariant posts to the activate route and applies the snapshot',
+    () async {
+      final events = StreamController<ChatStreamEvent>();
+      closeAfterTest(events);
+      String? activatedPath;
+      final dio = stubDio((o) {
+        if (o.method == 'POST' && o.path.contains('/activate')) {
+          activatedPath = o.path;
+          return jsonResponse({
+            'snapshot': snapshotJson(
+              messages: [
+                {
+                  'id': 'a2',
+                  'role': 'assistant',
+                  'content': 'the older variant',
+                  'createdAt': 't',
+                },
+              ],
+            ),
+          });
+        }
+        return jsonResponse({'snapshot': snapshotJson()});
+      });
+      final c = container(events.stream, dio: dio);
+      await c.read(chatControllerProvider('c').future);
 
-    await c.read(chatControllerProvider('c').notifier).activateVariant('a2');
+      await c.read(chatControllerProvider('c').notifier).activateVariant('a2');
 
-    expect(activatedPath, '/api/conversations/c/messages/a2/activate');
-    expect(
-      c.read(chatControllerProvider('c')).requireValue.messages.map((m) => m.content),
-      contains('the older variant'),
-    );
-  });
+      expect(activatedPath, '/api/conversations/c/messages/a2/activate');
+      expect(
+        c
+            .read(chatControllerProvider('c'))
+            .requireValue
+            .messages
+            .map((m) => m.content),
+        contains('the older variant'),
+      );
+    },
+  );
 
   test('activateVariant is refused mid-run', () async {
     final events = StreamController<ChatStreamEvent>();
@@ -757,11 +800,17 @@ void main() {
     });
     final c = container(events.stream, dio: dio);
     await c.read(chatControllerProvider('c').future);
-    await c.read(chatControllerProvider('c').notifier).send('hi'); // now running
+    await c
+        .read(chatControllerProvider('c').notifier)
+        .send('hi'); // now running
 
     await c.read(chatControllerProvider('c').notifier).activateVariant('a2');
 
-    expect(activateCalls, 0, reason: 'the transcript must not change under a streaming reply');
+    expect(
+      activateCalls,
+      0,
+      reason: 'the transcript must not change under a streaming reply',
+    );
   });
 
   test('canReason is a tri-state read straight off the snapshot', () async {
@@ -911,30 +960,37 @@ void main() {
 
     final state = c.read(chatControllerProvider('c')).requireValue;
     expect(state.refusedMessage, 'read this');
-    expect(state.runError, contains('scan.pdf'));
+    // Send-blocking, so it lands on the composer banner and stays there.
+    expect(state.sendError, contains('scan.pdf'));
     // The uploads are still on the server, unbound. Making the user pick the files
     // again is not a fix.
     expect(c.read(attachmentDraftProvider('c')).uploads, hasLength(1));
   });
 
-  test('a stream error surfaces runError and ends the run', () async {
-    final events = StreamController<ChatStreamEvent>();
-    final c = container(events.stream);
+  test(
+    'a stream error after run.started surfaces runError and ends the run',
+    () async {
+      final events = StreamController<ChatStreamEvent>();
+      final c = container(events.stream);
 
-    await c.read(chatControllerProvider('c').future);
-    await c.read(chatControllerProvider('c').notifier).send('hi');
-    events.add(
-      StreamErrorEvent(
-        NelleError(code: 'llama_server_stopped', message: 'not running'),
-      ),
-    );
-    await events.close();
-    await _settle();
+      await c.read(chatControllerProvider('c').future);
+      await c.read(chatControllerProvider('c').notifier).send('hi');
+      // The run started, so this is a run outcome — the toast path, not the banner.
+      events.add(const RunStartedEvent(runId: 'r'));
+      events.add(
+        StreamErrorEvent(
+          NelleError(code: 'pi_run_failed', message: 'it broke mid-answer'),
+        ),
+      );
+      await events.close();
+      await _settle();
 
-    final state = c.read(chatControllerProvider('c')).requireValue;
-    expect(state.running, false);
-    expect(state.runError, 'not running');
-  });
+      final state = c.read(chatControllerProvider('c')).requireValue;
+      expect(state.running, false);
+      expect(state.runError, 'it broke mid-answer');
+      expect(state.sendError, isNull);
+    },
+  );
 
   test('a run warning is surfaced, not swallowed', () async {
     final events = StreamController<ChatStreamEvent>();

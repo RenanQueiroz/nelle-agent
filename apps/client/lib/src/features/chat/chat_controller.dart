@@ -32,7 +32,12 @@ import 'tool_call_card.dart';
 /// its first frames carry no value at all. That is "loading, amount unknown", which is
 /// not zero: rendering it as 0% would invent a number the server never sent.
 class ModelLoad {
-  const ModelLoad({this.progress, this.phase, this.downloadedBytes, this.totalBytes});
+  const ModelLoad({
+    this.progress,
+    this.phase,
+    this.downloadedBytes,
+    this.totalBytes,
+  });
 
   final double? progress;
 
@@ -56,6 +61,7 @@ class ChatState {
     this.running = false,
     this.modelLoad,
     this.runError,
+    this.sendError,
     this.refusedMessage,
     this.compacting = false,
     this.compactNote,
@@ -79,7 +85,17 @@ class ChatState {
 
   /// Non-null while llama.cpp is loading the model's weights for this run.
   final ModelLoad? modelLoad;
+
+  /// An error from a run that *started* — rendered as a toast, because the transcript
+  /// already shows what happened to the answer.
   final String? runError;
+
+  /// The server refused the message before it became a turn (no `run.started` —
+  /// llama.cpp stopped, an unsupported attachment). **Send-blocking, so it renders as a
+  /// persistent banner above the composer**, never a toast: the reason still applies
+  /// after three seconds, and the user needs it in view while they fix it. Cleared by
+  /// the next send attempt.
+  final String? sendError;
 
   /// A message the server refused before it became a turn (no `run.started`), so
   /// the composer can put the text back rather than making the user retype it.
@@ -170,6 +186,7 @@ class ChatState {
     ModelLoad? modelLoad,
     bool clearModelLoad = false,
     String? runError,
+    String? sendError,
     bool clearError = false,
     String? refusedMessage,
     bool clearRefused = false,
@@ -188,6 +205,7 @@ class ChatState {
     running: running ?? this.running,
     modelLoad: clearModelLoad ? null : (modelLoad ?? this.modelLoad),
     runError: clearError ? null : (runError ?? this.runError),
+    sendError: clearError ? null : (sendError ?? this.sendError),
     refusedMessage: clearRefused
         ? null
         : (refusedMessage ?? this.refusedMessage),
@@ -525,6 +543,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         running: current.running,
         modelLoad: current.modelLoad,
         runError: current.runError,
+        sendError: current.sendError,
         refusedMessage: current.refusedMessage,
       ),
     );
@@ -611,7 +630,14 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         // because the reply budget ran out is not something to leave unexplained.
         state = AsyncData(s.copyWith(runWarning: warning.message));
       case StreamErrorEvent(:final error):
-        state = AsyncData(s.copyWith(runError: error.message));
+        // Before `run.started` this is a *refusal*, not a run outcome: it belongs on
+        // the composer banner, and must never touch `runError` even transiently — the
+        // toast listener fires on any change it sees.
+        state = AsyncData(
+          _runStarted
+              ? s.copyWith(runError: error.message)
+              : s.copyWith(sendError: error.message),
+        );
       case RunCompletedEvent(:final status, :final error):
         // A specific error already on the state — `compact.failed`, a stream `error` —
         // is the one the server bothered to write. "The run failed." is what we say
@@ -619,6 +645,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         final errorMessage =
             error?.message ??
             s.runError ??
+            s.sendError ??
             (status == 'failed' ? 'The run failed.' : null);
         // A clean chat/regenerate finish is followed by the generated title on this same
         // stream; keep listening for it. A failed run or a compaction sends no title, so the
@@ -777,7 +804,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     ref.read(activeRunsProvider.notifier).end(arg);
 
     final s = state.valueOrNull;
-    final error = errorMessage ?? s?.runError;
+    final error = errorMessage ?? s?.runError ?? s?.sendError;
     // The compaction row is synthesized and lives nowhere else: `buildConversationMessages`
     // drops compaction entries, so reloading the snapshot would silently erase it.
     //
@@ -801,10 +828,15 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       final next = ChatState.fromSnapshot(
         snapshot,
       ).copyWith(compactNote: compactNote, runWarning: runWarning);
+      // A refusal-before-run is send-blocking: it lands above the composer and stays
+      // until the next attempt. A mid-run error is a toast — the transcript already
+      // shows what happened to the answer.
       state = AsyncData(
         error == null
             ? next
-            : next.copyWith(runError: error, refusedMessage: refused),
+            : refused != null
+            ? next.copyWith(sendError: error, refusedMessage: refused)
+            : next.copyWith(runError: error),
       );
     } catch (_) {
       if (s != null) {
@@ -819,7 +851,8 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
                 ? s.messages
                 : [...s.messages, ...s.pending],
             pending: const [],
-            runError: error,
+            runError: refused == null ? error : null,
+            sendError: refused == null ? null : error,
             refusedMessage: refused,
           ),
         );
