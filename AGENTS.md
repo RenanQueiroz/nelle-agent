@@ -178,7 +178,8 @@ Project-specific guidance for AI coding agents.
   **Release** (free, unlimited, permanent, downloadable without a login) rather than Actions
   artifacts, which expire, need an account, and are metered even on public repos. Every server
   binary is smoke-tested before it is attached: a build that cannot read a PDF must never reach a
-  download page.
+  download page. A `SHA256SUMS` asset covers every file, and the release is created as a
+  **draft** — publishing stays a human act twice over (the tag, then the draft).
 - Primary checks are `bun run format:check`, `bun run lint`, `bun run check`,
   `bun run test:unit`, and `bun run test` (the composite: format check, lint,
   `tsc`, unit tests). The client's own checks are `flutter analyze`,
