@@ -41,7 +41,7 @@ export type HostCapabilities = {
    * it runs inside WSL and shares the network namespace.
    */
   lanReachableByPhone: boolean;
-  /** True when running inside WSL — several traps in AGENTS are specific to it. */
+  /** True when running inside WSL — several traps in the AGENTS files and skills are specific to it. */
   isWsl: boolean;
 };
 

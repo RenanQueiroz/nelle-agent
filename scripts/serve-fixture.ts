@@ -60,8 +60,9 @@ const llamaPort = Number(process.env.NELLE_LLAMA_PORT);
  *
  * - `LLAMA_SERVER_PATH` is the documented external-binary override, and points at the developer's
  *   build.
- * - `LLAMA_CACHE` is honoured *over* Nelle's own choice, deliberately (see AGENTS: "an explicit
- *   choice wins"), so llama.cpp finds the gemma-4-E2B blobs already on disk.
+ * - `LLAMA_CACHE` is honoured *over* Nelle's own choice, deliberately (see
+ *   `apps/server/AGENTS.md`: "an explicit choice wins"), so llama.cpp finds the gemma-4-E2B
+ *   blobs already on disk.
  *
  * It still runs llama.cpp on the fixture's **own** port, so it cannot collide with — or be mistaken
  * for — the developer's. Nothing here writes to the developer's data directory: the borrowed cache

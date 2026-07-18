@@ -210,8 +210,8 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
   design only adjusts arguments the user left unset), so llama.cpp allocates a KV
   cache for whatever integer it is handed. `c = 900000000` does not fail — it takes
   the machine down, logging `loading model` and then nothing (not hypothetical: it
-  killed this WSL2 VM mid-drive; under WSL2 the VM balloons host memory, so the blast
-  radius is the whole VM). So `validateModelParams` refuses `c` above
+  once took down a WSL2 dev VM mid-drive — under WSL2 the VM balloons host memory,
+  so the blast radius is the whole VM). So `validateModelParams` refuses `c` above
   **`MAX_CONTEXT_EXTENSION_FACTOR` (32) × the model's trained window**, and *warns* on
   any overshoot at all.
   - **Running past `n_ctx_train` is legitimate**, which is why the ceiling is generous

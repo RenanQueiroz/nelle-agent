@@ -1,6 +1,6 @@
 ---
 name: driving-the-client
-description: Drive the running Nelle Flutter app with the Marionette MCP server to verify UI changes end to end — required before any client change counts as done. Use when running, driving, screenshotting, or interactively debugging the client app, when driving it on the Android emulator, or when image paste, the keyring, or phone networking behaves oddly on this WSL2 machine.
+description: Drive the running Nelle Flutter app with the Marionette MCP server to verify UI changes end to end — required before any client change counts as done. Use when running, driving, screenshotting, or interactively debugging the client app, when driving it on the Android emulator, or when image paste, the keyring, or phone networking behaves oddly under Linux or WSL2.
 ---
 
 # Driving the running client
@@ -40,9 +40,12 @@ type.
 For any model-backed drive, use the small models — see the `model-testing`
 skill.
 
-## This machine's quirks (WSL2)
+## Platform quirks (Linux / WSL2)
 
-- **A physical phone on the LAN cannot reach this WSL2 machine.** WSL2 is NAT'd
+These apply only when the development machine is Linux — and the WSL2/WSLg ones
+only under WSL. On macOS and Windows this section does not apply.
+
+- **A physical phone on the LAN cannot reach a WSL2 dev machine.** WSL2 is NAT'd
   by default, so Nelle binds the VM's `172.31.x.x` while the phone is on the
   host's `192.168.x.x` — the two do not meet without `networkingMode=mirrored`
   in `.wslconfig` or a Windows `netsh portproxy`. **An Android emulator needs
@@ -51,7 +54,7 @@ skill.
   drive the phone, and a second desktop instance pointed at the TLS listener the
   way to drive a remote client. Neither is a bug to fix — they are the shape of
   the machine.
-- **Driving the Android emulator here needs two non-obvious flags.** It aborts
+- **Driving the Android emulator under WSL needs two non-obvious flags.** It aborts
   with `Unable to create /run/user/1000/avd/running` because WSL has no
   `XDG_RUNTIME_DIR`, and it hangs at 0.1% CPU forever waiting on a WSLg window —
   so give it a writable `XDG_RUNTIME_DIR` and run it **`-no-window`**. Headless
@@ -61,7 +64,7 @@ skill.
   `flutter run -d emulator-5554`. KVM needs the user in the `kvm` group; without
   it the boot silently falls back to something unusable.
 - **WSLg cannot carry an image on the clipboard between processes**, so image
-  paste cannot be driven end-to-end on this machine: the WSLg bridge takes the
+  paste cannot be driven end-to-end under WSLg: the bridge takes the
   CLIPBOARD selection and only preserves text, and a GTK image set by any other
   process (verified with PyGObject, and with the image set on the Windows side)
   vanishes. _File_ paste is drivable and was driven (a real Ctrl+V of a copied

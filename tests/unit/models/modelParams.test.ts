@@ -124,7 +124,7 @@ test('the keys Nelle itself writes are accepted, including the ones --help hides
   assert.ok(ACCEPTED.has('load-on-startup'));
   assert.ok(ACCEPTED.has('__PRESET_STOP_TIMEOUT'), 'the preset-only env name is a key too');
 
-  // And the memory levers AGENTS.md promises the user.
+  // And the memory levers `apps/server/AGENTS.md` promises the user.
   for (const key of ['ctk', 'ctv', 'ngl', 'cmoe', 'ncmoe', 'ot', 'offline']) {
     assert.ok(ACCEPTED.has(key), `${key} is a documented lever and must validate`);
   }

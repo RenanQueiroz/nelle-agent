@@ -229,7 +229,7 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   looks. Any bug found this way gets a regression test before the fix is committed.
   Give every interactive widget a stable `ValueKey`; Marionette matches by key or
   visible text, and raw coordinates silently rot. The workflow, edge checklist and
-  this machine's WSL2 quirks (emulator flags, phone networking, WSLg clipboard,
+  the Linux/WSL2 platform quirks (emulator flags, phone networking, WSLg clipboard,
   drive keyring) are in the `driving-the-client` skill
   (`.agents/skills/driving-the-client/SKILL.md`).
 - **Two testing tools, and they are not alternatives.** **Marionette is

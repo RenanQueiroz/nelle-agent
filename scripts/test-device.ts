@@ -11,7 +11,8 @@
  *
  * **Android needs `adb reverse`**, and that is the whole trick. The emulator's `127.0.0.1` is the
  * emulator, not the host — so a phone normally has to pair over the TLS LAN listener to reach
- * Nelle at all (see AGENTS: WSL2 is NAT'd, the emulator shares its namespace). `adb reverse
+ * Nelle at all (see the `driving-the-client` skill: WSL2 is NAT'd, the emulator shares its
+ * namespace). `adb reverse
  * tcp:<port> tcp:<port>` maps the device's own loopback back to the host's port, which means the
  * Android tests use the *same* loopback path as the desktop ones: no TLS, no pin, no device token,
  * no Keystore.

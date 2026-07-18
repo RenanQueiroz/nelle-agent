@@ -366,10 +366,15 @@ and the test needs no pairing, TLS or certificate pin.
 
 ## Architecture
 
-`AGENTS.md` is the committed source of truth for implementation rules and
-architecture — the server-vs-client boundary, the Bun runtime, `models.ini`
-ownership, Pi sessions, settings, streaming, and the rest. (Day-to-day planning lives in
-`plans/`, which is local scratch and intentionally not committed to git.)
+The committed source of truth for implementation rules and architecture is the
+`AGENTS.md` family, split by scope: the repo root (policy, toolchain, CI, dev
+scripts), `apps/server/AGENTS.md` (server internals and the wire contract — the
+server-vs-client boundary, `models.ini` ownership, Pi sessions, settings,
+streaming), and `apps/client/AGENTS.md` (the Flutter client). Task playbooks
+live in `.agents/skills/<name>/SKILL.md` ([Agent Skills](https://agentskills.io)
+format); `.claude/skills` is a symlink to that directory, and every `CLAUDE.md`
+contains only `@AGENTS.md`. (Day-to-day planning lives in `plans/`, which is
+local scratch and intentionally not committed to git.)
 
 Server settings are declared once, in `SETTINGS_REGISTRY`
 (`apps/server/src/contracts/settings.ts`), and served to every client from

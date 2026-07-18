@@ -22,8 +22,8 @@ Project-specific guidance for AI coding agents.
 - Task playbooks live in `.agents/skills/<name>/SKILL.md`
   (https://agentskills.io format), the cross-agent source of truth; `.claude/skills`
   is a symlink to it, which is how Claude Code discovers them. Current skills:
-  `driving-the-client` (verify UI changes in the running app, plus this machine's
-  WSL2/emulator quirks), `device-tests` (write, run and debug the
+  `driving-the-client` (verify UI changes in the running app, plus Linux/WSL2
+  platform quirks), `device-tests` (write, run and debug the
   `integration_test` suite), `model-testing` (which small models any model-backed
   test uses, and the `runtime.modelsMax` requirement). Agents without native skill
   discovery should read the relevant `SKILL.md` when doing those tasks. Keep
@@ -94,10 +94,10 @@ Project-specific guidance for AI coding agents.
   stack trace three minutes in. (The **server** binary does cross-compile, but a cross-compiled one
   ships without the target's `@napi-rs/canvas` native binding and cannot read a PDF — build it
   natively per OS, as CI does.)
-- **CI is the only Mac, Windows and iPhone this project has.** The repo is public, so
-  standard GitHub-hosted runners are free on every OS (only *larger* runners bill),
-  and `.github/workflows/ci.yml` verifies Nelle where the one development machine — a
-  WSL2 box — cannot:
+- **CI is the cross-platform safety net: the one place every OS is always covered.**
+  The repo is public, so standard GitHub-hosted runners are free on every OS (only
+  *larger* runners bill), and `.github/workflows/ci.yml` verifies Nelle on every
+  platform, whatever the current development machine happens to be:
   - **The compiled-binary smoke test runs on Linux, macOS and Windows.** It builds the
     binary, *runs it*, and feeds it a real PDF — `bun build --compile` once reported
     success on a binary that could not read a single PDF, and that failure class is
@@ -227,7 +227,8 @@ Project-specific guidance for AI coding agents.
   Restart the agent session after changing either file; MCP servers load at session
   start. Each command exports `PATH` explicitly, because `~/.bashrc` returns early
   for non-interactive shells, so a bare `bash -lc` misses `~/.pub-cache/bin` and
-  resolves `dart` to the stale **Windows** Flutter on `/mnt/c`.
+  resolves `dart` to whatever stale toolchain sits on the default PATH (under WSL
+  that was the Windows Flutter on `/mnt/c`).
 - Nelle has no users yet. Do not write code to migrate old installs: when a
   change makes existing app data wrong, edit the data directory (`~/.nelle`) by hand
   and move on. SQLite `schema_migrations` stays, because it is also how a fresh
