@@ -29,6 +29,16 @@ For every UI-affecting change:
 Marionette matches by `ValueKey` or visible text — give every interactive widget
 a stable `ValueKey`, because tapping raw coordinates silently rots.
 
+**Never edit a Dart file while a `flutter run` build for it is in flight.** The
+incremental compiler records the file's mtime as it compiles, so an edit landing
+mid-build keeps a pre-edit binary with a post-edit timestamp — after which every
+hot reload (and even a fresh `flutter run`, which reuses the kernel cache)
+reports success while running the stale code. The screenshots disagree with the
+source and nothing errors. `touch` the file, then hot reload, to force
+recompilation. (Marionette's `hot_reload` is also a raw reassemble on some
+targets — when a reload seems ignored, prefer the `dart` MCP's `hot_reload`,
+which goes through the tool's compiler.)
+
 ## Drive the edges
 
 That is where client bugs live and where no unit test looks: empty states, error

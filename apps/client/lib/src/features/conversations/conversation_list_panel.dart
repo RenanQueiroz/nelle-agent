@@ -31,14 +31,23 @@ class ConversationListPanel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(conversationsProvider);
     return FSidebar.raw(
+      // 300, not the default 256: chat titles are sentences, and the brand + three
+      // actions need the room (at 256 "Nelle" ellipsized to "Ne…" in the sheet).
+      style: const FSidebarStyleDelta.delta(
+        constraints: BoxConstraints(minWidth: 300, maxWidth: 300),
+      ),
       header: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           FHeader(
             // The brand, not a label: this is the app's top-left corner, the way
             // Claude's sidebar says Claude. The counts live on the section headings,
-            // where they describe something specific.
-            title: const Text('Nelle'),
+            // where they describe something specific. Sized below the header's default
+            // display type so it never competes with the actions for width.
+            title: const Text(
+              'Nelle',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+            ),
             suffixes: [
               FHeaderAction(
                 key: const ValueKey('k-conv-new'),

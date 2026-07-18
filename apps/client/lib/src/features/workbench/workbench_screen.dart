@@ -58,6 +58,9 @@ class _WorkbenchScreenState extends ConsumerState<WorkbenchScreen> {
       showFSheet(
         context: context,
         side: FLayout.ltr,
+        // Unclamped: the default 9/16 ratio would cut the sidebar's 300px to ~226 on a
+        // phone, ellipsizing the very titles the sheet exists to show.
+        mainAxisMaxRatio: null,
         builder: (sheetContext) => DecoratedBox(
           decoration: BoxDecoration(
             color: sheetContext.theme.colors.background,

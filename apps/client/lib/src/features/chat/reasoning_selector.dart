@@ -23,6 +23,12 @@ class ReasoningSelector extends ConsumerWidget {
     if (chat == null) {
       return const SizedBox.shrink();
     }
+    // No models yet (a fresh install) → no selector: how hard a model thinks is not a
+    // question until there is a model. The model selector hides on the same condition,
+    // so the first-run composer is just the message box.
+    if (chat.snapshot.models.available.isEmpty) {
+      return const SizedBox.shrink();
+    }
     // `false` means llama.cpp has loaded this model and its template has no thinking
     // mode. There is nothing to choose, so say so rather than offering five levels
     // that would all behave the same.
