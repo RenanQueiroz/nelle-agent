@@ -507,7 +507,13 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   `dispose()` runs when the element is actually unmounted.
 - Show context-window usage in the composer header, as a progress bar with the
   used/total token counts behind it. Send-blocking errors belong above the
-  composer, non-blocking warnings below it.
+  composer, non-blocking warnings below it. The split is mechanical, not stylistic:
+  a stream error **before `run.started`** is a refusal and goes to
+  `ChatState.sendError` — a persistent banner above the composer, cleared by the
+  next attempt — while an error **after** `run.started` is a run outcome and goes
+  to `ChatState.runError`, which toasts. Routing a refusal through `runError`
+  flashes a toast that vanishes while the reason still applies; it did, and one
+  minute of driving found it after 372 green tests did not.
 - The composer stays disabled until there is an active conversation. The id is
   empty until the conversation list resolves, and a message sent then had nowhere
   to go: the submit handler returned early and the typed text was lost.
