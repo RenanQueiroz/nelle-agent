@@ -4,6 +4,7 @@ import 'package:forui/forui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/config.dart';
+import '../settings/section_shell.dart';
 import 'health.dart';
 import 'join_section.dart';
 import 'remote_access_section.dart';
@@ -19,7 +20,10 @@ import 'server_connection.dart';
 /// It is device-local for the plainest of reasons: it *is* this device's relationship to
 /// a server, and it carries a pinned certificate and a token.
 class ConnectionScreen extends ConsumerStatefulWidget {
-  const ConnectionScreen({super.key});
+  const ConnectionScreen({super.key, this.embedded = false});
+
+  /// Rendered inside the two-pane settings screen (desktop) rather than pushed (phone).
+  final bool embedded;
 
   @override
   ConsumerState<ConnectionScreen> createState() => _ConnectionScreenState();
@@ -62,78 +66,69 @@ class _ConnectionScreenState extends ConsumerState<ConnectionScreen> {
       }
     });
 
-    return FScaffold(
-      header: FHeader.nested(
-        title: const Text('Server'),
-        prefixes: [
-          FHeaderAction.back(
-            key: const ValueKey('k-connection-back'),
-            // `Navigator`, not go_router: this is pushed imperatively from the settings
-            // screen, so it is a route on the navigator rather than a location in the
-            // router. Falls back to the workbench when it was *not* pushed -- a deep
-            // link, or a restart landing straight here -- so the screen is never a dead
-            // end, which it was before M2.
-            onPress: () => Navigator.of(context).canPop()
-                ? Navigator.of(context).pop()
-                : context.go('/'),
-          ),
-        ],
-      ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 460),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Connection',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 12),
-                // The manual URL box is hidden while paired. A pairing *is* the
-                // connection -- it carries the address, the pinned certificate and the
-                // device id together -- so an editable URL beside it is a second,
-                // contradictory answer to the same question. It showed 127.0.0.1 while
-                // the app was talking to the LAN server, which is worse than useless.
-                if (!connection.isPaired) ...[
-                  FTextField(
-                    key: const ValueKey('k-connection-url'),
-                    control: FTextFieldControl.managed(controller: _controller),
-                    label: const Text('Server URL'),
-                    hint: defaultServerBaseUrl,
-                    keyboardType: TextInputType.url,
-                    onSubmit: (_) => _save(),
-                  ),
-                  const SizedBox(height: 12),
-                  FButton(
-                    key: const ValueKey('k-connection-save'),
-                    onPress: _save,
-                    child: const Text('Save & test'),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-                _HealthStatus(health: health),
-                const SizedBox(height: 28),
-                const Divider(),
-                const SizedBox(height: 16),
-                // Joining is possible from anywhere -- that is the point of a client.
-                const JoinSection(),
-                // Hosting is not: minting a code and managing devices are loopback-only
-                // on the server (they answer 404 to a paired device), because enrolling
-                // a device is an act of consent and consent is given at the machine. On
-                // a phone these would be buttons that cannot work.
-                if (connection.isLoopback) ...[
-                  const SizedBox(height: 28),
-                  const Divider(),
-                  const SizedBox(height: 16),
-                  const RemoteAccessSection(),
-                ],
-              ],
+    return SectionShell(
+      title: 'Server',
+      embedded: widget.embedded,
+      maxWidth: 460,
+      backKey: const ValueKey('k-connection-back'),
+      // `Navigator`, not go_router: this is pushed imperatively from the settings
+      // screen, so it is a route on the navigator rather than a location in the
+      // router. Falls back to the workbench when it was *not* pushed -- a deep
+      // link, or a restart landing straight here -- so the screen is never a dead
+      // end, which it was before M2.
+      onBack: () => Navigator.of(context).canPop()
+          ? Navigator.of(context).pop()
+          : context.go('/'),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Connection',
+              style: TextStyle(fontWeight: FontWeight.w600),
             ),
-          ),
+            const SizedBox(height: 12),
+            // The manual URL box is hidden while paired. A pairing *is* the
+            // connection -- it carries the address, the pinned certificate and the
+            // device id together -- so an editable URL beside it is a second,
+            // contradictory answer to the same question. It showed 127.0.0.1 while
+            // the app was talking to the LAN server, which is worse than useless.
+            if (!connection.isPaired) ...[
+              FTextField(
+                key: const ValueKey('k-connection-url'),
+                control: FTextFieldControl.managed(controller: _controller),
+                label: const Text('Server URL'),
+                hint: defaultServerBaseUrl,
+                keyboardType: TextInputType.url,
+                onSubmit: (_) => _save(),
+              ),
+              const SizedBox(height: 12),
+              FButton(
+                key: const ValueKey('k-connection-save'),
+                onPress: _save,
+                child: const Text('Save & test'),
+              ),
+              const SizedBox(height: 20),
+            ],
+            _HealthStatus(health: health),
+            const SizedBox(height: 28),
+            const Divider(),
+            const SizedBox(height: 16),
+            // Joining is possible from anywhere -- that is the point of a client.
+            const JoinSection(),
+            // Hosting is not: minting a code and managing devices are loopback-only
+            // on the server (they answer 404 to a paired device), because enrolling
+            // a device is an act of consent and consent is given at the machine. On
+            // a phone these would be buttons that cannot work.
+            if (connection.isLoopback) ...[
+              const SizedBox(height: 28),
+              const Divider(),
+              const SizedBox(height: 16),
+              const RemoteAccessSection(),
+            ],
+          ],
         ),
       ),
     );

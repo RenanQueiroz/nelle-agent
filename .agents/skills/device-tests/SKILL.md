@@ -50,6 +50,11 @@ original is unchanged" is a fact about the server, so ask the server.
   Wait for the text under the authoritative widget instead — for example, the
   renamed title beneath `k-conv-tile-<id>` — so a slower runner cannot satisfy the
   barrier with the value the user merely typed.
+- **Settings back buttons are layout-dependent.** Two-pane settings (wide windows —
+  every desktop platform) hosts sections beside the sidebar with **no back button**;
+  only a phone-width window pushes them. Assert arrival on the section's _content_
+  (`find.text(Fixture.modelName)`, "Not installed"), never on `k-*-back`, and before
+  tapping the next section tile dismiss with a back only if one exists.
 - **Cancel provider-owned HTTP as well as SSE on disposal.** The router model
   provider can be torn down while its initial list request is still in flight
   (the device suite replaces the real app between tests). Its list and stream

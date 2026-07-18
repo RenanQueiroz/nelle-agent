@@ -67,18 +67,23 @@ void errorsSuite() {
       tester,
       find.byKey(const ValueKey('k-settings-section-models')),
     );
-    // **Waited for, not settled for** -- and `findsNothing` would have passed *vacuously* if the
-    // screen had never opened, so the presence of its own back button is what proves we are on it.
-    // NOT `tester.pageBack()`: that looks for a Material/Cupertino back button, and this app is
-    // forui over a bare `FScaffold` and has neither.
-    await pumpUntil(tester, find.byKey(const ValueKey('k-models-back')));
+    // **Waited for, not settled for** -- and for the *claim itself*: the catalog rendered the
+    // fixture's model. (It used to wait on the Models screen's back button, which was a proxy --
+    // and a desktop-shaped assertion: two-pane settings hosts the section beside the sidebar
+    // with no back button at all, exactly like the workbench's forked-sidebar lesson.)
+    await pumpUntil(tester, find.text(Fixture.modelName));
 
     // The catalog is `models.ini`, not the router -- so the list renders with nothing running.
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('k-models-error')), findsNothing);
-    expect(find.text(Fixture.modelName), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('k-models-back')));
+    // A phone pushed the section, so it must be dismissed before the next tile is reachable;
+    // two-pane settings keeps the sidebar on screen, so the next tap needs no back at all.
+    final modelsBack = find.byKey(const ValueKey('k-models-back'));
+    if (modelsBack.evaluate().isNotEmpty) {
+      await tester.tap(modelsBack);
+      await tester.pump();
+    }
     await tapAt(
       tester,
       find.byKey(const ValueKey('k-settings-section-llamacpp')),

@@ -167,6 +167,16 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   child out in an unflexed `Row`**, so a long label overflows the button (94px here) — the same
   shape as the composer's earlier 91px overflow on Android. Keep button labels short and put the sentence
   beside them.
+- **Settings is adaptive, like the workbench (760px breakpoint)**: narrow renders the
+  grouped list and pushes each destination as a standalone screen; wide passes an
+  `FSidebar` to `FScaffold`'s `sidebar` slot and hosts the selected destination beside
+  it. Both layouts render from one destination registry in `settings_screen.dart`
+  (same ids, same `k-settings-section-<id>` keys), and every destination renders
+  through `SectionShell` (`settings/section_shell.dart`) — standalone (scaffold +
+  header + back) when pushed, a pane heading with the same action keys when embedded.
+  Consequence for tests and drives: **a section's back button exists only when
+  pushed**, so assert arrival on the section's *content*, never its back affordance,
+  and dismiss with a back only when one exists.
 - **This app is forui over a bare `FScaffold`, so it has no `Material` ancestor.** A
   Material-only widget (`Switch`, `IconButton`, anything wanting an ink splash) throws
   *"No Material widget found"* and paints a red error box — while `flutter analyze`

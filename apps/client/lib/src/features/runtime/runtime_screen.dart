@@ -5,6 +5,7 @@ import 'package:forui/forui.dart';
 import '../../api/generated/models/runtime_status.dart';
 import '../../api/generated/models/runtime_status_install_mode.dart';
 import '../models/router_models_notifier.dart';
+import '../settings/section_shell.dart';
 import 'install_screen.dart';
 import 'runtime_controller.dart';
 import 'runtime_logs.dart';
@@ -16,58 +17,50 @@ import 'runtime_logs.dart';
 /// them. Growing a second editor for them here is the duplication that `apps/web`'s
 /// `HAND_BUILT_ELSEWHERE` list exists to prevent, and this client is the one that got it right.
 class RuntimeScreen extends ConsumerWidget {
-  const RuntimeScreen({super.key});
+  const RuntimeScreen({super.key, this.embedded = false});
+
+  /// Rendered inside the two-pane settings screen (desktop) rather than pushed (phone).
+  final bool embedded;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final status = ref.watch(runtimeStatusProvider);
     final theme = Theme.of(context);
 
-    return FScaffold(
-      header: FHeader.nested(
-        title: const Text('llama.cpp'),
-        prefixes: [
-          FHeaderAction.back(
-            key: const ValueKey('k-runtime-back'),
-            onPress: Navigator.of(context).pop,
-          ),
-        ],
-        suffixes: [
-          FHeaderAction(
-            key: const ValueKey('k-runtime-refresh'),
-            icon: const Icon(FLucideIcons.refreshCw),
-            onPress: ref.read(runtimeStatusProvider.notifier).refresh,
-          ),
-        ],
-      ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: switch (status) {
-            AsyncData(:final value) => _Body(status: value),
-            AsyncError(:final error) => Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    '$error',
-                    key: const ValueKey('k-runtime-error'),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: theme.colorScheme.error),
-                  ),
-                  const SizedBox(height: 12),
-                  FButton(
-                    onPress: ref.read(runtimeStatusProvider.notifier).refresh,
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            ),
-            _ => const Center(child: CircularProgressIndicator()),
-          },
+    return SectionShell(
+      title: 'llama.cpp',
+      embedded: embedded,
+      backKey: const ValueKey('k-runtime-back'),
+      actions: [
+        SectionAction(
+          key: const ValueKey('k-runtime-refresh'),
+          icon: FLucideIcons.refreshCw,
+          onPress: ref.read(runtimeStatusProvider.notifier).refresh,
         ),
-      ),
+      ],
+      child: switch (status) {
+        AsyncData(:final value) => _Body(status: value),
+        AsyncError(:final error) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '$error',
+                key: const ValueKey('k-runtime-error'),
+                textAlign: TextAlign.center,
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
+              const SizedBox(height: 12),
+              FButton(
+                onPress: ref.read(runtimeStatusProvider.notifier).refresh,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+        _ => const Center(child: CircularProgressIndicator()),
+      },
     );
   }
 }

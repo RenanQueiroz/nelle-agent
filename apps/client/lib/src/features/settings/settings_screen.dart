@@ -12,19 +12,171 @@ import 'host_tools.dart';
 import 'settings_controller.dart';
 import 'settings_section_screen.dart';
 
+/// One place a Settings tap can land. The phone list and the desktop sidebar both render
+/// from this, so the two layouts cannot drift — same ids, same keys
+/// (`k-settings-section-<id>`), same destinations.
+class _Destination {
+  const _Destination({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.builder,
+  });
+
+  final String id;
+  final String title;
+  final String subtitle;
+
+  /// Builds the destination — pushed standalone on a phone (`embedded: false`), hosted
+  /// in the right pane on a desktop (`embedded: true`).
+  final Widget Function(bool embedded) builder;
+}
+
+class _Group {
+  const _Group({
+    required this.title,
+    required this.subtitle,
+    required this.railSubtitle,
+    required this.destinations,
+  });
+
+  final String title;
+  final String subtitle;
+
+  /// The sidebar's short form of [subtitle] — it must survive 256px without wrapping
+  /// into a paragraph or ellipsizing into noise.
+  final String railSubtitle;
+
+  final List<_Destination> destinations;
+}
+
 /// Settings: every section the server serves, plus the ones that belong to this device.
 ///
-/// The two are listed apart on purpose. Someone changing a setting on their phone must
+/// The groups are listed apart on purpose. Someone changing a setting on their phone must
 /// not expect their desktop to change, and the only honest way to say which is which is
-/// to say it: **Settings** follow you, **This device** does not.
-class SettingsScreen extends ConsumerWidget {
+/// to say it: **Settings** follow you, **This server** is shared, **This device** stays.
+///
+/// Responsive like the workbench: narrow renders the grouped list and pushes each
+/// destination as its own screen; wide renders a sidebar and hosts the selected
+/// destination beside it, because a 560px phone column centered in a desktop window
+/// wastes the screen and buries three-field forms behind navigation.
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
+  static const _twoPaneBreakpoint = 760.0;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  String? _selectedId;
+
+  List<_Group> _groups(List<SettingsSection> serverSections) => [
+    _Group(
+      title: 'Settings',
+      subtitle: 'These follow you to every device.',
+      railSubtitle: 'Follow you everywhere.',
+      destinations: [
+        for (final section in serverSections)
+          _Destination(
+            id: section.slug,
+            title: section.title,
+            subtitle: section.description ?? '',
+            builder: (embedded) => SettingsSectionScreen(
+              section: section,
+              scope: SettingsScope(slug: section.slug, isDevice: false),
+              embedded: embedded,
+            ),
+          ),
+      ],
+    ),
+    _Group(
+      title: 'This server',
+      subtitle: 'The machine Nelle runs on. Shared by every paired device.',
+      railSubtitle: 'Shared by every device.',
+      destinations: [
+        // Administration, not preference: llama.cpp itself, and the models it can load.
+        // A paired phone may do all of this -- only pairing and device management are
+        // loopback-only -- which is the point, because the server is elsewhere.
+        // Named for the thing, not the abstraction. The served `runtime` settings group
+        // is *also* called Runtime -- it is llama.cpp's launch limits -- and two rows
+        // called Runtime two hundred pixels apart, meaning different things, is a bug
+        // you only see by looking at the screen. Its title comes from the server, and
+        // special-casing it here would throw the schema away, so this one gets the more
+        // specific name. (The id is `llamacpp`, not `runtime`, for the same reason: the
+        // served `runtime` group already produces `k-settings-section-runtime`, and two
+        // widgets with one ValueKey is a bug you only see by tapping it.)
+        _Destination(
+          id: 'llamacpp',
+          title: 'llama.cpp',
+          subtitle: 'Install, start and stop it. See its log.',
+          builder: (embedded) => RuntimeScreen(embedded: embedded),
+        ),
+        _Destination(
+          id: 'models',
+          title: 'Models',
+          subtitle: 'The models.ini catalog, and what they cost on disk.',
+          builder: (embedded) => ModelsScreen(embedded: embedded),
+        ),
+        // Host tools live here, not under Settings: they are a gate on *the server's*
+        // unsandboxed shell, not a preference of the user's. Custom rather than
+        // schema-rendered because the registry can express a boolean but not "this one
+        // may only be turned on after you have read something".
+        _Destination(
+          id: 'host-tools',
+          title: 'Host tools',
+          subtitle: 'Let the model read files and run shell commands.',
+          builder: (embedded) => HostToolsScreen(embedded: embedded),
+        ),
+      ],
+    ),
+    _Group(
+      title: 'This device',
+      subtitle: 'Stays here. Not shared with your other devices.',
+      railSubtitle: 'Only this device.',
+      destinations: [
+        // Device sections are described with the *same types* as the server's and
+        // rendered by the *same widget*. If a device setting ever needs its own UI
+        // here, the renderer is wrong.
+        for (final section in deviceSettingsSections)
+          _Destination(
+            id: section.slug,
+            title: section.title,
+            subtitle: section.description ?? '',
+            builder: (embedded) => SettingsSectionScreen(
+              section: section,
+              scope: SettingsScope(slug: section.slug, isDevice: true),
+              embedded: embedded,
+            ),
+          ),
+        // A pairing is a flow, not a field, so the server connection is a screen of
+        // its own rather than a schema-rendered section.
+        //
+        // Named "Connection", not "Server": it is *this device's relationship to* a
+        // server, and there is now a "This server" heading above that administers one.
+        // Two rows called Server on one screen reads as a typo.
+        _Destination(
+          id: 'connection',
+          title: 'Connection',
+          subtitle: 'Which Nelle this app talks to, and pairing.',
+          builder: (embedded) => ConnectionScreen(embedded: embedded),
+        ),
+      ],
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
     final sections = ref.watch(serverSettingsSchemaProvider);
+    final groups = _groups(sections.valueOrNull ?? const []);
+    // MediaQuery, not LayoutBuilder: the sidebar is the *scaffold's* slot, so the
+    // decision has to be made above the scaffold. Rebuilds on window resize.
+    final wide =
+        MediaQuery.sizeOf(context).width >= SettingsScreen._twoPaneBreakpoint;
 
     return FScaffold(
+      childPad: false,
       header: FHeader.nested(
         title: const Text('Settings'),
         prefixes: [
@@ -34,148 +186,122 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: ListView(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            children: [
-              const _GroupHeading(
-                title: 'Settings',
-                subtitle: 'These follow you to every device.',
-              ),
-              switch (sections) {
-                AsyncData(:final value) => Column(
-                  children: [
-                    for (final section in value)
-                      _SectionTile(
-                        key: ValueKey('k-settings-section-${section.slug}'),
-                        title: section.title,
-                        subtitle: section.description,
-                        onPress: () => _open(context, section, isDevice: false),
-                      ),
-                  ],
-                ),
-                AsyncError(:final error) => Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    '$error',
-                    key: const ValueKey('k-settings-error'),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ),
-                _ => const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              },
-
-              const SizedBox(height: 20),
-              const _GroupHeading(
-                title: 'This server',
-                subtitle:
-                    'The machine Nelle runs on. Shared by every paired device.',
-              ),
-              // Administration, not preference: llama.cpp itself, and the models it can load.
-              // A paired phone may do all of this -- only pairing and device management are
-              // loopback-only -- which is the point, because the server is elsewhere.
-              // Named for the thing, not the abstraction. The served `runtime` settings group
-              // is *also* called Runtime -- it is llama.cpp's launch limits -- and two rows
-              // called Runtime two hundred pixels apart, meaning different things, is a bug you
-              // only see by looking at the screen. Its title comes from the server, and
-              // special-casing it here would throw the schema away, so this one gets the more
-              // specific name.
-              //
-              // The key is `-llamacpp`, not `-runtime`: the schema tiles are keyed
-              // `k-settings-section-${slug}`, and the served `runtime` group produces exactly
-              // `k-settings-section-runtime`. Two widgets with one ValueKey in one ListView --
-              // and tapping this row opened the *settings group*, silently. Invisible to every
-              // test; obvious the moment you tap it.
-              _SectionTile(
-                key: const ValueKey('k-settings-section-llamacpp'),
-                title: 'llama.cpp',
-                subtitle: 'Install, start and stop it. See its log.',
-                onPress: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (context) => const RuntimeScreen(),
-                  ),
-                ),
-              ),
-              _SectionTile(
-                key: const ValueKey('k-settings-section-models'),
-                title: 'Models',
-                subtitle: 'The models.ini catalog, and what they cost on disk.',
-                onPress: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (context) => const ModelsScreen(),
-                  ),
-                ),
-              ),
-              // Host tools live here, not under Settings: they are a gate on *the server's*
-              // unsandboxed shell, not a preference of the user's. Custom rather than
-              // schema-rendered because the registry can express a boolean but not "this one
-              // may only be turned on after you have read something".
-              _SectionTile(
-                key: const ValueKey('k-settings-section-host-tools'),
-                title: 'Host tools',
-                subtitle: 'Let the model read files and run shell commands.',
-                onPress: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (context) => const HostToolsScreen(),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 20),
-              const _GroupHeading(
-                title: 'This device',
-                subtitle: 'Stays here. Not shared with your other devices.',
-              ),
-              // Device sections are described with the *same types* as the server's and
-              // rendered by the *same widget*. If a device setting ever needs its own UI
-              // here, the renderer is wrong.
-              for (final section in deviceSettingsSections)
-                _SectionTile(
-                  key: ValueKey('k-settings-section-${section.slug}'),
-                  title: section.title,
-                  subtitle: section.description,
-                  onPress: () => _open(context, section, isDevice: true),
-                ),
-              // A pairing is a flow, not a field, so the server connection is a screen of
-              // its own rather than a schema-rendered section.
-              //
-              // Named "Connection", not "Server": it is *this device's relationship to* a
-              // server, and there is now a "This server" heading above that administers one.
-              // Two rows called Server on one screen reads as a typo.
-              _SectionTile(
-                key: const ValueKey('k-settings-section-connection'),
-                title: 'Connection',
-                subtitle: 'Which Nelle this app talks to, and pairing.',
-                onPress: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (context) => const ConnectionScreen(),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      sidebar: wide ? _sidebar(groups) : null,
+      child: wide ? _pane(groups, sections) : _list(groups, sections),
     );
   }
 
-  void _open(
-    BuildContext context,
-    SettingsSection section, {
-    required bool isDevice,
-  }) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) => SettingsSectionScreen(
-          section: section,
-          scope: SettingsScope(slug: section.slug, isDevice: isDevice),
+  // --- wide: sidebar + hosted destination -----------------------------------------------
+
+  _Destination? _selected(List<_Group> groups) {
+    final destinations = [for (final g in groups) ...g.destinations];
+    return destinations.where((d) => d.id == _selectedId).firstOrNull ??
+        destinations.firstOrNull;
+  }
+
+  Widget _sidebar(List<_Group> groups) {
+    final selected = _selected(groups);
+    return FSidebar(
+      children: [
+        for (final group in groups)
+          if (group.destinations.isNotEmpty)
+            FSidebarGroup(
+              label: _GroupHeading(
+                title: group.title,
+                // The full sentence belongs to the phone list; at rail width it
+                // ellipsizes into noise, so the rail gets the short form.
+                subtitle: group.railSubtitle,
+              ),
+              children: [
+                for (final destination in group.destinations)
+                  FSidebarItem(
+                    key: ValueKey('k-settings-section-${destination.id}'),
+                    label: Text(destination.title),
+                    selected: destination.id == selected?.id,
+                    onPress: () => setState(() => _selectedId = destination.id),
+                  ),
+              ],
+            ),
+      ],
+    );
+  }
+
+  Widget _pane(
+    List<_Group> groups,
+    AsyncValue<List<SettingsSection>> sections,
+  ) {
+    final selected = _selected(groups);
+    return switch ((selected, sections)) {
+      (final _Destination destination?, _) => KeyedSubtree(
+        // Keyed by destination so switching sections resets scroll and any
+        // widget-local state, exactly as a push would have.
+        key: ValueKey('k-settings-pane-${destination.id}'),
+        child: destination.builder(true),
+      ),
+      (_, AsyncError(:final error)) => Center(
+        child: Text(
+          '$error',
+          key: const ValueKey('k-settings-error'),
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+      ),
+      _ => const Center(child: CircularProgressIndicator()),
+    };
+  }
+
+  // --- narrow: the grouped list, destinations pushed -------------------------------------
+
+  Widget _list(
+    List<_Group> groups,
+    AsyncValue<List<SettingsSection>> sections,
+  ) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: ListView(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+          children: [
+            for (final (index, group) in groups.indexed) ...[
+              if (index > 0) const SizedBox(height: 20),
+              _GroupHeading(title: group.title, subtitle: group.subtitle),
+              // The schema group renders its load state where its tiles will appear.
+              if (index == 0 && sections is! AsyncData)
+                switch (sections) {
+                  AsyncError(:final error) => Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      '$error',
+                      key: const ValueKey('k-settings-error'),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                  _ => const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                },
+              for (final destination in group.destinations)
+                FTile(
+                  key: ValueKey('k-settings-section-${destination.id}'),
+                  onPress: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (context) => destination.builder(false),
+                    ),
+                  ),
+                  title: Text(destination.title),
+                  subtitle: destination.subtitle.isEmpty
+                      ? null
+                      : Text(
+                          destination.subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                  suffix: const Icon(FLucideIcons.chevronRight, size: 16),
+                ),
+            ],
+          ],
         ),
       ),
     );
@@ -192,7 +318,7 @@ class _GroupHeading extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -215,27 +341,4 @@ class _GroupHeading extends StatelessWidget {
       ),
     );
   }
-}
-
-class _SectionTile extends StatelessWidget {
-  const _SectionTile({
-    super.key,
-    required this.title,
-    required this.onPress,
-    this.subtitle,
-  });
-
-  final String title;
-  final String? subtitle;
-  final VoidCallback onPress;
-
-  @override
-  Widget build(BuildContext context) => FTile(
-    onPress: onPress,
-    title: Text(title),
-    subtitle: subtitle == null
-        ? null
-        : Text(subtitle!, maxLines: 2, overflow: TextOverflow.ellipsis),
-    suffix: const Icon(FLucideIcons.chevronRight, size: 16),
-  );
 }

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
 import '../../api/api_client.dart';
+import 'section_shell.dart';
 
 /// Host tools: **not a setting, a gate**.
 ///
@@ -93,54 +94,46 @@ class HostToolsNotifier extends AsyncNotifier<HostToolsState> {
 
 /// Settings > Host tools.
 class HostToolsScreen extends ConsumerWidget {
-  const HostToolsScreen({super.key});
+  const HostToolsScreen({super.key, this.embedded = false});
+
+  /// Rendered inside the two-pane settings screen (desktop) rather than pushed (phone).
+  final bool embedded;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tools = ref.watch(hostToolsProvider);
     final theme = Theme.of(context);
 
-    return FScaffold(
-      header: FHeader.nested(
-        title: const Text('Host tools'),
-        prefixes: [
-          FHeaderAction.back(
-            key: const ValueKey('k-host-tools-back'),
-            onPress: Navigator.of(context).pop,
-          ),
-        ],
-      ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: switch (tools) {
-            AsyncData(:final value) => ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              children: [_Body(state: value)],
-            ),
-            AsyncError(:final error) => Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    '$error',
-                    key: const ValueKey('k-host-tools-error'),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: theme.colorScheme.error),
-                  ),
-                  const SizedBox(height: 12),
-                  FButton(
-                    onPress: () => ref.invalidate(hostToolsProvider),
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            ),
-            _ => const Center(child: CircularProgressIndicator()),
-          },
+    return SectionShell(
+      title: 'Host tools',
+      embedded: embedded,
+      backKey: const ValueKey('k-host-tools-back'),
+      child: switch (tools) {
+        AsyncData(:final value) => ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [_Body(state: value)],
         ),
-      ),
+        AsyncError(:final error) => Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '$error',
+                key: const ValueKey('k-host-tools-error'),
+                textAlign: TextAlign.center,
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
+              const SizedBox(height: 12),
+              FButton(
+                onPress: () => ref.invalidate(hostToolsProvider),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+        _ => const Center(child: CircularProgressIndicator()),
+      },
     );
   }
 }

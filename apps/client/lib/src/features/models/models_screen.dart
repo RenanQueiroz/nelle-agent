@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
 import '../../api/generated/models/configured_model.dart';
+import '../settings/section_shell.dart';
 import 'global_params_screen.dart';
 import 'huggingface_screen.dart';
 import 'active_runs.dart';
@@ -16,7 +17,10 @@ import 'router_models_notifier.dart';
 /// param editor and six buttons into every row, which is unusable on a phone and is how its
 /// shared `'activate'` busy key came to spin every row's button at once.
 class ModelsScreen extends ConsumerStatefulWidget {
-  const ModelsScreen({super.key});
+  const ModelsScreen({super.key, this.embedded = false});
+
+  /// Rendered inside the two-pane settings screen (desktop) rather than pushed (phone).
+  final bool embedded;
 
   @override
   ConsumerState<ModelsScreen> createState() => _ModelsScreenState();
@@ -33,94 +37,79 @@ class _ModelsScreenState extends ConsumerState<ModelsScreen> {
     final catalog = ref.watch(modelCatalogProvider);
     final theme = Theme.of(context);
 
-    return FScaffold(
-      header: FHeader.nested(
-        title: const Text('Models'),
-        prefixes: [
-          FHeaderAction.back(
-            key: const ValueKey('k-models-back'),
-            onPress: Navigator.of(context).pop,
+    return SectionShell(
+      title: 'Models',
+      embedded: widget.embedded,
+      backKey: const ValueKey('k-models-back'),
+      actions: [
+        SectionAction(
+          key: const ValueKey('k-models-add'),
+          icon: FLucideIcons.plus,
+          onPress: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const HuggingFaceScreen()),
           ),
-        ],
-        suffixes: [
-          FHeaderAction(
-            key: const ValueKey('k-models-add'),
-            icon: const Icon(FLucideIcons.plus),
-            onPress: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const HuggingFaceScreen(),
-              ),
-            ),
-          ),
-        ],
-      ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: switch (catalog) {
-            AsyncData(:final value) => ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              children: [
-                if (_notice != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Text(
-                      _notice!,
-                      key: const ValueKey('k-models-notice'),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                if (value.models.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      'No models yet. Search Hugging Face to add one.',
-                      key: const ValueKey('k-models-empty'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                for (final model in value.models)
-                  _ModelTile(
-                    key: ValueKey('k-model-tile-${model.id}'),
-                    model: model,
-                    isActive: model.id == value.activeModelId,
-                    onResult: (message) => setState(() => _notice = message),
-                  ),
-                const SizedBox(height: 20),
-                FTile(
-                  key: const ValueKey('k-models-global-params'),
-                  onPress: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const GlobalParamsScreen(),
-                    ),
-                  ),
-                  title: const Text('Global parameters'),
-                  subtitle: const Text(
-                    'The [*] section. Applied to every model; a model’s own params win.',
-                  ),
-                  suffix: const Icon(FLucideIcons.chevronRight, size: 16),
-                ),
-              ],
-            ),
-            AsyncError(:final error) => Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(
-                '$error',
-                key: const ValueKey('k-models-error'),
-                textAlign: TextAlign.center,
-                style: TextStyle(color: theme.colorScheme.error),
-              ),
-            ),
-            _ => const Center(child: CircularProgressIndicator()),
-          },
         ),
-      ),
+      ],
+      child: switch (catalog) {
+        AsyncData(:final value) => ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            if (_notice != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  _notice!,
+                  key: const ValueKey('k-models-notice'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            if (value.models.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No models yet. Search Hugging Face to add one.',
+                  key: const ValueKey('k-models-empty'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                ),
+              ),
+            for (final model in value.models)
+              _ModelTile(
+                key: ValueKey('k-model-tile-${model.id}'),
+                model: model,
+                isActive: model.id == value.activeModelId,
+                onResult: (message) => setState(() => _notice = message),
+              ),
+            const SizedBox(height: 20),
+            FTile(
+              key: const ValueKey('k-models-global-params'),
+              onPress: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const GlobalParamsScreen(),
+                ),
+              ),
+              title: const Text('Global parameters'),
+              subtitle: const Text(
+                'The [*] section. Applied to every model; a model’s own params win.',
+              ),
+              suffix: const Icon(FLucideIcons.chevronRight, size: 16),
+            ),
+          ],
+        ),
+        AsyncError(:final error) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            '$error',
+            key: const ValueKey('k-models-error'),
+            textAlign: TextAlign.center,
+            style: TextStyle(color: theme.colorScheme.error),
+          ),
+        ),
+        _ => const Center(child: CircularProgressIndicator()),
+      },
     );
   }
 }
@@ -177,5 +166,4 @@ class _ModelTile extends ConsumerWidget {
       suffix: const Icon(FLucideIcons.chevronRight, size: 16),
     );
   }
-
 }
