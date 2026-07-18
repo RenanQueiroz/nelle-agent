@@ -55,6 +55,15 @@ jobs:
       - name: unit tests
         if: matrix.os != 'ubuntu-latest'
         run: bun test tests/unit --timeout 30000
+      # The wire contract is committed (`openapi.json`) and the Dart client models are generated
+      # from it, so a route change that skips `bun run build:openapi` must fail here, not in a
+      # shipped client. AGENTS calls this diff "a total proof that no route moved" -- this is
+      # where that proof actually runs.
+      - name: openapi drift
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          bun run build:openapi
+          git diff --exit-code openapi.json
 
   # ---------------------------------------------------------------------------------------------
   # **The binary smoke test, on all three OSes.** This is the point of the matrix.
@@ -111,6 +120,17 @@ jobs:
         working-directory: apps/client
       - run: flutter test
         working-directory: apps/client
+      # The committed generated models must be exactly what the committed openapi.json generates
+      # (the server job separately proves openapi.json matches the routes). A contract change
+      # that skips client regeneration fails here instead of shipping a stale model.
+      - name: dart codegen drift
+        working-directory: apps/client
+        run: |
+          dart run tool/gen_api.dart
+          dart run swagger_parser
+          dart run build_runner build --delete-conflicting-outputs
+          dart format lib/src/api/generated
+      - run: git diff --exit-code apps/client/openapi.models.json apps/client/lib/src/api
 
   # ---------------------------------------------------------------------------------------------
   # **The device suite, on platforms that have never run it.**

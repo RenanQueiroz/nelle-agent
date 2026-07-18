@@ -59,7 +59,8 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
     behind a `/api/settings/:group`, which is what keeps `schema`, `preferences` and `host-tools`
     from being swallowed by it. **`openapi.json`'s `paths` keys are emitted in registration order**,
     so `bun run build:openapi && git diff --exit-code openapi.json` is a total proof that no route
-    moved — use it on any change that touches route registration.
+    moved — and that proof now runs automatically: CI's server job and the pre-push hook execute
+    it on every server change, so a stale `openapi.json` cannot reach `main`.
   - **The auth gate lives in `handle()` in `server.ts`, and runs *before* `dispatch`.** Moving it
     into a route module, or after dispatch, is a security regression no test would necessarily
     catch: running it first is what makes an unauthenticated LAN request `401` *whether or not the

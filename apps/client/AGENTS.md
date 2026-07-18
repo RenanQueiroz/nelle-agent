@@ -15,7 +15,9 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   regenerated — never hand-edit), and `build_runner` writes the `.g.dart`. Finish
   with `dart format lib/src/api/generated`: swagger_parser emits unformatted Dart,
   and any later `dart format` over the package rewrites it, so skipping the step
-  leaves the committed code and the generator's output permanently disagreeing. The
+  leaves the committed code and the generator's output permanently disagreeing. CI's
+  client job re-runs the whole chain against the committed `openapi.json` and fails
+  on any diff, so a stale generated model cannot reach `main`. The
   18-variant `ChatStreamEvent` is the deliberate exception, hand-written in
   `lib/src/api/chat_stream_event.dart`: codegen mangles the discriminated `oneOf`,
   so a Dart 3 `sealed class` switches on the wire `type` (the stable contract),

@@ -57,6 +57,25 @@ test('.claude/skills points at .agents/skills, the cross-agent source of truth',
   }
 });
 
+test('.mcp.json and .codex/config.toml register the same MCP servers', async () => {
+  // Claude Code reads .mcp.json; Codex reads .codex/config.toml and not .mcp.json. The two are
+  // kept in sync by hand, which is exactly the kind of two-file invariant that drifts silently.
+  const mcp = JSON.parse(await read('.mcp.json')) as {mcpServers?: Record<string, unknown>};
+  const claudeServers = Object.keys(mcp.mcpServers ?? {}).sort();
+
+  const codex = await read('.codex/config.toml');
+  const codexServers = [...codex.matchAll(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]/gm)]
+    .map(match => match[1])
+    .sort();
+
+  assert.ok(claudeServers.length > 0, '.mcp.json registers no MCP servers');
+  assert.deepEqual(
+    codexServers,
+    claudeServers,
+    'Claude Code (.mcp.json) and Codex (.codex/config.toml) must register the same MCP servers',
+  );
+});
+
 test('every skill has frontmatter a discovery scan can read', async () => {
   const entries = await fs.readdir('.agents/skills', {withFileTypes: true});
   const dirs = entries.filter(entry => entry.isDirectory()).map(entry => entry.name);

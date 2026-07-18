@@ -77,7 +77,8 @@ Project-specific guidance for AI coding agents.
   the next `setup` silently re-armed it.
   - **The hook scopes itself to what changed**, which is what makes it survivable: the
     full gate is ~54s, and an unscoped hook is how `--no-verify` becomes muscle
-    memory, after which it protects nothing. Server files run `bun run test`;
+    memory, after which it protects nothing. Server files run `bun run test` plus
+    the `openapi.json` drift check;
     `apps/client/**` runs `flutter analyze && flutter test`; **only** a build-config
     change (`package.json`, `bun.lock`, `pubspec.*`, the platform dirs) also builds —
     what breaks builds is *dependencies and platform config* (see
@@ -224,7 +225,8 @@ Project-specific guidance for AI coding agents.
 - MCP servers are configured **per project, in the repo**, not globally: Claude Code
   reads `.mcp.json` and Codex reads `.codex/config.toml` (Codex does not read
   `.mcp.json`). Keep the two in sync — both register `marionette` and `dart`, and
-  nothing else (see `apps/client/AGENTS.md` for what they do).
+  nothing else; `agentDocs.test.ts` pins the two server lists equal (see
+  `apps/client/AGENTS.md` for what they do).
   Restart the agent session after changing either file; MCP servers load at session
   start. Each command exports `PATH` explicitly, because `~/.bashrc` returns early
   for non-interactive shells, so a bare `bash -lc` misses `~/.pub-cache/bin` and

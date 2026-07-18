@@ -79,6 +79,13 @@ matches '^(package\.json|bun\.lock|apps/client/pubspec\.(yaml|lock)|apps/client/
 if [ "$server_changed" = true ]; then
   echo "pre-push: server files changed -> bun run test"
   bun run test
+  echo "pre-push: server files changed -> openapi drift check"
+  bun run build:openapi >/dev/null 2>&1
+  if ! git diff --quiet openapi.json; then
+    echo "pre-push: openapi.json is stale. The regenerated file is now in your working tree --" >&2
+    echo "          review and commit it, then push again." >&2
+    exit 1
+  fi
 fi
 
 if [ "$client_changed" = true ]; then
