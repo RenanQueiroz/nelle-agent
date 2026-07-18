@@ -98,17 +98,16 @@ class _UnavailablePanelState extends ConsumerState<UnavailablePanel> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Icon(
-                FLucideIcons.fileWarning,
-                size: 32,
-                color: scheme.error,
-              ),
+              Icon(FLucideIcons.fileWarning, size: 32, color: scheme.error),
               const SizedBox(height: 12),
               Text(
                 'This conversation’s history file is missing',
                 key: const ValueKey('k-unavailable-title'),
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
@@ -170,7 +169,9 @@ class _UnavailablePanelState extends ConsumerState<UnavailablePanel> {
                             .rebuild(widget.conversationId),
                       ),
                 child: Text(
-                  _busy == 'rebuild' ? 'Rebuilding…' : 'Rebuild from saved messages',
+                  _busy == 'rebuild'
+                      ? 'Rebuilding…'
+                      : 'Rebuild from saved messages',
                 ),
               ),
               const SizedBox(height: 4),

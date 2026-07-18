@@ -6,7 +6,11 @@ import '../../api/generated/models/chat_performance.dart';
 /// The three numbers one message's stats row shows, independent of which wire DTO they came
 /// from (`Prompt`, `Generation`, or the legacy top-level fields — all carry the same shape).
 class PerfMetric {
-  const PerfMetric({required this.tokens, this.tokensPerSecond, this.milliseconds});
+  const PerfMetric({
+    required this.tokens,
+    this.tokensPerSecond,
+    this.milliseconds,
+  });
 
   final int tokens;
 
@@ -151,7 +155,9 @@ class PerformanceStatsRow extends StatelessWidget {
           value: generation
               ? '${rate.toStringAsFixed(2)} t/s'
               : '${rate.toStringAsFixed(2)} tokens/s',
-          fieldName: generation ? 'Generation speed' : 'Prompt processing speed',
+          fieldName: generation
+              ? 'Generation speed'
+              : 'Prompt processing speed',
           color: muted,
         ),
     ];

@@ -46,10 +46,12 @@ class MessageModelDropdown extends ConsumerWidget {
   /// Order matters: `setModel` is the "going forward" half; `regenerate` carries the explicit
   /// override so the re-answer is deterministic regardless of when the PATCH lands. `regenerate`
   /// early-returns if a run is already in flight.
-  Future<void> _pick(BuildContext context, WidgetRef ref, String modelId) async {
-    final notifier = ref.read(
-      chatControllerProvider(conversationId).notifier,
-    );
+  Future<void> _pick(
+    BuildContext context,
+    WidgetRef ref,
+    String modelId,
+  ) async {
+    final notifier = ref.read(chatControllerProvider(conversationId).notifier);
     try {
       await notifier.setModel(modelId);
       await notifier.regenerate(messageId, modelId: modelId);

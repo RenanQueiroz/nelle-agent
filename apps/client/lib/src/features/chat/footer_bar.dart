@@ -112,7 +112,10 @@ class RenderFooterBar extends RenderBox
 
   late TextPainter _separatorPainter = _makeSeparatorPainter();
   TextPainter _makeSeparatorPainter() => TextPainter(
-    text: TextSpan(text: _separator, style: _separatorStyle.copyWith(color: _color)),
+    text: TextSpan(
+      text: _separator,
+      style: _separatorStyle.copyWith(color: _color),
+    ),
     textDirection: _textDirection,
   )..layout();
   void _rebuildSeparator() => _separatorPainter = _makeSeparatorPainter();

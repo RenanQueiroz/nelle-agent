@@ -26,7 +26,10 @@ List<ToolCallEvent> parseToolCalls(Object? raw) {
 
 /// Upserts [call] into [calls] by id — a call moves running → complete/error over several
 /// `tool_call.updated` events, and each replaces the prior state in place (keeping order).
-List<ToolCallEvent> upsertToolCall(List<ToolCallEvent> calls, ToolCallEvent call) {
+List<ToolCallEvent> upsertToolCall(
+  List<ToolCallEvent> calls,
+  ToolCallEvent call,
+) {
   final index = calls.indexWhere((c) => c.id == call.id);
   if (index < 0) {
     return [...calls, call];

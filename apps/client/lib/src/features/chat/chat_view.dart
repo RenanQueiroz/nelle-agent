@@ -80,9 +80,8 @@ class ChatView extends ConsumerWidget {
               // only a projection and the real history is in the file that is missing. Rendering
               // it as an ordinary empty chat told the user their conversation was gone -- when in
               // fact it is recoverable, and the way to recover it is right here.
-              AsyncData(:final value) when value.unavailable => UnavailablePanel(
-                conversationId: conversationId,
-              ),
+              AsyncData(:final value) when value.unavailable =>
+                UnavailablePanel(conversationId: conversationId),
               AsyncData(:final value) => _Transcript(
                 state: value,
                 conversationId: conversationId,
@@ -144,7 +143,10 @@ class _TranscriptState extends ConsumerState<_Transcript> {
     // `‹ N/M ›` switcher), rather than every variant stacked. Pending turns (a streaming reply)
     // never group — their ids are local and they are not variants of anything yet.
     final units = <_DisplayUnit>[
-      ..._groupVariants(widget.state.messages, widget.state.snapshot.activePathEntryIds),
+      ..._groupVariants(
+        widget.state.messages,
+        widget.state.snapshot.activePathEntryIds,
+      ),
       for (final message in widget.state.pending)
         _DisplayUnit.single(message, pending: true),
     ];
@@ -206,17 +208,23 @@ class _TranscriptState extends ConsumerState<_Transcript> {
         PerfMetric? generationMetric;
         if (showStats) {
           if (message.role == ConversationMessageRole.assistant) {
-            final live = isStreamingAssistant ? widget.state.livePerformance : null;
+            final live = isStreamingAssistant
+                ? widget.state.livePerformance
+                : null;
             generationMetric =
                 generationMetricOf(live) ??
-                generationMetricOf(parseMessagePerformance(message.performance));
+                generationMetricOf(
+                  parseMessagePerformance(message.performance),
+                );
           } else if (message.role == ConversationMessageRole.user &&
               i + 1 < units.length &&
               units[i + 1].message.role == ConversationMessageRole.assistant) {
             final answer = units[i + 1].message;
             final answerIsStreaming =
                 units[i + 1].pending && (i + 1 == units.length - 1) && running;
-            final live = answerIsStreaming ? widget.state.livePerformance : null;
+            final live = answerIsStreaming
+                ? widget.state.livePerformance
+                : null;
             readingMetric =
                 promptMetricOf(live) ??
                 promptMetricOf(parseMessagePerformance(answer.performance));
@@ -235,7 +243,9 @@ class _TranscriptState extends ConsumerState<_Transcript> {
           readingMetric: readingMetric,
           generationMetric: generationMetric,
           toolCalls: toolCalls,
-          onRegenerate: canRegenerate ? () => notifier.regenerate(message.id) : null,
+          onRegenerate: canRegenerate
+              ? () => notifier.regenerate(message.id)
+              : null,
           onFork: canFork ? () => _fork(context, ref, message.id) : null,
           // The model indicator becomes a dropdown only when regenerating this answer is allowed;
           // otherwise `MessageBubble` shows the alias as plain text.
@@ -259,7 +269,8 @@ class _TranscriptState extends ConsumerState<_Transcript> {
                           unit.variants[unit.activeIndex - 1].id,
                         )
                       : null,
-                  onNext: !running && unit.activeIndex < unit.variants.length - 1
+                  onNext:
+                      !running && unit.activeIndex < unit.variants.length - 1
                       ? () => notifier.activateVariant(
                           unit.variants[unit.activeIndex + 1].id,
                         )
@@ -319,12 +330,18 @@ class _TranscriptState extends ConsumerState<_Transcript> {
   /// Opening it is the whole point: a fork you cannot see is indistinguishable from a button that
   /// did nothing. The source conversation is untouched -- that is the server's guarantee, and it
   /// is why this is safe to do without a confirmation.
-  Future<void> _fork(BuildContext context, WidgetRef ref, String entryId) async {
+  Future<void> _fork(
+    BuildContext context,
+    WidgetRef ref,
+    String entryId,
+  ) async {
     try {
       final created = await ref
           .read(conversationsRepositoryProvider)
           .fork(widget.conversationId, entryId);
-      ref.read(conversationsProvider.notifier).addConversation(created.conversation);
+      ref
+          .read(conversationsProvider.notifier)
+          .addConversation(created.conversation);
       ref.read(selectedConversationIdProvider.notifier).state =
           created.conversation.id;
     } catch (error) {
@@ -354,8 +371,15 @@ class _DisplayUnit {
     this.pending = false,
   });
 
-  factory _DisplayUnit.single(ConversationMessage message, {bool pending = false}) =>
-      _DisplayUnit(message: message, variants: const [], activeIndex: 0, pending: pending);
+  factory _DisplayUnit.single(
+    ConversationMessage message, {
+    bool pending = false,
+  }) => _DisplayUnit(
+    message: message,
+    variants: const [],
+    activeIndex: 0,
+    pending: pending,
+  );
 
   /// The message to render — the active variant for a group.
   final ConversationMessage message;
@@ -394,17 +418,14 @@ class _BranchedBanner extends StatelessWidget {
           Icon(FLucideIcons.gitBranch, size: 12, color: scheme.outline),
           const SizedBox(width: 6),
           Expanded(
-            child: Text(
-              switch (kind) {
-                ForkKind.fork =>
-                  'Branched from another chat. The original is unchanged.',
-                ForkKind.clone =>
-                  'A copy of another chat. The original is unchanged.',
-                // A `forkKind` a newer server invents must not blank the banner it belongs to.
-                _ => 'Branched from another chat.',
-              },
-              style: TextStyle(fontSize: 11, color: scheme.outline),
-            ),
+            child: Text(switch (kind) {
+              ForkKind.fork =>
+                'Branched from another chat. The original is unchanged.',
+              ForkKind.clone =>
+                'A copy of another chat. The original is unchanged.',
+              // A `forkKind` a newer server invents must not blank the banner it belongs to.
+              _ => 'Branched from another chat.',
+            }, style: TextStyle(fontSize: 11, color: scheme.outline)),
           ),
         ],
       ),
