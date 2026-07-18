@@ -120,10 +120,13 @@ class _Guide extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.theme.colors;
+    // Scrollable, not a bare Column: an on-screen keyboard can shrink the transcript
+    // to ~150px, and a fixed column then paints overflow stripes (Android CI caught
+    // it). Short viewports scroll; tall ones center exactly as before.
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 380),
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -162,3 +165,4 @@ class _Guide extends StatelessWidget {
     );
   }
 }
+

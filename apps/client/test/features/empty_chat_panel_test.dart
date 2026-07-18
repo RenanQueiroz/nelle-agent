@@ -152,6 +152,22 @@ void main() {
     expect(find.byKey(const ValueKey('k-chat-greeting')), findsOneWidget);
   });
 
+  testWidgets('a keyboard-shrunk viewport scrolls the guide instead of overflowing', (
+    tester,
+  ) async {
+    // On a phone the on-screen keyboard can leave the transcript ~150px tall, and a
+    // fixed column painted overflow stripes there — Android CI caught it in a test
+    // that merely typed into the search box.
+    tester.view.physicalSize = const Size(500, 180);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await pump(tester, installed: false, running: false, models: []);
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('k-chat-cta-install')), findsOneWidget);
+  });
+
   testWidgets('everything ready: a greeting, not a checklist', (tester) async {
     await pump(tester, installed: true, running: true, models: [model()]);
 
