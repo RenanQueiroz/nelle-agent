@@ -43,6 +43,7 @@ export 'models/host_tools_response.dart';
 export 'models/runtime_status.dart';
 export 'models/llama_router_props.dart';
 export 'models/runtime_log_tail.dart';
+export 'models/runtime_install_request.dart';
 export 'models/llama_tokenize_result.dart';
 export 'models/llama_option.dart';
 export 'models/llama_option_catalogue.dart';

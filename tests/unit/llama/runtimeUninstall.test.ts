@@ -37,6 +37,7 @@ function stubStatus(): RuntimeStatus {
     installMode: 'source-master',
     installed: false,
     installedVersion: null,
+    previousVersion: null,
     latestVersion: null,
     updateAvailable: false,
     running: false,

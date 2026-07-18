@@ -1844,6 +1844,16 @@
               }
             ]
           },
+          "previousVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "latestVersion": {
             "anyOf": [
               {
@@ -1913,6 +1923,7 @@
           "installMode",
           "installed",
           "installedVersion",
+          "previousVersion",
           "latestVersion",
           "updateAvailable",
           "running",
@@ -2043,6 +2054,16 @@
             "additionalProperties": false
           }
         ]
+      },
+      "RuntimeInstallRequest": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
       },
       "LlamaTokenizeResult": {
         "type": "object",

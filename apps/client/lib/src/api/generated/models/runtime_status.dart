@@ -20,6 +20,7 @@ class RuntimeStatus {
     required this.installMode,
     required this.installed,
     required this.installedVersion,
+    required this.previousVersion,
     required this.latestVersion,
     required this.updateAvailable,
     required this.running,
@@ -44,6 +45,7 @@ class RuntimeStatus {
   final RuntimeStatusInstallMode installMode;
   final bool installed;
   final String? installedVersion;
+  final String? previousVersion;
   final String? latestVersion;
   final bool updateAvailable;
   final bool running;

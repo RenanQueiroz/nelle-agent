@@ -64,18 +64,38 @@ class InstallScreen extends ConsumerWidget {
           ),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: FButton(
-              key: const ValueKey('k-install-start'),
-              onPress: install.running
-                  ? null
-                  : ref.read(installControllerProvider.notifier).start,
-              child: Text(
-                install.running
-                    ? copy.runningButton
-                    : install.finished
-                    ? copy.againButton
-                    : 'Install',
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // The revert path. llama.cpp floats to latest by design, so when a fresh
+                // install goes bad the recovery is stepping back to what worked — the
+                // server records `previousVersion` exactly for this button.
+                if (_revertTarget(ref, install) case final previous?)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: FButton(
+                      key: const ValueKey('k-install-revert'),
+                      variant: .secondary,
+                      onPress: () => ref
+                          .read(installControllerProvider.notifier)
+                          .start(version: previous),
+                      child: Text('Reinstall ${_shortVersion(previous)}'),
+                    ),
+                  ),
+                FButton(
+                  key: const ValueKey('k-install-start'),
+                  onPress: install.running
+                      ? null
+                      : ref.read(installControllerProvider.notifier).start,
+                  child: Text(
+                    install.running
+                        ? copy.runningButton
+                        : install.finished
+                        ? copy.againButton
+                        : 'Install',
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -83,6 +103,20 @@ class InstallScreen extends ConsumerWidget {
     );
   }
 }
+
+/// The version to offer as a revert target: only after a failed attempt, and only when the
+/// server actually recorded a *different* previous version to step back to.
+String? _revertTarget(WidgetRef ref, InstallState install) {
+  if (install.running || install.error == null) return null;
+  final status = ref.watch(runtimeStatusProvider).valueOrNull;
+  final previous = status?.previousVersion;
+  if (previous == null || previous == status?.installedVersion) return null;
+  return previous;
+}
+
+/// A git sha reads as noise at full length; a release tag is already short.
+String _shortVersion(String version) =>
+    version.length > 12 ? version.substring(0, 12) : version;
 
 class _Banner extends StatelessWidget {
   const _Banner({required this.install, required this.copy});

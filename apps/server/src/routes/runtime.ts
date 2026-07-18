@@ -3,9 +3,9 @@ import {
   NELLE_ERROR_CODES,
   serializeSseEnvelope,
 } from '../contracts/contracts.ts';
-import type {RuntimeInstallEvent} from '../contracts/runtime.ts';
+import {runtimeInstallRequestSchema, type RuntimeInstallEvent} from '../contracts/runtime.ts';
 import {normalizeNelleError} from '../http/errors';
-import {json, type Router} from '../http/router';
+import {json, type Ctx, type Router} from '../http/router';
 import {sseResponse} from '../http/sse';
 import type {RouteDeps} from './deps';
 
@@ -34,14 +34,19 @@ export function registerRuntimeRoutes(router: Router, deps: RouteDeps): void {
    * shows a ten-minute silent spinner or, worse, times out and reports failure while the
    * build carries happily on server-side.
    */
-  const streamRuntimeInstall = () =>
-    sseResponse(async sink => {
+  const streamRuntimeInstall = async (ctx: Ctx) => {
+    // Parse before the stream opens: a malformed body must be an ordinary zod 400, never a
+    // half-open SSE stream that dies mid-handshake. An empty body means "latest" -- llama.cpp
+    // floats by design; `version` exists so reverting to `previousVersion` is one request.
+    const body = runtimeInstallRequestSchema.optional().parse(await ctx.body());
+    return sseResponse(async sink => {
       const write = (event: RuntimeInstallEvent) => {
         sink.write(serializeSseEnvelope(createEventEnvelope({type: event.type, data: event})));
       };
       try {
         write({type: 'runtime.install.started', mode: (await llama.getStatus()).installMode});
         const runtime = await llama.installOrUpdate({
+          version: body?.version,
           onOutput: output => write({type: 'runtime.install.output', ...output}),
         });
         write({type: 'runtime.install.completed', runtime});
@@ -55,6 +60,7 @@ export function registerRuntimeRoutes(router: Router, deps: RouteDeps): void {
         });
       }
     });
+  };
 
   router.post('/api/runtime/install/stream', streamRuntimeInstall);
   router.post('/api/runtime/update/stream', streamRuntimeInstall);

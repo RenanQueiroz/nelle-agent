@@ -38,6 +38,8 @@ type GithubRelease = {
   assets: Array<{
     name: string;
     browser_download_url: string;
+    /** GitHub-reported content digest (`sha256:<hex>`), verified after download when present. */
+    digest?: string;
   }>;
 };
 
@@ -63,9 +65,15 @@ export class LlamaInstall {
   /**
    * `onOutput` receives the build's own output as it happens. Absent, the install is silent
    * -- which is what the non-streaming route still does, and why it needed replacing.
+   *
+   * `version` installs a specific upstream version -- a release tag on macOS/Windows, a git
+   * sha or tag on Linux -- instead of the latest. It exists for one reason: llama.cpp floats
+   * to latest **by design** (users must never wait on a Nelle release for an upstream fix),
+   * so when upstream has a bad day the mitigation is not a pin, it is being able to step
+   * back to `previousVersion` in one request.
    */
   async installOrUpdate(
-    options: {onOutput?: (output: CommandOutputLine) => void} = {},
+    options: {onOutput?: (output: CommandOutputLine) => void; version?: string} = {},
   ): Promise<RuntimeStatus> {
     if (this.#installing) {
       throw installInProgressError();
@@ -78,9 +86,9 @@ export class LlamaInstall {
         return await this.host.status(true);
       }
       if (process.platform === 'linux') {
-        await this.buildLinuxFromMaster(options.onOutput);
+        await this.buildLinuxFromMaster(options.onOutput, options.version);
       } else {
-        await this.installFromGithubRelease(options.onOutput);
+        await this.installFromGithubRelease(options.onOutput, options.version);
       }
       return await this.host.status(true);
     } catch (error) {
@@ -93,6 +101,7 @@ export class LlamaInstall {
 
   private async buildLinuxFromMaster(
     onOutput?: (output: CommandOutputLine) => void,
+    version?: string,
   ): Promise<void> {
     if (process.platform !== 'linux') {
       throw new Error('Linux source builds can only run on Linux hosts.');
@@ -114,14 +123,16 @@ export class LlamaInstall {
     await fs.mkdir(this.paths.llamaDir, {recursive: true});
     if (!fsSync.existsSync(path.join(this.paths.llamaSrcDir, '.git'))) {
       await run('git', ['clone', '--depth', '1', LLAMA_REPO_URL, this.paths.llamaSrcDir]);
-    } else {
-      await run('git', ['fetch', '--depth', '1', 'origin', 'HEAD'], {
-        cwd: this.paths.llamaSrcDir,
-      });
-      await run('git', ['reset', '--hard', 'FETCH_HEAD'], {
-        cwd: this.paths.llamaSrcDir,
-      });
     }
+    // Default is upstream HEAD -- llama.cpp floats to latest by design. A `version` (a sha or
+    // tag, e.g. the recorded `previousVersion`) fetches that instead; GitHub serves arbitrary
+    // reachable shas, which is what makes "step back to yesterday's build" possible at all.
+    await run('git', ['fetch', '--depth', '1', 'origin', version ?? 'HEAD'], {
+      cwd: this.paths.llamaSrcDir,
+    });
+    await run('git', ['reset', '--hard', 'FETCH_HEAD'], {
+      cwd: this.paths.llamaSrcDir,
+    });
 
     const buildDir = path.join(this.paths.llamaSrcDir, 'build');
     await fs.rm(buildDir, {recursive: true, force: true});
@@ -151,6 +162,9 @@ export class LlamaInstall {
       ...HELPER_BINS,
     ]);
 
+    // The build succeeded, so the outgoing version is about to be replaced -- record it as the
+    // rollback target before the first binary is overwritten.
+    await this.#recordPreviousVersion();
     await fs.mkdir(this.paths.llamaBinDir, {recursive: true});
     for (const bin of HELPER_BINS) {
       const src = path.join(buildDir, 'bin', bin);
@@ -167,10 +181,11 @@ export class LlamaInstall {
 
   private async installFromGithubRelease(
     onOutput?: (output: CommandOutputLine) => void,
+    version?: string,
   ): Promise<void> {
     const say = (line: string) => onOutput?.({stream: 'stdout', line});
 
-    const release = await this.getLatestRelease();
+    const release = version ? await this.getRelease(version) : await this.getLatestRelease();
     const asset = pickReleaseAsset(release, process.platform, process.arch);
     if (!asset) {
       throw new Error(`No llama.cpp release asset matched ${process.platform}/${process.arch}.`);
@@ -184,6 +199,26 @@ export class LlamaInstall {
       throw new Error(`Could not download ${asset.name}: ${response.status}`);
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
+
+    // Verify against the digest GitHub reports for the asset. This is integrity, not version
+    // control: whatever version the user chose to take, the bytes must be the bytes upstream
+    // published -- a truncated or tampered download must never be unpacked into the bin dir.
+    if (asset.digest?.startsWith('sha256:')) {
+      const wanted = asset.digest.slice('sha256:'.length).toLowerCase();
+      const hasher = new Bun.CryptoHasher('sha256');
+      hasher.update(bytes);
+      const got = hasher.digest('hex');
+      if (got !== wanted) {
+        throw new Error(
+          `Checksum mismatch for ${asset.name}: GitHub reports sha256:${wanted}, the download ` +
+            `hashes to sha256:${got}. Refusing to install a corrupted or tampered archive.`,
+        );
+      }
+      say(`Verified sha256 digest (${wanted.slice(0, 12)}…)`);
+    } else {
+      say('No digest published for this asset — skipping checksum verification.');
+    }
+
     await fs.writeFile(archivePath, bytes);
     say(`Downloaded ${(bytes.byteLength / 1_000_000).toFixed(1)} MB`);
 
@@ -203,6 +238,10 @@ export class LlamaInstall {
       await runCommand('tar', ['-xzf', archivePath, '-C', extractDir]);
     }
 
+    // Only now -- with a verified archive extracted and about to replace the bin dir -- does
+    // the outgoing version become "previous". A failed download or checksum must never
+    // overwrite the rollback target.
+    await this.#recordPreviousVersion();
     await fs.rm(this.paths.llamaBinDir, {recursive: true, force: true});
     await fs.mkdir(this.paths.llamaBinDir, {recursive: true});
     const server = await findFile(extractDir, binaryName('llama-server'));
@@ -243,6 +282,9 @@ export class LlamaInstall {
     await fs.rm(this.paths.llamaBinDir, {recursive: true, force: true});
     await fs.rm(this.paths.llamaSrcDir, {recursive: true, force: true});
     await fs.rm(this.paths.llamaPidPath, {force: true});
+    // An install wrote it, so an uninstall removes it -- a rollback target pointing at
+    // deleted binaries would be a lie.
+    await fs.rm(this.#previousVersionPath(), {force: true});
     return this.host.status(false);
   }
 
@@ -270,6 +312,33 @@ export class LlamaInstall {
     return null;
   }
 
+  /**
+   * The version the last install/update replaced -- the rollback target. Lives in `llamaDir`
+   * (not `llamaBinDir`) because a release install `rm -rf`s the bin dir on its way in.
+   */
+  async getPreviousVersion(): Promise<string | null> {
+    if (process.env.LLAMA_SERVER_PATH) {
+      return null;
+    }
+    try {
+      return (await fs.readFile(this.#previousVersionPath(), 'utf8')).trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  #previousVersionPath(): string {
+    return path.join(this.paths.llamaDir, '.previous-version');
+  }
+
+  async #recordPreviousVersion(): Promise<void> {
+    const current = await this.getInstalledVersion();
+    if (current) {
+      await fs.mkdir(this.paths.llamaDir, {recursive: true});
+      await fs.writeFile(this.#previousVersionPath(), `${current}\n`);
+    }
+  }
+
   async getLatestVersion(): Promise<string | null> {
     if (process.env.LLAMA_SERVER_PATH) {
       return null;
@@ -283,7 +352,17 @@ export class LlamaInstall {
   }
 
   private async getLatestRelease(): Promise<GithubRelease> {
-    const response = await fetch(`https://api.github.com/repos/${LLAMA_REPO}/releases/latest`, {
+    return this.#fetchRelease(`https://api.github.com/repos/${LLAMA_REPO}/releases/latest`);
+  }
+
+  private async getRelease(tag: string): Promise<GithubRelease> {
+    return this.#fetchRelease(
+      `https://api.github.com/repos/${LLAMA_REPO}/releases/tags/${encodeURIComponent(tag)}`,
+    );
+  }
+
+  async #fetchRelease(url: string): Promise<GithubRelease> {
+    const response = await fetch(url, {
       headers: {'user-agent': 'nelle-server'},
     });
     if (!response.ok) {

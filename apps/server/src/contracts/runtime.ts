@@ -18,6 +18,17 @@ import type {LlamaOptionCatalogue} from './modelParams';
  */
 export const runtimeInstallModeSchema = z.enum(['source-master', 'github-release', 'external']);
 
+/**
+ * Optional body for `POST /api/runtime/{install,update}/stream`. `version` installs a
+ * specific upstream version instead of the latest — a release tag on macOS/Windows, a git
+ * sha or tag on Linux. It exists so "revert to `previousVersion`" is one request; the
+ * default stays "latest", deliberately: llama.cpp floats by design.
+ */
+export const runtimeInstallRequestSchema = z
+  .object({version: z.string().min(1).optional()})
+  .strict();
+export type RuntimeInstallRequest = z.infer<typeof runtimeInstallRequestSchema>;
+
 export const runtimeStatusSchema = z.object({
   platform: z.string(),
   arch: z.string(),
@@ -37,6 +48,13 @@ export const runtimeStatusSchema = z.object({
    * render it as a version number.
    */
   installedVersion: z.string().nullable(),
+  /**
+   * What was installed before the last install/update overwrote it — the rollback target
+   * for a bad upstream day (llama.cpp floats to latest by design, so recovery matters more
+   * than prevention). Same shape as `installedVersion`; `null` until a reinstall has ever
+   * replaced something.
+   */
+  previousVersion: z.string().nullable(),
   /** Only fetched when the caller asks for it: `GET /api/runtime?latest=1` costs a GitHub round trip. */
   latestVersion: z.string().nullable(),
   updateAvailable: z.boolean(),

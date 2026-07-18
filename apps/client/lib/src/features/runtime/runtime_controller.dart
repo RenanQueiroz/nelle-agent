@@ -134,14 +134,17 @@ class InstallController extends Notifier<InstallState> {
   /// Starts a build. A second call while one is running is a no-op — the *server* refuses it
   /// too (`runtime_install_in_progress`), because two builds would delete each other's
   /// `build/` directory.
-  void start() {
+  ///
+  /// [version] installs that specific upstream version — the revert path, fed by
+  /// `RuntimeStatus.previousVersion` when a fresh install goes bad.
+  void start({String? version}) {
     if (state.running) return;
     state = const InstallState(running: true);
 
     _subscription?.cancel();
     _subscription = ref
         .read(runtimeRepositoryProvider)
-        .install()
+        .install(version: version)
         .listen(
           _apply,
           onError: (Object error) {

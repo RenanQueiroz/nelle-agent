@@ -131,6 +131,7 @@ export class LlamaCppManager {
           : 'github-release',
       installed,
       installedVersion,
+      previousVersion: await this.#install.getPreviousVersion(),
       latestVersion,
       updateAvailable: Boolean(
         installedVersion && latestVersion && installedVersion !== latestVersion,
@@ -146,7 +147,7 @@ export class LlamaCppManager {
   }
 
   async installOrUpdate(
-    options: {onOutput?: (output: CommandOutputLine) => void} = {},
+    options: {onOutput?: (output: CommandOutputLine) => void; version?: string} = {},
   ): Promise<RuntimeStatus> {
     return this.#install.installOrUpdate(options);
   }

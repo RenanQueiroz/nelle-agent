@@ -450,6 +450,24 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
     source tree only on Linux), and the controller **rethrows** rather than routing
     through `AsyncValue.guard`, so a refusal toasts instead of silently doing
     nothing.
+- **llama.cpp floats to latest, by design — never pin it.** Installs build upstream
+  master on Linux and download the latest GitHub release elsewhere, because upstream
+  ships frequent fixes and optimizations and a user must never wait on a Nelle release
+  to take one. An install/update is user-initiated (a deliberate act, not silent
+  drift), and Nelle's compat surface is built for floating — the option catalogue
+  re-parses `--help` per binary. The safety story is therefore recovery, not
+  prevention:
+  - a downloaded release asset is **verified against the digest GitHub reports for
+    it** (sha256) before extraction; a mismatch is refused naming both hashes, and an
+    asset without a published digest installs with a "skipping verification" line
+    rather than a silent pass.
+  - the version an install replaces is recorded (`.previous-version` in `llamaDir`,
+    served as `RuntimeStatus.previousVersion`) — written only after the incoming
+    archive is verified, so a failed download can never eat the rollback target.
+  - `POST /api/runtime/{install,update}/stream` takes an optional `{version}` (a
+    release tag; a git sha or tag on Linux), so reverting to `previousVersion` is one
+    request. The client's Install screen offers exactly that after a failed attempt,
+    and uninstall removes the rollback record along with the binaries.
 - `/api/llama/tokenize` proxies llama.cpp `/tokenize` for text-only estimates.
   Post-compaction context refreshes persist the estimate in
   `conversations.context_usage_json` and stream a `context.updated` event.

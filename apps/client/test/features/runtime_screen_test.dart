@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
 import 'package:nelle_agent/src/api/api_client.dart';
+import 'package:nelle_agent/src/api/generated/models/nelle_error.dart';
 import 'package:nelle_agent/src/api/generated/models/runtime_status_install_mode.dart';
 import 'package:nelle_agent/src/features/runtime/install_screen.dart';
 import 'package:nelle_agent/src/features/runtime/runtime_controller.dart';
@@ -15,10 +16,12 @@ Map<String, dynamic> _status({
   bool running = true,
   bool updateAvailable = false,
   String? installedVersion = 'ee445f93d8a0a503',
+  String? previousVersion,
   String? latestVersion,
   String? lastError,
   String installMode = 'source-master',
 }) => {
+  'previousVersion': previousVersion,
   'platform': 'linux',
   'arch': 'x64',
   'dataDir': '/data',
@@ -46,8 +49,13 @@ Map<String, dynamic> _status({
 /// forgiving than the app*: this app is forui over a bare FScaffold with no `Material`
 /// ancestor, so a Material-only widget throws "No Material widget found" and paints a red
 /// error box — while `flutter analyze` stays clean and every unit test passes.
-Widget _host(Widget child, {Map<String, dynamic>? status}) => ProviderScope(
+Widget _host(
+  Widget child, {
+  Map<String, dynamic>? status,
+  List<Override> overrides = const [],
+}) => ProviderScope(
   overrides: [
+    ...overrides,
     dioProvider.overrideWithValue(
       stubDio((options) {
         if (options.path.contains('/api/llama/props')) {
@@ -70,6 +78,20 @@ Widget _host(Widget child, {Map<String, dynamic>? status}) => ProviderScope(
     home: FTheme(data: FThemes.neutral.light.desktop, child: child),
   ),
 );
+
+/// An install that already failed, recording what a retry asks for.
+class _FailedInstallController extends InstallController {
+  final versions = <String?>[];
+
+  @override
+  InstallState build() => const InstallState(
+    finished: true,
+    error: NelleError(code: 'runtime_install_failed', message: 'boom'),
+  );
+
+  @override
+  void start({String? version}) => versions.add(version);
+}
 
 void main() {
   testWidgets('a running runtime says where, and offers Stop', (tester) async {
@@ -243,6 +265,52 @@ void main() {
       );
       expect(find.textContaining('cmake'), findsOneWidget);
       expect(find.text('Install'), findsOneWidget);
+    });
+
+    testWidgets('a failed install offers reverting to the previous version', (
+      tester,
+    ) async {
+      // llama.cpp floats to latest by design, so the recovery from a bad upstream day is
+      // stepping back to what worked — the server records `previousVersion` for exactly
+      // this button, and tapping it must install that specific version.
+      final stub = _FailedInstallController();
+      await tester.pumpWidget(
+        _host(
+          const InstallScreen(mode: RuntimeStatusInstallMode.githubRelease),
+          status: _status(
+            installMode: 'github-release',
+            installedVersion: 'b6200',
+            previousVersion: 'b6100',
+          ),
+          overrides: [installControllerProvider.overrideWith(() => stub)],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('k-install-revert')), findsOneWidget);
+      expect(find.text('Reinstall b6100'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('k-install-revert')));
+      await tester.pumpAndSettle();
+      expect(stub.versions, ['b6100']);
+    });
+
+    testWidgets('no revert button without a failed attempt', (tester) async {
+      // A recorded previous version alone is not a reason to advertise stepping back:
+      // the button exists for recovery, not as a second install affordance.
+      await tester.pumpWidget(
+        _host(
+          const InstallScreen(mode: RuntimeStatusInstallMode.githubRelease),
+          status: _status(
+            installMode: 'github-release',
+            installedVersion: 'b6200',
+            previousVersion: 'b6100',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('k-install-revert')), findsNothing);
     });
 
     testWidgets('a release download does not talk about compiling', (

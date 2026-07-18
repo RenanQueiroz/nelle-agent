@@ -94,11 +94,19 @@ class RuntimeRepository {
   /// a full cmake compile, and awaiting it would show the user a silent spinner for minutes
   /// and then time out — reporting failure for a build that was succeeding. That is precisely
   /// the bug this stream exists to fix, so do not "simplify" it back.
-  Stream<RuntimeInstallEvent> install({CancelToken? cancelToken}) {
+  /// [version] installs a specific upstream version instead of the latest — a release tag
+  /// (or, on a Linux server, a git sha). It exists so reverting to
+  /// `RuntimeStatus.previousVersion` is one request: llama.cpp floats to latest by design,
+  /// and a bad upstream day is undone by stepping back, never by pinning.
+  Stream<RuntimeInstallEvent> install({
+    CancelToken? cancelToken,
+    String? version,
+  }) {
     return _sse
         .streamJson(
           '/api/runtime/install/stream',
           method: 'POST',
+          body: version == null ? null : {'version': version},
           cancelToken: cancelToken,
         )
         .map(RuntimeInstallEvent.fromEnvelope);
