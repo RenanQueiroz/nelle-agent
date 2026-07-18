@@ -131,6 +131,85 @@ void main() {
     expect(find.byType(ConversationListPanel), findsOneWidget);
   });
 
+
+  testWidgets('widening while the sheet is open leaves ONE conversation list', (
+    tester,
+  ) async {
+    // The bug: the sheet is a pushed *route*, and a route does not care about layout.
+    // Opened while narrow, it survived the crossing back to wide and sat on top of the
+    // persistent sidebar — two conversation lists stacked, the sheet's barrier
+    // swallowing clicks meant for the app underneath.
+    await pumpWorkbench(
+      tester,
+      size: const Size(500, 900),
+      conversations: [item('c1', titleSource: 'fallback', title: 'New chat')],
+    );
+
+    await tester.tap(find.byKey(const ValueKey('k-chat-sidebar')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ConversationListPanel), findsOneWidget);
+
+    // Drag the window wide.
+    tester.view.physicalSize = const Size(1280, 900);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byType(ConversationListPanel),
+      findsOneWidget,
+      reason: 'the sheet must retire so only the persistent sidebar remains',
+    );
+    expect(find.byKey(const ValueKey('k-composer-input')), findsOneWidget);
+
+    // ...and the list that remains is the *persistent* one, driven by the wide-mode
+    // toggle. Asserted by interaction rather than by counting barriers: if the sheet
+    // were still up, its modal barrier would swallow this tap and the sidebar would
+    // stay put.
+    await tester.tap(find.byKey(const ValueKey('k-chat-sidebar')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ConversationListPanel), findsNothing);
+  });
+
+  testWidgets('widening honours the hamburger: a collapsed sidebar reopens', (
+    tester,
+  ) async {
+    // Collapse the desktop sidebar, go narrow, ask for the list with the hamburger,
+    // then widen. Retiring the sheet without reading that request would leave the user
+    // with no list at all — having just tapped the control that means "show me it".
+    await pumpWorkbench(
+      tester,
+      size: const Size(1280, 900),
+      conversations: [item('c1', titleSource: 'fallback', title: 'New chat')],
+    );
+
+    await tester.tap(find.byKey(const ValueKey('k-chat-sidebar')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ConversationListPanel), findsNothing);
+
+    tester.view.physicalSize = const Size(500, 900);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('k-chat-sidebar')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ConversationListPanel), findsOneWidget);
+
+    tester.view.physicalSize = const Size(1280, 900);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byType(ConversationListPanel),
+      findsOneWidget,
+      reason: 'the hamburger asked for the list; widening must not take it away',
+    );
+    // And it is the *persistent* sidebar, not the sheet still standing in for it:
+    // only the sheet's copy carries an `onDestination` (the callback that pops it).
+    expect(
+      tester
+          .widget<ConversationListPanel>(find.byType(ConversationListPanel))
+          .onDestination,
+      isNull,
+      reason: 'the sheet must be gone, replaced by the real sidebar',
+    );
+  });
+
   testWidgets('narrow: the chat is the screen and the hamburger opens a sheet', (
     tester,
   ) async {

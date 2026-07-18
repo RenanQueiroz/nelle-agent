@@ -16,6 +16,11 @@ import '../conversations/conversations_notifier.dart';
 /// chat, and the chat header's top-left toggle collapses it for a focused view.
 /// Narrow: the chat is the whole screen and the same toggle (a hamburger now) opens the
 /// list as a left sheet — selecting there swaps the chat under it.
+///
+/// **The sheet is a pushed route, so widening the window has to take it down**
+/// ([_dismissSheet]): a route does not care about layout, so a sheet opened while narrow
+/// survived the crossing and sat on top of the persistent sidebar — two conversation
+/// lists, one over the other.
 class WorkbenchScreen extends ConsumerStatefulWidget {
   const WorkbenchScreen({super.key});
 
@@ -53,24 +58,53 @@ class _WorkbenchScreenState extends ConsumerState<WorkbenchScreen> {
     );
   }
 
+  /// The open sheet's own route, held so [_dismissSheet] can take down *that* route
+  /// rather than popping whatever is on top — a rename dialog opened from a row menu
+  /// inside the sheet sits above it, and a blind `pop()` would close the dialog and
+  /// leave the sheet exactly where it was.
+  ModalRoute<void>? _sheetRoute;
+
   void _openSheet() {
+    if (_sheetRoute != null) {
+      return; // Already open; a second hamburger tap must not stack a second sheet.
+    }
     unawaited(
-      showFSheet(
+      showFSheet<void>(
         context: context,
         side: FLayout.ltr,
         // Unclamped: the default 9/16 ratio would cut the sidebar's 300px to ~226 on a
         // phone, ellipsizing the very titles the sheet exists to show.
         mainAxisMaxRatio: null,
-        builder: (sheetContext) => DecoratedBox(
-          decoration: BoxDecoration(
-            color: sheetContext.theme.colors.background,
-          ),
-          child: ConversationListPanel(
-            onDestination: () => Navigator.of(sheetContext).pop(),
-          ),
-        ),
-      ),
+        builder: (sheetContext) {
+          // The route is only reachable from inside the builder; showFSheet hands back
+          // a future, not the route it pushed.
+          _sheetRoute = ModalRoute.of(sheetContext);
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              color: sheetContext.theme.colors.background,
+            ),
+            child: ConversationListPanel(
+              onDestination: () => Navigator.of(sheetContext).pop(),
+            ),
+          );
+        },
+      ).whenComplete(() => _sheetRoute = null),
     );
+  }
+
+  /// Takes the sheet down because the window is now wide enough for the real sidebar.
+  ///
+  /// `removeRoute`, not `pop`: this is not the user dismissing a sheet, it is a layout
+  /// change retiring one, so it should not animate out over a sidebar that is already
+  /// there — and it must remove the sheet even when something else (a dialog) is above
+  /// it.
+  void _dismissSheet() {
+    final route = _sheetRoute;
+    _sheetRoute = null;
+    if (route == null || !route.isActive) {
+      return;
+    }
+    route.navigator?.removeRoute(route);
   }
 
   @override
@@ -85,6 +119,22 @@ class _WorkbenchScreenState extends ConsumerState<WorkbenchScreen> {
     // decision has to be made above the scaffold. Rebuilds on window resize.
     final wide =
         MediaQuery.sizeOf(context).width >= WorkbenchScreen._twoPaneBreakpoint;
+
+    // The window just grew past the breakpoint with the sheet still up. Retire it after
+    // the frame — navigation must never run during build — and honour what opening it
+    // meant: the user asked for the conversation list, so the persistent sidebar takes
+    // over rather than leaving them with neither.
+    if (wide && _sheetRoute != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _dismissSheet();
+        if (_sidebarCollapsed) {
+          setState(() => _sidebarCollapsed = false);
+        }
+      });
+    }
 
     final pane = selectedId == null
         ? _HomePane(conversations: conversations)

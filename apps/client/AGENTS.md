@@ -178,7 +178,14 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   top-left `k-chat-sidebar` toggle collapses it. Narrow: the chat is the whole screen
   and the same toggle is a hamburger opening the panel via `showFSheet(side: ltr,
   mainAxisMaxRatio: null)`; the panel's `onDestination` callback pops the sheet on
-  select/new/import/settings. Consequence for tests and drives: **the list is not on
+  select/new/import/settings. **A sheet standing in for a layout must retire when the
+  layout takes over**: a sheet is a *route* and routes ignore breakpoints, so one
+  opened while narrow survived the crossing to wide and stacked on top of the
+  persistent sidebar — two conversation lists, the sheet's barrier eating clicks meant
+  for the app. `_dismissSheet()` removes it after the frame (`removeRoute` on the
+  captured `ModalRoute`, not `pop()`, which would close a rename dialog sitting above
+  it instead), and widening also clears `_sidebarCollapsed` — the hamburger *was* a
+  request for the list, so the crossing must not answer it with neither. Consequence for tests and drives: **the list is not on
   screen at launch on a phone** — go through the harness's `ensureChatsVisible()`
   before any list interaction, and there is no `k-chat-back` anymore. An empty
   transcript renders `EmptyChatPanel`: the guided first-run path (install llama.cpp →
