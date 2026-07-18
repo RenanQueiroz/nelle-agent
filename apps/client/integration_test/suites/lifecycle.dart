@@ -17,6 +17,7 @@ void lifecycleSuite() {
     // A client-side filter over what happens to be loaded would report "no matching chats" — which
     // is precisely the bug the rule exists to prevent.
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     expect(
       find.text(Fixture.needle),
@@ -34,8 +35,8 @@ void lifecycleSuite() {
     await pumpUntil(tester, find.text(Fixture.needle));
 
     expect(find.text(Fixture.needle), findsOneWidget);
-    // The header counts every MATCH, not the rows on screen.
-    expect(find.textContaining('Chats (1)'), findsOneWidget);
+    // The section heading counts every MATCH, not the rows on screen.
+    expect(find.textContaining('RECENT (1)'), findsOneWidget);
   });
 
   testWidgets('renaming a chat does not crash the app', (tester) async {
@@ -49,6 +50,7 @@ void lifecycleSuite() {
     // first time this suite ran.)
     final chat = await createOwnConversation('the rename test');
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     final id = chat.id;
     await tester.tap(find.byKey(ValueKey('k-conv-menu-$id')));
@@ -83,6 +85,7 @@ void lifecycleSuite() {
     // server answers 409 `conversation_not_branchable` -- it used to be a bare 500, which no client
     // could render. The client shows the server's own words, and this asserts they arrive.
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     final id = await idOf(tester, Fixture.empty);
     await tester.tap(find.byKey(ValueKey('k-conv-menu-$id')));
@@ -99,6 +102,7 @@ void lifecycleSuite() {
     tester,
   ) async {
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     final originalId = await idOf(tester, Fixture.withHistory);
     final before = await serverMessageCount(originalId);
@@ -147,6 +151,7 @@ void lifecycleSuite() {
     // Undo must mean it never happens at all -- which only a real server can prove.
     final chat = await createOwnConversation('the delete test');
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     final id = chat.id;
     await tester.tap(find.byKey(ValueKey('k-conv-menu-$id')));

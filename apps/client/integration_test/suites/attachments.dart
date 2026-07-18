@@ -28,6 +28,7 @@ void attachmentsSuite() {
   ) async {
     final chat = await createOwnConversation('an attachment');
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     await tapAt(tester, find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
@@ -61,6 +62,7 @@ void attachmentsSuite() {
     // disagree with the server about what is acceptable.
     final chat = await createOwnConversation('a bad attachment');
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     await tapAt(tester, find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
@@ -90,6 +92,7 @@ void attachmentsSuite() {
     // Asserted against the **server**, because the UI cannot tell "chip gone" from "upload gone".
     final chat = await createOwnConversation('a removed attachment');
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     await tapAt(tester, find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));

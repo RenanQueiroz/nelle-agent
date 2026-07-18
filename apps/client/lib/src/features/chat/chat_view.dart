@@ -24,10 +24,20 @@ import 'unavailable_panel.dart';
 /// The chat detail pane for one conversation: header, context bar, transcript,
 /// composer. Streams assistant replies (content + reasoning) into the transcript.
 class ChatView extends ConsumerWidget {
-  const ChatView({super.key, required this.conversationId, this.onBack});
+  const ChatView({
+    super.key,
+    required this.conversationId,
+    this.onToggleSidebar,
+    this.sidebarIcon = FLucideIcons.panelLeft,
+  });
 
   final String conversationId;
-  final VoidCallback? onBack;
+
+  /// The top-left affordance for the chat list: on a phone it opens the sheet sidebar
+  /// (hamburger), on a desktop it collapses/reopens the persistent one. Null hides it.
+  final VoidCallback? onToggleSidebar;
+
+  final IconData sidebarIcon;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -56,11 +66,11 @@ class ChatView extends ConsumerWidget {
         children: [
           FHeader.nested(
             prefixes: [
-              if (onBack != null)
+              if (onToggleSidebar != null)
                 FHeaderAction(
-                  key: const ValueKey('k-chat-back'),
-                  icon: const Icon(FLucideIcons.arrowLeft),
-                  onPress: onBack,
+                  key: const ValueKey('k-chat-sidebar'),
+                  icon: Icon(sidebarIcon),
+                  onPress: onToggleSidebar,
                 ),
             ],
             title: Text(

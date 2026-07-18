@@ -64,9 +64,30 @@ Future<void> launchApp(WidgetTester tester) async {
   });
 
   app.main();
-  // App startup includes real HTTP. `pumpAndSettle` only waits for frames and can return while the
-  // conversation request is still in flight, so wait for the server-backed count instead.
-  await pumpUntil(tester, find.textContaining('Chats ('));
+  // App startup includes real HTTP. `pumpAndSettle` only waits for frames and can return while a
+  // request is still in flight, so wait for a server-backed signal instead. The home opens
+  // **straight into a fresh chat** (adopting the newest untouched conversation, else creating
+  // one), so arrival is the composer: it proves the list loaded, a chat got selected, and its
+  // snapshot answered — all over real HTTP.
+  await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
+}
+
+/// Brings the conversation list on screen whatever the layout: a no-op on a desktop window,
+/// where the sidebar is persistent, and a hamburger tap on a phone, where the list lives in a
+/// sheet behind `k-chat-sidebar`.
+///
+/// Every suite interaction with the list (tapping a chat, its row menu, the search box, the
+/// settings gear) goes through this first, or it is a desktop assertion wearing a general
+/// one's clothes — the Android and iOS jobs run the same suite on phone-shaped windows.
+Future<void> ensureChatsVisible(WidgetTester tester) async {
+  await tester.pumpAndSettle();
+  // The search box is the list's one always-present landmark (the section headings
+  // depend on what the server holds).
+  if (find.byKey(const ValueKey('k-conv-search')).evaluate().isNotEmpty) {
+    return;
+  }
+  await tester.tap(find.byKey(const ValueKey('k-chat-sidebar')));
+  await pumpUntil(tester, find.byKey(const ValueKey('k-conv-search')));
 }
 
 /// The binding, and the one thing it must be true about.

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/generated/models/conversation_list_item.dart';
 import '../../api/generated/models/conversation_list_item_title_source.dart';
+import '../../api/generated/models/conversation_status.dart';
 import 'conversations_repository.dart';
 
 /// The loaded window of the conversation list plus its keyset cursor and the
@@ -65,6 +66,15 @@ class ConversationsState {
   int get visibleTotal {
     final hidden = items.where((c) => pendingDeletes.contains(c.id)).length;
     final shown = total - hidden;
+    return shown < 0 ? 0 : shown;
+  }
+
+  /// How many conversations the **Recent** section heading counts: every visible match
+  /// that is not pinned — including the ones beyond the loaded window. Exact, because
+  /// the server ships *all* pinned rows on the first page, so [pinned] is complete and
+  /// the remainder of [visibleTotal] is unpinned by construction.
+  int get recentTotal {
+    final shown = visibleTotal - pinned.length;
     return shown < 0 ? 0 : shown;
   }
 
@@ -282,6 +292,43 @@ class ConversationsNotifier extends AsyncNotifier<ConversationsState> {
         updatedAt: c.updatedAt,
         defaultModelId: c.defaultModelId,
       );
+
+  /// A fresh-chat open is already in flight; a second caller must wait it out, not
+  /// create a sibling.
+  bool _openingFresh = false;
+
+  /// Selects the chat a "new chat" should land in: the newest **untouched** conversation
+  /// — fallback title (no exchange has named it), ready, not held for delete — else a
+  /// freshly created one.
+  ///
+  /// Both the New-chat button and the app's first open go through this, and the reuse is
+  /// the point: opening the app five times must not leave five empty "New chat" rows on
+  /// the server. (ChatGPT's rule, and the right one.)
+  Future<void> openFreshChat() async {
+    if (_openingFresh) {
+      return;
+    }
+    _openingFresh = true;
+    try {
+      final current = state.valueOrNull;
+      // "Untouched" is fallback source *and* the fallback name: a fork is fallback too,
+      // but carries its derived "X (fork)" title — and it has history, which is exactly
+      // what a fresh chat must not.
+      final reusable = current?.items
+          .where(
+            (c) =>
+                !current.pendingDeletes.contains(c.id) &&
+                c.titleSource == ConversationListItemTitleSource.fallback &&
+                c.title == 'New chat' &&
+                c.status == ConversationStatus.ready,
+          )
+          .firstOrNull;
+      final id = reusable?.id ?? (await createConversation()).id;
+      ref.read(selectedConversationIdProvider.notifier).state = id;
+    } finally {
+      _openingFresh = false;
+    }
+  }
 
   /// Creates a conversation, prepends it optimistically, and returns it so the
   /// caller can select it.

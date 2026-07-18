@@ -13,6 +13,7 @@ void smokeSuite() {
     tester,
   ) async {
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     // The fixture seeded exactly three. If this fails the server is not the one we think it is --
     // most likely the developer's, on 8787, which is the mistake the whole harness exists to make
@@ -21,13 +22,15 @@ void smokeSuite() {
     expect(find.text(Fixture.aboutPelicans), findsOneWidget);
     expect(find.text(Fixture.empty), findsOneWidget);
 
-    // ...and the header counts what the *server* says (65 seeded), not the rows on screen (50 --
-    // the list pages at 50, which is what makes the search test mean anything).
-    expect(find.textContaining('Chats (65)'), findsOneWidget);
+    // ...and the section heading counts what the *server* says, not the rows on screen (50 --
+    // the list pages at 50, which is what makes the search test mean anything). 65 seeded, plus
+    // the fresh "New chat" the home auto-opened on first launch and adopts on every launch after.
+    expect(find.textContaining('RECENT (66)'), findsOneWidget);
   });
 
   testWidgets('opening a conversation loads its real history', (tester) async {
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     await tapAt(tester, find.text(Fixture.withHistory));
     final userTurn = find.textContaining(

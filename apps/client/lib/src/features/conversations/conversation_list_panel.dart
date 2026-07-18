@@ -14,58 +14,76 @@ import 'conversations_repository.dart';
 
 /// The conversation sidebar: pinned + recent sections, new-chat, delete, and the
 /// full match count in the header.
+///
+/// An `FSidebar` chassis — the same one settings uses — so it renders identically as the
+/// desktop's persistent rail and as the phone's `showFSheet` sheet. The rows stay
+/// `FTile`s rather than `FSidebarItem`s because a chat row carries a suffix menu
+/// (rename, pin, delete…) and `FSidebarItem` has no suffix slot.
 class ConversationListPanel extends ConsumerWidget {
-  const ConversationListPanel({super.key});
+  const ConversationListPanel({super.key, this.onDestination});
+
+  /// Called when a tap leaves the panel for somewhere else — a chat selected, a new
+  /// chat opened, settings pushed. The sheet presentation pops itself with this; the
+  /// persistent sidebar passes nothing.
+  final VoidCallback? onDestination;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(conversationsProvider);
-    // What the user can *see*, not what the server still counts: a held delete is already gone
-    // from the list, and a header that still counts it contradicts the rows beneath it.
-    final total = async.valueOrNull?.visibleTotal;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        FHeader(
-          title: Text(total == null ? 'Chats' : 'Chats ($total)'),
-          suffixes: [
-            FHeaderAction(
-              key: const ValueKey('k-conv-new'),
-              icon: const Icon(FLucideIcons.squarePen),
-              onPress: () => _newChat(context, ref),
-            ),
-            FHeaderAction(
-              key: const ValueKey('k-conv-import'),
-              icon: const Icon(FLucideIcons.upload),
-              // A *header* action, not a row one: an import does not act on a conversation, it
-              // creates one.
-              onPress: () => _import(context, ref),
-            ),
-            FHeaderAction(
-              key: const ValueKey('k-conv-settings'),
-              icon: const Icon(FLucideIcons.settings),
-              // Push, so there is something to pop back to. `go()` replaces the stack.
-              onPress: () => context.push('/settings'),
-            ),
-          ],
+    return FSidebar.raw(
+      header: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FHeader(
+            // The brand, not a label: this is the app's top-left corner, the way
+            // Claude's sidebar says Claude. The counts live on the section headings,
+            // where they describe something specific.
+            title: const Text('Nelle'),
+            suffixes: [
+              FHeaderAction(
+                key: const ValueKey('k-conv-new'),
+                icon: const Icon(FLucideIcons.squarePen),
+                onPress: () => _newChat(context, ref),
+              ),
+              FHeaderAction(
+                key: const ValueKey('k-conv-import'),
+                icon: const Icon(FLucideIcons.upload),
+                // A *header* action, not a row one: an import does not act on a conversation, it
+                // creates one.
+                onPress: () => _import(context, ref),
+              ),
+              FHeaderAction(
+                key: const ValueKey('k-conv-settings'),
+                icon: const Icon(FLucideIcons.settings),
+                // Push, so there is something to pop back to. `go()` replaces the stack.
+                // The router is captured *before* [onDestination] pops the sheet this
+                // panel may be living in — popping unmounts this context.
+                onPress: () {
+                  final router = GoRouter.of(context);
+                  onDestination?.call();
+                  router.push('/settings');
+                },
+              ),
+            ],
+          ),
+          const _SearchBox(),
+        ],
+      ),
+      child: switch (async) {
+        AsyncData(:final value) => _ConversationList(
+          state: value,
+          onDestination: onDestination,
         ),
-        const _SearchBox(),
-        Expanded(
-          child: switch (async) {
-            AsyncData(:final value) => _ConversationList(state: value),
-            AsyncError(:final error) => _ErrorState(
-              message: '$error',
-              // A rejected certificate is not a network fault, and must not look like
-              // one: the glanceable signal is what a user actually reads.
-              isCertificateMismatch:
-                  error is NelleApiException &&
-                  error.code == 'certificate_mismatch',
-              onRetry: () => ref.read(conversationsProvider.notifier).refresh(),
-            ),
-            _ => const Center(child: CircularProgressIndicator()),
-          },
+        AsyncError(:final error) => ConversationsErrorState(
+          message: '$error',
+          // A rejected certificate is not a network fault, and must not look like
+          // one: the glanceable signal is what a user actually reads.
+          isCertificateMismatch:
+              error is NelleApiException && error.code == 'certificate_mismatch',
+          onRetry: () => ref.read(conversationsProvider.notifier).refresh(),
         ),
-      ],
+        _ => const Center(child: CircularProgressIndicator()),
+      },
     );
   }
 
@@ -90,6 +108,7 @@ class ConversationListPanel extends ConsumerWidget {
           .addConversation(created.conversation);
       ref.read(selectedConversationIdProvider.notifier).state =
           created.conversation.id;
+      onDestination?.call();
     } catch (error) {
       if (context.mounted) {
         _toastError(
@@ -103,10 +122,10 @@ class ConversationListPanel extends ConsumerWidget {
 
   Future<void> _newChat(BuildContext context, WidgetRef ref) async {
     try {
-      final created = await ref
-          .read(conversationsProvider.notifier)
-          .createConversation();
-      ref.read(selectedConversationIdProvider.notifier).state = created.id;
+      // Reuses the newest untouched chat rather than creating a sibling — see
+      // [ConversationsNotifier.openFreshChat].
+      await ref.read(conversationsProvider.notifier).openFreshChat();
+      onDestination?.call();
     } catch (e) {
       if (context.mounted) _toastError(context, 'Could not create chat: $e');
     }
@@ -167,14 +186,23 @@ class _SearchBoxState extends ConsumerState<_SearchBox> {
       key: const ValueKey('k-conv-search'),
       control: FTextFieldControl.managed(controller: _controller),
       hint: 'Search chats',
+      prefixBuilder: (context, style, variants) => Padding(
+        padding: const EdgeInsetsDirectional.only(start: 10),
+        child: Icon(
+          FLucideIcons.search,
+          size: 15,
+          color: context.theme.colors.mutedForeground,
+        ),
+      ),
     ),
   );
 }
 
 class _ConversationList extends ConsumerWidget {
-  const _ConversationList({required this.state});
+  const _ConversationList({required this.state, this.onDestination});
 
   final ConversationsState state;
+  final VoidCallback? onDestination;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -198,7 +226,8 @@ class _ConversationList extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
         if (state.pinned.isNotEmpty) ...[
-          const _SectionLabel('Pinned'),
+          // Exact, not a window fact: the server ships every pinned row on page one.
+          _SectionLabel('Pinned', count: state.pinned.length),
           FTileGroup(
             children: [
               for (final c in state.pinned) _tile(context, ref, c, selectedId),
@@ -207,7 +236,9 @@ class _ConversationList extends ConsumerWidget {
           const SizedBox(height: 12),
         ],
         if (state.recent.isNotEmpty) ...[
-          const _SectionLabel('Recent'),
+          // The full match count (minus pinned), never the loaded-row count: the list
+          // holds a window, and the heading describes the user's chats, not scrolling.
+          _SectionLabel('Recent', count: state.recentTotal),
           FTileGroup(
             children: [
               for (final c in state.recent) _tile(context, ref, c, selectedId),
@@ -245,8 +276,10 @@ class _ConversationList extends ConsumerWidget {
       ),
       subtitle: status == null ? null : Text(status),
       selected: c.id == selectedId,
-      onPress: () =>
-          ref.read(selectedConversationIdProvider.notifier).state = c.id,
+      onPress: () {
+        ref.read(selectedConversationIdProvider.notifier).state = c.id;
+        onDestination?.call();
+      },
       suffix: _RowMenu(conversation: c),
     );
   }
@@ -567,15 +600,18 @@ String? _statusLabel(ConversationStatus status) => switch (status) {
 };
 
 class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
+  const _SectionLabel(this.text, {this.count});
 
   final String text;
+
+  /// Renders as `PINNED (4)`. Null omits the parenthetical.
+  final int? count;
 
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
     child: Text(
-      text.toUpperCase(),
+      count == null ? text.toUpperCase() : '${text.toUpperCase()} ($count)',
       style: const TextStyle(
         fontSize: 11,
         fontWeight: FontWeight.w600,
@@ -585,8 +621,13 @@ class _SectionLabel extends StatelessWidget {
   );
 }
 
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({
+/// "Can't reach the server" / "not the server you paired with", with a retry.
+///
+/// Public because the workbench's detail pane shows the same truth when nothing is
+/// selected *because* the list failed — two wordings for one failure would be a bug.
+class ConversationsErrorState extends StatelessWidget {
+  const ConversationsErrorState({
+    super.key,
     required this.message,
     required this.onRetry,
     this.isCertificateMismatch = false,

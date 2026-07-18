@@ -129,6 +129,35 @@ test('the archive constants live with the schema that validates them', () => {
  * so a route that drifts from its schema fails here rather than in a phone six weeks later.
  */
 
+test('a title given at creation is a USER title; an untitled creation stays fallback', async () => {
+  // `user` is what stops title generation from overwriting a name the caller chose --
+  // and what lets a client's "reuse the newest untouched chat" heuristic trust
+  // `fallback` to mean genuinely untouched.
+  const paths = await createTempPaths();
+  const app = await createTestServer(paths);
+  try {
+    const titled = await app.inject({
+      method: 'POST',
+      url: '/api/conversations',
+      payload: {title: 'Named at birth'},
+    });
+    assert.equal(titled.statusCode, 200);
+    assert.equal(
+      titled.json<{conversation: {titleSource: string}}>().conversation.titleSource,
+      'user',
+    );
+
+    const untitled = await app.inject({method: 'POST', url: '/api/conversations', payload: {}});
+    assert.equal(untitled.statusCode, 200);
+    const conversation = untitled.json<{conversation: {title: string; titleSource: string}}>()
+      .conversation;
+    assert.equal(conversation.titleSource, 'fallback');
+    assert.equal(conversation.title, 'New chat');
+  } finally {
+    await app.close();
+  }
+});
+
 test('the routes answer what the contract says they answer', async () => {
   const paths = await createTempPaths();
   const app = await createTestServer(paths);

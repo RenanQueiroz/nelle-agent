@@ -20,6 +20,7 @@ void errorsSuite() {
     // `llama_server_stopped` *before* `run.started` -- which means the message never became a turn,
     // and the composer must give the text back rather than making the user retype it.
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     await tapAt(tester, find.text(Fixture.withHistory));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
@@ -58,6 +59,7 @@ void errorsSuite() {
     // null. A screen that treats that as a crash instead of a state is a screen the user cannot
     // open on a fresh install -- which is every install, before they have built it.
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     await tester.tap(find.byKey(const ValueKey('k-conv-settings')));
 
@@ -100,6 +102,7 @@ void errorsSuite() {
     // `unavailable` the moment anything reads it -- and the client used to render that as an
     // ordinary *empty* chat, telling the user their history was gone when it was recoverable.
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     await typeInto(
       tester,

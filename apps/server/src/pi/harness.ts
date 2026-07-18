@@ -216,7 +216,14 @@ export class PiHarness {
     title?: string;
     defaultModelId?: string | null;
   }): Promise<ConversationSnapshot> {
-    const conversation = this.conversations.createConversation(input);
+    // A title given at creation is the caller's, exactly as a rename is — so it must be
+    // `user`, or title generation later overwrites the name the caller chose (and every
+    // client's "reuse the newest untouched chat" heuristic adopts chats that are not
+    // untouched). Untitled creations stay `fallback`, which is what makes them titleable.
+    const conversation = this.conversations.createConversation({
+      ...input,
+      titleSource: input.title == null ? undefined : 'user',
+    });
     const sessionManager = SessionManager.create(this.paths.workspaceDir, this.paths.piSessionsDir);
     const sessionFile = sessionManager.getSessionFile();
     if (!sessionFile) {

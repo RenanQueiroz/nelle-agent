@@ -35,6 +35,7 @@ void main() {
     // are for the fast tier, which never sends a message.
     final chat = await createOwnConversation('a real generation');
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     await tapAt(tester, find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
@@ -80,6 +81,7 @@ void main() {
     // none` overlay is a stop button that cannot be pressed, which is a bug `apps/web` shipped.
     final chat = await createOwnConversation('a stopped run');
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     await tapAt(tester, find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
@@ -128,6 +130,7 @@ void main() {
     // stub and nothing to fake.
     final chat = await createOwnConversation('a compacted chat');
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     await tapAt(tester, find.text(chat.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
@@ -186,6 +189,7 @@ void main() {
     final answering = await createOwnConversation('the chat that is answering');
     final other = await createOwnConversation('the chat being read');
     await launchApp(tester);
+    await ensureChatsVisible(tester);
 
     await tapAt(tester, find.text(answering.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
@@ -203,14 +207,10 @@ void main() {
       timeout: const Duration(minutes: 3),
     );
 
-    // Leave, mid-stream. (On a phone the chat replaces the list, so go back first; on a desktop
-    // the back button is not there and the list already is. Either way the *tap on the other
-    // conversation* is the thing being tested.)
-    final back = find.byKey(const ValueKey('k-chat-back'));
-    if (back.evaluate().isNotEmpty) {
-      await tester.tap(back);
-      await tester.pumpAndSettle();
-    }
+    // Leave, mid-stream. (On a phone the list is a hamburger sheet away; on a desktop it is
+    // already beside the chat. Either way the *tap on the other conversation* is the thing
+    // being tested.)
+    await ensureChatsVisible(tester);
     await tapAt(tester, find.text(other.title));
     await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
 

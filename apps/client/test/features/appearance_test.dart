@@ -29,10 +29,28 @@ Future<void> _pumpApp(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
         dioProvider.overrideWithValue(
-          stubDio(
-            (options) =>
-                jsonResponse({'conversations': <Object?>[], 'total': 0}),
-          ),
+          stubDio((options) {
+            // The home now opens straight into a fresh chat, so the app's first
+            // frames create one and load its snapshot. Answer the whole flow, or
+            // the create's round trip is still pending when the test tears down.
+            if (options.method == 'POST' &&
+                options.path.endsWith('/api/conversations')) {
+              return jsonResponse({
+                'conversation': {
+                  'id': 'c-fresh',
+                  'title': 'New chat',
+                  'titleSource': 'fallback',
+                  'pinned': false,
+                  'status': 'ready',
+                  'updatedAt': '2026-01-01T00:00:00.000Z',
+                },
+              });
+            }
+            if (options.path.endsWith('/api/conversations/c-fresh')) {
+              return jsonResponse({'snapshot': snapshotJson()});
+            }
+            return jsonResponse({'conversations': <Object?>[], 'total': 0});
+          }),
         ),
       ],
       child: const NelleApp(),
@@ -44,6 +62,9 @@ Future<void> _pumpApp(
   // not animated, which is exactly why the two must both be asserted -- and why a test
   // that only pumped once would have "passed" for the wrong reason.
   await tester.pump(const Duration(milliseconds: 400));
+  // The home opens straight into a fresh chat now; settle the create + snapshot round
+  // trips so no request is still in flight when the test tears down.
+  await tester.pumpAndSettle();
 }
 
 /// The brightness the *forui* theme resolved to — which is what the app actually looks
