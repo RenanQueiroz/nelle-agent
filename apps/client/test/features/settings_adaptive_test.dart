@@ -37,7 +37,11 @@ void main() {
     ],
   };
 
-  Future<void> pumpSettings(WidgetTester tester, {required Size size}) async {
+  Future<void> pumpSettings(
+    WidgetTester tester, {
+    required Size size,
+    String? initialSection,
+  }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -54,7 +58,8 @@ void main() {
         ),
         GoRoute(
           path: '/settings',
-          builder: (context, state) => const SettingsScreen(),
+          builder: (context, state) =>
+              SettingsScreen(initialSection: initialSection),
         ),
       ],
     );
@@ -113,6 +118,55 @@ void main() {
     );
     expect(find.byKey(const ValueKey('k-settings-pane-general')), findsNothing);
     expect(find.text('The second section.'), findsOneWidget);
+  });
+
+  testWidgets('wide: the back affordance lives in the sidebar and leaves', (
+    tester,
+  ) async {
+    await pumpSettings(tester, size: const Size(1280, 900));
+
+    // In the sidebar header, not a screen-level header bar.
+    final back = find.byKey(const ValueKey('k-settings-back'));
+    expect(
+      find.ancestor(of: back, matching: find.byType(FSidebar)),
+      findsOneWidget,
+    );
+
+    await tester.tap(back);
+    await tester.pumpAndSettle();
+    expect(find.text('workbench'), findsOneWidget);
+  });
+
+  testWidgets('wide: ?section= preselects the pane', (tester) async {
+    await pumpSettings(
+      tester,
+      size: const Size(1280, 900),
+      initialSection: 'titles',
+    );
+
+    expect(
+      find.byKey(const ValueKey('k-settings-pane-titles')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('k-settings-pane-general')), findsNothing);
+  });
+
+  testWidgets('narrow: ?section= pushes the destination over the list', (
+    tester,
+  ) async {
+    // A static destination: the deep link works before the schema answers, which is
+    // the case the CTAs (install llama.cpp / add a model) actually hit.
+    await pumpSettings(
+      tester,
+      size: const Size(500, 900),
+      initialSection: 'models',
+    );
+
+    expect(find.byKey(const ValueKey('k-models-back')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('k-models-back')));
+    await tester.pumpAndSettle();
+    expect(find.text('These follow you to every device.'), findsOneWidget);
   });
 
   testWidgets('narrow: the grouped list pushes a standalone section', (

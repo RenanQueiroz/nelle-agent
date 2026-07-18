@@ -14,18 +14,20 @@ import 'settings_section_screen.dart';
 
 /// One place a Settings tap can land. The phone list and the desktop sidebar both render
 /// from this, so the two layouts cannot drift — same ids, same keys
-/// (`k-settings-section-<id>`), same destinations.
+/// (`k-settings-section-<id>`), same icons, same destinations.
 class _Destination {
   const _Destination({
     required this.id,
     required this.title,
     required this.subtitle,
+    required this.icon,
     required this.builder,
   });
 
   final String id;
   final String title;
   final String subtitle;
+  final IconData icon;
 
   /// Builds the destination — pushed standalone on a phone (`embedded: false`), hosted
   /// in the right pane on a desktop (`embedded: true`).
@@ -50,6 +52,21 @@ class _Group {
   final List<_Destination> destinations;
 }
 
+/// The glyph for a **schema-rendered** section, by slug. Served sections carry no icon —
+/// the schema describes fields, not chrome — so the mapping is the client's, with a
+/// neutral fallback for any slug a newer server invents.
+IconData _sectionIcon(String slug) => switch (slug) {
+  'titles' => FLucideIcons.type,
+  'attachments' => FLucideIcons.paperclip,
+  'instructions' => FLucideIcons.scrollText,
+  'network' => FLucideIcons.network,
+  'reasoning' => FLucideIcons.brain,
+  'runtime' => FLucideIcons.gauge,
+  'display' => FLucideIcons.monitor,
+  'appearance' => FLucideIcons.palette,
+  _ => FLucideIcons.slidersHorizontal,
+};
+
 /// Settings: every section the server serves, plus the ones that belong to this device.
 ///
 /// The groups are listed apart on purpose. Someone changing a setting on their phone must
@@ -61,7 +78,13 @@ class _Group {
 /// destination beside it, because a 560px phone column centered in a desktop window
 /// wastes the screen and buries three-field forms behind navigation.
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.initialSection});
+
+  /// A destination id to land on (`/settings?section=<id>`), so a CTA elsewhere in the
+  /// app — "add a model", "install llama.cpp" — can open the right screen, not the hub.
+  /// Wide preselects the pane; narrow pushes the destination over the list, so back
+  /// still returns somewhere sensible.
+  final String? initialSection;
 
   static const _twoPaneBreakpoint = 760.0;
 
@@ -71,6 +94,34 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _selectedId;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedId = widget.initialSection;
+    final target = widget.initialSection;
+    if (target != null) {
+      // Narrow lands as list + pushed destination. Deferred a frame because pushing
+      // needs a laid-out Navigator; only static destinations can be deep-linked before
+      // the schema loads, and the four CTAs that use this are all static.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final wide =
+            MediaQuery.sizeOf(context).width >=
+            SettingsScreen._twoPaneBreakpoint;
+        if (wide) return;
+        final sections =
+            ref.read(serverSettingsSchemaProvider).valueOrNull ?? const [];
+        final destination = [
+          for (final group in _groups(sections)) ...group.destinations,
+        ].where((d) => d.id == target).firstOrNull;
+        if (destination == null) return;
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => destination.builder(false)),
+        );
+      });
+    }
+  }
 
   List<_Group> _groups(List<SettingsSection> serverSections) => [
     _Group(
@@ -83,6 +134,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             id: section.slug,
             title: section.title,
             subtitle: section.description ?? '',
+            icon: _sectionIcon(section.slug),
             builder: (embedded) => SettingsSectionScreen(
               section: section,
               scope: SettingsScope(slug: section.slug, isDevice: false),
@@ -111,12 +163,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           id: 'llamacpp',
           title: 'llama.cpp',
           subtitle: 'Install, start and stop it. See its log.',
+          icon: FLucideIcons.cpu,
           builder: (embedded) => RuntimeScreen(embedded: embedded),
         ),
         _Destination(
           id: 'models',
           title: 'Models',
           subtitle: 'The models.ini catalog, and what they cost on disk.',
+          icon: FLucideIcons.box,
           builder: (embedded) => ModelsScreen(embedded: embedded),
         ),
         // Host tools live here, not under Settings: they are a gate on *the server's*
@@ -127,6 +181,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           id: 'host-tools',
           title: 'Host tools',
           subtitle: 'Let the model read files and run shell commands.',
+          icon: FLucideIcons.terminal,
           builder: (embedded) => HostToolsScreen(embedded: embedded),
         ),
       ],
@@ -144,6 +199,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             id: section.slug,
             title: section.title,
             subtitle: section.description ?? '',
+            icon: _sectionIcon(section.slug),
             builder: (embedded) => SettingsSectionScreen(
               section: section,
               scope: SettingsScope(slug: section.slug, isDevice: true),
@@ -160,11 +216,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           id: 'connection',
           title: 'Connection',
           subtitle: 'Which Nelle this app talks to, and pairing.',
+          icon: FLucideIcons.link,
           builder: (embedded) => ConnectionScreen(embedded: embedded),
         ),
       ],
     ),
   ];
+
+  void _back() => context.canPop() ? context.pop() : context.go('/');
 
   @override
   Widget build(BuildContext context) {
@@ -175,6 +234,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final wide =
         MediaQuery.sizeOf(context).width >= SettingsScreen._twoPaneBreakpoint;
 
+    if (wide) {
+      // No screen-level header: the back affordance lives in the sidebar beside the
+      // "Settings" title — the sidebar is the navigation surface, so leaving is a
+      // navigation act — and the pane's own heading names the section.
+      return FScaffold(
+        childPad: false,
+        sidebar: _sidebar(groups),
+        child: _pane(groups, sections),
+      );
+    }
     return FScaffold(
       childPad: false,
       header: FHeader.nested(
@@ -182,12 +251,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         prefixes: [
           FHeaderAction.back(
             key: const ValueKey('k-settings-back'),
-            onPress: () => context.canPop() ? context.pop() : context.go('/'),
+            onPress: _back,
           ),
         ],
       ),
-      sidebar: wide ? _sidebar(groups) : null,
-      child: wide ? _pane(groups, sections) : _list(groups, sections),
+      child: _list(groups, sections),
     );
   }
 
@@ -202,6 +270,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget _sidebar(List<_Group> groups) {
     final selected = _selected(groups);
     return FSidebar(
+      header: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+        child: Row(
+          children: [
+            FButton.icon(
+              key: const ValueKey('k-settings-back'),
+              variant: FButtonVariant.ghost,
+              size: FButtonSizeVariant.sm,
+              onPress: _back,
+              child: const Icon(FLucideIcons.arrowLeft, size: 18),
+            ),
+            const SizedBox(width: 6),
+            const Text(
+              'Settings',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
       children: [
         for (final group in groups)
           if (group.destinations.isNotEmpty)
@@ -216,6 +303,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 for (final destination in group.destinations)
                   FSidebarItem(
                     key: ValueKey('k-settings-section-${destination.id}'),
+                    icon: Icon(destination.icon),
                     label: Text(destination.title),
                     selected: destination.id == selected?.id,
                     onPress: () => setState(() => _selectedId = destination.id),
@@ -290,6 +378,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       builder: (context) => destination.builder(false),
                     ),
                   ),
+                  prefix: Icon(destination.icon),
                   title: Text(destination.title),
                   subtitle: destination.subtitle.isEmpty
                       ? null

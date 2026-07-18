@@ -17,7 +17,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/', builder: (context, state) => const WorkbenchScreen()),
       GoRoute(
         path: '/settings',
-        builder: (context, state) => const SettingsScreen(),
+        // `?section=<id>` lands on one destination — how a CTA elsewhere ("add a
+        // model", "install llama.cpp") opens the right screen instead of the hub.
+        builder: (context, state) => SettingsScreen(
+          initialSection: state.uri.queryParameters['section'],
+        ),
       ),
       GoRoute(
         path: '/connection',
