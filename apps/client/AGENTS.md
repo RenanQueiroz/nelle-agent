@@ -167,16 +167,38 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   child out in an unflexed `Row`**, so a long label overflows the button (94px here) — the same
   shape as the composer's earlier 91px overflow on Android. Keep button labels short and put the sentence
   beside them.
+- **The home is chat-first, Claude-shaped (`workbench_screen.dart`, 760px breakpoint)**:
+  the app opens **on a chat**, never on a list. `ConversationsNotifier.openFreshChat()`
+  adopts the newest *untouched* conversation (`titleSource == fallback`, title
+  `'New chat'`, status ready) or creates one — the reuse is what stops repeated opens
+  littering the server, and it works because the server marks a title given at
+  creation `user` (`harness.createConversation`). Wide: the conversation list
+  (`ConversationListPanel`, an `FSidebar.raw` chassis, 300px, branded "Nelle", counts
+  on the section headings) rides `FScaffold`'s sidebar slot, and the chat header's
+  top-left `k-chat-sidebar` toggle collapses it. Narrow: the chat is the whole screen
+  and the same toggle is a hamburger opening the panel via `showFSheet(side: ltr,
+  mainAxisMaxRatio: null)`; the panel's `onDestination` callback pops the sheet on
+  select/new/import/settings. Consequence for tests and drives: **the list is not on
+  screen at launch on a phone** — go through the harness's `ensureChatsVisible()`
+  before any list interaction, and there is no `k-chat-back` anymore. An empty
+  transcript renders `EmptyChatPanel`: the guided first-run path (install llama.cpp →
+  add a model → start it, one CTA per state via `/settings?section=<id>`) or a
+  greeting when everything is ready.
 - **Settings is adaptive, like the workbench (760px breakpoint)**: narrow renders the
-  grouped list and pushes each destination as a standalone screen; wide passes an
-  `FSidebar` to `FScaffold`'s `sidebar` slot and hosts the selected destination beside
-  it. Both layouts render from one destination registry in `settings_screen.dart`
-  (same ids, same `k-settings-section-<id>` keys), and every destination renders
-  through `SectionShell` (`settings/section_shell.dart`) — standalone (scaffold +
-  header + back) when pushed, a pane heading with the same action keys when embedded.
-  Consequence for tests and drives: **a section's back button exists only when
-  pushed**, so assert arrival on the section's *content*, never its back affordance,
-  and dismiss with a back only when one exists.
+  grouped list (icon tiles) and pushes each destination as a standalone screen; wide
+  passes an `FSidebar` to `FScaffold`'s `sidebar` slot — the back affordance lives in
+  the **sidebar header** beside the "Settings" title, not a screen-level header — and
+  hosts the selected destination beside it. Both layouts render from one destination
+  registry in `settings_screen.dart` (same ids, same `k-settings-section-<id>` keys,
+  same per-destination icons — schema sections map slug→icon in `_sectionIcon` with a
+  neutral fallback), and every destination renders through `SectionShell`
+  (`settings/section_shell.dart`) — standalone (scaffold + header + back) when pushed,
+  a pane heading with the same action keys when embedded. `/settings?section=<id>`
+  deep-links one destination: wide preselects the pane, narrow pushes it over the
+  list (static destinations only before the schema loads — which the chat-pane CTAs
+  all are). Consequence for tests and drives: **a section's back button exists only
+  when pushed**, so assert arrival on the section's *content*, never its back
+  affordance, and dismiss with a back only when one exists.
 - **This app is forui over a bare `FScaffold`, so it has no `Material` ancestor.** A
   Material-only widget (`Switch`, `IconButton`, anything wanting an ink splash) throws
   *"No Material widget found"* and paints a red error box — while `flutter analyze`
@@ -406,17 +428,23 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   (both roles; `Clipboard.setData` + toast) then regenerate (assistant) / fork
   (user).
 - **Reasoning and tool calls render as expandable cards** through one shared
-  `ExpandableCard` (`chat/expandable_card.dart` = forui `FCard.raw` + `FAccordion`;
-  the *only* place the accordion engine lives, like `MarkdownMessage` for markdown).
-  It insets the accordion horizontally — `FCard.raw` adds no padding and
-  `FAccordion`'s title/child padding is vertical-only. **Tool-call rendering is
-  folded client-side**: the chat controller upserts `tool_call.updated` into
-  `ChatState.liveToolCalls` by id (running → complete/error), reset per run and
+  `ExpandableCard` (`chat/expandable_card.dart` = forui `FCard.raw` + a custom
+  `FTappable` header over the primitive `FCollapsible`; the *only* place the collapse
+  engine lives, like `MarkdownMessage` for markdown). The primitive is deliberate:
+  the card follows a nullable `open` parameter whenever it **changes** — never on a
+  rebuild that repeats it, so the user's own taps are not fought — which is how the
+  streaming reasoning card opens itself while thoughts arrive (brain icon, titled
+  "Thinking…", driven by `reasoningStreaming` = streaming assistant with empty
+  content) and puts itself away when the first answer token lands. **Tool-call
+  rendering is folded client-side**: the chat controller upserts `tool_call.updated`
+  into `ChatState.liveToolCalls` by id (running → complete/error), reset per run and
   cleared by the snapshot reload; `chat_view` passes the live run's calls for a
   streaming assistant and the settled `message.toolCalls` (`parseToolCalls`) for a
-  finished one. Each is a `ToolCallCard` above the answer: a status icon + the tool
-  name, expanding to monospace Input/Output. Tool calls only appear when **host tools
-  are enabled** (off by default).
+  finished one. Each is a `ToolCallCard` above the answer: a wrench glyph + the tool
+  name + a status suffix (a live `FCircularProgress.loader` while running — which is
+  why tests over a *running* call pump bounded durations, never `pumpAndSettle`),
+  expanding to monospace Input/Output. Tool calls only appear when **host tools are
+  enabled** (off by default).
 - Performance metadata renders as **per-message stat rows**, matching llama.cpp's current web
   UI (there is no toggle -- an earlier design had a switchable Reading/Generation widget; it is
   gone): prompt-processing stats (`⟨ab⟩ tokens · ⟨clock⟩ time · ⟨gauge⟩ tokens/s`) beneath the

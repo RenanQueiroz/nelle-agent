@@ -145,30 +145,18 @@ class _ChatComposerState extends ConsumerState<ChatComposer> {
             ),
           // Send-blocking: the server refused before the message became a turn
           // (llama.cpp stopped, an unsupported attachment). It stays here until the
-          // next attempt — a toast would vanish while the reason still applies.
+          // next attempt — a toast would vanish while the reason still applies. A
+          // destructive FAlert, not a quiet row: this is the one banner that means
+          // "sending will not work", and it should read with that weight.
           if (sendError != null)
             Padding(
               key: const ValueKey('k-composer-send-error'),
               padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  Icon(
-                    FLucideIcons.circleX,
-                    size: 14,
-                    color: Theme.of(context).colorScheme.error,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      // The server's own sentence, verbatim.
-                      sendError,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ),
-                ],
+              child: FAlert(
+                variant: FAlertVariant.destructive,
+                icon: const Icon(FLucideIcons.circleX),
+                // The server's own sentence, verbatim.
+                title: Text(sendError),
               ),
             ),
           if (refusal != null)

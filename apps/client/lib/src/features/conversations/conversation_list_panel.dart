@@ -239,7 +239,16 @@ class _ConversationList extends ConsumerWidget {
           _SectionLabel('Pinned', count: state.pinned.length),
           FTileGroup(
             children: [
-              for (final c in state.pinned) _tile(context, ref, c, selectedId),
+              for (final c in state.pinned)
+                _ConversationTile(
+                  // Keyed by conversation so the row's state — an open menu, its
+                  // popover — follows its chat when a new row is prepended, instead
+                  // of being position-matched onto a different one.
+                  key: ValueKey('k-conv-row-${c.id}'),
+                  conversation: c,
+                  selected: c.id == selectedId,
+                  onDestination: onDestination,
+                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -250,7 +259,13 @@ class _ConversationList extends ConsumerWidget {
           _SectionLabel('Recent', count: state.recentTotal),
           FTileGroup(
             children: [
-              for (final c in state.recent) _tile(context, ref, c, selectedId),
+              for (final c in state.recent)
+                _ConversationTile(
+                  key: ValueKey('k-conv-row-${c.id}'),
+                  conversation: c,
+                  selected: c.id == selectedId,
+                  onDestination: onDestination,
+                ),
             ],
           ),
         ],
@@ -268,46 +283,37 @@ class _ConversationList extends ConsumerWidget {
       ],
     );
   }
-
-  FTile _tile(
-    BuildContext context,
-    WidgetRef ref,
-    ConversationListItem c,
-    String? selectedId,
-  ) {
-    final status = _statusLabel(c.status);
-    return FTile(
-      key: ValueKey('k-conv-tile-${c.id}'),
-      title: Text(
-        c.title.isEmpty ? 'Untitled' : c.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: status == null ? null : Text(status),
-      selected: c.id == selectedId,
-      onPress: () {
-        ref.read(selectedConversationIdProvider.notifier).state = c.id;
-        onDestination?.call();
-      },
-      suffix: _RowMenu(conversation: c),
-    );
-  }
 }
 
-/// Rename, pin, delete — and, from T4/T5, duplicate and export.
+/// One chat row: the tile, its actions menu, and every way to open that menu.
+///
+/// The menu is reachable three ways, matching what Claude's and ChatGPT's apps teach:
+/// the ellipsis button (always visible, discoverable), a **right-click** anywhere on the
+/// row (desktop), and a **long-press** (touch). All three toggle the *same* popover, so
+/// there is one menu to maintain and one set of keys for tests to address.
 ///
 /// A menu rather than a row of icons: a phone has no room for four, and `apps/web` learned the
 /// same thing. The trash icon it replaces was a **one-tap, unconfirmed, irreversible delete**.
-class _RowMenu extends ConsumerStatefulWidget {
-  const _RowMenu({required this.conversation});
+///
+/// `FTileMixin` is the marker `FTileGroup` requires of its children; the group's
+/// styling flows to the inner [FTile] through inherited data either way.
+class _ConversationTile extends ConsumerStatefulWidget with FTileMixin {
+  const _ConversationTile({
+    super.key,
+    required this.conversation,
+    required this.selected,
+    this.onDestination,
+  });
 
   final ConversationListItem conversation;
+  final bool selected;
+  final VoidCallback? onDestination;
 
   @override
-  ConsumerState<_RowMenu> createState() => _RowMenuState();
+  ConsumerState<_ConversationTile> createState() => _ConversationTileState();
 }
 
-class _RowMenuState extends ConsumerState<_RowMenu>
+class _ConversationTileState extends ConsumerState<_ConversationTile>
     with SingleTickerProviderStateMixin {
   late final FPopoverController _popover = FPopoverController(vsync: this);
 
@@ -320,65 +326,82 @@ class _RowMenuState extends ConsumerState<_RowMenu>
   @override
   Widget build(BuildContext context) {
     final c = widget.conversation;
-    return FPopoverMenu(
-      control: FPopoverControl.managed(controller: _popover),
-      menuAnchor: Alignment.topRight,
-      childAnchor: Alignment.bottomRight,
-      menu: [
-        FItemGroup(
-          children: [
-            FItem(
-              key: ValueKey('k-conv-rename-${c.id}'),
-              title: const Text('Rename'),
-              prefix: const Icon(FLucideIcons.pencil),
-              onPress: () {
-                _popover.hide();
-                _rename(context, ref, c);
-              },
-            ),
-            FItem(
-              key: ValueKey('k-conv-duplicate-${c.id}'),
-              title: const Text('Duplicate'),
-              prefix: const Icon(FLucideIcons.copy),
-              onPress: () {
-                _popover.hide();
-                _duplicate(context, ref, c);
-              },
-            ),
-            FItem(
-              key: ValueKey('k-conv-export-${c.id}'),
-              title: const Text('Export'),
-              prefix: const Icon(FLucideIcons.download),
-              onPress: () {
-                _popover.hide();
-                _export(context, ref, c);
-              },
-            ),
-            FItem(
-              key: ValueKey('k-conv-pin-${c.id}'),
-              title: Text(c.pinned ? 'Unpin' : 'Pin'),
-              prefix: Icon(c.pinned ? FLucideIcons.pinOff : FLucideIcons.pin),
-              onPress: () {
-                _popover.hide();
-                _setPinned(context, ref, c);
-              },
-            ),
-            FItem(
-              key: ValueKey('k-conv-delete-${c.id}'),
-              title: const Text('Delete'),
-              prefix: const Icon(FLucideIcons.trash2),
-              onPress: () {
-                _popover.hide();
-                _delete(context, ref, c);
-              },
-            ),
-          ],
+    final status = _statusLabel(c.status);
+    return FTile(
+      key: ValueKey('k-conv-tile-${c.id}'),
+      title: Text(
+        c.title.isEmpty ? 'Untitled' : c.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: status == null ? null : Text(status),
+      selected: widget.selected,
+      onPress: () {
+        ref.read(selectedConversationIdProvider.notifier).state = c.id;
+        widget.onDestination?.call();
+      },
+      onSecondaryPress: _popover.toggle,
+      onLongPress: _popover.toggle,
+      suffix: FPopoverMenu(
+        control: FPopoverControl.managed(controller: _popover),
+        menuAnchor: Alignment.topRight,
+        childAnchor: Alignment.bottomRight,
+        menu: [
+          FItemGroup(
+            children: [
+              FItem(
+                key: ValueKey('k-conv-rename-${c.id}'),
+                title: const Text('Rename'),
+                prefix: const Icon(FLucideIcons.pencil),
+                onPress: () {
+                  _popover.hide();
+                  _rename(context, ref, c);
+                },
+              ),
+              FItem(
+                key: ValueKey('k-conv-duplicate-${c.id}'),
+                title: const Text('Duplicate'),
+                prefix: const Icon(FLucideIcons.copy),
+                onPress: () {
+                  _popover.hide();
+                  _duplicate(context, ref, c);
+                },
+              ),
+              FItem(
+                key: ValueKey('k-conv-export-${c.id}'),
+                title: const Text('Export'),
+                prefix: const Icon(FLucideIcons.download),
+                onPress: () {
+                  _popover.hide();
+                  _export(context, ref, c);
+                },
+              ),
+              FItem(
+                key: ValueKey('k-conv-pin-${c.id}'),
+                title: Text(c.pinned ? 'Unpin' : 'Pin'),
+                prefix: Icon(c.pinned ? FLucideIcons.pinOff : FLucideIcons.pin),
+                onPress: () {
+                  _popover.hide();
+                  _setPinned(context, ref, c);
+                },
+              ),
+              FItem(
+                key: ValueKey('k-conv-delete-${c.id}'),
+                title: const Text('Delete'),
+                prefix: const Icon(FLucideIcons.trash2),
+                onPress: () {
+                  _popover.hide();
+                  _delete(context, ref, c);
+                },
+              ),
+            ],
+          ),
+        ],
+        builder: (context, controller, child) => FButton.icon(
+          key: ValueKey('k-conv-menu-${c.id}'),
+          onPress: controller.toggle,
+          child: const Icon(FLucideIcons.ellipsis, size: 16),
         ),
-      ],
-      builder: (context, controller, child) => FButton.icon(
-        key: ValueKey('k-conv-menu-${c.id}'),
-        onPress: controller.toggle,
-        child: const Icon(FLucideIcons.ellipsis, size: 16),
       ),
     );
   }

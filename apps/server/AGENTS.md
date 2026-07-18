@@ -943,6 +943,11 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
   helpers live in `apps/server/src/contracts/titles.ts`.
   `streamConversationTitleIfNeeded` is the only path that runs; it fires once per
   conversation, on the first exchange of a chat still at `titleSource: 'fallback'`.
+  A title given at **creation** is a `user` title (`harness.createConversation`),
+  exactly as a rename is — so generation never overwrites a name the caller chose,
+  and `fallback` reliably means *untouched*, which the client's "open a fresh chat"
+  adoption heuristic depends on. Untitled creations stay `fallback` (titleable);
+  fork/clone titles are derived (`"X (fork)"`) and stay `fallback` on purpose.
   `maxWords` is *enforced* by truncation, because a model ignores being asked.
   `renderTitlePrompt` substitutes `{{USER}}`, `{{ASSISTANT}}` and `{{MAX_WORDS}}` in
   one pass, so a user message containing the literal text `{{ASSISTANT}}` reaches the

@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -408,6 +409,30 @@ void main() {
       expect(find.byKey(const ValueKey('k-conv-pin-1')), findsOneWidget);
       expect(find.byKey(const ValueKey('k-conv-delete-1')), findsOneWidget);
       expect(find.text('Pin'), findsOneWidget);
+    });
+
+    testWidgets('right-click and long-press open the same row menu', (
+      tester,
+    ) async {
+      // Desktop right-clicks a row, touch long-presses it — both toggle the very
+      // popover the ellipsis opens, so there is one menu and one set of keys.
+      await tester.pumpWidget(host([_item('1')]));
+      await tester.pumpAndSettle();
+
+      final tile = find.byKey(const ValueKey('k-conv-tile-1'));
+      await tester.tap(tile, buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('k-conv-rename-1')), findsOneWidget);
+
+      // Tapping outside dismisses…
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('k-conv-rename-1')), findsNothing);
+
+      // …and a long-press brings it back.
+      await tester.longPress(tile);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('k-conv-rename-1')), findsOneWidget);
     });
 
     testWidgets('renaming does not use the controller after disposing it', (
