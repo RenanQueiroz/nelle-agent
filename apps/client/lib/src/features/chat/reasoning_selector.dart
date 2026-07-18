@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
 import '../../api/generated/models/reasoning_level.dart';
+import '../settings/reasoning_settings.dart';
 import 'chat_controller.dart';
 
 /// The composer's reasoning control: how hard the model thinks on **this**
@@ -37,14 +38,17 @@ class ReasoningSelector extends ConsumerWidget {
       return const _NoReasoning();
     }
 
+    final budgets = ref.watch(reasoningBudgetsProvider);
+
     return SizedBox(
       width: 150,
-      child: FSelect<ReasoningLevel>(
+      // `.rich` rather than the `items:` map, because the menu carries more than
+      // labels: a heading that says what is being chosen, and each level's budget
+      // underneath its name. The trigger stays the bare level ("Medium") — it sits in
+      // a composer row beside the model picker, where a sentence would not fit.
+      child: FSelect<ReasoningLevel>.rich(
         key: const ValueKey('k-composer-reasoning'),
-        items: {
-          for (final level in ReasoningLevel.$valuesDefined)
-            _label(level): level,
-        },
+        format: _label,
         control: FSelectControl.lifted(
           value: chat.reasoningLevel,
           onChange: (level) =>
@@ -59,21 +63,47 @@ class ReasoningSelector extends ConsumerWidget {
             color: context.theme.colors.mutedForeground,
           ),
         ),
+        children: [
+          FSelectSection<ReasoningLevel>.rich(
+            label: const Text('Thinking budget'),
+            children: [
+              for (final level in ReasoningLevel.$valuesDefined)
+                FSelectItem<ReasoningLevel>.item(
+                  key: ValueKey('k-composer-reasoning-${level.name}'),
+                  value: level,
+                  title: Text(_label(level)),
+                  subtitle: Text(_budgetLabel(level, budgets)),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  /// `off` is a state, not a level, so it is named as one.
+  /// The level's own name, and nothing else — what the trigger shows and what titles
+  /// each row. "Thinking budget" is said once, by the menu's heading.
   String _label(ReasoningLevel level) => switch (level) {
-    ReasoningLevel.off => 'No thinking',
-    ReasoningLevel.low => 'Think: low',
-    ReasoningLevel.medium => 'Think: medium',
-    ReasoningLevel.high => 'Think: high',
-    ReasoningLevel.max => 'Think: max',
+    ReasoningLevel.off => 'Off',
+    ReasoningLevel.low => 'Low',
+    ReasoningLevel.medium => 'Medium',
+    ReasoningLevel.high => 'High',
+    ReasoningLevel.max => 'Max',
     // Unreachable from the UI ($valuesDefined excludes it), but a snapshot from a
     // newer server can carry a level this build has no name for.
     ReasoningLevel.$unknown => 'Unknown',
   };
+
+  /// What the level actually costs, under its name. `off` and `max` have no number by
+  /// design — the server sends no budget for either — and a budgeted level set to `0`
+  /// is unlimited, so it says so rather than showing "0 tokens".
+  String _budgetLabel(ReasoningLevel level, ReasoningBudgets budgets) {
+    if (level == ReasoningLevel.off) {
+      return 'The model answers without thinking';
+    }
+    final tokens = budgets.tokensFor(level);
+    return tokens == null ? 'Unlimited' : '$tokens tokens';
+  }
 
   Future<void> _pick(
     BuildContext context,

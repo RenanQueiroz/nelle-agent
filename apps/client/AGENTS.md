@@ -328,6 +328,22 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   answers `/props` only for a model it has loaded at least once, so `null` means
   "not known yet" and must stay editable; only a template that provably has no
   thinking mode (`false`) locks the control to `off`.
+  - **The trigger says only the level** ("Off", "Low", … "Max") because it shares a
+    composer row with the model picker, where a sentence does not fit; the *menu*
+    explains itself instead — an `FSelect.rich` + `FSelectSection.rich` headed
+    "Thinking budget", each row titled by level and subtitled with what it buys.
+    Subtitles come from `reasoningBudgetsProvider`
+    (`settings/reasoning_settings.dart`), which **derives from
+    `settingsValuesProvider('reasoning')` rather than fetching the group itself** —
+    saving the section already invalidates that provider, so an edited budget reaches
+    the picker at once instead of sitting stale in a second cache. `tokensFor` mirrors
+    the server's `reasoningBudgetTokens`: `off` and `max` carry no budget at all, and a
+    budgeted level set to `0` is *unlimited*, never "0 tokens".
+  - Widget-test trap for any `FSelect`: hosted as a bare `FScaffold` child it stretches
+    to the full surface height, so its centre sits far below the ~36px field it draws
+    and a centre tap (what `tester.tap(byKey)`, a device test and a marionette drive all
+    do) lands on empty space. Host it top-aligned, as the composer's `Row` does, or the
+    test proves nothing about a real tap.
 - A settings draft is what the user is typing, so only the save that made it
   stale may overwrite it. A catalog or snapshot refresh must never re-seed drafts:
   it may add and drop whole models, but it may not rewrite a field the user has a
