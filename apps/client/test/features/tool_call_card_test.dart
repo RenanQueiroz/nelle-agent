@@ -97,8 +97,10 @@ void main() {
         ),
       ),
     );
+    // Bounded pumps, not pumpAndSettle: a *running* call shows a live spinner, which
+    // never settles by design.
     await tester.tap(find.text('search'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('Input'), findsOneWidget);
     expect(find.text('Output'), findsNothing);

@@ -243,6 +243,8 @@ class _TranscriptState extends ConsumerState<_Transcript> {
           readingMetric: readingMetric,
           generationMetric: generationMetric,
           toolCalls: toolCalls,
+          // Open while the thoughts stream, and closed by the first answer token.
+          reasoningStreaming: isStreamingAssistant && message.content.isEmpty,
           onRegenerate: canRegenerate
               ? () => notifier.regenerate(message.id)
               : null,

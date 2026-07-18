@@ -57,7 +57,7 @@ class ToolCallCard extends StatelessWidget {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _StatusIcon(status: call.status),
+            Icon(FLucideIcons.wrench, size: 15, color: muted),
             const SizedBox(width: 8),
             Flexible(
               child: Text(
@@ -70,6 +70,8 @@ class ToolCallCard extends StatelessWidget {
                 ),
               ),
             ),
+            const SizedBox(width: 8),
+            _StatusIcon(status: call.status),
           ],
         ),
         child: Column(
@@ -87,8 +89,7 @@ class ToolCallCard extends StatelessWidget {
   }
 }
 
-/// The tool call's status: running / complete / error. A static icon rather than a Material
-/// spinner — this app has no `Material` ancestor.
+/// The tool call's status: running / complete / error.
 class _StatusIcon extends StatelessWidget {
   const _StatusIcon({required this.status});
 
@@ -97,13 +98,22 @@ class _StatusIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final (icon, color) = switch (status) {
-      ToolCallEventStatus.complete => (FLucideIcons.check, scheme.primary),
-      ToolCallEventStatus.error => (FLucideIcons.circleAlert, scheme.error),
-      // running, and any status a newer server invents, read as "in progress".
-      _ => (FLucideIcons.loaderCircle, context.theme.colors.mutedForeground),
+    return switch (status) {
+      ToolCallEventStatus.complete => Icon(
+        FLucideIcons.check,
+        size: 15,
+        color: scheme.primary,
+      ),
+      ToolCallEventStatus.error => Icon(
+        FLucideIcons.circleAlert,
+        size: 15,
+        color: scheme.error,
+      ),
+      // running, and any status a newer server invents, read as "in progress" — a live
+      // spinner (forui's, so no Material ancestor is needed), because a static glyph on a
+      // call that takes seconds looks stuck.
+      _ => FCircularProgress.loader(size: FCircularProgressSizeVariant.xs),
     };
-    return Icon(icon, size: 15, color: color);
   }
 }
 

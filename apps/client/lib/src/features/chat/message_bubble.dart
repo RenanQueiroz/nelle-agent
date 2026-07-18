@@ -29,9 +29,15 @@ class MessageBubble extends StatelessWidget {
     this.modelControl,
     this.variantControl,
     this.toolCalls = const [],
+    this.reasoningStreaming = false,
   });
 
   final ConversationMessage message;
+
+  /// This turn's reasoning is arriving **right now** and the answer has not started. The
+  /// card opens itself so the thoughts are watchable, titles itself "Thinking…", and puts
+  /// itself away the moment the first answer token lands.
+  final bool reasoningStreaming;
 
   /// The footer's model **dropdown**, injected by the transcript when regenerating this
   /// message is allowed. When null the footer shows the model alias as plain text — a run in
@@ -107,13 +113,25 @@ class MessageBubble extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: ExpandableCard(
                   key: ValueKey('k-msg-reasoning-${message.id}'),
-                  title: Text(
-                    'Reasoning',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: context.theme.colors.mutedForeground,
-                    ),
+                  open: reasoningStreaming,
+                  title: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        FLucideIcons.brain,
+                        size: 15,
+                        color: context.theme.colors.mutedForeground,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        reasoningStreaming ? 'Thinking…' : 'Reasoning',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: context.theme.colors.mutedForeground,
+                        ),
+                      ),
+                    ],
                   ),
                   // Thinking is model output too — where it writes its lists and arithmetic.
                   child: MarkdownMessage(

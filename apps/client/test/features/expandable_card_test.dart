@@ -24,7 +24,7 @@ void main() {
     );
 
     expect(find.text('Details'), findsOneWidget);
-    // forui's FAccordion keeps the collapsed child in the tree but clips it, so it is present
+    // forui's FCollapsible keeps the collapsed child in the tree but clips it, so it is present
     // yet not hit-testable until expanded.
     expect(find.text('the hidden content').hitTestable(), findsNothing);
 
@@ -47,5 +47,37 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('shown').hitTestable(), findsOneWidget);
+  });
+
+  testWidgets('follows `open` when it changes — and only when it changes', (
+    tester,
+  ) async {
+    Widget card(bool open) => _host(
+      ExpandableCard(
+        title: const Text('Thinking'),
+        open: open,
+        child: const Text('streamed thoughts'),
+      ),
+    );
+
+    // Starts open without any tap: the streaming reasoning card.
+    await tester.pumpWidget(card(true));
+    await tester.pumpAndSettle();
+    expect(find.text('streamed thoughts').hitTestable(), findsOneWidget);
+
+    // The stream settles → the card puts itself away.
+    await tester.pumpWidget(card(false));
+    await tester.pumpAndSettle();
+    expect(find.text('streamed thoughts').hitTestable(), findsNothing);
+
+    // The user reopens it by hand…
+    await tester.tap(find.text('Thinking'));
+    await tester.pumpAndSettle();
+    expect(find.text('streamed thoughts').hitTestable(), findsOneWidget);
+
+    // …and a rebuild that *repeats* open: false must not fight them.
+    await tester.pumpWidget(card(false));
+    await tester.pumpAndSettle();
+    expect(find.text('streamed thoughts').hitTestable(), findsOneWidget);
   });
 }
