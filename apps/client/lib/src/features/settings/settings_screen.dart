@@ -370,24 +370,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     child: Center(child: FCircularProgress.loader()),
                   ),
                 },
-              for (final destination in group.destinations)
-                FTile(
-                  key: ValueKey('k-settings-section-${destination.id}'),
-                  onPress: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (context) => destination.builder(false),
-                    ),
-                  ),
-                  prefix: Icon(destination.icon),
-                  title: Text(destination.title),
-                  subtitle: destination.subtitle.isEmpty
-                      ? null
-                      : Text(
-                          destination.subtitle,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+              // One `FTileGroup` per heading, exactly as the conversation list groups
+              // its Pinned/Recent rows: grouped tiles join into a single bordered
+              // container with hairline dividers, where bare ones each draw their own
+              // card. The heading already says where a group starts, so the second
+              // border was noise — and the two lists reading differently was an
+              // accident of construction, not a decision.
+              if (group.destinations.isNotEmpty)
+                FTileGroup(
+                  children: [
+                    for (final destination in group.destinations)
+                      FTile(
+                        key: ValueKey('k-settings-section-${destination.id}'),
+                        onPress: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (context) => destination.builder(false),
+                          ),
                         ),
-                  suffix: const Icon(FLucideIcons.chevronRight, size: 16),
+                        prefix: Icon(destination.icon),
+                        title: Text(destination.title),
+                        subtitle: destination.subtitle.isEmpty
+                            ? null
+                            : Text(
+                                destination.subtitle,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                        suffix: const Icon(FLucideIcons.chevronRight, size: 16),
+                      ),
+                  ],
                 ),
             ],
           ],
