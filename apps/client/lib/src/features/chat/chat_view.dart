@@ -13,6 +13,7 @@ import '../conversations/conversations_repository.dart';
 import 'chat_composer.dart';
 import 'chat_controller.dart';
 import 'context_bar.dart';
+import 'empty_chat_panel.dart';
 import '../settings/display_settings.dart';
 import 'message_bubble.dart';
 import 'message_model_dropdown.dart';
@@ -161,7 +162,10 @@ class _TranscriptState extends ConsumerState<_Transcript> {
         _DisplayUnit.single(message, pending: true),
     ];
     if (units.isEmpty && compactNote == null) {
-      return const Center(child: Text('No messages yet.'));
+      // Not a "no messages" shrug: on a fresh install this is where the guided path
+      // lives (install llama.cpp → add a model → start it), and on a ready one, a
+      // greeting.
+      return const EmptyChatPanel();
     }
     final notifier = ref.read(
       chatControllerProvider(widget.conversationId).notifier,
