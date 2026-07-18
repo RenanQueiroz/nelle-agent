@@ -45,6 +45,14 @@ class ReasoningSelector extends ConsumerWidget {
               level == null ? null : _pick(context, ref, level),
         ),
         hint: 'Thinking',
+        prefixBuilder: (context, style, variants) => Padding(
+          padding: const EdgeInsetsDirectional.only(start: 10),
+          child: Icon(
+            FLucideIcons.brain,
+            size: 15,
+            color: context.theme.colors.mutedForeground,
+          ),
+        ),
       ),
     );
   }

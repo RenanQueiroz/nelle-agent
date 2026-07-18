@@ -82,7 +82,7 @@ class ConversationListPanel extends ConsumerWidget {
               error is NelleApiException && error.code == 'certificate_mismatch',
           onRetry: () => ref.read(conversationsProvider.notifier).refresh(),
         ),
-        _ => const Center(child: CircularProgressIndicator()),
+        _ => const Center(child: FCircularProgress.loader()),
       },
     );
   }

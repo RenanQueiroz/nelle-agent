@@ -99,11 +99,7 @@ class _RemoteAccessSectionState extends ConsumerState<RemoteAccessSection> {
             ),
             const SizedBox(width: 12),
             switch (enabled) {
-              AsyncLoading() => const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
+              AsyncLoading() => FCircularProgress.loader(size: FCircularProgressSizeVariant.xs),
               // forui's switch, not Material's. This app is forui over a bare
               // FScaffold and has no Material ancestor, so a MaterialSwitch throws
               // "No Material widget found" and paints a red error box where the
@@ -177,11 +173,7 @@ class _RemoteAccessSectionState extends ConsumerState<RemoteAccessSection> {
             'Could not list devices: $error',
             style: TextStyle(fontSize: 12, color: theme.colorScheme.error),
           ),
-          _ => const SizedBox(
-            height: 16,
-            width: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
+          _ => FCircularProgress.loader(size: FCircularProgressSizeVariant.xs),
         },
       ],
     );

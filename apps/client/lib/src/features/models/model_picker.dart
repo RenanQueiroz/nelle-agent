@@ -98,6 +98,14 @@ class ModelPickerSelect extends ConsumerWidget {
           },
         ),
         hint: hint,
+        prefixBuilder: (context, style, variants) => Padding(
+          padding: const EdgeInsetsDirectional.only(start: 10),
+          child: Icon(
+            FLucideIcons.box,
+            size: 15,
+            color: context.theme.colors.mutedForeground,
+          ),
+        ),
       ),
     );
   }

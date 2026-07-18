@@ -151,11 +151,7 @@ class _HealthStatus extends StatelessWidget {
         'Not reachable: $error',
       ),
       _ => _row(
-        const SizedBox(
-          width: 16,
-          height: 16,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
+        FCircularProgress.loader(size: FCircularProgressSizeVariant.xs),
         'Checking…',
       ),
     };

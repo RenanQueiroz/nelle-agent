@@ -333,7 +333,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           style: TextStyle(color: Theme.of(context).colorScheme.error),
         ),
       ),
-      _ => const Center(child: CircularProgressIndicator()),
+      _ => const Center(child: FCircularProgress.loader()),
     };
   }
 
@@ -367,7 +367,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   _ => const Padding(
                     padding: EdgeInsets.all(24),
-                    child: Center(child: CircularProgressIndicator()),
+                    child: Center(child: FCircularProgress.loader()),
                   ),
                 },
               for (final destination in group.destinations)

@@ -177,11 +177,7 @@ class _Banner extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            const SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
+            FCircularProgress.loader(size: FCircularProgressSizeVariant.xs),
             const SizedBox(width: 10),
             Text(copy.runningBanner, style: const TextStyle(fontSize: 12)),
           ],

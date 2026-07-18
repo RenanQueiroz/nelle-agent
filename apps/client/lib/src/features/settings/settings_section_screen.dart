@@ -105,7 +105,7 @@ class SettingsSectionScreen extends ConsumerWidget {
             style: TextStyle(color: theme.colorScheme.error),
           ),
         ),
-        _ => const Center(child: CircularProgressIndicator()),
+        _ => const Center(child: FCircularProgress.loader()),
       },
     );
   }

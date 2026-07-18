@@ -201,10 +201,6 @@ class _Uploading extends StatelessWidget {
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(8),
     ),
-    child: const SizedBox(
-      width: 14,
-      height: 14,
-      child: CircularProgressIndicator(strokeWidth: 2),
-    ),
+    child: FCircularProgress.loader(size: FCircularProgressSizeVariant.xs),
   );
 }

@@ -103,7 +103,7 @@ class ChatView extends ConsumerWidget {
                     .read(chatControllerProvider(conversationId).notifier)
                     .reload(),
               ),
-              _ => const Center(child: CircularProgressIndicator()),
+              _ => const Center(child: FCircularProgress.loader()),
             },
           ),
           // No composer: there is nowhere to send a message to. `capabilities.canSend` is already
@@ -489,6 +489,25 @@ String _bytesLabel(int bytes) {
   return '${(bytes / (1000 * 1000)).round()} MB';
 }
 
+/// The 0..1 fraction behind [modelLoadLabel]'s percentage, when one is known — a bar can
+/// say "over halfway" at a glance where "Downloading model… 54%" needs reading. Null (no
+/// progress reported) hides the bar rather than animating a guess.
+double? modelLoadFraction(ModelLoad? load) {
+  if (load == null) {
+    return null;
+  }
+  final progress = load.progress;
+  if (progress != null) {
+    return progress.clamp(0, 1);
+  }
+  final done = load.downloadedBytes;
+  final total = load.totalBytes;
+  if (done != null && total != null && total > 0) {
+    return (done / total).clamp(0, 1);
+  }
+  return null;
+}
+
 class _LoadingWeights extends StatelessWidget {
   const _LoadingWeights({this.load});
 
@@ -496,20 +515,32 @@ class _LoadingWeights extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final fraction = modelLoadFraction(load);
     return Align(
       alignment: Alignment.centerLeft,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FCircularProgress.loader(size: FCircularProgressSizeVariant.sm),
+                const SizedBox(width: 8),
+                Text(modelLoadLabel(load)),
+              ],
             ),
-            const SizedBox(width: 8),
-            Text(modelLoadLabel(load)),
+            if (fraction != null)
+              Padding(
+                key: const ValueKey('k-chat-load-progress'),
+                padding: const EdgeInsets.only(top: 8),
+                child: SizedBox(
+                  width: 260,
+                  child: FDeterminateProgress(value: fraction),
+                ),
+              ),
           ],
         ),
       ),

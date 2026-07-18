@@ -43,7 +43,7 @@ class _GlobalParamsScreenState extends ConsumerState<GlobalParamsScreen> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
           child: catalog == null
-              ? const Center(child: CircularProgressIndicator())
+              ? const Center(child: FCircularProgress.loader())
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   children: [
