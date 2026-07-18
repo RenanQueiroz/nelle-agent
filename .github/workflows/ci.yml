@@ -35,7 +35,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -76,7 +76,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -84,7 +84,7 @@ jobs:
       # `bun run build --target=server` builds it, runs it, and POSTs a real PDF to /api/uploads.
       # It exits non-zero if the binary refuses the PDF -- which is the whole reason it exists.
       - run: bun run build --target=server
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nelle-server-${{ matrix.os }}
           path: dist/
@@ -94,13 +94,13 @@ jobs:
           retention-days: 3
 
   # ---------------------------------------------------------------------------------------------
-  # The Flutter client: analyze + the 313 widget tests. Host Dart VM, so one runner is enough.
+  # The Flutter client: analyze + the 367 widget tests. Host Dart VM, so one runner is enough.
   # ---------------------------------------------------------------------------------------------
   client:
     name: client (analyze + widget tests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -118,10 +118,9 @@ jobs:
   # The fast tier needs **no model** -- llama.cpp is deliberately stopped, which is what a fresh
   # install is and where most error paths live. So it is CI-able as it stands.
   #
-  # Today it runs on Linux and an Android emulator, on one WSL2 box. Windows, macOS and iOS have
-  # **never been run at all**. Ten minutes on Android found two real bugs (a 91px composer overflow
-  # and a conversation list that never reloaded after pairing); there is no reason to expect these
-  # to be kinder. Finding that out is the point.
+  # It was first developed on Linux and Android, on one WSL2 box. Ten minutes on Android found two
+  # real bugs (a 91px composer overflow and a conversation list that never reloaded after pairing);
+  # the other platforms have found their own. Finding those differences is the point.
   #
   # The first run did exactly that. **macOS failed 14 of 15** -- the app carried no
   # `com.apple.security.network.client` entitlement, so the App Sandbox blocked every outbound
@@ -129,16 +128,16 @@ jobs:
   # nobody had ever built for. **Windows failed 1 of 15**, on a `tapAt` that scrolled the screen it
   # had just left. Both are green now and neither tolerates failure any more.
   #
-  # iOS and Android still carry `continue-on-error`: iOS has never been built at all, and the CI
-  # emulator is its own adventure (it is 320x640, which is smaller than any real phone and finds
-  # off-screen taps nothing else does). Remove it the moment each goes green -- a permanently
-  # tolerated failure is a decoration, not a test.
+  # Android is green on its 320x640 CI emulator and is required. iOS builds and runs the suite, but
+  # remains tolerated until the cancellation and network-wait fixes get their first green iOS run.
+  # Remove that tolerance immediately afterward -- a permanently tolerated failure is a decoration,
+  # not a test.
   # ---------------------------------------------------------------------------------------------
   device-linux:
     name: device suite (linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -170,7 +169,7 @@ jobs:
     # `continue-on-error` it carried on its first outing is gone: a permanently tolerated failure is
     # a decoration, not a test.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -188,7 +187,7 @@ jobs:
     runs-on: windows-latest
     # Green as of the `tapAt` ordering fix -- 15/15. No longer tolerated to fail.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -202,16 +201,16 @@ jobs:
       - run: bun run test:device -- -d windows
 
   # ---------------------------------------------------------------------------------------------
-  # The client has **never been built for iOS**, let alone run on a simulator. This is the first
-  # time. Signing is not set up (a usable `.ipa` needs Apple Developer membership), so this builds
-  # and drives the **Simulator**, which needs none.
+  # Signing is not set up (a usable `.ipa` needs Apple Developer membership), so this builds and
+  # drives the **Simulator**, which needs none. It remains tolerated only until the current
+  # cancellation and real-network wait fixes complete their first green iOS run.
   # ---------------------------------------------------------------------------------------------
   device-ios:
     name: device suite (iOS Simulator)
     runs-on: macos-latest
-    continue-on-error: true # never built for iOS at all
+    continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -235,13 +234,13 @@ jobs:
   device-android:
     name: device suite (Android emulator)
     runs-on: ubuntu-latest
-    continue-on-error: true # the emulator in CI is its own adventure
+    # Green as of its first complete 15/15 run. No longer tolerated to fail.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'

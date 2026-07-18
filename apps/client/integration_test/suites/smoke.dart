@@ -30,15 +30,15 @@ void smokeSuite() {
     await launchApp(tester);
 
     await tapAt(tester, find.text(Fixture.withHistory));
-    await tester.pumpAndSettle();
+    final userTurn = find.textContaining(
+      'Tell me about ${Fixture.withHistory}',
+    );
+    await pumpUntil(tester, userTurn);
 
     // The Pi session the fixture seeded, read back through the snapshot route. A widget test can
     // only ever assert that the client renders a canned JSON blob correctly; this asserts that the
     // server can actually produce it.
-    expect(
-      find.textContaining('Tell me about ${Fixture.withHistory}'),
-      findsOneWidget,
-    );
+    expect(userTurn, findsOneWidget);
     expect(
       find.textContaining('Here is what I know about ${Fixture.withHistory}'),
       findsOneWidget,

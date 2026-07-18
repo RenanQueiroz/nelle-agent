@@ -48,40 +48,38 @@ class MarkdownMessage extends StatefulWidget {
 
 class _MarkdownMessageState extends State<MarkdownMessage> {
   late String _rendered = widget.text;
-  Stopwatch? _sinceRender;
-  Timer? _pending;
+  Timer? _cooldown;
 
   @override
   void didUpdateWidget(MarkdownMessage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.text == _rendered || _pending != null) {
+    if (widget.text == _rendered || _cooldown != null) {
       return;
     }
-    final elapsed = _sinceRender?.elapsed ?? MarkdownMessage.throttle;
-    if (elapsed >= MarkdownMessage.throttle) {
-      _render();
-      return;
-    }
-    // Always schedule: the last delta of a run must still land, and it is the only one
-    // the reader actually stops on.
-    _pending = Timer(MarkdownMessage.throttle - elapsed, () {
-      _pending = null;
-      if (mounted) {
-        _render();
-      }
-    });
+    _renderAndStartCooldown();
   }
 
-  void _render() {
+  void _renderAndStartCooldown() {
     setState(() {
       _rendered = widget.text;
-      _sinceRender = Stopwatch()..start();
+    });
+    // One clock owns both the production behaviour and FakeAsync widget tests. Mixing a real
+    // Stopwatch with a fake Timer made the throttle depend on CI runner load: a slow parse could
+    // cross 80 ms of wall time while the test had advanced only 5 ms, rendering every delta.
+    //
+    // Always leave a trailing timer. It flushes the latest text even if no further delta arrives,
+    // which is what keeps the final token of a completed run from being dropped.
+    _cooldown = Timer(MarkdownMessage.throttle, () {
+      _cooldown = null;
+      if (mounted && widget.text != _rendered) {
+        _renderAndStartCooldown();
+      }
     });
   }
 
   @override
   void dispose() {
-    _pending?.cancel();
+    _cooldown?.cancel();
     super.dispose();
   }
 

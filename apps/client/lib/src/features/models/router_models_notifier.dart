@@ -22,7 +22,8 @@ class RouterModelsNotifier extends AsyncNotifier<List<LlamaRouterModel>> {
   static const _maxRetry = Duration(seconds: 15);
 
   StreamSubscription<Map<String, dynamic>>? _sub;
-  CancelToken? _cancel;
+  CancelToken? _listCancel;
+  CancelToken? _streamCancel;
   Timer? _retry;
   Duration _backoff = _minRetry;
   bool _disposed = false;
@@ -33,21 +34,49 @@ class RouterModelsNotifier extends AsyncNotifier<List<LlamaRouterModel>> {
       _disposed = true;
       _retry?.cancel();
       _sub?.cancel();
-      _cancel?.cancel();
+      _listCancel?.cancel();
+      _streamCancel?.cancel();
     });
-    final models = await ref.read(llamaRepositoryProvider).list();
+    final List<LlamaRouterModel> models;
+    try {
+      models = await _list();
+    } catch (_) {
+      // A provider can be torn down while its initial HTTP request is still in flight (the device
+      // suite replaces the real app between tests). Cancellation is cleanup, not an application
+      // error that should escape after the test or screen already went away.
+      if (_disposed) {
+        return const [];
+      }
+      rethrow;
+    }
+    if (_disposed) {
+      return const [];
+    }
     _listen();
     return models;
+  }
+
+  Future<List<LlamaRouterModel>> _list() async {
+    final cancel = CancelToken();
+    _listCancel?.cancel();
+    _listCancel = cancel;
+    try {
+      return await ref.read(llamaRepositoryProvider).list(cancelToken: cancel);
+    } finally {
+      if (identical(_listCancel, cancel)) {
+        _listCancel = null;
+      }
+    }
   }
 
   /// Subscribes to the router's raw llama.cpp event stream. A failure just means
   /// llama.cpp is not running: the list stays as-is rather than blowing up the UI, and
   /// the stream is reattached so a llama.cpp that comes back is picked up on its own.
   void _listen() {
-    _cancel = CancelToken();
+    _streamCancel = CancelToken();
     _sub = ref
         .read(sseTransportProvider)
-        .streamJson('/api/llama/models/events', cancelToken: _cancel)
+        .streamJson('/api/llama/models/events', cancelToken: _streamCancel)
         .listen(
           (event) {
             _backoff = _minRetry;
@@ -68,8 +97,8 @@ class RouterModelsNotifier extends AsyncNotifier<List<LlamaRouterModel>> {
     }
     _sub?.cancel();
     _sub = null;
-    _cancel?.cancel();
-    _cancel = null;
+    _streamCancel?.cancel();
+    _streamCancel = null;
 
     _retry = Timer(_backoff, () async {
       _retry = null;
@@ -80,7 +109,7 @@ class RouterModelsNotifier extends AsyncNotifier<List<LlamaRouterModel>> {
       try {
         // llama.cpp may have restarted with a different set of models, so re-list
         // rather than reattaching the stream to a stale one.
-        final models = await ref.read(llamaRepositoryProvider).list();
+        final models = await _list();
         if (_disposed) {
           return;
         }
@@ -170,8 +199,10 @@ class RouterModelsNotifier extends AsyncNotifier<List<LlamaRouterModel>> {
   Future<void> refresh() async {
     await _sub?.cancel();
     _sub = null;
-    _cancel?.cancel();
-    _cancel = null;
+    _listCancel?.cancel();
+    _listCancel = null;
+    _streamCancel?.cancel();
+    _streamCancel = null;
     state = const AsyncLoading();
     state = await AsyncValue.guard(build);
   }
@@ -188,7 +219,6 @@ bool isRunnableRouterStatus(String status) {
   final s = status.toLowerCase();
   return s == 'loaded' || s == 'ready' || s == 'sleeping';
 }
-
 
 /// What to *show* for a model's router status — three different things, and conflating any two
 /// of them is a bug that has already been made twice.

@@ -18,7 +18,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Passed in with `--dart-define`, never guessed: the harness that starts the server is the one
 /// that knows, and a hard-coded 8787 would point the suite at whatever the developer happens to be
 /// running — which is the same class of mistake as a llama.cpp probe on 8080.
-const fixturePort = int.fromEnvironment('NELLE_FIXTURE_PORT', defaultValue: 8797);
+const fixturePort = int.fromEnvironment(
+  'NELLE_FIXTURE_PORT',
+  defaultValue: 8797,
+);
 
 /// The conversations `scripts/serve-fixture.ts` seeds. Kept in step by hand, because the fixture
 /// is TypeScript and this is Dart; a test that looks for a chat the fixture never made fails
@@ -61,7 +64,9 @@ Future<void> launchApp(WidgetTester tester) async {
   });
 
   app.main();
-  await tester.pumpAndSettle(const Duration(seconds: 10));
+  // App startup includes real HTTP. `pumpAndSettle` only waits for frames and can return while the
+  // conversation request is still in flight, so wait for the server-backed count instead.
+  await pumpUntil(tester, find.textContaining('Chats ('));
 }
 
 /// The binding, and the one thing it must be true about.
@@ -74,7 +79,6 @@ IntegrationTestWidgetsFlutterBinding initDeviceBinding() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   return binding;
 }
-
 
 /// Asks the **server** a question directly, over the same loopback the app uses.
 ///
@@ -98,7 +102,8 @@ Future<Map<String, dynamic>> serverGet(String path) async {
 /// Whether the server still has a conversation with this title.
 Future<bool> serverHasConversation(String title) async {
   final page = await serverGet('/api/conversations?limit=200');
-  final conversations = (page['conversations'] as List).cast<Map<String, dynamic>>();
+  final conversations = (page['conversations'] as List)
+      .cast<Map<String, dynamic>>();
   return conversations.any((c) => c['title'] == title);
 }
 
@@ -124,14 +129,15 @@ Future<String> idOf(WidgetTester tester, String title) async {
   final page = await serverGet(
     '/api/conversations?limit=200&search=${Uri.encodeQueryComponent(title)}',
   );
-  final conversations = (page['conversations'] as List).cast<Map<String, dynamic>>();
+  final conversations = (page['conversations'] as List)
+      .cast<Map<String, dynamic>>();
   final match = conversations.firstWhere(
     (c) => c['title'] == title,
-    orElse: () => throw StateError('the fixture has no conversation titled "$title"'),
+    orElse: () =>
+        throw StateError('the fixture has no conversation titled "$title"'),
   );
   return match['id'] as String;
 }
-
 
 /// POSTs to the fixture server.
 Future<Map<String, dynamic>> serverPost(String path, [Object? body]) async {
@@ -146,7 +152,9 @@ Future<Map<String, dynamic>> serverPost(String path, [Object? body]) async {
     }
     final response = await request.close();
     final text = await response.transform(utf8.decoder).join();
-    return text.isEmpty ? <String, dynamic>{} : jsonDecode(text) as Map<String, dynamic>;
+    return text.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(text) as Map<String, dynamic>;
   } finally {
     client.close();
   }
@@ -194,13 +202,13 @@ typedef OwnedConversation = ({String id, String title});
 Future<OwnedConversation> createOwnConversation(String label) async {
   final title = 'Owned by: $label';
   final created = await serverPost('/api/conversations', {'title': title});
-  final id = (created['conversation'] as Map<String, dynamic>?)?['id'] as String?;
+  final id =
+      (created['conversation'] as Map<String, dynamic>?)?['id'] as String?;
   if (id == null) {
     throw StateError('POST /api/conversations did not answer an id: $created');
   }
   return (id: id, title: title);
 }
-
 
 /// Pumps until [finder] matches, or fails after [timeout].
 ///
@@ -234,7 +242,6 @@ Future<void> pumpUntil(
     '${finder.describeMatch(Plurality.one)}',
   );
 }
-
 
 /// Types [text] into a field, and **fails loudly if the text did not land**.
 ///

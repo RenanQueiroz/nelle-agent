@@ -22,12 +22,16 @@ void errorsSuite() {
     await launchApp(tester);
 
     await tapAt(tester, find.text(Fixture.withHistory));
-    await tester.pumpAndSettle();
+    await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
 
     const typed = 'A message that will be refused';
     // `typeInto`, not `enterText`: the latter is a silent no-op on an unfocused field, and a test
     // that asserts on text it never actually typed is worse than no test at all.
-    await typeInto(tester, find.byKey(const ValueKey('k-composer-input')), typed);
+    await typeInto(
+      tester,
+      find.byKey(const ValueKey('k-composer-input')),
+      typed,
+    );
     await tester.tap(find.byKey(const ValueKey('k-composer-send')));
 
     // The server's own sentence, not a client guess at why. Waited for, not settled for.
@@ -44,7 +48,8 @@ void errorsSuite() {
     expect(
       composer.controller?.text,
       typed,
-      reason: 'a refused message never became a turn; the text is still the user\'s',
+      reason:
+          'a refused message never became a turn; the text is still the user\'s',
     );
   });
 
@@ -58,7 +63,10 @@ void errorsSuite() {
 
     // `tapAt`, not `tap`: the Models section is below the fold in the settings list, and a tap at
     // off-screen coordinates hits nothing and fails *silently*.
-    await tapAt(tester, find.byKey(const ValueKey('k-settings-section-models')));
+    await tapAt(
+      tester,
+      find.byKey(const ValueKey('k-settings-section-models')),
+    );
     // **Waited for, not settled for** -- and `findsNothing` would have passed *vacuously* if the
     // screen had never opened, so the presence of its own back button is what proves we are on it.
     // NOT `tester.pageBack()`: that looks for a Material/Cupertino back button, and this app is
@@ -71,7 +79,10 @@ void errorsSuite() {
     expect(find.text(Fixture.modelName), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('k-models-back')));
-    await tapAt(tester, find.byKey(const ValueKey('k-settings-section-llamacpp')));
+    await tapAt(
+      tester,
+      find.byKey(const ValueKey('k-settings-section-llamacpp')),
+    );
     // Not installed is a state, and the screen says so rather than erroring.
     await pumpUntil(tester, find.textContaining('Not installed'));
     expect(tester.takeException(), isNull);
@@ -85,11 +96,12 @@ void errorsSuite() {
     // ordinary *empty* chat, telling the user their history was gone when it was recoverable.
     await launchApp(tester);
 
-    await tester.enterText(
+    await typeInto(
+      tester,
       find.byKey(const ValueKey('k-conv-search')),
       'history is gone',
     );
-    await tester.pumpAndSettle(const Duration(seconds: 2));
+    await pumpUntil(tester, find.text(Fixture.broken));
     await tapAt(tester, find.text(Fixture.broken));
     await pumpUntil(tester, find.byKey(const ValueKey('k-unavailable-title')));
 
@@ -105,7 +117,11 @@ void errorsSuite() {
     final lossy = tester
         .widget<Text>(find.byKey(const ValueKey('k-unavailable-lossy')))
         .data!;
-    expect(lossy, contains('2 messages'), reason: 'the fixture projection has two');
+    expect(
+      lossy,
+      contains('2 messages'),
+      reason: 'the fixture projection has two',
+    );
     expect(lossy, contains('tool results'));
     expect(lossy, contains('image content'));
     expect(lossy, contains('compaction summaries'));
@@ -128,5 +144,4 @@ void errorsSuite() {
     // The panel is gone, and the messages the projection still held are on screen.
     expect(find.byKey(const ValueKey('k-unavailable-title')), findsNothing);
   });
-
 }

@@ -328,6 +328,11 @@ bun run lint:fix
 The client has its own checks — `flutter analyze` and `flutter test`, run from
 `apps/client` — plus the device suite below.
 
+GitHub Actions runs the server, compiled-binary smoke tests, Flutter checks, and device
+tests across the supported host platforms. Workflow actions track their current supported
+major releases, all of which run on Node 24 (or are composite actions); Node is an action
+implementation detail and is still not a project runtime dependency.
+
 ### The Flutter client's device tests
 
 ```bash
@@ -339,6 +344,9 @@ bun run test:device -- -d emulator-5554  # the same fast tier, on a phone
 These run the **real** client — `main()`, real providers, real dio, real HTTP — against a
 **real Nelle server**: `scripts/serve-fixture.ts`, on a throwaway `.nelle-device/`, port 8797. They are the regression tier, pinning behaviour that driving the app with
 Marionette discovered; Marionette stays the exploratory tool.
+
+Device assertions wait for the server-backed result they need; `pumpAndSettle` only waits
+for Flutter frames and must not be used as a network barrier.
 
 The fast tier keeps llama.cpp stopped, which is what a fresh install looks like and where
 most error paths live. The slow tier loads a small model and asks it real questions, because

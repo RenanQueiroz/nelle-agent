@@ -16,9 +16,12 @@ class LlamaRepository {
 
   final Dio _dio;
 
-  Future<List<LlamaRouterModel>> list() async {
+  Future<List<LlamaRouterModel>> list({CancelToken? cancelToken}) async {
     final res = await sendJson(
-      () => _dio.get<Map<String, dynamic>>('/api/llama/models'),
+      () => _dio.get<Map<String, dynamic>>(
+        '/api/llama/models',
+        cancelToken: cancelToken,
+      ),
     );
     return LlamaModelsResponse.fromJson(res.data ?? const {}).models;
   }

@@ -40,7 +40,7 @@ Map<String, dynamic> _upload({
 /// A real 1x1 PNG, so an image chip can actually decode its preview.
 final _png = Uint8List.fromList(
   base64Decode(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   ),
 );
 
@@ -146,6 +146,12 @@ void main() {
 
     // The user is entitled to know what is actually being sent.
     expect(find.textContaining('downscaled'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'the preview fixture must be a genuinely decodable image',
+    );
   });
 
   testWidgets('a refusal shows the server sentence, which names the file', (

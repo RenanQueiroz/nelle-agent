@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nelle_agent/src/api/api_client.dart';
@@ -22,6 +24,30 @@ Map<String, dynamic> _model(
 };
 
 Future<void> _settle() => Future.delayed(const Duration(milliseconds: 20));
+
+class _CancelledListAdapter implements HttpClientAdapter {
+  final started = Completer<void>();
+  final cancelled = Completer<void>();
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    started.complete();
+    await cancelFuture;
+    cancelled.complete();
+    throw DioException(
+      requestOptions: options,
+      type: DioExceptionType.cancel,
+      message: 'provider disposed',
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
 
 void main() {
   ProviderContainer container(Stream<Map<String, dynamic>> routerEvents) {
@@ -57,6 +83,32 @@ void main() {
     expect(models.map((m) => m.sectionId), ['E4B', 'E2B']);
     expect(models.first.status, 'unloaded');
   });
+
+  test(
+    'disposing cancels an initial listing without leaking an error',
+    () async {
+      final adapter = _CancelledListAdapter();
+      final dio = Dio(
+        BaseOptions(baseUrl: 'http://test.local', validateStatus: (_) => true),
+      )..httpClientAdapter = adapter;
+      final c = ProviderContainer(
+        overrides: [
+          dioProvider.overrideWithValue(dio),
+          sseTransportProvider.overrideWithValue(
+            FakeTransport(const Stream<ChatStreamEvent>.empty()),
+          ),
+        ],
+      );
+
+      final listing = c.read(routerModelsProvider.future);
+      await adapter.started.future;
+      c.dispose();
+
+      await adapter.cancelled.future.timeout(const Duration(seconds: 1));
+      await expectLater(listing, completion(isEmpty));
+      dio.close(force: true);
+    },
+  );
 
   test(
     'a router event updates the matching model status and progress',

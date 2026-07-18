@@ -21,12 +21,17 @@ void lifecycleSuite() {
     expect(
       find.text(Fixture.needle),
       findsNothing,
-      reason: 'the needle must not be on the first page, or this test proves nothing',
+      reason:
+          'the needle must not be on the first page, or this test proves nothing',
     );
 
-    await tester.enterText(find.byKey(const ValueKey('k-conv-search')), 'Xylophone');
-    // The search is debounced; settle past it.
-    await tester.pumpAndSettle(const Duration(seconds: 2));
+    await typeInto(
+      tester,
+      find.byKey(const ValueKey('k-conv-search')),
+      'Xylophone',
+    );
+    // Pumping advances the debounce; presence proves the real HTTP response also landed.
+    await pumpUntil(tester, find.text(Fixture.needle));
 
     expect(find.text(Fixture.needle), findsOneWidget);
     // The header counts every MATCH, not the rows on screen.
@@ -51,12 +56,13 @@ void lifecycleSuite() {
     await tester.tap(find.byKey(ValueKey('k-conv-rename-$id')));
     await tester.pumpAndSettle();
 
-    await tester.enterText(
+    await typeInto(
+      tester,
       find.byKey(const ValueKey('k-conv-rename-field')),
       'Renamed without crashing',
     );
     await tester.tap(find.byKey(const ValueKey('k-conv-rename-save')));
-    await tester.pumpAndSettle();
+    await pumpUntil(tester, find.text('Renamed without crashing'));
 
     expect(tester.takeException(), isNull);
     expect(find.text('Renamed without crashing'), findsOneWidget);
@@ -90,14 +96,19 @@ void lifecycleSuite() {
     final before = await serverMessageCount(originalId);
 
     await tapAt(tester, find.text(Fixture.withHistory));
-    await tester.pumpAndSettle();
+    await pumpUntil(tester, find.byKey(const ValueKey('k-composer-input')));
 
     // The fork icon hangs off the USER turn. There is nothing to fork from the model's answer.
     final fork = find.byWidgetPredicate(
-      (w) => w.key is ValueKey<String> &&
+      (w) =>
+          w.key is ValueKey<String> &&
           (w.key! as ValueKey<String>).value.startsWith('k-msg-fork-'),
     );
-    expect(fork, findsOneWidget, reason: 'exactly one user turn in the fixture');
+    expect(
+      fork,
+      findsOneWidget,
+      reason: 'exactly one user turn in the fixture',
+    );
 
     await tester.tap(fork);
 
@@ -116,7 +127,8 @@ void lifecycleSuite() {
     expect(
       await serverMessageCount(originalId),
       before,
-      reason: 'a fork branches into a NEW session; it must not touch the one it came from',
+      reason:
+          'a fork branches into a NEW session; it must not touch the one it came from',
     );
   });
 
