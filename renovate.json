@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "description": [
+    "Weekly, grouped, and deliberately patient: minimumReleaseAge mirrors bunfig.toml's 3-day",
+    "install window, so a compromised or broken publish is caught by the ecosystem before a",
+    "bot PR proposes it here. Covers bun deps (bun.lock), pub deps (pubspec.yaml), GitHub",
+    "Actions, the .bun-version pin (native bun-version manager), and the Flutter pin in",
+    "pubspec environment.flutter (custom manager below). llama.cpp deliberately floats and",
+    "must never appear here — see apps/server/AGENTS.md."
+  ],
+  "minimumReleaseAge": "3 days",
+  "schedule": ["before 9am on saturday"],
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "non-major updates"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The exact Flutter pin in environment.flutter — CI and pub get both enforce it.",
+      "managerFilePatterns": ["/^apps\\/client\\/pubspec\\.yaml$/"],
+      "matchStrings": ["\\n  flutter: (?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "flutter",
+      "datasourceTemplate": "flutter-version"
+    }
+  ]
+}

@@ -12,6 +12,7 @@
     "build:binary": "bun build --compile apps/server/src/index.ts --outfile dist/nelle-server",
     "build:openapi": "bun scripts/build-openapi.ts && oxfmt openapi.json",
     "check": "tsc --noEmit",
+    "deps:outdated": "bun outdated; cd apps/client && flutter pub outdated",
     "dev": "bun run scripts/dev.ts",
     "dev:client": "bun run scripts/dev.ts client",
     "dev:server": "bun --watch apps/server/src/index.ts",
