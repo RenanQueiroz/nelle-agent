@@ -206,6 +206,16 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   all are). Consequence for tests and drives: **a section's back button exists only
   when pushed**, so assert arrival on the section's *content*, never its back
   affordance, and dismiss with a back only when one exists.
+- **A keyboard taller than the window would crash `FScaffold`, so `app.dart` clamps the
+  inset.** forui 0.23 lays a scaffold body out as `maxHeight - max(viewInsets.bottom,
+  footerHeight)` and never clamps it to zero, so an inset bigger than the viewport hands the
+  child a *negative* maximum height and Flutter throws `BoxConstraints has non-normalized
+  height constraints`. `_ClampedKeyboardInset` in `app.dart` caps `viewInsets.bottom` at the
+  height that exists; it sits in the `MaterialApp.builder`, above every screen, because a rule
+  enforced per-scaffold is one the next screen forgets. It found the app through iOS CI, where
+  a device test that only typed into the composer died on `0.0<=h<=-97.1` — and reproduces
+  deterministically at a 300px viewport with a 397px inset (`keyboard_inset_test.dart`), so it
+  is a real state, not a simulator artifact.
 - **This app is forui over a bare `FScaffold`, so it has no `Material` ancestor.** A
   Material-only widget (`Switch`, `IconButton`, anything wanting an ink splash) throws
   *"No Material widget found"* and paints a red error box — while `flutter analyze`

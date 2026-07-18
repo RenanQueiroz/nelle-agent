@@ -59,9 +59,49 @@ class NelleApp extends ConsumerWidget {
         );
         return FTheme(
           data: theme,
-          child: FToaster(child: FTooltipGroup(child: child!)),
+          child: FToaster(
+            child: FTooltipGroup(child: _ClampedKeyboardInset(child: child!)),
+          ),
         );
       },
     );
   }
+}
+
+/// Caps the keyboard inset at the height there actually is.
+///
+/// `FScaffold` lays its body out as `constraints.maxHeight - max(viewInsets.bottom,
+/// footerHeight)` and **never clamps that to zero** (forui 0.23,
+/// `scaffold.dart:_RenderScaffold.performLayout`). So the moment the on-screen keyboard is
+/// taller than the scaffold — a short window, a landscape phone, a screen pushed while the
+/// keyboard is already up — it hands its child a negative maximum height, and Flutter throws
+/// `BoxConstraints has non-normalized height constraints`. The app is fine one frame earlier
+/// and fine one frame later; it simply asserts in between, which on iOS CI took down a device
+/// test that was only typing into the composer.
+///
+/// Clamping here rather than at each `FScaffold` because every screen already sits under this
+/// builder, and a rule enforced in one place cannot be forgotten by the next screen. It changes
+/// nothing in the ordinary case: the inset only moves when it *exceeds* the viewport, which is
+/// exactly the degenerate state that crashes.
+class _ClampedKeyboardInset extends StatelessWidget {
+  const _ClampedKeyboardInset({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final media = MediaQuery.of(context);
+      final available = constraints.maxHeight;
+      if (!available.isFinite || media.viewInsets.bottom <= available) {
+        return child;
+      }
+      return MediaQuery(
+        data: media.copyWith(
+          viewInsets: media.viewInsets.copyWith(bottom: available),
+        ),
+        child: child,
+      );
+    },
+  );
 }
