@@ -24,19 +24,52 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------------------------
+  # **Path scoping: the client and device jobs run only when something they test could have
+  # changed.** The pre-push hook established the principle (an unscoped gate breeds
+  # `--no-verify`); this is the CI half of it. The filter deliberately includes `openapi.json`
+  # and `apps/server/src/contracts/**`: the openapi drift gate guarantees that any server change
+  # the client could observe moves `openapi.json`, so a wire-contract change always runs the
+  # device suite -- only contract-identical server internals skip it, and those are still
+  # covered by the unit suite on all three OSes. Skipped jobs satisfy branch protection.
+  # ---------------------------------------------------------------------------------------------
+  changes:
+    name: what changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      client: ${{ steps.filter.outputs.client }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3
+        id: filter
+        with:
+          filters: |
+            client:
+              - 'apps/client/**'
+              - 'openapi.json'
+              - 'apps/server/src/contracts/**'
+              - '.github/workflows/**'
+              - 'package.json'
+              - 'bun.lock'
+              - '.bun-version'
+              - 'scripts/serve-fixture.ts'
+              - 'scripts/test-device.ts'
+
+  # ---------------------------------------------------------------------------------------------
   # The server gate. Format, lint, tsc (over apps/ packages/ scripts/ AND tests/), and the unit
   # suite -- which now includes a test that builds the compiled binary, runs it, and feeds it a PDF.
   # ---------------------------------------------------------------------------------------------
   server:
     name: server (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
@@ -52,9 +85,18 @@ jobs:
       # the first pdfjs load and a Pi session creation both cross it -- so tests were timing out
       # having proved nothing about what they test. The assertions are identical; only the clock is
       # different. Linux keeps the 5s default, so a genuine hang is still caught somewhere.
+      #
+      # macOS stays sequential (with Linux, an order-sensitive reference run); Windows runs test
+      # files in parallel worker processes, which took its 2:39 test step to well under a minute
+      # locally with identical assertions. `--parallel` implies `--isolate`, so env-mutating
+      # tests keep per-process isolation -- safe because unit tests bind ephemeral or
+      # per-file-unique ports, never a shared fixed one (see AGENTS).
       - name: unit tests
-        if: matrix.os != 'ubuntu-latest'
+        if: matrix.os == 'macos-latest'
         run: bun test tests/unit --timeout 30000
+      - name: unit tests (parallel workers)
+        if: matrix.os == 'windows-latest'
+        run: bun test tests/unit --timeout 30000 --parallel=4
       # The wire contract is committed (`openapi.json`) and the Dart client models are generated
       # from it, so a route change that skips `bun run build:openapi` must fail here, not in a
       # shipped client. AGENTS calls this diff "a total proof that no route moved" -- this is
@@ -80,20 +122,21 @@ jobs:
   binary:
     name: binary smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       # `bun run build --target=server` builds it, runs it, and POSTs a real PDF to /api/uploads.
       # It exits non-zero if the binary refuses the PDF -- which is the whole reason it exists.
       - run: bun run build --target=server
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: nelle-server-${{ matrix.os }}
           path: dist/
@@ -108,9 +151,12 @@ jobs:
   client:
     name: client (analyze + widget tests)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
     steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           flutter-version-file: apps/client/pubspec.yaml
@@ -156,12 +202,15 @@ jobs:
   device-linux:
     name: device suite (linux)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           flutter-version-file: apps/client/pubspec.yaml
@@ -186,15 +235,18 @@ jobs:
   device-macos:
     name: device suite (macos)
     runs-on: macos-latest
+    timeout-minutes: 25
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
     # Green as of the run that added `com.apple.security.network.client` -- 15/15. The
     # `continue-on-error` it carried on its first outing is gone: a permanently tolerated failure is
     # a decoration, not a test.
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           flutter-version-file: apps/client/pubspec.yaml
@@ -207,13 +259,16 @@ jobs:
   device-windows:
     name: device suite (windows)
     runs-on: windows-latest
+    timeout-minutes: 25
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
     # Green as of the `tapAt` ordering fix -- 15/15. No longer tolerated to fail.
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           flutter-version-file: apps/client/pubspec.yaml
@@ -231,12 +286,27 @@ jobs:
   device-ios:
     name: device suite (iOS Simulator)
     runs-on: macos-latest
+    # A hang must cost minutes, not a runner\'s 6-hour default: the iOS suite once sat 2h40m
+    # after "Xcode build done" without launching a single test.
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      # Boot the simulator FIRST and do not wait for it: selection and `simctl boot` need only
+      # Xcode, which is preinstalled, so the ~90s boot overlaps checkout, toolchain setup and
+      # pub get below. The blocking `bootstatus -b` gate moves to just before the tests --
+      # coverage and readiness are identical, only the idle waiting is gone.
+      - name: start booting an iOS simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j \
+            | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(x['udid'] for v in d.values() for x in v if x['isAvailable'] and 'iPhone' in x['name']))")
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           flutter-version-file: apps/client/pubspec.yaml
@@ -244,30 +314,31 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: flutter pub get
         working-directory: apps/client
-      - name: boot an iOS simulator
-        run: |
-          xcrun simctl list devices available
-          UDID=$(xcrun simctl list devices available -j \
-            | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(x['udid'] for v in d.values() for x in v if x['isAvailable'] and 'iPhone' in x['name']))")
-          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
-          xcrun simctl boot "$UDID"
-          xcrun simctl bootstatus "$UDID" -b
+      - name: wait for the simulator
+        run: xcrun simctl bootstatus "$SIM_UDID" -b
       - run: bun run test:device -- -d "$SIM_UDID"
 
   device-android:
     name: device suite (Android emulator)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
     # Green as of its first complete 15/15 run. No longer tolerated to fail.
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
         with:
           distribution: temurin
           java-version: '17'
-      - uses: subosito/flutter-action@v2
+      # Caches Gradle distributions, dependencies, compiled scripts and eligible build-cache
+      # outputs -- aimed squarely at the ~6-minute `assembleDebug` that dominates this job. The
+      # GitHub-backed cache provider, deliberately: no third-party cache service.
+      - uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           flutter-version-file: apps/client/pubspec.yaml
@@ -282,7 +353,7 @@ jobs:
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - uses: reactivecircus/android-emulator-runner@v2
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 34
           target: google_apis

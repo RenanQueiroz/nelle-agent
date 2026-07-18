@@ -34,6 +34,13 @@ Project-specific guidance for AI coding agents.
   `bun test`. `.bun-version` is the exact pin: CI reads it (`setup-bun`'s
   `bun-version-file`) and `bun run doctor` compares the local install against it —
   upgrade locally, run the gates, then bump the pin; never the other way around.
+- Dependency updates are automated by **Renovate** (`renovate.json`): weekly
+  (Saturday mornings), grouped non-majors, and a 3-day `minimumReleaseAge` mirroring
+  `bunfig.toml`'s install window. It covers bun deps, pub deps, GitHub Actions,
+  `.bun-version`, and the pubspec Flutter pin — and must never cover llama.cpp,
+  which floats by design (see `apps/server/AGENTS.md`). Merge its PRs when CI is
+  green. `bun run deps:outdated` answers "what's behind?" locally without waiting
+  for the bot.
 - **Nelle is an API server, and `apps/client` is its client.** There is no web app.
   The server serves **no files**: an unmatched path is a coded JSON 404
   (`not_found`), never an `index.html`, because every client is a native one that
@@ -115,11 +122,22 @@ Project-specific guidance for AI coding agents.
     the iOS Simulator, and an Android emulator — the fast tier needs no model, so it
     is CI-able as it stands. All five jobs are required: a supported platform does
     not tolerate test failures.
-  - Workflow actions track their current supported major tags: `checkout@v7`,
-    `upload-artifact@v7`, `download-artifact@v8`, `setup-java@v5`,
-    `action-gh-release@v3`, and the still-current v2 majors for setup-bun,
-    flutter-action, and android-emulator-runner. These run on Node 24 (or are composite
-    actions); Node remains an action implementation detail, not a project runtime.
+  - **The client and device jobs are path-scoped** (`dorny/paths-filter`, the `changes`
+    job): they run when `apps/client/**`, the wire contract (`openapi.json`,
+    `apps/server/src/contracts/`), the workflows, the dependency manifests, or the
+    device harness scripts change. The openapi drift gate is what makes this safe — a
+    server change the client could observe always moves `openapi.json`, so only
+    contract-identical server internals skip the device suite. Skipped jobs satisfy
+    branch protection.
+  - **Workflow actions are pinned to full commit SHAs** with a `# vN` comment (Renovate
+    bumps the digests). Non-negotiable in `release.yml`, the only workflow with write
+    permissions. Node remains an action implementation detail, not a project runtime.
+  - CI speed choices, each measured before adoption: Windows runs the unit suite with
+    `--parallel=4` worker processes (macOS and Linux stay sequential as order-sensitive
+    reference runs; unit tests must bind ephemeral or per-file-unique ports, never a
+    shared fixed one); iOS boots its simulator in the background while setup runs, with
+    the blocking `bootstatus -b` just before the tests; Android caches Gradle
+    (`gradle/actions/setup-gradle`).
   - `pull_request`, never `pull_request_target` — a fork's PR gets no secrets, which
     is correct because no job needs one. Default `permissions: contents: read`; only
     the release job may write. **Never a self-hosted runner on a public repo**: a
