@@ -117,7 +117,7 @@ export async function exportConversationArchive(input: {
       continue;
     }
     const absolutePath = resolveDataPath(input.paths.dataDir, attachment.storagePath);
-    files[archivePath] = new Uint8Array(await fs.readFile(absolutePath));
+    files[archivePath] = await Bun.file(absolutePath).bytes();
   }
 
   const checksums = Object.fromEntries(
@@ -154,7 +154,7 @@ async function readPiSessionText(sessionPath: string | undefined): Promise<strin
     return null;
   }
   try {
-    return await fs.readFile(sessionPath, 'utf8');
+    return await Bun.file(sessionPath).text();
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null;
@@ -298,7 +298,7 @@ async function writeImportedAttachmentFiles(
     }
     const absolutePath = resolveDataPath(dataDir, attachment.storagePath);
     await fs.mkdir(path.dirname(absolutePath), {recursive: true});
-    await fs.writeFile(absolutePath, bytes);
+    await Bun.write(absolutePath, bytes);
   }
 }
 
@@ -460,7 +460,7 @@ function jsonBytes(value: unknown): Uint8Array {
 }
 
 function sha256(bytes: Uint8Array): string {
-  return crypto.createHash('sha256').update(bytes).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
 }
 
 function slugifyArchiveName(value: string): string {

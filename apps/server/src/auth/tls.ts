@@ -1,4 +1,3 @@
-import {createHash} from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -39,6 +38,8 @@ export async function ensureServerCert(paths: AppPaths): Promise<ServerCert> {
 
   const generated = generateSelfSigned();
   await fs.mkdir(dir, {recursive: true});
+  // `fs.writeFile`, not `Bun.write`: the mode is the point. A private key readable by every
+  // account on the machine is not a key. Bun.write takes no mode.
   await fs.writeFile(certPath, generated.certPem, {mode: 0o600});
   await fs.writeFile(keyPath, generated.keyPem, {mode: 0o600});
   return generated;
@@ -48,8 +49,8 @@ async function loadCert(certPath: string, keyPath: string): Promise<ServerCert |
   let certPem: string;
   let keyPem: string;
   try {
-    certPem = await fs.readFile(certPath, 'utf8');
-    keyPem = await fs.readFile(keyPath, 'utf8');
+    certPem = await Bun.file(certPath).text();
+    keyPem = await Bun.file(keyPath).text();
   } catch {
     return null;
   }
@@ -117,6 +118,6 @@ export function localIPv4s(): string[] {
 
 function fingerprintOf(cert: forge.pki.Certificate): string {
   const der = forge.asn1.toDer(forge.pki.certificateToAsn1(cert)).getBytes();
-  const hex = createHash('sha256').update(Buffer.from(der, 'binary')).digest('hex');
+  const hex = new Bun.CryptoHasher('sha256').update(Buffer.from(der, 'binary')).digest('hex');
   return hex.toUpperCase().match(/.{2}/g)!.join(':');
 }

@@ -1,4 +1,4 @@
-import {createHash, randomBytes, randomUUID} from 'node:crypto';
+import {randomBytes, randomUUID} from 'node:crypto';
 
 import type {AppDatabase} from '../db/database';
 
@@ -173,5 +173,5 @@ function randomCode(): string {
 }
 
 function hash(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(value).digest('hex');
 }

@@ -74,7 +74,7 @@ export class UploadRepository {
     const directory = path.join(this.paths.uploadsDir, id);
     await fs.mkdir(directory, {recursive: true});
     const filePath = path.join(directory, 'content');
-    await fs.writeFile(filePath, input.bytes);
+    await Bun.write(filePath, input.bytes);
 
     const upload: Upload = {
       id,
@@ -119,6 +119,8 @@ export class UploadRepository {
   }
 
   /** Reads the bytes back for a send, or for a PDF the client asked to render. */
+  /// Stays a `Buffer` (so `fs.readFile`, not `Bun.file().bytes()`): the PDF renderer and the
+  /// base64 encoder downstream are typed on it, and a Uint8Array has no `toString('base64')`.
   async readBytes(upload: Upload): Promise<Buffer> {
     return fs.readFile(path.join(this.paths.dataDir, ...upload.storagePath.split('/')));
   }

@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises';
-
 import {
   getModelsIniSectionValues,
   listModelsIniSections,
@@ -29,12 +27,14 @@ import {AppStore, modelSourceValues} from '../models/store';
 
 /** The preset on disk, or `''` when there is not one yet. A missing file is not an error. */
 async function readPreset(paths: AppPaths): Promise<string> {
-  return fs.readFile(paths.llamaPresetPath, 'utf8').catch(error => {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return '';
-    }
-    throw error;
-  });
+  return Bun.file(paths.llamaPresetPath)
+    .text()
+    .catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return '';
+      }
+      throw error;
+    });
 }
 
 /**

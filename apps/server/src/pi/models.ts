@@ -85,5 +85,5 @@ export async function writePiModels(
     activeModel: llamaRuntimeModelId(activeModel),
   };
 
-  await fs.writeFile(paths.piModelsPath, `${JSON.stringify(config, null, 2)}\n`);
+  await Bun.write(paths.piModelsPath, `${JSON.stringify(config, null, 2)}\n`);
 }

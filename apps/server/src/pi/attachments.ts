@@ -171,7 +171,7 @@ export class PiAttachments {
   }
 
   private async writeAttachmentBlob(buffer: Buffer, mimeType: string): Promise<string> {
-    const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+    const sha256 = new Bun.CryptoHasher('sha256').update(buffer).digest('hex');
     const directory = path.join(this.paths.attachmentsDir, sha256.slice(0, 2));
     await fs.mkdir(directory, {recursive: true});
     const absolutePath = path.join(directory, `${sha256}${extensionForMimeType(mimeType)}`);
@@ -268,7 +268,7 @@ function decodeImageAttachment(attachment: ChatAttachmentInput): {
 } {
   const parsed = parseImageData(attachment.data ?? '', attachment.mimeType);
   const buffer = Buffer.from(parsed.data, 'base64');
-  const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+  const sha256 = new Bun.CryptoHasher('sha256').update(buffer).digest('hex');
   return {...parsed, buffer, sha256};
 }
 

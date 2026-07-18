@@ -88,7 +88,7 @@ export class AppStore {
 
     await this.ensureDirs();
     try {
-      const raw = await fs.readFile(this.paths.statePath, 'utf8');
+      const raw = await Bun.file(this.paths.statePath).text();
       this.#state = normalizeState(JSON.parse(raw) as Partial<AppState>);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -108,7 +108,7 @@ export class AppStore {
     }
     await this.ensureDirs();
     const tmp = `${this.paths.statePath}.${crypto.randomUUID()}.tmp`;
-    await fs.writeFile(tmp, `${JSON.stringify(this.#state, null, 2)}\n`);
+    await Bun.write(tmp, `${JSON.stringify(this.#state, null, 2)}\n`);
     await fs.rename(tmp, this.paths.statePath);
   }
 
@@ -368,7 +368,7 @@ export class AppStore {
 
   private async readModelsIniText(): Promise<string> {
     try {
-      return await fs.readFile(this.paths.llamaPresetPath, 'utf8');
+      return await Bun.file(this.paths.llamaPresetPath).text();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         return '';

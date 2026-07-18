@@ -37,6 +37,22 @@ Project-specific guidance for AI coding agents.
   root covers both. `.bun-version` is the exact pin: CI reads it (`setup-bun`'s
   `bun-version-file`) and `bun run doctor` compares the local install against it —
   upgrade locally, run the gates, then bump the pin; never the other way around.
+  - **Prefer the Bun-native API where one exists**, rather than the node stdlib it
+    shims: `Bun.file(p).text()/.json()/.bytes()` over `fs.readFile`, `Bun.write` over
+    `fs.writeFile` (it creates parent directories, so the `fs.mkdir` before a write is
+    often dead too), `Bun.CryptoHasher` over `createHash`, `Bun.spawn` over
+    `child_process`, `Bun.$` for shell-ish glue. Read errors keep their `ENOENT` code,
+    so the `catch` that branches on it still works.
+  - **Four places node stays, and each is a semantic difference, not a preference.**
+    (1) `{mode: 0o600}` — `Bun.write` takes no mode, and a private key readable by the
+    machine is not a key. (2) `{flag: 'wx'}` — exclusive create *fails if the file
+    exists*, which is how a colliding session id is caught; `Bun.write` always
+    truncates. (3) **procfs** (`/proc/<pid>/cmdline`) — `stat` reports size 0 there and
+    `Bun.file` sizes its read from that, coming back empty. (4) consumers typed on
+    `Buffer` (`toString('base64')`, the PDF renderer) — `.bytes()` hands back a
+    `Uint8Array`. Also note `Bun.file(dir).exists()` is **false for a directory**, so
+    `existsSync` on a directory is not a candidate. `node:path` and `node:os` have no
+    Bun equivalents and are correct as they are.
 - Dependency updates are automated by **Renovate** (`renovate.json`): weekly
   (Saturday mornings), grouped non-majors, and a 3-day `minimumReleaseAge` mirroring
   `bunfig.toml`'s install window. It covers bun deps, pub deps, GitHub Actions,

@@ -208,6 +208,8 @@ export async function ensureSessionFile(sessionPath: string, manager: any): Prom
   await fs.mkdir(path.dirname(sessionPath), {recursive: true});
   const content = [header, ...entries].map(entry => JSON.stringify(entry)).join('\n');
   try {
+    // `wx` is load-bearing — it *fails* if the file exists, which is how a colliding session id
+    // is caught rather than silently overwriting a conversation. Bun.write always truncates.
     await fs.writeFile(sessionPath, `${content}\n`, {flag: 'wx'});
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {

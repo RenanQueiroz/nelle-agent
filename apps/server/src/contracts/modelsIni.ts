@@ -433,5 +433,5 @@ function normalizeSectionName(sectionName: string): string {
 }
 
 function shortHash(value: string): string {
-  return crypto.createHash('sha256').update(value).digest('hex').slice(0, 8);
+  return new Bun.CryptoHasher('sha256').update(value).digest('hex').slice(0, 8);
 }

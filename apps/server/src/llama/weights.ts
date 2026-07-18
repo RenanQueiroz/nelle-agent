@@ -66,10 +66,9 @@ export async function readResolvedRevision(
   repoId: string,
 ): Promise<string | null> {
   try {
-    const text = await fs.readFile(
+    const text = await Bun.file(
       path.join(modelsDir, repoFolderName(repoId), 'refs', 'main'),
-      'utf8',
-    );
+    ).text();
     const revision = text.trim();
     return /^[0-9a-f]{7,64}$/i.test(revision) ? revision : null;
   } catch {

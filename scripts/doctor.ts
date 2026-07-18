@@ -22,7 +22,6 @@
  */
 
 import {existsSync} from 'node:fs';
-import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -89,7 +88,11 @@ async function checkBun(): Promise<Check> {
   // Tier 2, and the chicken-and-egg one: we are *running* under Bun, so it exists. `.bun-version`
   // is the exact pin — CI reads it (`setup-bun`'s `bun-version-file`), so local == pin is what
   // "tested the same thing CI runs" means. `engines.bun` stays the floor for a fresh machine.
-  const pin = (await fs.readFile('.bun-version', 'utf8').catch(() => '')).trim();
+  const pin = (
+    await Bun.file('.bun-version')
+      .text()
+      .catch(() => '')
+  ).trim();
   const found = Bun.version;
   if (!pin || found === pin) {
     return {name: `Bun == ${pin || Bun.version}`, status: 'ok', found};
@@ -147,8 +150,8 @@ async function checkFlutter(): Promise<Check> {
   }
 
   // The Dart constraint in pubspec is the real requirement.
-  const pubspec = await fs
-    .readFile(path.join('apps', 'client', 'pubspec.yaml'), 'utf8')
+  const pubspec = await Bun.file(path.join('apps', 'client', 'pubspec.yaml'))
+    .text()
     .catch(() => '');
   const wantedDart = /sdk:\s*\^?([\d.]+)/.exec(pubspec)?.[1] ?? '3.12.0';
 
@@ -316,9 +319,13 @@ async function checkToolchainFreshness(): Promise<Check> {
   // check exists so "a new Bun/Flutter is out" is something doctor tells you, not something you
   // discover mid-task.
   const name = 'Toolchain pins vs upstream';
-  const pin = (await fs.readFile('.bun-version', 'utf8').catch(() => '')).trim();
-  const pubspec = await fs
-    .readFile(path.join('apps', 'client', 'pubspec.yaml'), 'utf8')
+  const pin = (
+    await Bun.file('.bun-version')
+      .text()
+      .catch(() => '')
+  ).trim();
+  const pubspec = await Bun.file(path.join('apps', 'client', 'pubspec.yaml'))
+    .text()
     .catch(() => '');
   const flutterPin = /^ {2}flutter:\s*([\d.]+)/m.exec(pubspec)?.[1];
 

@@ -176,7 +176,7 @@ export class LlamaInstall {
     const commit = await runCommand('git', ['rev-parse', 'HEAD'], {
       cwd: this.paths.llamaSrcDir,
     });
-    await fs.writeFile(path.join(this.paths.llamaBinDir, '.built-commit'), `${commit}\n`);
+    await Bun.write(path.join(this.paths.llamaBinDir, '.built-commit'), `${commit}\n`);
   }
 
   private async installFromGithubRelease(
@@ -219,7 +219,7 @@ export class LlamaInstall {
       say('No digest published for this asset — skipping checksum verification.');
     }
 
-    await fs.writeFile(archivePath, bytes);
+    await Bun.write(archivePath, bytes);
     say(`Downloaded ${(bytes.byteLength / 1_000_000).toFixed(1)} MB`);
 
     const extractDir = path.join(this.paths.downloadsDir, `extract-${Date.now()}`);
@@ -253,7 +253,7 @@ export class LlamaInstall {
     if (fsSync.existsSync(libDir)) {
       await fs.cp(libDir, this.paths.llamaBinDir, {recursive: true});
     }
-    await fs.writeFile(path.join(this.paths.llamaBinDir, '.release-tag'), `${release.tag_name}\n`);
+    await Bun.write(path.join(this.paths.llamaBinDir, '.release-tag'), `${release.tag_name}\n`);
     say(`Installed ${release.tag_name} to ${this.paths.llamaBinDir}`);
   }
 
@@ -304,10 +304,10 @@ export class LlamaInstall {
     const commitPath = path.join(this.paths.llamaBinDir, '.built-commit');
     const tagPath = path.join(this.paths.llamaBinDir, '.release-tag');
     try {
-      return (await fs.readFile(commitPath, 'utf8')).trim();
+      return (await Bun.file(commitPath).text()).trim();
     } catch {}
     try {
-      return (await fs.readFile(tagPath, 'utf8')).trim();
+      return (await Bun.file(tagPath).text()).trim();
     } catch {}
     return null;
   }
@@ -321,7 +321,7 @@ export class LlamaInstall {
       return null;
     }
     try {
-      return (await fs.readFile(this.#previousVersionPath(), 'utf8')).trim() || null;
+      return (await Bun.file(this.#previousVersionPath()).text()).trim() || null;
     } catch {
       return null;
     }
@@ -335,7 +335,7 @@ export class LlamaInstall {
     const current = await this.getInstalledVersion();
     if (current) {
       await fs.mkdir(this.paths.llamaDir, {recursive: true});
-      await fs.writeFile(this.#previousVersionPath(), `${current}\n`);
+      await Bun.write(this.#previousVersionPath(), `${current}\n`);
     }
   }
 

@@ -284,7 +284,7 @@ export class LlamaProcess {
 
   private async readPidFile(): Promise<ManagedProcessRecord | null> {
     try {
-      return JSON.parse(await fs.readFile(this.paths.llamaPidPath, 'utf8')) as ManagedProcessRecord;
+      return (await Bun.file(this.paths.llamaPidPath).json()) as ManagedProcessRecord;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         await this.clearPidFile();
@@ -295,7 +295,7 @@ export class LlamaProcess {
 
   private async writePidFile(record: ManagedProcessRecord): Promise<void> {
     await fs.mkdir(path.dirname(this.paths.llamaPidPath), {recursive: true});
-    await fs.writeFile(this.paths.llamaPidPath, `${JSON.stringify(record, null, 2)}\n`);
+    await Bun.write(this.paths.llamaPidPath, `${JSON.stringify(record, null, 2)}\n`);
   }
 
   private async clearPidFile(pid?: number): Promise<void> {
@@ -446,6 +446,8 @@ async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void>
 async function getProcessCommandLine(pid: number): Promise<string | null> {
   if (process.platform === 'linux') {
     try {
+      // procfs, where `stat` reports a size of 0 — `Bun.file()` sizes its read from that and
+      // comes back empty. `fs.readFile` reads until EOF instead, which is the whole point here.
       const command = await fs.readFile(`/proc/${pid}/cmdline`, 'utf8');
       const normalized = command.split(String.fromCharCode(0)).join(' ').trim();
       if (normalized) {
