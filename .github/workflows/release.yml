@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: bun run build --target=server
       - uses: actions/upload-artifact@v7
@@ -64,10 +64,11 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version-file: apps/client/pubspec.yaml
           cache: true
       - uses: actions/setup-java@v5
         if: matrix.target == 'apk'

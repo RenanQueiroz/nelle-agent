@@ -86,24 +86,32 @@ function atLeast(found: string, wanted: string): boolean {
 // --- the checks ------------------------------------------------------------------------------
 
 async function checkBun(): Promise<Check> {
-  // Tier 2, and the chicken-and-egg one: we are *running* under Bun, so it exists. All we can do is
-  // check the version against `engines.bun`.
-  const pkg = JSON.parse(await fs.readFile('package.json', 'utf8')) as {
-    engines?: {bun?: string};
-  };
-  const wanted = (pkg.engines?.bun ?? '>=1.3.0').replace(/[^\d.]/g, '');
+  // Tier 2, and the chicken-and-egg one: we are *running* under Bun, so it exists. `.bun-version`
+  // is the exact pin — CI reads it (`setup-bun`'s `bun-version-file`), so local == pin is what
+  // "tested the same thing CI runs" means. `engines.bun` stays the floor for a fresh machine.
+  const pin = (await fs.readFile('.bun-version', 'utf8').catch(() => '')).trim();
   const found = Bun.version;
+  if (!pin || found === pin) {
+    return {name: `Bun == ${pin || Bun.version}`, status: 'ok', found};
+  }
+  const ahead = atLeast(found, pin);
   return {
-    name: `Bun >= ${wanted}`,
-    status: atLeast(found, wanted) ? 'ok' : 'stale',
+    name: `Bun == ${pin}`,
+    status: 'stale',
     found,
-    needed: 'everything — the server, the tests, the scripts',
-    fix: [
-      host.os === 'macos'
-        ? 'brew upgrade bun'
-        : 'brew upgrade bun   # Bun is Homebrew-managed here',
-      '# NEVER curl|bash it: that would install a second Bun beside the managed one.',
-    ],
+    needed: 'everything — the server, the tests, the scripts. CI runs the pinned version',
+    fix: ahead
+      ? [
+          '# Local Bun is AHEAD of the pin. Run the gates (bun run test), then bump the pin:',
+          `echo "${found}" > .bun-version   # CI follows automatically`,
+        ]
+      : [
+          host.os === 'macos'
+            ? 'brew upgrade bun   # or `bun upgrade` — match how Bun was installed'
+            : 'bun upgrade   # or your package manager — match how Bun was installed',
+          '# If that lands you AHEAD of the pin: run the gates, then bump .bun-version.',
+          '# Avoid installing a second Bun beside an existing one — upgrade in place.',
+        ],
   };
 }
 
@@ -155,6 +163,25 @@ async function checkFlutter(): Promise<Check> {
       found: `Flutter ${flutter} (Dart ${dart})`,
       needed: `apps/client/pubspec.yaml wants Dart >= ${wantedDart}`,
       fix: ['flutter upgrade'],
+    };
+  }
+
+  // The exact pin in `environment.flutter` is what CI runs (flutter-action's
+  // `flutter-version-file`), and `flutter pub get` refuses a mismatched local SDK — so a
+  // mismatch here is not cosmetic, it blocks client work until the local SDK and pin agree.
+  const wantedFlutter = /^ {2}flutter:\s*([\d.]+)/m.exec(pubspec)?.[1];
+  if (wantedFlutter && flutter !== 'unknown' && flutter !== wantedFlutter) {
+    return {
+      name: 'Flutter SDK',
+      status: 'stale',
+      found: `Flutter ${flutter} (Dart ${dart ?? '?'})`,
+      needed: `pubspec.yaml pins Flutter ${wantedFlutter} exactly; CI runs the pin`,
+      fix: atLeast(flutter, wantedFlutter)
+        ? [
+            '# Local Flutter is AHEAD of the pin. Run the client gates, then bump the pin:',
+            `#   apps/client/pubspec.yaml -> environment.flutter: ${flutter}`,
+          ]
+        : ['flutter upgrade   # if that lands you AHEAD of the pin: test, then bump it'],
     };
   }
   return {name: 'Flutter SDK', status: 'ok', found: `Flutter ${flutter} (Dart ${dart ?? '?'})`};
@@ -283,6 +310,64 @@ async function checkKeyring(): Promise<Check> {
   };
 }
 
+async function checkToolchainFreshness(): Promise<Check> {
+  // Best-effort and online-only: are the *pins themselves* behind upstream? A newer release is
+  // never an error — the flow is always upgrade locally, run the gates, then bump the pin. This
+  // check exists so "a new Bun/Flutter is out" is something doctor tells you, not something you
+  // discover mid-task.
+  const name = 'Toolchain pins vs upstream';
+  const pin = (await fs.readFile('.bun-version', 'utf8').catch(() => '')).trim();
+  const pubspec = await fs
+    .readFile(path.join('apps', 'client', 'pubspec.yaml'), 'utf8')
+    .catch(() => '');
+  const flutterPin = /^ {2}flutter:\s*([\d.]+)/m.exec(pubspec)?.[1];
+
+  const flutterReleasesUrl = `https://storage.googleapis.com/flutter_infra_release/releases/releases_${
+    host.os === 'macos' ? 'macos' : host.os === 'windows' ? 'windows' : 'linux'
+  }.json`;
+
+  try {
+    const signal = AbortSignal.timeout(3000);
+    const [bunResponse, flutterResponse] = await Promise.all([
+      fetch('https://api.github.com/repos/oven-sh/bun/releases/latest', {signal}),
+      fetch(flutterReleasesUrl, {signal}),
+    ]);
+    const bunLatest = ((await bunResponse.json()) as {tag_name?: string}).tag_name?.replace(
+      /^bun-v/,
+      '',
+    );
+    const flutterData = (await flutterResponse.json()) as {
+      current_release?: {stable?: string};
+      releases?: Array<{hash: string; version: string}>;
+    };
+    const stableHash = flutterData.current_release?.stable;
+    const flutterLatest = flutterData.releases?.find(r => r.hash === stableHash)?.version;
+
+    const behind: string[] = [];
+    if (pin && bunLatest && pin !== bunLatest) {
+      behind.push(`Bun pin ${pin} -> ${bunLatest} available`);
+    }
+    if (flutterPin && flutterLatest && flutterPin !== flutterLatest) {
+      behind.push(`Flutter pin ${flutterPin} -> ${flutterLatest} available`);
+    }
+    if (behind.length === 0) {
+      return {name, status: 'ok', found: `bun ${pin}, flutter ${flutterPin} — both current`};
+    }
+    return {
+      name,
+      status: 'optional-missing',
+      found: behind.join('; '),
+      needed: 'nothing today — upgrade locally, run the gates, then bump the pin(s)',
+      fix: [
+        '# Upgrade locally first (brew upgrade bun / flutter upgrade), run the gates,',
+        '# then bump .bun-version and/or pubspec environment.flutter. CI follows the pins.',
+      ],
+    };
+  } catch {
+    return {name, status: 'ok', found: 'offline — skipped'};
+  }
+}
+
 // --- report ----------------------------------------------------------------------------------
 
 const ICON: Record<Status, string> = {
@@ -322,6 +407,7 @@ export async function doctor(options: {strict?: boolean} = {}): Promise<number> 
     await checkKvm(),
     await checkLlamaBuildDeps(),
     await checkKeyring(),
+    await checkToolchainFreshness(),
   ];
 
   console.log(`\nNelle — doctor\n  host: ${host.os}/${host.arch}${host.isWsl ? ' (WSL)' : ''}\n`);

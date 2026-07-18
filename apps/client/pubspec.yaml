@@ -20,6 +20,10 @@ version: 1.0.0+1
 
 environment:
   sdk: ^3.12.2
+  # Exact pin, deliberately: CI reads it (flutter-action's `flutter-version-file`) and
+  # `flutter pub get` refuses a mismatched local SDK — so a local `flutter upgrade` surfaces
+  # immediately as "test, then bump this pin", and CI always runs what was tested against.
+  flutter: 3.44.6
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions

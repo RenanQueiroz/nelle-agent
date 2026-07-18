@@ -31,7 +31,9 @@ Project-specific guidance for AI coding agents.
   rules in the always-loaded `AGENTS.md` files.
 - The server, tests, and toolchain run on **Bun** (`engines.bun`, ≥1.3); there
   is no npm/Node runtime dependency. Use `bun install`, `bun run <script>`, and
-  `bun test`.
+  `bun test`. `.bun-version` is the exact pin: CI reads it (`setup-bun`'s
+  `bun-version-file`) and `bun run doctor` compares the local install against it —
+  upgrade locally, run the gates, then bump the pin; never the other way around.
 - **Nelle is an API server, and `apps/client` is its client.** There is no web app.
   The server serves **no files**: an unmatched path is a coded JSON 404
   (`not_found`), never an `index.html`, because every client is a native one that
@@ -46,8 +48,11 @@ Project-specific guidance for AI coding agents.
   and `.dart_tool/` are git-ignored, so `bun run test` never touches Dart —
   removing that insulation makes `format:check` fail on Flutter's generated
   JSON/YAML. The Flutter SDK is a native install kept outside the repo (Homebrew's
-  `flutter` is a macOS-only cask, so it cannot install on Linux); developed
-  against Flutter 3.44 / Dart 3.12, verified with `flutter doctor`. The client
+  `flutter` is a macOS-only cask, so it cannot install on Linux). The exact Flutter
+  version is pinned in `pubspec.yaml`'s `environment.flutter`: CI reads the pin
+  (flutter-action's `flutter-version-file`) and `flutter pub get` refuses a
+  mismatched local SDK — upgrade locally, run the client gates, then bump the pin.
+  The client
   speaks only the served REST + SSE contract (`GET /api/openapi.json`) and never
   imports server TypeScript — that boundary is what lets the
   server change its internals without breaking a shipped app. Run it with
