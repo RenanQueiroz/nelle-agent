@@ -497,6 +497,10 @@ async function shutdown(code: number): Promise<never> {
 
 process.on('SIGINT', () => void shutdown(130));
 process.on('SIGTERM', () => void shutdown(143));
+// Closing the terminal window (or quitting an editor that owns it) sends SIGHUP to the group.
+// Without this the script dies on the spot and takes neither child down cleanly — the server
+// never gets to stop llama.cpp, and the client is left to whatever the shell does to it.
+process.on('SIGHUP', () => void shutdown(129));
 
 // When the client exits on its own (the user pressed `q`), take the server down with it.
 await shutdown(await client.exited);

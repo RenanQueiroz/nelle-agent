@@ -111,3 +111,9 @@ const exit = (signal: string): void => {
 
 process.on('SIGINT', () => exit('SIGINT'));
 process.on('SIGTERM', () => exit('SIGTERM'));
+// **SIGHUP too, or closing the terminal leaks llama.cpp.** Shutting a terminal window — and
+// quitting an editor that owns one — sends SIGHUP to the whole process group. Bun's default
+// action for it is to die on the spot, so the handlers above never run, the shutdown never
+// happens, and the detached llama-server is left holding ~900 MB of mlock'd weights with
+// nothing that owns it. Found exactly that way, after the teardown above was already shipped.
+process.on('SIGHUP', () => exit('SIGHUP'));

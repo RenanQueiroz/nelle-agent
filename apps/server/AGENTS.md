@@ -436,6 +436,12 @@ the Flutter client's rules in `apps/client/AGENTS.md`.
   port and the VRAM after the server that started it is gone, and only `ps` shows it.
   `NELLE_KEEP_LLAMA=1` restores adoption for a session where reloading weights on every
   `bun --watch` restart costs more than the stray process does.
+  - **SIGHUP is handled alongside SIGINT/SIGTERM, and that is not decoration.** Closing a
+    terminal window — or quitting an editor that owns one — sends SIGHUP to the process
+    group, and Bun's default action for it is to die on the spot without running a handler.
+    Shipping the teardown while listening only for SIGINT/SIGTERM left a detached
+    llama-server holding ~900 MB of `mlock`'d weights behind a closed editor, owned by
+    nothing. `shutdown.test.ts` runs the teardown case over both signals.
   - **It belongs to the entrypoint, never to `app.close()`.** Every unit test and
     `serve-fixture` calls `close()`, and the slow device tier deliberately *borrows* the
     developer's running llama-server rather than building one — a test teardown that killed
