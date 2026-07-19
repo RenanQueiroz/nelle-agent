@@ -206,6 +206,15 @@ live in the root `AGENTS.md`; server rules in `apps/server/AGENTS.md`.
   all are). Consequence for tests and drives: **a section's back button exists only
   when pushed**, so assert arrival on the section's *content*, never its back
   affordance, and dismiss with a back only when one exists.
+- **The macOS runner activates the app on launch** (`AppDelegate.applicationDidFinishLaunching`
+  → `NSApp.activate`). An app started from a terminal — every `bun run dev` — can come up
+  *inactive*: the window is on screen and draggable (the window server moves windows out of
+  process), but clicks land on activation instead of the UI and the frame shows no resize
+  cursor. It reads as a hard freeze lasting seconds, and it clears the instant anything
+  activates the app. The tell that it is **not** a hang: no spinning beachball, and Dart timers
+  keep ticking — a wedged main thread gives you both. `flutter run` tries to activate the app
+  itself and prints `Failed to foreground app; open returned 1` when it cannot, which it did on
+  6 of 6 launches here before this.
 - **A keyboard taller than the window would crash `FScaffold`, so `app.dart` clamps the
   inset.** forui 0.23 lays a scaffold body out as `maxHeight - max(viewInsets.bottom,
   footerHeight)` and never clamps it to zero, so an inset bigger than the viewport hands the
